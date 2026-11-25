@@ -73,6 +73,8 @@ pub(crate) struct Host {
     pub(crate) descriptors: Vec<InputDescriptor>,
     pub(crate) input: Arc<InputState>,
     input_snapshot: [PortSnapshot; MAX_PORTS],
+    /// The buttons pressed since the previous frame, held for this one.
+    frame_presses: [u16; MAX_PORTS],
     pub(crate) audio_sink: Box<dyn AudioSink>,
     pub(crate) audio: Option<AudioPipeline>,
     /// The core rate `audio` resamples from.
@@ -117,6 +119,7 @@ impl Host {
             descriptors: Vec::new(),
             input,
             input_snapshot: Default::default(),
+            frame_presses: [0; MAX_PORTS],
             audio_sink,
             audio: None,
             audio_rate: 0.0,
@@ -136,9 +139,16 @@ impl Host {
         }
     }
 
+    /// Starts a frame's input: takes the presses since the last frame, and a
+    /// snapshot for the core to read.
+    pub(crate) fn begin_frame_input(&mut self) {
+        self.frame_presses = self.input.take_presses();
+        self.poll_input();
+    }
+
     /// Takes a snapshot of the controllers for the core to read.
     pub(crate) fn poll_input(&mut self) {
-        self.input_snapshot = self.input.snapshot();
+        self.input_snapshot = self.input.snapshot(&self.frame_presses);
     }
 
     /// Rebuilds the audio pipeline for the core's current rate, unless it

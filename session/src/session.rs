@@ -392,7 +392,7 @@ impl Session {
     /// its audio.
     pub fn run_frame(&mut self) {
         let host = self.host_mut();
-        host.poll_input();
+        host.begin_frame_input();
         let frame_time = host.frame_time;
         if let Some(ffi::retro_frame_time_callback {
             callback: Some(callback),

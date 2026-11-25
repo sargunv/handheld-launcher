@@ -10,7 +10,7 @@ pub const MAX_PORTS: usize = 4;
 
 /// A RetroPad button. The RetroPad follows the SNES layout: `B` is the bottom
 /// face button, `A` the right one, `Y` the left one and `X` the top one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
 #[repr(u8)]
 pub enum Button {
     B = 0,
@@ -59,7 +59,7 @@ impl Button {
 }
 
 /// An analog stick.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
 pub enum Stick {
     Left,
     Right,
@@ -67,6 +67,9 @@ pub enum Stick {
 
 /// The state of every port. The platform layer writes it from any thread; the
 /// session reads a snapshot of it when the core polls input.
+///
+/// A button pressed and released between two frames still reaches the core,
+/// as pressed for the next frame, so that quick taps aren't lost.
 #[derive(Debug, Default)]
 pub struct InputState {
     ports: [Port; MAX_PORTS],
@@ -87,8 +90,15 @@ impl InputState {
         &self.ports[index]
     }
 
-    pub(crate) fn snapshot(&self) -> [PortSnapshot; MAX_PORTS] {
-        std::array::from_fn(|i| self.ports[i].snapshot())
+    /// The buttons pressed on each port since the last call, which the
+    /// session takes as a frame starts.
+    pub(crate) fn take_presses(&self) -> [u16; MAX_PORTS] {
+        std::array::from_fn(|i| self.ports[i].presses.swap(0, Ordering::Relaxed))
+    }
+
+    /// The state the core sees, with the frame's `presses` held down.
+    pub(crate) fn snapshot(&self, presses: &[u16; MAX_PORTS]) -> [PortSnapshot; MAX_PORTS] {
+        std::array::from_fn(|i| self.ports[i].snapshot(presses[i]))
     }
 }
 
@@ -96,6 +106,8 @@ impl InputState {
 #[derive(Debug, Default)]
 pub struct Port {
     buttons: AtomicU16,
+    /// Buttons pressed since the session last took them.
+    presses: AtomicU16,
     /// Left X, left Y, right X, right Y.
     sticks: [AtomicI16; 4],
     /// L2 and R2, for cores that read them as analog triggers.
@@ -107,6 +119,7 @@ impl Port {
     pub fn set_button(&self, button: Button, pressed: bool) {
         if pressed {
             self.buttons.fetch_or(button.mask(), Ordering::Relaxed);
+            self.presses.fetch_or(button.mask(), Ordering::Relaxed);
         } else {
             self.buttons.fetch_and(!button.mask(), Ordering::Relaxed);
         }
@@ -114,7 +127,8 @@ impl Port {
 
     /// Replaces every button at once with a mask of [`Button::mask`] bits.
     pub fn set_buttons(&self, mask: u16) {
-        self.buttons.store(mask, Ordering::Relaxed);
+        let before = self.buttons.swap(mask, Ordering::Relaxed);
+        self.presses.fetch_or(mask & !before, Ordering::Relaxed);
     }
 
     /// The pressed buttons, as a mask of [`Button::mask`] bits.
@@ -148,9 +162,9 @@ impl Port {
         self.triggers[index].store(value.max(0), Ordering::Relaxed);
     }
 
-    fn snapshot(&self) -> PortSnapshot {
+    fn snapshot(&self, presses: u16) -> PortSnapshot {
         PortSnapshot {
-            buttons: self.buttons(),
+            buttons: self.buttons() | presses,
             sticks: std::array::from_fn(|i| self.sticks[i].load(Ordering::Relaxed)),
             triggers: std::array::from_fn(|i| self.triggers[i].load(Ordering::Relaxed)),
         }
@@ -220,7 +234,7 @@ mod tests {
     use super::*;
 
     fn query_one(state: &InputState, device: u32, index: u32, id: u32) -> i16 {
-        query(&state.snapshot(), 0, device, index, id)
+        query(&state.snapshot(&[0; MAX_PORTS]), 0, device, index, id)
     }
 
     #[test]
@@ -255,7 +269,7 @@ mod tests {
         );
         assert_eq!(
             query(
-                &state.snapshot(),
+                &state.snapshot(&[0; MAX_PORTS]),
                 1,
                 joypad,
                 0,
@@ -265,7 +279,7 @@ mod tests {
         );
         assert_eq!(
             query(
-                &state.snapshot(),
+                &state.snapshot(&[0; MAX_PORTS]),
                 9,
                 joypad,
                 0,
@@ -310,12 +324,28 @@ mod tests {
     fn snapshot_is_stable_while_state_changes() {
         let state = InputState::new();
         state.port(0).set_button(Button::Start, true);
-        let snapshot = state.snapshot();
+        let snapshot = state.snapshot(&[0; MAX_PORTS]);
         state.port(0).set_buttons(0);
         let joypad = ffi::RETRO_DEVICE_JOYPAD;
         assert_eq!(
             query(&snapshot, 0, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_START),
             1
         );
+    }
+
+    #[test]
+    fn taps_between_frames_last_a_frame() {
+        let state = InputState::new();
+        let joypad = ffi::RETRO_DEVICE_JOYPAD;
+        let a = ffi::RETRO_DEVICE_ID_JOYPAD_A;
+        state.port(0).set_button(Button::A, true);
+        state.port(0).set_button(Button::A, false);
+        let presses = state.take_presses();
+        let frame = state.snapshot(&presses);
+        assert_eq!(query(&frame, 0, joypad, 0, a), 1);
+        // A poll later in the same frame still sees it.
+        assert_eq!(query(&state.snapshot(&presses), 0, joypad, 0, a), 1);
+        let next = state.snapshot(&state.take_presses());
+        assert_eq!(query(&next, 0, joypad, 0, a), 0);
     }
 }
