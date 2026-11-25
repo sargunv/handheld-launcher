@@ -3,6 +3,7 @@ plugins {
   alias(libs.plugins.android.kmp.library)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.compose.multiplatform)
+  alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -20,6 +21,7 @@ kotlin {
       api(libs.compose.foundation)
       api(libs.compose.ui)
       api(libs.kotlinx.coroutines.core)
+      api(libs.kotlinx.serialization.core)
       implementation(libs.compose.unstyled)
       implementation(libs.navigation3.ui)
       implementation(libs.navigationevent.compose)

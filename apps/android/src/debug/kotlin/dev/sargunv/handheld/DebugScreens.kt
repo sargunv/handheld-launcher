@@ -40,7 +40,8 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
           val core = intent.getStringExtra("core")?.let { dir.resolve(it) }
           ({ core })
         }
-      ({ SessionTestScreen(dir, core, content) })
+      val pauseWhenUnfocused = settingsFile(activity).read().pauseGameWhenUnfocused
+      ({ SessionTestScreen(dir, core, content, pauseWhenUnfocused) })
     }
     else -> null
   }

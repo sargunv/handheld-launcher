@@ -1,5 +1,7 @@
 package dev.sargunv.handheld.ui.input
 
+import kotlinx.serialization.Serializable
+
 /** What the player asked for, whatever button or key they used. Every screen speaks this. */
 enum class Action {
   Up,
@@ -81,6 +83,7 @@ enum class ConfirmButton {
 }
 
 /** The player's input preferences. */
+@Serializable
 data class InputSettings(val confirmButton: ConfirmButton = ConfirmButton.South) {
   /** The action [button] performs, or null if it does nothing. */
   fun actionFor(button: PadButton): Action? =
