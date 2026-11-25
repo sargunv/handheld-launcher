@@ -60,3 +60,7 @@ run = "session/fixtures.sh"
 [tasks."session:run"]
 description = "Run a libretro core in the session's desktop development runner"
 run = "cargo run -p handheld-session --features runner --bin session-runner --"
+
+[tasks."session:android-fixtures"]
+description = "Build the session's test cores for an Android ABI (session/README.md)"
+run = "session/android-fixtures.sh"
