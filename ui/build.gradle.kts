@@ -19,7 +19,18 @@ kotlin {
       api(libs.compose.runtime)
       api(libs.compose.foundation)
       api(libs.compose.ui)
+      api(libs.kotlinx.coroutines.core)
       implementation(libs.compose.unstyled)
+      implementation(libs.navigation3.ui)
+      implementation(libs.navigationevent.compose)
+    }
+    commonTest.dependencies {
+      implementation(libs.kotlin.test)
+      implementation(libs.kotlinx.coroutines.test)
+    }
+    jvmTest.dependencies {
+      implementation(libs.compose.ui.test)
+      implementation(compose.desktop.currentOs)
     }
   }
 }

@@ -40,8 +40,35 @@ run = "./gradlew :apps:desktop:run"
 description = "Install and launch the debug app on the connected device"
 run = [
   "./gradlew :apps:android:installDebug",
-  "adb shell am start -n dev.sargunv.handheld/.MainActivity",
+  "adb shell am start -W -n dev.sargunv.handheld/.MainActivity ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}",
 ]
+
+[tasks."android:screenshot"]
+description = "Save a screenshot of the connected device to a temp file and print its path"
+run = 'f="$(mktemp --suffix=.png)" && adb exec-out screencap -p > "$f" && echo "$f"'
+
+[tasks."android:action"]
+description = "Send a semantic action to the app on the connected device"
+usage = 'arg "<action>" help="up, down, left, right, confirm, back, menu, search, previous-shelf, next-shelf, quick-menu or select"'
+# Keyboard keys mean the same action whichever button confirms.
+run = """
+case "$usage_action" in
+  up) key=DPAD_UP ;;
+  down) key=DPAD_DOWN ;;
+  left) key=DPAD_LEFT ;;
+  right) key=DPAD_RIGHT ;;
+  confirm) key=ENTER ;;
+  back) key=ESCAPE ;;
+  menu) key=TAB ;;
+  search) key=SLASH ;;
+  previous-shelf) key=PAGE_UP ;;
+  next-shelf) key=PAGE_DOWN ;;
+  quick-menu) key=F1 ;;
+  select) key=F2 ;;
+  *) echo "unknown action: $usage_action" >&2; exit 2 ;;
+esac
+adb shell input keyevent "KEYCODE_$key"
+"""
 
 [hooks]
 postinstall = ["hk install --mise"]

@@ -1,22 +1,41 @@
 package dev.sargunv.handheld.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import com.composeunstyled.Text
-import dev.sargunv.handheld.domain.Game
+import dev.sargunv.handheld.ui.demo.DemoPrimary
+import dev.sargunv.handheld.ui.demo.DemoSecondary
+import dev.sargunv.handheld.ui.demo.DemoState
+import dev.sargunv.handheld.ui.dualscreen.DualScreen
+import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
+import dev.sargunv.handheld.ui.focus.FocusRoot
+import dev.sargunv.handheld.ui.input.ActionInputRoot
+import dev.sargunv.handheld.ui.input.HeldKeys
 
-/** The app's root, shared by every platform. */
+/**
+ * The app's root, shared by every platform.
+ *
+ * @param layout how the two screens' content shares the hardware.
+ * @param heldKeys the main window's held keys, which the platform keeps up to date.
+ * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
+ *   [DualScreenLayout.Separate].
+ */
 @Composable
-fun App(games: List<Game>) {
-  Box(Modifier.fillMaxSize().background(Color(0xFF2B2A28)), contentAlignment = Alignment.Center) {
-    Text(
-      text = if (games.isEmpty()) "No games yet" else "${games.size} games",
-      color = Color(0xFFE8E4DC),
-    )
+fun App(
+  layout: DualScreenLayout,
+  heldKeys: HeldKeys,
+  modifier: Modifier = Modifier,
+  secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
+) {
+  val state = remember { DemoState() }
+  ActionInputRoot(state.inputSettings, heldKeys, modifier) {
+    FocusRoot {
+      DualScreen(
+        layout = layout,
+        primary = { DemoPrimary(state) },
+        secondary = { DemoSecondary(state) },
+      )
+    }
   }
+  if (layout == DualScreenLayout.Separate) secondaryDisplay { DemoSecondary(state) }
 }
