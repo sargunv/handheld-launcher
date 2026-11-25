@@ -1,11 +1,13 @@
 package dev.sargunv.handheld.desktop
 
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
+import dev.sargunv.handheld.ui.input.HeldKeys
 
 /**
  * Runs the app in one window. By default the window shows both of the Thor's screens in a frame;
@@ -17,8 +19,14 @@ import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
  */
 fun main(args: Array<String>) = application {
   val folded = "--folded" in args
+  val heldKeys = remember { HeldKeys() }
   Window(
     onCloseRequest = ::exitApplication,
+    // The window sees every key, even while nothing in its content has focus.
+    onPreviewKeyEvent = {
+      heldKeys.track(it)
+      false
+    },
     title = "Handheld",
     state =
       rememberWindowState(
@@ -26,6 +34,6 @@ fun main(args: Array<String>) = application {
         height = if (folded) 720.dp else 840.dp,
       ),
   ) {
-    App(if (folded) DualScreenLayout.Folded else DualScreenLayout.Frame)
+    App(if (folded) DualScreenLayout.Folded else DualScreenLayout.Frame, heldKeys)
   }
 }

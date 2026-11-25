@@ -22,14 +22,13 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
-import dev.sargunv.handheld.ui.input.ActionInputRoot
-import dev.sargunv.handheld.ui.input.InputSettings
+import dev.sargunv.handheld.ui.input.TestActionInputRoot
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
 class FocusLazyTest {
   private fun ComposeUiTest.show(content: @Composable () -> Unit) {
-    setContent { ActionInputRoot(InputSettings()) { FocusRoot { FocusScope { content() } } } }
+    setContent { TestActionInputRoot { FocusRoot { FocusScope { content() } } } }
     waitForIdle()
   }
 

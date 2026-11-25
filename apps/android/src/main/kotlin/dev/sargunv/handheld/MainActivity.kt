@@ -1,8 +1,10 @@
 package dev.sargunv.handheld
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,14 +12,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
 import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
+import dev.sargunv.handheld.ui.input.HeldKeys
 
 class MainActivity : ComponentActivity() {
-  private val gamepadMotion by lazy {
-    GamepadMotion(lifecycleScope) { window.decorView.dispatchKeyEvent(it) }
-  }
+  private val heldKeys = HeldKeys()
+
+  private val gamepadMotion by lazy { GamepadMotion(lifecycleScope, ::dispatchKeyEvent) }
 
   /** A layout forced from the launch intent, for development on single-display devices. */
   private var forcedLayout by mutableStateOf<DualScreenLayout?>(null)
@@ -34,6 +38,7 @@ class MainActivity : ComponentActivity() {
           ?: if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
       App(
         layout = layout,
+        heldKeys = heldKeys,
         secondaryDisplay = { content ->
           if (usableDisplay != null) {
             SecondaryDisplayContent(
@@ -50,6 +55,14 @@ class MainActivity : ComponentActivity() {
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     forcedLayout = forcedLayout(intent)
+  }
+
+  // The window sees every key, even while nothing in its content has focus. Activity's
+  // dispatchKeyEvent is public; lint objects only because androidx.core's override is restricted.
+  @SuppressLint("RestrictedApi")
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    heldKeys.track(ComposeKeyEvent(event))
+    return super.dispatchKeyEvent(event)
   }
 
   override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =

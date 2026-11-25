@@ -17,8 +17,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
-import dev.sargunv.handheld.ui.input.ActionInputRoot
-import dev.sargunv.handheld.ui.input.InputSettings
+import dev.sargunv.handheld.ui.input.TestActionInputRoot
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import kotlin.test.Test
@@ -31,7 +30,7 @@ class FocusScopeTest {
     val navigator = Navigator("home")
     var loaded by mutableStateOf(false)
     setContent {
-      ActionInputRoot(InputSettings()) {
+      TestActionInputRoot {
         FocusRoot {
           NavigationHost(navigator) { screen ->
             NavEntry(screen) {

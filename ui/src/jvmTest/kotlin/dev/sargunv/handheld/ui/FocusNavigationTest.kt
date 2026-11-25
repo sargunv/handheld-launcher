@@ -1,5 +1,7 @@
 package dev.sargunv.handheld.ui
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -14,6 +16,8 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.ui.demo.DemoLibrary
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
+import dev.sargunv.handheld.ui.input.HeldKeys
+import dev.sargunv.handheld.ui.input.trackHeldKeys
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -41,7 +45,10 @@ class FocusNavigationTest {
   }
 
   private fun ComposeUiTest.launch(layout: DualScreenLayout = DualScreenLayout.Separate) {
-    setContent { App(layout) }
+    setContent {
+      val heldKeys = remember { HeldKeys() }
+      App(layout, heldKeys, Modifier.trackHeldKeys(heldKeys))
+    }
     waitForIdle()
   }
 
