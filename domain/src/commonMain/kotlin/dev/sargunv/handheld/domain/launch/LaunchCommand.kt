@@ -23,18 +23,20 @@ data class LaunchCommand(
 ) {
   /** The files this command hands over by content URI, each to be granted once. */
   val readGrants: List<LaunchUri.ProviderFile>
-    get() = buildList {
-      (data as? LaunchUri.ProviderFile)?.let(::add)
-      for (extra in extras) {
-        when (extra) {
-          is LaunchExtra.UriValue -> add(extra.uri)
-          is LaunchExtra.UriString -> add(extra.uri)
-          else -> {}
+    get() {
+      val uris = buildSet {
+        (data as? LaunchUri.ProviderFile)?.let(::add)
+        for (extra in extras) {
+          when (extra) {
+            is LaunchExtra.UriValue -> add(extra.uri)
+            is LaunchExtra.UriString -> add(extra.uri)
+            else -> {}
+          }
         }
+        (clipData as? LaunchUri.ProviderFile)?.let(::add)
       }
-      (clipData as? LaunchUri.ProviderFile)?.let(::add)
+      return uris.toList()
     }
-      .distinct()
 
   /**
    * Whether `am start` can carry this command. It can't hand over content URIs, since only the app
