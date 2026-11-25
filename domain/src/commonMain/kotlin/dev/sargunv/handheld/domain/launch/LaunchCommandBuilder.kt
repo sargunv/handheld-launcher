@@ -61,7 +61,7 @@ object LaunchCommandBuilder {
         RomData.ProviderUri -> rom
         RomData.Path -> LaunchUri.Raw(input.romPath)
         is RomData.Scheme ->
-          LaunchUri.Raw("${romData.scheme}://${romData.authority}${input.romPath}")
+          LaunchUri.Raw("${romData.scheme}://${romData.authority}${encodePath(input.romPath)}")
       }
 
     val extras =
@@ -120,6 +120,25 @@ object LaunchCommandBuilder {
   /** The build number in a version name such as `0.1-10234`, or null when it has none. */
   fun buildNumberOf(versionName: String): Int? =
     buildNumber.find(versionName)?.groupValues?.get(1)?.toIntOrNull()
+
+  /**
+   * [path] with every character but `/` and URI-unreserved ones percent-encoded as UTF-8, as
+   * Android's `Uri.Builder.path` writes it, so a `#`, `?` or `%` in a file name stays in the path.
+   */
+  private fun encodePath(path: String): String = buildString {
+    for (byte in path.encodeToByteArray()) {
+      val char = (byte.toInt() and 0xff).toChar()
+      if (char.isLetterOrDigit() && char.code < 0x80 || char in "/_-!.~'()*") {
+        append(char)
+      } else {
+        append('%')
+        append(HEX[byte.toInt() shr 4 and 0xf])
+        append(HEX[byte.toInt() and 0xf])
+      }
+    }
+  }
+
+  private const val HEX = "0123456789ABCDEF"
 
   private fun fill(template: String, packageName: String, input: LaunchInput, core: String?) =
     placeholder.replace(template) { match ->

@@ -121,6 +121,24 @@ class LaunchIntentsTest {
   }
 
   @Test
+  fun schemeUrisDecodeToTheRomPath() {
+    val path = "/storage/emulated/0/ROMs/Pokémon #1 (100%)?.gb"
+    val command =
+      assertIs<LaunchBuild.Ready>(
+          LaunchCommandBuilder.build(
+            EmulatorRegistry[EmulatorId("linkboy")]!!.recipe,
+            "com.pixelrespawn.linkboy",
+            LaunchInput(path, PlatformCatalog.GB),
+          ),
+        )
+        .command
+    val data = LaunchIntents.toIntent(command, contentUris).data
+    assertEquals("linkboy", data?.scheme)
+    assertEquals("emulator", data?.authority)
+    assertEquals(path, data?.path)
+  }
+
+  @Test
   fun dolphinGetsItsRomAsAUriExtra() {
     val intent = LaunchIntents.toIntent(command("dolphin", PlatformCatalog.GAMECUBE), contentUris)
     assertEquals(IntentAction.MAIN, intent.action)

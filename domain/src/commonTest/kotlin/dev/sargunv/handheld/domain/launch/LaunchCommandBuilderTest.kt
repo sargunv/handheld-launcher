@@ -173,6 +173,18 @@ class LaunchCommandBuilderTest {
   }
 
   @Test
+  fun schemeUrisEncodeThePath() {
+    val command =
+      build("linkboy", PlatformCatalog.GB, "/storage/emulated/0/ROMs/Pokémon #1 (100%)?.gb")
+    assertEquals(
+      LaunchUri.Raw(
+        "linkboy://emulator/storage/emulated/0/ROMs/Pok%C3%A9mon%20%231%20(100%25)%3F.gb",
+      ),
+      command.data,
+    )
+  }
+
+  @Test
   fun melonDsTakesTheUriTwice() {
     val command = build("melonds", PlatformCatalog.NDS)
     val uri = LaunchUri.ProviderFile(rom)

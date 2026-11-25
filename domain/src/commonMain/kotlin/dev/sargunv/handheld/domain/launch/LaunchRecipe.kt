@@ -67,7 +67,7 @@ sealed interface RomData {
   /** The ROM's absolute path, written as the URI. */
   data object Path : RomData
 
-  /** `scheme://authority` followed by the ROM's absolute path. */
+  /** `scheme://authority` followed by the ROM's absolute path, percent-encoded. */
   data class Scheme(val scheme: String, val authority: String) : RomData
 }
 
