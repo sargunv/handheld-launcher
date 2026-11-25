@@ -1,0 +1,211 @@
+import dev.sargunv.handheld.domain.CollectionKind;
+import dev.sargunv.handheld.domain.RomFileCategory;
+import kotlin.Boolean;
+import kotlin.String;
+import kotlin.collections.List;
+import kotlin.time.Instant;
+
+CREATE TABLE platform (
+  id INTEGER NOT NULL PRIMARY KEY,
+  slug TEXT NOT NULL,
+  fs_slug TEXT NOT NULL,
+  name TEXT NOT NULL,
+  rom_count INTEGER NOT NULL
+);
+
+CREATE TABLE rom (
+  id INTEGER NOT NULL PRIMARY KEY,
+  platform_id INTEGER NOT NULL,
+  platform_slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  sort_key TEXT NOT NULL,
+  file_name TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  summary TEXT,
+  alternative_names TEXT AS List<String> NOT NULL,
+  genres TEXT AS List<String> NOT NULL,
+  regions TEXT AS List<String> NOT NULL,
+  release_date INTEGER AS Instant,
+  cover_small_url TEXT,
+  cover_large_url TEXT,
+  has_multiple_files INTEGER AS Boolean NOT NULL,
+  updated_at INTEGER AS Instant NOT NULL
+);
+
+CREATE INDEX rom_by_platform ON rom(platform_id, sort_key);
+
+CREATE TABLE rom_file (
+  id INTEGER NOT NULL PRIMARY KEY,
+  rom_id INTEGER NOT NULL,
+  file_name TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  category TEXT AS RomFileCategory
+);
+
+CREATE INDEX rom_file_by_rom ON rom_file(rom_id);
+
+CREATE TABLE collection (
+  kind TEXT AS CollectionKind NOT NULL,
+  id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  rom_count INTEGER NOT NULL,
+  is_favorite INTEGER AS Boolean NOT NULL,
+  PRIMARY KEY (kind, id)
+);
+
+CREATE TABLE collection_rom (
+  collection_kind TEXT AS CollectionKind NOT NULL,
+  collection_id INTEGER NOT NULL,
+  rom_id INTEGER NOT NULL,
+  PRIMARY KEY (collection_kind, collection_id, rom_id)
+);
+
+-- The search index's rowid is the ROM's id. Triggers keep it in step with the rom table.
+CREATE VIRTUAL TABLE rom_search USING fts5(
+  title,
+  alternative_names,
+  file_name,
+  tokenize = 'unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER rom_search_insert AFTER INSERT ON rom BEGIN
+  INSERT INTO rom_search(rowid, title, alternative_names, file_name)
+  VALUES (new.id, new.title, new.alternative_names, new.file_name);
+END;
+
+CREATE TRIGGER rom_search_update AFTER UPDATE ON rom BEGIN
+  DELETE FROM rom_search WHERE rowid = old.id;
+  INSERT INTO rom_search(rowid, title, alternative_names, file_name)
+  VALUES (new.id, new.title, new.alternative_names, new.file_name);
+END;
+
+CREATE TRIGGER rom_search_delete AFTER DELETE ON rom BEGIN
+  DELETE FROM rom_search WHERE rowid = old.id;
+END;
+
+CREATE TABLE sync_state (
+  key TEXT NOT NULL PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+-- Platforms
+
+platforms:
+SELECT * FROM platform ORDER BY name COLLATE NOCASE;
+
+insertPlatform:
+INSERT INTO platform VALUES ?;
+
+deletePlatforms:
+DELETE FROM platform;
+
+-- ROMs
+
+rom:
+SELECT * FROM rom WHERE id = ?;
+
+romsOnPlatform:
+SELECT * FROM rom WHERE platform_id = ? ORDER BY sort_key COLLATE NOCASE, id;
+
+romsInCollection:
+SELECT rom.* FROM rom
+JOIN collection_rom ON collection_rom.rom_id = rom.id
+WHERE collection_rom.collection_kind = ? AND collection_rom.collection_id = ?
+ORDER BY rom.sort_key COLLATE NOCASE, rom.id;
+
+search:
+SELECT rom.* FROM rom_search
+JOIN rom ON rom.id = rom_search.rowid
+WHERE rom_search MATCH :query
+ORDER BY bm25(rom_search, 10.0, 5.0, 1.0), rom.sort_key COLLATE NOCASE
+LIMIT :limit;
+
+romCount:
+SELECT count(*) FROM rom;
+
+romIds:
+SELECT id FROM rom;
+
+upsertRom:
+INSERT INTO rom VALUES ?
+ON CONFLICT (id) DO UPDATE SET
+  platform_id = excluded.platform_id,
+  platform_slug = excluded.platform_slug,
+  title = excluded.title,
+  sort_key = excluded.sort_key,
+  file_name = excluded.file_name,
+  size_bytes = excluded.size_bytes,
+  summary = excluded.summary,
+  alternative_names = excluded.alternative_names,
+  genres = excluded.genres,
+  regions = excluded.regions,
+  release_date = excluded.release_date,
+  cover_small_url = excluded.cover_small_url,
+  cover_large_url = excluded.cover_large_url,
+  has_multiple_files = excluded.has_multiple_files,
+  updated_at = excluded.updated_at;
+
+deleteRom:
+DELETE FROM rom WHERE id = ?;
+
+deleteAllRoms:
+DELETE FROM rom;
+
+-- ROM files
+
+filesOfRom:
+SELECT * FROM rom_file WHERE rom_id = ? ORDER BY file_name, id;
+
+filesOfRoms:
+SELECT * FROM rom_file WHERE rom_id IN ? ORDER BY file_name, id;
+
+filesOnPlatform:
+SELECT rom_file.* FROM rom_file
+JOIN rom ON rom.id = rom_file.rom_id
+WHERE rom.platform_id = ?
+ORDER BY rom_file.file_name, rom_file.id;
+
+filesInCollection:
+SELECT rom_file.* FROM rom_file
+JOIN collection_rom ON collection_rom.rom_id = rom_file.rom_id
+WHERE collection_rom.collection_kind = ? AND collection_rom.collection_id = ?
+ORDER BY rom_file.file_name, rom_file.id;
+
+-- Replacing keeps a file that moved to another ROM from failing the insert.
+insertFile:
+INSERT OR REPLACE INTO rom_file VALUES ?;
+
+deleteFilesOfRom:
+DELETE FROM rom_file WHERE rom_id = ?;
+
+deleteAllFiles:
+DELETE FROM rom_file;
+
+-- Collections
+
+collections:
+SELECT * FROM collection ORDER BY is_favorite DESC, name COLLATE NOCASE, kind, id;
+
+insertCollection:
+INSERT INTO collection VALUES ?;
+
+insertCollectionRom:
+INSERT OR IGNORE INTO collection_rom VALUES ?;
+
+deleteCollections:
+DELETE FROM collection;
+
+deleteCollectionRoms:
+DELETE FROM collection_rom;
+
+-- Sync state
+
+syncValue:
+SELECT value FROM sync_state WHERE key = ?;
+
+setSyncValue:
+INSERT OR REPLACE INTO sync_state VALUES (?, ?);
+
+deleteSyncState:
+DELETE FROM sync_state;
