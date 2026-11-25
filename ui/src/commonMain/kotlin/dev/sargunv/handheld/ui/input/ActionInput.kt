@@ -55,7 +55,8 @@ internal val LocalActionDecoder = staticCompositionLocalOf<ActionDecoder?> { nul
 
 /**
  * The root of a window's controller-driven content. It decodes key events into [Action]s for every
- * [onAction] below it, and moves focus for the directions nobody else handled.
+ * [onAction] below it, and moves focus for the directions nobody else handled. It consumes every
+ * key that maps to an action, so an action nobody handles does nothing.
  */
 @Composable
 fun ActionInputRoot(
@@ -77,9 +78,12 @@ fun ActionInputRoot(
           false
         }
         .onKeyEvent { event ->
-          val direction = decoder.decode(event)?.direction ?: return@onKeyEvent false
+          if (decoder.settings.actionFor(event.key) == null) return@onKeyEvent false
           // At an edge this does nothing, and focus stays where it was.
-          focusManager.moveFocus(direction.focusDirection)
+          decoder.decode(event)?.direction?.let { focusManager.moveFocus(it.focusDirection) }
+          // A mapped key means its action and nothing else, even when nothing handled the action.
+          // Left unconsumed, the platform would act on it too: Tab traverses focus, and Android
+          // turns unhandled gamepad buttons into fallback keys such as Back.
           true
         },
     ) {

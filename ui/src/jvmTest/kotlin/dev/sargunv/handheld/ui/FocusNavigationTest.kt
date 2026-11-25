@@ -214,6 +214,17 @@ class FocusNavigationTest {
   }
 
   @Test
+  fun actionsNothingHandlesDoNothing() = runComposeUiTest {
+    launch()
+    press(Key.ButtonA)
+    assertFocused("play")
+    // The detail screen's buttons have no menu, search or quick menu. Tab would otherwise move
+    // focus to the next button.
+    press(listOf(Key.Tab, Key.ButtonX, Key.ButtonY, Key.ButtonStart, Key.ButtonSelect))
+    assertFocused("play")
+  }
+
+  @Test
   fun focusWorksInsideTheDualScreenFrame() = runComposeUiTest {
     launch(DualScreenLayout.Frame)
     assertFocused(tile(0, 0))
