@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.hardware.input.InputManager
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -15,9 +16,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
 import androidx.lifecycle.lifecycleScope
+import dev.sargunv.handheld.data.auth.DeviceDescription
+import dev.sargunv.handheld.data.auth.KeystoreCredentialStore
+import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
+import java.io.File
+import kotlinx.io.files.Path
 
 class MainActivity : ComponentActivity() {
   private val heldKeys = HeldKeys()
@@ -28,6 +34,19 @@ class MainActivity : ComponentActivity() {
   private var forcedLayout by mutableStateOf<DualScreenLayout?>(null)
 
   private var showsDebugScreen = false
+
+  private val credentials by lazy { KeystoreCredentialStore(File(filesDir, "credentials")) }
+
+  private val device by lazy {
+    DeviceDescription(
+      identifier = installIdentifier(Path(filesDir.path, "install-id")),
+      name =
+        if (Build.MODEL.startsWith(Build.MANUFACTURER)) Build.MODEL
+        else "${Build.MANUFACTURER} ${Build.MODEL}",
+      platform = "android",
+      appVersion = packageManager.getPackageInfo(packageName, 0).versionName,
+    )
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -52,6 +71,8 @@ class MainActivity : ComponentActivity() {
       App(
         layout = layout,
         heldKeys = heldKeys,
+        credentials = credentials,
+        device = device,
         initialSettings = settings,
         saveSettings = settingsFile::write,
         secondaryDisplay = { content ->

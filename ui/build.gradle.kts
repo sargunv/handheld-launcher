@@ -17,6 +17,7 @@ kotlin {
   sourceSets {
     commonMain.dependencies {
       api(project(":domain"))
+      api(project(":data"))
       api(libs.compose.runtime)
       api(libs.compose.foundation)
       api(libs.compose.ui)

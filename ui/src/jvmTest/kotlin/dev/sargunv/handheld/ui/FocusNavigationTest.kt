@@ -14,6 +14,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.ui.demo.DemoLibrary
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.ConfirmButton
@@ -54,7 +56,15 @@ class FocusNavigationTest {
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
-      App(layout, heldKeys, Modifier.trackHeldKeys(heldKeys), settings, saveSettings)
+      App(
+        layout,
+        heldKeys,
+        InMemoryCredentialStore(RommCredentials("https://romm.example.com", "rmm_token")),
+        TestDevice,
+        Modifier.trackHeldKeys(heldKeys),
+        settings,
+        saveSettings,
+      )
     }
     waitForIdle()
   }
