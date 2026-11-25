@@ -1,0 +1,671 @@
+//! A running core: loading it with its content, running frames, and saving.
+
+use std::collections::HashMap;
+use std::ffi::CString;
+use std::fs;
+use std::io::{self, Write};
+use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
+use std::ptr::NonNull;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::audio::AudioSink;
+use crate::core::{Core, CoreLoadError};
+use crate::ffi;
+use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow};
+use crate::host::{self, Gpu, Host, VideoTarget};
+use crate::input::{InputState, MAX_PORTS};
+use crate::options::{CoreOption, Options, opt_string};
+use crate::video::{PixelFormat, VideoSink};
+
+/// Where a session's frames go.
+pub enum VideoOutput {
+    /// The session hands every frame to the sink, reading hardware-rendered
+    /// frames back from the GPU.
+    Sink(Box<dyn VideoSink>),
+    /// The session presents every frame to the window itself, through an EGL
+    /// context it creates on the window, and waits for the display.
+    Window {
+        window: NativeWindow,
+        /// The window's size in pixels.
+        width: u32,
+        height: u32,
+    },
+}
+
+/// What a session needs to start.
+pub struct SessionConfig {
+    /// The core's shared library.
+    pub core: PathBuf,
+    /// The content to load, or `None` for cores that run without content.
+    pub content: Option<PathBuf>,
+    /// Where the core looks for BIOS and other system files.
+    pub system_dir: PathBuf,
+    /// Where the core may write its own save files.
+    pub save_dir: PathBuf,
+    pub video: VideoOutput,
+    pub audio: Box<dyn AudioSink>,
+    /// The controllers, which the platform layer keeps up to date.
+    pub input: Arc<InputState>,
+    /// Core option values to use instead of the core's defaults, by key.
+    pub options: HashMap<String, String>,
+}
+
+/// What a core says about itself.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemInfo {
+    pub library_name: String,
+    pub library_version: String,
+    /// The content file extensions the core accepts, without dots.
+    pub valid_extensions: Vec<String>,
+    /// Whether the core reads content from its path rather than from memory.
+    pub need_fullpath: bool,
+    /// Whether the core wants archives passed to it unextracted.
+    pub block_extract: bool,
+}
+
+/// The core's video and audio timing and geometry.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AvInfo {
+    /// The usual frame size.
+    pub base_width: u32,
+    pub base_height: u32,
+    /// The largest frame size the core produces.
+    pub max_width: u32,
+    pub max_height: u32,
+    /// The intended display aspect ratio, or 0 for the frame's own.
+    pub aspect_ratio: f32,
+    /// Frames per second.
+    pub fps: f64,
+    /// Audio sample rate in Hz, or 0 if the core has no audio.
+    pub sample_rate: f64,
+}
+
+impl AvInfo {
+    pub(crate) fn from_retro(info: &ffi::retro_system_av_info) -> Self {
+        Self {
+            base_width: info.geometry.base_width,
+            base_height: info.geometry.base_height,
+            max_width: info.geometry.max_width,
+            max_height: info.geometry.max_height,
+            aspect_ratio: info.geometry.aspect_ratio,
+            fps: info.timing.fps,
+            sample_rate: info.timing.sample_rate,
+        }
+    }
+}
+
+/// An input the core uses, with the name it gives it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InputDescriptor {
+    pub port: u32,
+    /// A libretro device type, such as `RETRO_DEVICE_JOYPAD`.
+    pub device: u32,
+    pub index: u32,
+    pub id: u32,
+    pub description: String,
+}
+
+/// Why a session failed.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionError {
+    #[error("another session is running in this process")]
+    AlreadyActive,
+    #[error(transparent)]
+    Core(#[from] CoreLoadError),
+    #[error("the core needs content to run")]
+    ContentRequired,
+    #[error("can't read the content")]
+    ReadContent(#[source] io::Error),
+    #[error("the core couldn't load the content")]
+    LoadGame,
+    #[error("can't set up OpenGL")]
+    Gl(#[from] GlError),
+    #[error("the core doesn't support save states")]
+    StatesUnsupported,
+    #[error("the core couldn't save its state")]
+    Serialize,
+    #[error("the core couldn't restore the state")]
+    Unserialize,
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
+/// Only one session runs per process: cores keep global state, and libretro's
+/// callbacks can't tell sessions apart.
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+struct ActiveClaim;
+
+impl ActiveClaim {
+    fn claim() -> Result<Self, SessionError> {
+        ACTIVE
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ActiveClaim)
+            .map_err(|_| SessionError::AlreadyActive)
+    }
+}
+
+impl Drop for ActiveClaim {
+    fn drop(&mut self) {
+        ACTIVE.store(false, Ordering::Release);
+    }
+}
+
+/// A core running content.
+///
+/// A session stays on the thread that created it, which is the thread the
+/// core runs on and, for sessions with OpenGL, the thread its context is
+/// current on.
+pub struct Session {
+    core: Core,
+    host: NonNull<Host>,
+    system_info: SystemInfo,
+    initialized: bool,
+    game_loaded: bool,
+    /// Content the core may keep pointers into.
+    _content: Option<(CString, Option<Vec<u8>>)>,
+    _claim: ActiveClaim,
+    _thread_bound: PhantomData<*mut ()>,
+}
+
+impl Session {
+    /// Loads the core and its content, and gets them ready to run.
+    ///
+    /// # Safety
+    ///
+    /// `config.core` must be a libretro core. Loading it runs its code.
+    pub unsafe fn new(config: SessionConfig) -> Result<Self, SessionError> {
+        let claim = ActiveClaim::claim()?;
+        // SAFETY: the caller vouches for the core.
+        let core = unsafe { Core::load(&config.core)? };
+        let host = Box::new(Host::new(
+            path_cstring(&config.system_dir),
+            path_cstring(&config.save_dir),
+            Options::new(config.options),
+            config.input,
+            config.audio,
+            match config.video {
+                VideoOutput::Sink(sink) => VideoTarget::Sink(sink),
+                VideoOutput::Window {
+                    window,
+                    width,
+                    height,
+                } => VideoTarget::Window {
+                    window,
+                    width,
+                    height,
+                },
+            },
+        ));
+        let host = NonNull::from(Box::leak(host));
+        // SAFETY: the host lives until the session's drop unregisters it, and
+        // the session holds no reference to it while calling the core.
+        unsafe { host::register(host.as_ptr()) };
+        let mut session = Session {
+            core,
+            host,
+            system_info: SystemInfo {
+                library_name: String::new(),
+                library_version: String::new(),
+                valid_extensions: Vec::new(),
+                need_fullpath: false,
+                block_extract: false,
+            },
+            initialized: false,
+            game_loaded: false,
+            _content: None,
+            _claim: claim,
+            _thread_bound: PhantomData,
+        };
+
+        // SAFETY: libretro's start-up sequence, with callbacks of the right
+        // signatures.
+        unsafe {
+            (session.core.set_environment)(Some(host::environment));
+            (session.core.set_video_refresh)(Some(host::video_refresh));
+            (session.core.set_audio_sample)(Some(host::audio_sample));
+            (session.core.set_audio_sample_batch)(Some(host::audio_sample_batch));
+            (session.core.set_input_poll)(Some(host::input_poll));
+            (session.core.set_input_state)(Some(host::input_state));
+            (session.core.init)();
+        }
+        session.initialized = true;
+        session.system_info = session.read_system_info();
+        log::info!(
+            "loaded core {} {}",
+            session.system_info.library_name,
+            session.system_info.library_version
+        );
+
+        session.load_content(config.content.as_deref())?;
+        session.game_loaded = true;
+
+        let mut av = ffi::retro_system_av_info::default();
+        // SAFETY: called after retro_load_game, as libretro requires.
+        unsafe { (session.core.get_system_av_info)(&mut av) };
+        let host = session.host_mut();
+        host.av_info = AvInfo::from_retro(&av);
+        host.av_info_changed = false;
+        log::info!("core AV info: {:?}", host.av_info);
+        host.reset_audio();
+
+        session.set_up_video()?;
+        for port in 0..MAX_PORTS as u32 {
+            // SAFETY: the game is loaded.
+            unsafe { (session.core.set_controller_port_device)(port, ffi::RETRO_DEVICE_JOYPAD) };
+        }
+        Ok(session)
+    }
+
+    /// The host, for code that doesn't call into the core while it holds it.
+    fn host_mut(&mut self) -> &mut Host {
+        // SAFETY: the host lives as long as the session, and callbacks only
+        // reach it while the core runs, which needs `&mut self` elsewhere.
+        unsafe { self.host.as_mut() }
+    }
+
+    fn host(&self) -> &Host {
+        // SAFETY: as in `host_mut`.
+        unsafe { self.host.as_ref() }
+    }
+
+    fn read_system_info(&self) -> SystemInfo {
+        // SAFETY: the struct is plain data the core fills in.
+        let mut info: ffi::retro_system_info = unsafe { std::mem::zeroed() };
+        // SAFETY: may be called at any time after loading.
+        unsafe { (self.core.get_system_info)(&mut info) };
+        // SAFETY: the core's strings are null or valid C strings.
+        unsafe {
+            SystemInfo {
+                library_name: opt_string(info.library_name).unwrap_or_default(),
+                library_version: opt_string(info.library_version).unwrap_or_default(),
+                valid_extensions: opt_string(info.valid_extensions)
+                    .map(|exts| {
+                        exts.split('|')
+                            .filter(|e| !e.is_empty())
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                need_fullpath: info.need_fullpath,
+                block_extract: info.block_extract,
+            }
+        }
+    }
+
+    fn load_content(&mut self, content: Option<&Path>) -> Result<(), SessionError> {
+        let loaded = match content {
+            None => {
+                if !self.host().support_no_game {
+                    return Err(SessionError::ContentRequired);
+                }
+                // SAFETY: the core declared it runs without content.
+                unsafe { (self.core.load_game)(std::ptr::null()) }
+            }
+            Some(path) => {
+                let data = if self.system_info.need_fullpath {
+                    None
+                } else {
+                    Some(fs::read(path).map_err(SessionError::ReadContent)?)
+                };
+                let path = path_cstring(path);
+                let info = ffi::retro_game_info {
+                    path: path.as_ptr(),
+                    data: data
+                        .as_ref()
+                        .map_or(std::ptr::null(), |d| d.as_ptr().cast()),
+                    size: data.as_ref().map_or(0, Vec::len),
+                    meta: std::ptr::null(),
+                };
+                self._content = Some((path, data));
+                // SAFETY: the content outlives the session.
+                unsafe { (self.core.load_game)(&info) }
+            }
+        };
+        match (loaded, self.host_mut().hw_refused.take()) {
+            (true, _) => Ok(()),
+            (false, Some(reason)) => Err(GlError::Unavailable(reason).into()),
+            (false, None) => Err(SessionError::LoadGame),
+        }
+    }
+
+    /// Creates the GL context and framebuffer when the core renders with
+    /// OpenGL or frames go to a window, and lets a hardware-rendered core set
+    /// up its GL state.
+    fn set_up_video(&mut self) -> Result<(), SessionError> {
+        let host = self.host_mut();
+        let window = match &host.video {
+            VideoTarget::Window {
+                window,
+                width,
+                height,
+            } => Some((*window, *width, *height)),
+            VideoTarget::Sink(_) => None,
+        };
+        let window = window
+            .as_ref()
+            .map(|(w, width, height)| (w, *width, *height));
+        let hw = host.hw_render;
+        let context = match (hw, window) {
+            (Some(cb), _) => {
+                let api = host::hw_api(&cb).expect("accepted in SET_HW_RENDER");
+                GlContext::new(api, window, cb.debug_context)?
+            }
+            (None, Some(_)) => GlContext::new(GlApi::Gles { major: 3, minor: 0 }, window, false)?,
+            (None, None) => return Ok(()),
+        };
+        let mut gpu = Gpu::new(context);
+        if let Some(cb) = hw {
+            let av = host.av_info;
+            let fb = Framebuffer::new(
+                &gpu.context.gl,
+                av.max_width.max(av.base_width),
+                av.max_height.max(av.base_height),
+                cb.depth,
+                cb.stencil,
+            )?;
+            gpu.hw = Some(fb);
+        }
+        host.gpu = Some(gpu);
+        if let Some(reset) = hw.and_then(|cb| cb.context_reset) {
+            // SAFETY: the context is current and the framebuffer exists, as
+            // libretro requires; no host reference is live.
+            unsafe { reset() };
+        }
+        Ok(())
+    }
+
+    /// Runs the core for one frame: it reads input, then produces a frame and
+    /// its audio.
+    pub fn run_frame(&mut self) {
+        let host = self.host_mut();
+        host.poll_input();
+        let frame_time = host.frame_time;
+        if let Some(ffi::retro_frame_time_callback {
+            callback: Some(callback),
+            reference,
+        }) = frame_time
+        {
+            // The session runs at the core's own rate, so every frame takes
+            // the core's reference time.
+            // SAFETY: the core registered the callback.
+            unsafe { callback(reference) };
+        }
+        // SAFETY: the game is loaded and no host reference is live.
+        unsafe { (self.core.run)() };
+        let host = self.host_mut();
+        host.flush_audio();
+        if std::mem::take(&mut host.av_info_changed) {
+            self.apply_av_info();
+        }
+    }
+
+    /// Applies timing and geometry the core changed during a frame.
+    fn apply_av_info(&mut self) {
+        let host = self.host_mut();
+        host.reset_audio();
+        let av = host.av_info;
+        if let Some(gpu) = &mut host.gpu
+            && let Some(fb) = &mut gpu.hw
+        {
+            let (w, h) = (
+                av.max_width.max(av.base_width),
+                av.max_height.max(av.base_height),
+            );
+            if w > fb.width || h > fb.height {
+                fb.resize(&gpu.context.gl, w.max(fb.width), h.max(fb.height));
+            }
+        }
+    }
+
+    /// Resets the core, like a console's reset button.
+    pub fn reset(&mut self) {
+        // SAFETY: the game is loaded and no host reference is live.
+        unsafe { (self.core.reset)() };
+    }
+
+    /// What the core says about itself.
+    pub fn system_info(&self) -> &SystemInfo {
+        &self.system_info
+    }
+
+    /// The core's current timing and geometry.
+    pub fn av_info(&self) -> AvInfo {
+        self.host().av_info
+    }
+
+    /// The pixel format the core renders software frames in.
+    pub fn pixel_format(&self) -> PixelFormat {
+        self.host().pixel_format
+    }
+
+    /// Whether the core renders with OpenGL.
+    pub fn is_hardware_rendered(&self) -> bool {
+        self.host().hw_render.is_some()
+    }
+
+    /// The controllers the core reads.
+    pub fn input(&self) -> &Arc<InputState> {
+        &self.host().input
+    }
+
+    /// The inputs the core uses, as it last described them.
+    pub fn input_descriptors(&self) -> &[InputDescriptor] {
+        &self.host().descriptors
+    }
+
+    /// The options the core declared, with their current values.
+    pub fn options(&self) -> Vec<CoreOption> {
+        self.host().options.list()
+    }
+
+    /// Sets a core option. The core sees the new value when it next checks.
+    /// It returns false, and changes nothing, if the core has no such option
+    /// or doesn't accept the value.
+    pub fn set_option(&mut self, key: &str, value: &str) -> bool {
+        self.host_mut().options.set(key, value)
+    }
+
+    /// Whether the core asked to quit, as when a game offers an exit.
+    pub fn shutdown_requested(&self) -> bool {
+        self.host().shutdown_requested
+    }
+
+    /// Tells the session the window it presents to changed size.
+    pub fn resize_window(&mut self, width: u32, height: u32) {
+        let host = self.host_mut();
+        if let VideoTarget::Window {
+            width: w,
+            height: h,
+            ..
+        } = &mut host.video
+        {
+            (*w, *h) = (width, height);
+            if let Some(gpu) = &host.gpu {
+                gpu.context.resize(width, height);
+            }
+        }
+    }
+
+    /// The core's battery-backed save memory, if it has any.
+    pub fn save_ram(&self) -> Option<&[u8]> {
+        // SAFETY: the core's memory stays valid while the game is loaded,
+        // and the core can't run while this borrow lives.
+        unsafe {
+            let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
+            let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
+            (size > 0 && !data.is_null())
+                .then(|| std::slice::from_raw_parts(data.cast::<u8>(), size))
+        }
+    }
+
+    fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
+        // SAFETY: as in `save_ram`.
+        unsafe {
+            let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
+            let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
+            (size > 0 && !data.is_null())
+                .then(|| std::slice::from_raw_parts_mut(data.cast::<u8>(), size))
+        }
+    }
+
+    /// Fills the core's save memory from the file at `path`, as a frontend
+    /// does right after loading content. It returns false if the core has no
+    /// save memory or the file doesn't exist. A file of a different size fills
+    /// what fits.
+    pub fn load_save_ram(&mut self, path: &Path) -> io::Result<bool> {
+        let Some(memory) = self.save_ram_mut() else {
+            return Ok(false);
+        };
+        let data = match fs::read(path) {
+            Ok(data) => data,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e),
+        };
+        if data.len() != memory.len() {
+            log::warn!(
+                "save file {} has {} bytes, but the core's save memory has {}",
+                path.display(),
+                data.len(),
+                memory.len()
+            );
+        }
+        let n = data.len().min(memory.len());
+        memory[..n].copy_from_slice(&data[..n]);
+        Ok(true)
+    }
+
+    /// Writes the core's save memory to `path`, replacing the file only once
+    /// the new contents are on disk. It returns false, and writes nothing, if
+    /// the core has no save memory.
+    pub fn flush_save_ram(&self, path: &Path) -> io::Result<bool> {
+        match self.save_ram() {
+            Some(memory) => write_atomically(path, memory).map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    /// The core's complete state, which [`Session::unserialize_state`]
+    /// restores.
+    pub fn serialize_state(&mut self) -> Result<Vec<u8>, SessionError> {
+        // SAFETY: the game is loaded and no host reference is live.
+        let size = unsafe { (self.core.serialize_size)() };
+        if size == 0 {
+            return Err(SessionError::StatesUnsupported);
+        }
+        let mut state = vec![0; size];
+        // SAFETY: `state` has the size the core asked for.
+        if unsafe { (self.core.serialize)(state.as_mut_ptr().cast(), size) } {
+            Ok(state)
+        } else {
+            Err(SessionError::Serialize)
+        }
+    }
+
+    /// Restores a state from [`Session::serialize_state`].
+    pub fn unserialize_state(&mut self, state: &[u8]) -> Result<(), SessionError> {
+        // SAFETY: the game is loaded, the core only reads `state`, and no
+        // host reference is live.
+        if unsafe { (self.core.unserialize)(state.as_ptr().cast(), state.len()) } {
+            Ok(())
+        } else {
+            Err(SessionError::Unserialize)
+        }
+    }
+
+    /// Saves the core's state to `path`, replacing the file only once the new
+    /// contents are on disk.
+    pub fn save_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        let state = self.serialize_state()?;
+        Ok(write_atomically(path, &state)?)
+    }
+
+    /// Restores a state that [`Session::save_state`] wrote.
+    pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        let state = fs::read(path)?;
+        self.unserialize_state(&state)
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        if self.game_loaded {
+            let host = self.host_mut();
+            let destroy = host.hw_render.and_then(|cb| cb.context_destroy);
+            let current = host.gpu.as_ref().map(|gpu| gpu.context.make_current());
+            if let (Some(destroy), Some(Ok(()))) = (destroy, current) {
+                // SAFETY: the context is current; no host reference is live.
+                unsafe { destroy() };
+            }
+            // SAFETY: the game is loaded.
+            unsafe { (self.core.unload_game)() };
+        }
+        if self.initialized {
+            // SAFETY: retro_init ran.
+            unsafe { (self.core.deinit)() };
+        }
+        host::unregister();
+        // SAFETY: the host came from `Box::leak`, and the core can no longer
+        // reach it.
+        drop(unsafe { Box::from_raw(self.host.as_ptr()) });
+    }
+}
+
+fn path_cstring(path: &Path) -> CString {
+    use std::os::unix::ffi::OsStrExt;
+    CString::new(path.as_os_str().as_bytes()).unwrap_or_else(|_| {
+        log::warn!("path {} contains a null byte", path.display());
+        CString::default()
+    })
+}
+
+/// Writes `data` to a temporary file beside `path`, flushes it to disk, and
+/// renames it over `path`, so that a crash leaves either the old file or the
+/// new one.
+fn write_atomically(path: &Path, data: &[u8]) -> io::Result<()> {
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    fs::create_dir_all(dir)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(name);
+    tmp_name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = dir.join(tmp_name);
+    let result = (|| {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)?;
+        // Persist the rename itself.
+        fs::File::open(dir)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_atomically_and_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("save.srm");
+        write_atomically(&path, b"one").unwrap();
+        write_atomically(&path, b"two").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        let leftovers: Vec<_> = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(leftovers, [std::ffi::OsString::from("save.srm")]);
+    }
+}
