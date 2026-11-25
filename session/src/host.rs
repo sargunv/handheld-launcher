@@ -30,6 +30,7 @@ pub(crate) enum VideoTarget {
         window: NativeWindow,
         width: u32,
         height: u32,
+        vsync: bool,
     },
 }
 

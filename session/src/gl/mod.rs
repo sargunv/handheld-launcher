@@ -261,17 +261,21 @@ impl GlContext {
                 version.major, version.minor
             )));
         }
-        if window.is_some() {
-            // Presenting waits for the display, which paces the session.
-            // SAFETY: the display is initialized and a surface is current.
-            unsafe { (egl.swap_interval)(display, 1) };
-        }
         Ok(this)
     }
 
     /// Makes the context current on this thread.
     pub(crate) fn make_current(&self) -> Result<(), GlError> {
         self.handles.make_current()
+    }
+
+    /// Sets whether swapping buffers waits for the display's next refresh.
+    pub(crate) fn set_vsync(&self, vsync: bool) {
+        let h = &self.handles;
+        // SAFETY: the display is initialized and this context is current.
+        if unsafe { (h.egl.swap_interval)(h.display, i32::from(vsync)) } == EGL_FALSE {
+            log::warn!("can't set the swap interval: {}", h.egl.error());
+        }
     }
 
     /// Shows the window surface's back buffer.
@@ -632,6 +636,7 @@ pub(crate) fn present(
 ) {
     let gl = &context.gl;
     let (win_w, win_h) = context.surface_size();
+    log::trace!("presenting {width}x{height} to a {win_w}x{win_h} surface");
     let (x, y, w, h) = fit(width, height, aspect, win_w, win_h);
     let (dst_y0, dst_y1) = if top_row_first {
         (y + h, y)

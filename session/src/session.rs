@@ -25,12 +25,17 @@ pub enum VideoOutput {
     /// frames back from the GPU.
     Sink(Box<dyn VideoSink>),
     /// The session presents every frame to the window itself, through an EGL
-    /// context it creates on the window, and waits for the display.
+    /// context it creates on the window.
     Window {
         window: NativeWindow,
         /// The window's size in pixels.
         width: u32,
         height: u32,
+        /// Whether presenting waits for the display's next refresh. Leave it
+        /// off when the session runs on the thread that handles the window's
+        /// events: a Wayland compositor can hold the refresh back until those
+        /// events are handled.
+        vsync: bool,
     },
 }
 
@@ -192,10 +197,12 @@ impl Session {
                     window,
                     width,
                     height,
+                    vsync,
                 } => VideoTarget::Window {
                     window,
                     width,
                     height,
+                    vsync,
                 },
             },
         ));
@@ -336,13 +343,14 @@ impl Session {
     /// up its GL state.
     fn set_up_video(&mut self) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let window = match &host.video {
+        let (window, vsync) = match &host.video {
             VideoTarget::Window {
                 window,
                 width,
                 height,
-            } => Some((*window, *width, *height)),
-            VideoTarget::Sink(_) => None,
+                vsync,
+            } => (Some((*window, *width, *height)), *vsync),
+            VideoTarget::Sink(_) => (None, false),
         };
         let window = window
             .as_ref()
@@ -356,6 +364,9 @@ impl Session {
             (None, Some(_)) => GlContext::new(GlApi::Gles { major: 3, minor: 0 }, window, false)?,
             (None, None) => return Ok(()),
         };
+        if window.is_some() {
+            context.set_vsync(vsync);
+        }
         let mut gpu = Gpu::new(context);
         if let Some(cb) = hw {
             let av = host.av_info;
