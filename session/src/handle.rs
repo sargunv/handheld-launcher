@@ -210,9 +210,11 @@ impl GameSession {
     }
 
     /// Sets how far the analog trigger `button`, `L2` or `R2`, is pulled on
-    /// controller `port`, from 0 to 32767.
+    /// controller `port`, from 0 to 32767. Other buttons are ignored.
     pub fn set_trigger(&self, port: u32, button: Button, value: i16) {
-        if let Some(port) = self.port(port) {
+        if matches!(button, Button::L2 | Button::R2)
+            && let Some(port) = self.port(port)
+        {
             port.set_trigger(button, value);
         }
     }
