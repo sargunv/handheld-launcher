@@ -6,6 +6,8 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Shows a [GameSession] in [VideoMode.WINDOW] and feeds it the gamepad's input while focused.
@@ -13,6 +15,9 @@ import android.view.SurfaceView
  * The session runs only while the view's surface exists, its window has focus and [running] is
  * true, so it pauses when the app goes to the background or a system dialog or shade covers it. The
  * view never stops the session; its owner does.
+ *
+ * Pausing writes save memory to disk, so the view pauses and resumes sessions in order on a thread
+ * of its own rather than the UI thread.
  */
 class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Callback {
   /** The session to show, or null for none. */
@@ -20,11 +25,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     set(value) {
       if (field === value) return
       field?.let { old ->
-        try {
-          old.pause()
-        } catch (e: SessionException) {
-          Log.e(TAG, "the session failed to pause", e)
-        }
+        control(old) { pause() }
         if (attached) old.detachWindow()
       }
       attached = false
@@ -98,17 +99,30 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
   private fun update() {
     val session = session ?: return
-    val resume = running && attached && hasWindowFocus() && isAttachedToWindow
-    if (resume == resumed) return
-    resumed = resume
-    try {
-      if (resume) session.resume() else session.pause()
-    } catch (e: SessionException) {
-      Log.e(TAG, "the session failed to pause", e)
-    }
+    val run = running && attached && hasWindowFocus() && isAttachedToWindow
+    if (run == resumed) return
+    resumed = run
+    control(session) { if (run) resume() else pause() }
   }
 
   private companion object {
     const val TAG = "GameSessionView"
+
+    /** Runs pauses and resumes in the order the views ask for them. */
+    val controlThread: ExecutorService = Executors.newSingleThreadExecutor {
+      Thread(it, "session-control").apply { isDaemon = true }
+    }
+
+    fun control(session: GameSession, action: GameSession.() -> Unit) {
+      controlThread.execute {
+        try {
+          session.action()
+        } catch (e: SessionException) {
+          Log.e(TAG, "the session failed to pause", e)
+        } catch (_: IllegalStateException) {
+          // The owner closed the session first, which wrote its save memory.
+        }
+      }
+    }
   }
 }
