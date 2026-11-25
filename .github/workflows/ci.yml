@@ -32,6 +32,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           libgl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri libasound2-dev
           libudev-dev
+      # The session's Android build uses the NDK that libs.versions.toml pins.
+      - run: >-
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
+          "ndk;$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p'
+          gradle/libs.versions.toml)"
       - run: mise run build
       - run: mise run test
         env:
@@ -39,3 +44,6 @@ jobs:
       - run:
           cargo clippy -p handheld-session --features runner --all-targets -- -D
           warnings
+      - run:
+          cargo clippy -p handheld-session --target aarch64-linux-android
+          --all-targets -- -D warnings
