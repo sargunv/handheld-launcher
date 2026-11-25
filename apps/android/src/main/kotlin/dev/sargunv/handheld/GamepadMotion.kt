@@ -2,6 +2,7 @@ package dev.sargunv.handheld
 
 import android.os.SystemClock
 import android.view.InputDevice
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.MotionEvent
 import dev.sargunv.handheld.ui.input.Direction
@@ -65,7 +66,7 @@ class GamepadMotion(scope: CoroutineScope, private val dispatch: (KeyEvent) -> U
       direction.keyCode,
       repeat,
       0,
-      KeyEvent.KEYCODE_UNKNOWN,
+      KeyCharacterMap.VIRTUAL_KEYBOARD,
       0,
       0,
       InputDevice.SOURCE_DPAD,
