@@ -24,6 +24,7 @@ import dev.sargunv.handheld.session.SessionException
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -37,14 +38,21 @@ private sealed interface Status {
 }
 
 /**
- * Runs [core] with [content] in a game session, for trying the session on a device. F2 saves a
- * state and F4 loads it. Saves and states go in [dir].
+ * Runs the core [core] gives with [content] in a game session, for trying the session on a device.
+ * F2 saves a state and F4 loads it. Saves and states go in [dir].
  */
 @Composable
-internal fun SessionTestScreen(dir: File, core: File?, content: File?) {
+internal fun SessionTestScreen(dir: File, core: suspend () -> File?, content: File?) {
   var status by remember { mutableStateOf<Status>(Status.Loading) }
   var message by remember { mutableStateOf("") }
   LaunchedEffect(core, content) {
+    val core =
+      try {
+        core()
+      } catch (e: IOException) {
+        status = Status.Failed("Can't get the core: ${e.message}")
+        return@LaunchedEffect
+      }
     if (core == null) {
       status = Status.Failed("No core: pass one with --es core <file in ${dir.path}>")
       return@LaunchedEffect
@@ -69,7 +77,7 @@ internal fun SessionTestScreen(dir: File, core: File?, content: File?) {
 
   Box(Modifier.fillMaxSize().background(Color.Black)) {
     when (val s = status) {
-      Status.Loading -> Label("Loading ${core?.name}", Modifier.align(Alignment.Center))
+      Status.Loading -> Label("Loading", Modifier.align(Alignment.Center))
       is Status.Failed -> Label(s.message, Modifier.align(Alignment.Center))
       is Status.Running -> {
         AndroidView(

@@ -35,4 +35,40 @@ class LibretroCoresTest {
     assertNull(LibretroCores.recommendedFor(PlatformCatalog.PS2))
     assertNull(LibretroCores.recommendedFor(PlatformCatalog.SWITCH))
   }
+
+  @Test
+  fun anOverrideReplacesTheRecommendedCore() {
+    val overrides = mapOf(PlatformCatalog.GB to "mgba_libretro")
+    assertEquals("mgba_libretro", LibretroCores.coreFor(PlatformCatalog.GB, overrides)?.library)
+    assertEquals(
+      "gambatte_libretro",
+      LibretroCores.coreFor(PlatformCatalog.GBC, overrides)?.library,
+    )
+  }
+
+  @Test
+  fun anOverrideNamingAnUnknownCoreFallsBackToTheRecommendedOne() {
+    val overrides = mapOf(PlatformCatalog.GB to "nonexistent_libretro")
+    assertEquals(
+      "gambatte_libretro",
+      LibretroCores.coreFor(PlatformCatalog.GB, overrides)?.library,
+    )
+  }
+
+  @Test
+  fun findsAReleaseAssetForAnAbi() {
+    val source = LibretroCores.byLibrary("azahar_libretro")?.source
+    assertTrue(source is CoreSource.GitHubRelease)
+    val assets =
+      listOf(
+        "azahar-libretro-ios-arm64-2127.0.1.zip",
+        "azahar-libretro-android-arm64-v8a-2127.0.1.zip",
+        "azahar-2127.0.1.tar.xz",
+      )
+    assertEquals(
+      "azahar-libretro-android-arm64-v8a-2127.0.1.zip",
+      source.assetFor("arm64-v8a", assets),
+    )
+    assertNull(source.assetFor("x86_64", assets))
+  }
 }
