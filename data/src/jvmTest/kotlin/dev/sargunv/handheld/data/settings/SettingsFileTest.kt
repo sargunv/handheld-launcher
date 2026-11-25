@@ -72,4 +72,11 @@ class SettingsFileTest {
     settingsFile().write(TestSettings(volume = 1))
     assertEquals(TestSettings(volume = 1), settingsFile().read())
   }
+
+  @Test
+  fun aFileThatCantBeOpenedReadsAsTheDefaults() {
+    // A directory where the file should be fails to open, as an unreadable file does.
+    file.toFile().mkdirs()
+    assertEquals(TestSettings(), settingsFile().read())
+  }
 }

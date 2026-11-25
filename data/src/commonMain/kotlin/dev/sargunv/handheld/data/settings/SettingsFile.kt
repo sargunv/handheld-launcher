@@ -5,6 +5,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.io.IOException
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -33,9 +34,11 @@ class SettingsFile<T>(
    */
   fun read(): T {
     if (!SystemFileSystem.exists(path)) return default
-    val text = SystemFileSystem.source(path).buffered().use { it.readString() }
     return try {
+      val text = SystemFileSystem.source(path).buffered().use { it.readString() }
       json.decodeFromString(serializer, text)
+    } catch (_: IOException) {
+      default
     } catch (_: SerializationException) {
       default
     }
