@@ -1,0 +1,12 @@
+amends "package://github.com/jdx/hk/releases/download/v2.14.0/hk@2.14.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.14.0/hk@2.14.0#/Builtins.pkl"
+
+steps {
+  ["dprint"] = Builtins.dprint
+  ["jactionlint"] = Builtins.jactionlint
+  ["cargo-clippy"] {
+    glob = List("**/*.rs")
+    check = "cargo clippy --workspace --all-targets -- -D warnings"
+    fix = "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged"
+  }
+}

@@ -1,0 +1,47 @@
+[settings]
+experimental = true
+pin = true
+lockfile = true
+lockfile_mode = "merge"
+
+[tools]
+"aqua:dprint/dprint" = "0.65.0"
+"aqua:jdx/hk" = "2.14.0"
+"aqua:jdx/jactionlint" = "2.6.0"
+"aqua:koalaman/shellcheck" = "0.11.0"
+"core:java" = "zulu-25.38.201.0"
+"core:rust" = { version = "1.100.0", profile = "minimal", components = "rustfmt,clippy" }
+
+[env]
+# The runner images set ANDROID_HOME; locally it defaults to Android Studio's path.
+ANDROID_HOME = "{{ get_env(name='ANDROID_HOME', default=env.HOME ~ '/Android/Sdk') }}"
+
+[tasks.check]
+description = "Run the formatters and linters"
+run = "hk check --all"
+
+[tasks.fix]
+description = "Apply formatter and linter fixes"
+run = "hk fix --all"
+
+[tasks.build]
+description = "Build the Android and desktop apps and the session crate"
+run = ["./gradlew assemble", "cargo build --workspace"]
+
+[tasks.test]
+description = "Run the Kotlin and Rust tests"
+run = ["./gradlew check", "cargo test --workspace"]
+
+[tasks."run:desktop"]
+description = "Run the desktop app"
+run = "./gradlew :apps:desktop:run"
+
+[tasks."run:android"]
+description = "Install and launch the debug app on the connected device"
+run = [
+  "./gradlew :apps:android:installDebug",
+  "adb shell am start -n dev.sargunv.handheld/.MainActivity",
+]
+
+[hooks]
+postinstall = ["hk install --mise"]
