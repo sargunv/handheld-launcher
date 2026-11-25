@@ -169,7 +169,11 @@ struct App {
     cpu: Option<CpuPresenter>,
     window: Option<Rc<Window>>,
     input: Arc<InputState>,
+    /// The mapped keys held down.
     keyboard: u16,
+    /// The mapped keys pressed since the last frame, which it holds even if
+    /// they were released before it.
+    keyboard_presses: u16,
     gamepads: input::Gamepads,
     next_frame: Instant,
     frame_period: Duration,
@@ -205,6 +209,7 @@ impl App {
             window: None,
             input: Arc::new(InputState::new()),
             keyboard: 0,
+            keyboard_presses: 0,
             gamepads: input::Gamepads::new(),
             next_frame: Instant::now(),
             frame_period: Duration::from_secs_f64(1.0 / 60.0),
@@ -301,9 +306,7 @@ impl App {
             av.base_width.max(1) * self.args.scale,
             av.base_height.max(1) * self.args.scale,
         ));
-        if av.fps > 0.0 {
-            self.frame_period = Duration::from_secs_f64(1.0 / av.fps);
-        }
+        self.frame_period = frame_period(av.fps);
         self.next_frame = Instant::now();
         self.session = Some(session);
         self.window = Some(window);
@@ -314,8 +317,11 @@ impl App {
         let Some(session) = &mut self.session else {
             return;
         };
-        self.gamepads.update(self.input.port(0), self.keyboard);
+        let keyboard = self.keyboard | std::mem::take(&mut self.keyboard_presses);
+        self.gamepads.update(self.input.port(0), keyboard);
         session.run_frame();
+        // The core may change its frame rate mid-game.
+        self.frame_period = frame_period(session.av_info().fps);
         self.frames_run += 1;
         if let (Some(cpu), Some(window)) = (&mut self.cpu, &self.window) {
             cpu.present(window, session.av_info().aspect_ratio);
@@ -348,6 +354,7 @@ impl App {
                 if let Some(button) = input::key_button(key) {
                     if pressed {
                         self.keyboard |= button.mask();
+                        self.keyboard_presses |= button.mask();
                     } else {
                         self.keyboard &= !button.mask();
                     }
@@ -423,6 +430,16 @@ impl ApplicationHandler for App {
             }
         }
         self.session = None;
+    }
+}
+
+/// How long a frame lasts at `fps`, or at 60 frames a second if the core
+/// gives no usable rate.
+fn frame_period(fps: f64) -> Duration {
+    if fps.is_finite() && fps > 1.0 {
+        Duration::from_secs_f64(1.0 / fps)
+    } else {
+        Duration::from_secs_f64(1.0 / 60.0)
     }
 }
 

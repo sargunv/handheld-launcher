@@ -69,15 +69,24 @@ impl Gamepads {
     }
 
     /// Reads every connected gamepad into `port`, combining their buttons
-    /// with `keyboard`'s. Each stick takes the gamepad that pushes it
-    /// furthest.
+    /// with `keyboard`'s. A button pressed since the last update counts as
+    /// held, even if it was released since. Each stick takes the gamepad
+    /// that pushes it furthest.
     pub fn update(&mut self, port: &Port, keyboard: u16) {
         let mut buttons = keyboard;
         let (mut left, mut right) = ((0, 0), (0, 0));
         if let Some(gilrs) = &mut self.gilrs {
             while let Some(event) = gilrs.next_event() {
-                if let gilrs::EventType::Connected = event.event {
-                    log::info!("gamepad connected: {}", gilrs.gamepad(event.id).name());
+                match event.event {
+                    gilrs::EventType::Connected => {
+                        log::info!("gamepad connected: {}", gilrs.gamepad(event.id).name());
+                    }
+                    gilrs::EventType::ButtonPressed(button, _) => {
+                        if let Some(b) = pad_button(button) {
+                            buttons |= b.mask();
+                        }
+                    }
+                    _ => {}
                 }
             }
             for (_, pad) in gilrs.gamepads() {

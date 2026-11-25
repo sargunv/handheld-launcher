@@ -72,6 +72,10 @@ where
                     // An underrun plays silence.
                     let left = queue.pop_front().unwrap_or(0.0);
                     let right = queue.pop_front().unwrap_or(left);
+                    if let [mono] = frame {
+                        *mono = T::from_sample((left + right) / 2.0);
+                        continue;
+                    }
                     for (i, sample) in frame.iter_mut().enumerate() {
                         let value = match i {
                             0 => left,
