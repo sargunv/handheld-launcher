@@ -130,6 +130,8 @@ pub enum SessionError {
     ReadContent(#[source] io::Error),
     #[error("the core couldn't load the content")]
     LoadGame,
+    #[error("can't read the save memory file")]
+    ReadSaveRam(#[source] io::Error),
     #[error("can't set up OpenGL")]
     Gl(#[from] GlError),
     #[error("the session doesn't present to a window")]

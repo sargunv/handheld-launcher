@@ -30,8 +30,9 @@ pub struct SessionOptions {
     /// Where the core may write its own save files.
     pub save_dir: String,
     /// The file the core's save memory loads from when the session starts,
-    /// and is written to when it pauses or stops. `None` keeps save memory
-    /// only in memory.
+    /// and is written to when it pauses or stops. A missing file starts the
+    /// game with blank save memory; one that can't be read fails the start.
+    /// `None` keeps save memory only in memory.
     pub save_ram_path: Option<String>,
     /// Core option values to use instead of the core's defaults, by key.
     pub core_options: HashMap<String, String>,
@@ -334,7 +335,13 @@ fn run(
         match session.load_save_ram(path) {
             Ok(true) => log::info!("loaded save memory from {}", path.display()),
             Ok(false) => {}
-            Err(e) => log::error!("can't load save memory from {}: {e}", path.display()),
+            Err(e) => {
+                // Running anyway would replace the file with fresh save
+                // memory the first time the game saves.
+                log::error!("can't load save memory from {}: {e}", path.display());
+                let _ = started.send(Err(SessionError::ReadSaveRam(e)));
+                return;
+            }
         }
     }
     let av = session.av_info();

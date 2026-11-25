@@ -141,6 +141,17 @@ class GameSessionTest {
   }
 
   @Test
+  fun anUnreadableSaveFileFailsTheStart() {
+    // A directory where the save file goes can't be read as one.
+    val save = dir.resolve("saves/game.srm")
+    save.mkdirs()
+    assertFailsWith<SessionException.ReadSaveRam> { start("gambatte_libretro.so", "ucity.gbc") }
+    assertTrue(save.isDirectory)
+    // The failed start released the session.
+    start("test_libretro.so")
+  }
+
+  @Test
   fun stoppedSessionsRefuseWork() {
     val session = start("test_libretro.so")
     session.stop()
