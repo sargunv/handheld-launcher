@@ -209,3 +209,16 @@ val cargoBuildAndroid =
 androidComponents.onVariants { variant ->
   variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoBuildAndroid, CargoBuild::outputDir)
 }
+
+tasks.named<Test>("jvmTest") {
+  // The tests run the cores that `mise run session:fixtures` builds, wherever the tests look.
+  val cache =
+    providers
+      .environmentVariable("XDG_CACHE_HOME")
+      .orElse(providers.systemProperty("user.home").map { "$it/.cache" })
+  val fixtures =
+    providers
+      .environmentVariable("HANDHELD_SESSION_FIXTURES")
+      .orElse(cache.map { "$it/handheld/session-fixtures" })
+  inputs.files(fixtures).withPathSensitivity(PathSensitivity.RELATIVE).withPropertyName("fixtures")
+}
