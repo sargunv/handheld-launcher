@@ -41,13 +41,31 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  *
  * [androidLibrary] is the name on the Android buildbot where it differs, for cores built per
  * graphics API there. [retroArchFolder] is the folder RetroArch sorts the core's saves and states
- * into.
+ * into. [source] is where its Android builds come from.
  */
 data class LibretroCore(
   val library: String,
   val androidLibrary: String = library,
   val retroArchFolder: String,
+  val source: CoreSource = CoreSource.Buildbot,
 )
+
+/** Where a core's Android builds come from, as a zip holding the core's library. */
+sealed interface CoreSource {
+  /** The libretro buildbot's nightly builds, rebuilt every night with no history kept. */
+  data object Buildbot : CoreSource
+
+  /**
+   * The latest release of the GitHub repository [repository], such as `owner/name`, whose assets
+   * include one per ABI named [assetPrefix], the ABI, a dash, the release's version and `.zip`.
+   */
+  data class GitHubRelease(val repository: String, val assetPrefix: String) : CoreSource {
+    /** The asset among [names] that holds the build for [abi], or null when there's none. */
+    fun assetFor(abi: String, names: List<String>): String? = names.firstOrNull {
+      it.startsWith("$assetPrefix$abi-") && it.endsWith(".zip")
+    }
+  }
+}
 
 /** The libretro core recommended for each platform, for the built-in session and for RetroArch. */
 object LibretroCores {
@@ -62,9 +80,14 @@ object LibretroCores {
   private val gambatte = LibretroCore("gambatte_libretro", retroArchFolder = "Gambatte")
   private val mgba = LibretroCore("mgba_libretro", retroArchFolder = "mGBA")
   private val melonDsDs = LibretroCore("melondsds_libretro", retroArchFolder = "melonDS DS")
-  // Azahar publishes this core in its own GitHub releases; the libretro buildbot has no Android
-  // build of it.
-  private val azahar = LibretroCore("azahar_libretro", retroArchFolder = "Azahar")
+  // Azahar publishes this core with each of its releases, so it comes from there rather than from
+  // the buildbot's nightlies.
+  private val azahar =
+    LibretroCore(
+      "azahar_libretro",
+      retroArchFolder = "Azahar",
+      source = CoreSource.GitHubRelease("azahar-emu/azahar", "azahar-libretro-android-"),
+    )
   private val dolphin = LibretroCore("dolphin_libretro", retroArchFolder = "dolphin-emu")
   private val beetlePsxHw =
     LibretroCore("mednafen_psx_hw_libretro", retroArchFolder = "Beetle PSX HW")
@@ -122,4 +145,17 @@ object LibretroCores {
   /** The core recommended for [platform], or null when there's none or the platform is unknown. */
   fun recommendedFor(platform: PlatformSlug): LibretroCore? =
     recommended[PlatformCatalog.emulatedAs(platform)]
+
+  /** Every core recommended for some platform. */
+  val all: List<LibretroCore> = recommended.values.filterNotNull().distinct()
+
+  /** The known core whose library is [library], or null when there's none. */
+  fun byLibrary(library: String): LibretroCore? = all.firstOrNull { it.library == library }
+
+  /**
+   * The core that runs [platform]: the one [overrides] names for it by library, when that's a known
+   * core, or else the recommended one.
+   */
+  fun coreFor(platform: PlatformSlug, overrides: Map<PlatformSlug, String>): LibretroCore? =
+    overrides[platform]?.let(::byLibrary) ?: recommendedFor(platform)
 }
