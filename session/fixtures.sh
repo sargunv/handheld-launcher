@@ -6,6 +6,10 @@
 # the cores are built from pinned commits instead. Building needs a C and C++
 # toolchain and the OpenGL and OpenGL ES development libraries.
 #
+# On macOS the cores build as .dylib and keep the .so names below, which the
+# tests use on every platform. The GL test cores aren't built there: their tests
+# need EGL, which macOS doesn't have, and are ignored.
+#
 # The fixtures:
 # - test_libretro.so: libretro-samples' software test core (MIT).
 # - testgl_{gl,gles,core}_libretro.so: libretro-samples' GL test core, built for
@@ -28,16 +32,21 @@ fi
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-jobs="$(nproc 2>/dev/null || echo 4)"
+jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+case "$(uname -s)" in
+  Darwin) ext=dylib gl=false ;;
+  *) ext=so gl=true ;;
+esac
 
 out="$work/out"
 mkdir -p "$out"
 
 echo "Building libretro-samples' test cores"
 fetch_samples "$work/samples"
-make -s -C "$work/samples/tests/test" -j"$jobs"
-cp "$work/samples/tests/test/test_libretro.so" "$out/"
-for variant in gl gles core; do
+# An empty ARCHFLAGS stops the Makefile building for i386 and x86_64 on macOS.
+make -s -C "$work/samples/tests/test" -j"$jobs" ARCHFLAGS=
+cp "$work/samples/tests/test/test_libretro.$ext" "$out/test_libretro.so"
+for variant in $([[ "$gl" == true ]] && echo gl gles core); do
   src="$work/samples-$variant"
   cp -r "$work/samples/video/opengl/libretro_test_gl_shaders" "$src"
   case "$variant" in
@@ -52,7 +61,7 @@ done
 echo "Building Gambatte"
 fetch_gambatte "$work/gambatte"
 make -s -C "$work/gambatte" -j"$jobs" GIT_VERSION=" ${gambatte_commit:0:7}"
-cp "$work/gambatte/gambatte_libretro.so" "$out/"
+cp "$work/gambatte/gambatte_libretro.$ext" "$out/gambatte_libretro.so"
 
 echo "Downloading µCity"
 fetch_ucity "$out/ucity.gbc"
