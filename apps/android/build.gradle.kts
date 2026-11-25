@@ -27,5 +27,6 @@ dependencies {
   implementation(project(":ui"))
   implementation(project(":data"))
   implementation(libs.androidx.activity.compose)
+  implementation(libs.androidx.core)
   debugImplementation(project(":session"))
 }

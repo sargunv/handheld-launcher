@@ -17,6 +17,9 @@ import kotlinx.io.files.Path
  *   directory or absolute ones. A `platform` extra, a platform slug such as `gbc`, runs that
  *   platform's core instead, installing it first through [InstalledCores] if it isn't installed or
  *   has an update.
+ * - `launch`: launches the game at the `rom` extra, an absolute path, for the platform the
+ *   `platform` extra names by slug, through the launch resolver and dispatcher. The optional `app`
+ *   extra names a package to launch it in, as a game's own override would.
  *
  * For example:
  * ```
@@ -24,6 +27,9 @@ import kotlinx.io.files.Path
  *   --es debug_screen session_test --es core test_libretro_android.so
  * adb shell am start -n dev.sargunv.handheld/.MainActivity \
  *   --es debug_screen session_test --es platform gbc --es content ucity.gbc
+ * adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen launch \
+ *   --es rom "'/storage/emulated/0/ROMs/ps2/Jak II.chd'" --es platform ps2 \
+ *   --es app dev.sargunv.pocketgoal
  * ```
  */
 internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
@@ -42,6 +48,12 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
         }
       val pauseWhenUnfocused = settingsFile(activity).read().pauseGameWhenUnfocused
       ({ SessionTestScreen(dir, core, content, pauseWhenUnfocused) })
+    }
+    "launch" -> {
+      val rom = intent.getStringExtra("rom")
+      val platform = intent.getStringExtra("platform")
+      val app = intent.getStringExtra("app")
+      ({ LaunchTestScreen(activity, rom, platform, app) })
     }
     else -> null
   }
