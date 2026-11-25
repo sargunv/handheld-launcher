@@ -75,6 +75,8 @@ pub(crate) struct Host {
     input_snapshot: [PortSnapshot; MAX_PORTS],
     pub(crate) audio_sink: Box<dyn AudioSink>,
     pub(crate) audio: Option<AudioPipeline>,
+    /// The core rate `audio` resamples from.
+    audio_rate: f64,
     audio_samples: Vec<i16>,
     pub(crate) video: VideoTarget,
     pub(crate) gpu: Option<Gpu>,
@@ -117,6 +119,7 @@ impl Host {
             input_snapshot: Default::default(),
             audio_sink,
             audio: None,
+            audio_rate: 0.0,
             audio_samples: Vec::new(),
             video,
             gpu: None,
@@ -138,8 +141,13 @@ impl Host {
         self.input_snapshot = self.input.snapshot();
     }
 
-    /// Rebuilds the audio pipeline for the core's current rate.
+    /// Rebuilds the audio pipeline for the core's current rate, unless it
+    /// already resamples from that rate.
     pub(crate) fn reset_audio(&mut self) {
+        if self.audio.is_some() && self.audio_rate == self.av_info.sample_rate {
+            return;
+        }
+        self.audio_rate = self.av_info.sample_rate;
         self.audio = AudioPipeline::new(self.av_info.sample_rate, self.audio_sink.sample_rate());
         if self.audio.is_none() && self.av_info.sample_rate > 0.0 {
             log::warn!("the session can't play the core's audio");
@@ -531,8 +539,9 @@ impl Host {
 pub(crate) fn hw_api(cb: &ffi::retro_hw_render_callback) -> Option<GlApi> {
     match cb.context_type {
         ffi::RETRO_HW_CONTEXT_OPENGL => Some(GlApi::Gl { core: None }),
+        // Core profiles start at 3.2.
         ffi::RETRO_HW_CONTEXT_OPENGL_CORE => Some(GlApi::Gl {
-            core: Some((cb.version_major.max(3), cb.version_minor)),
+            core: Some((cb.version_major, cb.version_minor).max((3, 2))),
         }),
         ffi::RETRO_HW_CONTEXT_OPENGLES2 => Some(GlApi::Gles { major: 2, minor: 0 }),
         ffi::RETRO_HW_CONTEXT_OPENGLES3 => Some(GlApi::Gles { major: 3, minor: 0 }),
