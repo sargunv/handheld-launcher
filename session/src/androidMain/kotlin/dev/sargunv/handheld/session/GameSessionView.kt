@@ -102,6 +102,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     val run = running && attached && hasWindowFocus() && isAttachedToWindow
     if (run == resumed) return
     resumed = run
+    if (!run) input?.releaseAll()
     control(session) { if (run) resume() else pause() }
   }
 

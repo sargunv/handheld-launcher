@@ -68,6 +68,20 @@ class GamepadInput(private val session: GameSession) {
     return true
   }
 
+  /**
+   * Releases every button, stick and trigger. Call it when input stops arriving, such as when the
+   * view loses focus, since a control released meanwhile sends this class no event.
+   */
+  fun releaseAll() {
+    Button.entries.forEach { session.setButton(PORT, it, false) }
+    session.setStick(PORT, Stick.LEFT, 0, 0)
+    session.setStick(PORT, Stick.RIGHT, 0, 0)
+    session.setTrigger(PORT, Button.L2, 0)
+    session.setTrigger(PORT, Button.R2, 0)
+    hatX = 0
+    hatY = 0
+  }
+
   private fun axis(event: MotionEvent, axis: Int): Short {
     val range = event.device?.getMotionRange(axis, event.source)
     var value = event.getAxisValue(axis)
