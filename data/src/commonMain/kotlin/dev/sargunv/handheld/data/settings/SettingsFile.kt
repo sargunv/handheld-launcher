@@ -44,17 +44,22 @@ class SettingsFile<T>(
     }
   }
 
-  /** Replaces the stored settings with [settings]. */
+  /**
+   * Replaces the stored settings with [settings]. When storage fails, as on a full disk, the old
+   * file stays and the app carries on with the new settings until it closes.
+   */
   suspend fun write(settings: T) {
     withContext(Dispatchers.IO) {
       mutex.withLock {
-        path.parent?.let { SystemFileSystem.createDirectories(it) }
-        // Write a sibling and move it over the old file, so a crash never leaves half a file.
-        val temp = Path("$path.tmp")
-        SystemFileSystem.sink(temp).buffered().use {
-          it.writeString(json.encodeToString(serializer, settings))
-        }
-        SystemFileSystem.atomicMove(temp, path)
+        try {
+          path.parent?.let { SystemFileSystem.createDirectories(it) }
+          // Write a sibling and move it over the old file, so a crash never leaves half a file.
+          val temp = Path("$path.tmp")
+          SystemFileSystem.sink(temp).buffered().use {
+            it.writeString(json.encodeToString(serializer, settings))
+          }
+          SystemFileSystem.atomicMove(temp, path)
+        } catch (_: IOException) {}
       }
     }
   }

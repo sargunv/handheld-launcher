@@ -79,4 +79,12 @@ class SettingsFileTest {
     file.toFile().mkdirs()
     assertEquals(TestSettings(), settingsFile().read())
   }
+
+  @Test
+  fun aFailedWriteDoesntThrow() = runTest {
+    // A file where the settings directory should be makes every write fail.
+    file.parent.parent.toFile().mkdirs()
+    file.parent.toFile().writeText("")
+    settingsFile().write(TestSettings(volume = 1))
+  }
 }
