@@ -59,10 +59,11 @@ object LibretroCores {
       androidLibrary = "mupen64plus_next_gles3_libretro",
       retroArchFolder = "Mupen64Plus-Next",
     )
-  private val parallelN64 = LibretroCore("parallel_n64_libretro", retroArchFolder = "ParaLLEl N64")
   private val gambatte = LibretroCore("gambatte_libretro", retroArchFolder = "Gambatte")
   private val mgba = LibretroCore("mgba_libretro", retroArchFolder = "mGBA")
   private val melonDsDs = LibretroCore("melondsds_libretro", retroArchFolder = "melonDS DS")
+  // Azahar publishes this core in its own GitHub releases; the libretro buildbot has no Android
+  // build of it.
   private val azahar = LibretroCore("azahar_libretro", retroArchFolder = "Azahar")
   private val dolphin = LibretroCore("dolphin_libretro", retroArchFolder = "dolphin-emu")
   private val beetlePsxHw =
@@ -88,7 +89,8 @@ object LibretroCores {
       FDS to mesen,
       SNES to snes9x,
       N64 to mupen64plusNext,
-      N64DD to parallelN64,
+      // The 64DD needs its boot ROM at system/Mupen64plus/IPL.n64.
+      N64DD to mupen64plusNext,
       GB to gambatte,
       GBC to gambatte,
       GBA to mgba,
