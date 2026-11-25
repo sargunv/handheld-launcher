@@ -12,9 +12,10 @@ import java.util.concurrent.Executors
 /**
  * Shows a [GameSession] in [VideoMode.WINDOW] and feeds it the gamepad's input while focused.
  *
- * The session runs only while the view's surface exists, its window has focus and [running] is
- * true, so it pauses when the app goes to the background or a system dialog or shade covers it. The
- * view never stops the session; its owner does.
+ * The session runs only while the view's surface exists, its window is visible and [running] is
+ * true, so it pauses when the app goes to the background or the screen turns off. Losing focus,
+ * such as to a touch on another display, pauses it only with [pauseWhenUnfocused]. The view never
+ * stops the session; its owner does.
  *
  * Pausing writes save memory to disk, so the view pauses and resumes sessions in order on a thread
  * of its own rather than the UI thread.
@@ -37,8 +38,18 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       update()
     }
 
-  /** Whether the session should run while it's visible and focused. */
+  /** Whether the session should run while it's visible. */
   var running: Boolean = true
+    set(value) {
+      field = value
+      update()
+    }
+
+  /**
+   * Whether the session also pauses while its window lacks focus, as when a system dialog or shade
+   * covers it or the other screen of a two-screen device is touched.
+   */
+  var pauseWhenUnfocused: Boolean = false
     set(value) {
       field = value
       update()
@@ -72,6 +83,13 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
   override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
     super.onWindowFocusChanged(hasWindowFocus)
+    // Controls released while another window has focus send this view no event.
+    if (!hasWindowFocus) input?.releaseAll()
+    update()
+  }
+
+  override fun onWindowVisibilityChanged(visibility: Int) {
+    super.onWindowVisibilityChanged(visibility)
     update()
   }
 
@@ -99,7 +117,12 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
   private fun update() {
     val session = session ?: return
-    val run = running && attached && hasWindowFocus() && isAttachedToWindow
+    val run =
+      running &&
+        attached &&
+        isAttachedToWindow &&
+        windowVisibility == VISIBLE &&
+        (hasWindowFocus() || !pauseWhenUnfocused)
     if (run == resumed) return
     resumed = run
     if (!run) input?.releaseAll()
