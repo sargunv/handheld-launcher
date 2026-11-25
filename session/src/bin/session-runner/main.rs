@@ -289,7 +289,9 @@ impl App {
             match session.load_save_ram(path) {
                 Ok(true) => log::info!("loaded save memory from {}", path.display()),
                 Ok(false) => {}
-                Err(e) => log::warn!("can't load {}: {e}", path.display()),
+                // Running anyway would replace the file with fresh save
+                // memory on exit.
+                Err(e) => return Err(format!("can't load {}: {e}", path.display())),
             }
         }
         let av = session.av_info();
