@@ -148,7 +148,9 @@ impl Port {
     }
 
     /// Sets how far an analog trigger is pulled, from 0 to 32767. Cores that
-    /// read the trigger as a button still see [`Port::set_button`]'s state.
+    /// read the trigger as a button see it pressed while it's pulled past
+    /// halfway or [`Port::set_button`] holds it, since many gamepads report
+    /// their triggers only as axes.
     ///
     /// # Panics
     ///
@@ -163,13 +165,24 @@ impl Port {
     }
 
     fn snapshot(&self, presses: u16) -> PortSnapshot {
+        let triggers: [i16; 2] = std::array::from_fn(|i| self.triggers[i].load(Ordering::Relaxed));
+        let mut buttons = self.buttons() | presses;
+        for (value, button) in triggers.iter().zip([Button::L2, Button::R2]) {
+            if *value > TRIGGER_PRESSED {
+                buttons |= button.mask();
+            }
+        }
         PortSnapshot {
-            buttons: self.buttons() | presses,
+            buttons,
             sticks: std::array::from_fn(|i| self.sticks[i].load(Ordering::Relaxed)),
-            triggers: std::array::from_fn(|i| self.triggers[i].load(Ordering::Relaxed)),
+            triggers,
         }
     }
 }
+
+/// How far an analog trigger is pulled, past which it counts as a pressed
+/// button.
+const TRIGGER_PRESSED: i16 = i16::MAX / 2;
 
 /// A port's state as the core sees it for one poll.
 #[derive(Clone, Copy, Debug, Default)]
@@ -316,6 +329,31 @@ mod tests {
         );
         assert_eq!(
             query_one(&state, analog, button, ffi::RETRO_DEVICE_ID_JOYPAD_A),
+            0
+        );
+    }
+
+    #[test]
+    fn triggers_pulled_past_halfway_press_their_buttons() {
+        let state = InputState::new();
+        let joypad = ffi::RETRO_DEVICE_JOYPAD;
+        state.port(0).set_trigger(Button::L2, i16::MAX / 4);
+        state.port(0).set_trigger(Button::R2, i16::MAX);
+        assert_eq!(
+            query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_L2),
+            0
+        );
+        assert_eq!(
+            query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_R2),
+            1
+        );
+        assert_eq!(
+            query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_MASK),
+            Button::R2.mask() as i16
+        );
+        state.port(0).set_trigger(Button::R2, 0);
+        assert_eq!(
+            query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_R2),
             0
         );
     }
