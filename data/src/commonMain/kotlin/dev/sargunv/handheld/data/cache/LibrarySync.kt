@@ -40,8 +40,8 @@ class LibrarySync(
   /**
    * Brings the cache up to date with the server. Platforms and collections are small, so they're
    * fetched whole every time. ROMs are fetched whole the first time, or when [full] is true, and
-   * afterwards only those the server changed since the last sync, plus the list of ids that tells
-   * which ROMs are gone.
+   * afterwards only those the server changed since the last sync. The server's list of ROM ids then
+   * tells which ROMs are gone, and which ones the cache lacks, which are fetched one by one.
    *
    * A sync that fails leaves the cache usable: what it wrote stays, and the next sync fetches the
    * same changes again.
@@ -68,7 +68,20 @@ class LibrarySync(
       val pageNewest = page.items.maxOf { it.updatedAt }
       newest = newest?.let { maxOf(it, pageNewest) } ?: pageNewest
     }
-    val removed = cache.retainRoms(client.romIds().toSet())
+    val serverIds = client.romIds().toSet()
+    val removed = cache.retainRoms(serverIds)
+    // The server can list a ROM the walk didn't return: one the user unhid, which keeps its old
+    // update time, or one that paging by offset skipped.
+    for (id in serverIds - cache.romIds()) {
+      val rom =
+        try {
+          client.rom(id)
+        } catch (e: RommException.NotFound) {
+          continue
+        }
+      cache.upsertRoms(listOf(rom.toDomain(client)))
+      fetched++
+    }
 
     val collections =
       client.collections().map { it.toDomain() to it.romIds } +
@@ -117,13 +130,17 @@ internal fun RommRom.toDomain(client: RommClient): Rom {
     genres = metadatum?.genres.orEmpty(),
     regions = regions,
     releaseDate = metadatum?.firstReleaseDate?.let(Instant::fromEpochMilliseconds),
-    coverSmallUrl = pathCoverSmall?.let(client::resolve) ?: urlCover,
-    coverLargeUrl = pathCoverLarge?.let(client::resolve) ?: urlCover,
+    coverSmallUrl = coverUrl(pathCoverSmall, client),
+    coverLargeUrl = coverUrl(pathCoverLarge, client),
     hasMultipleFiles = hasMultipleFiles,
     files = files.map { it.toDomain() },
     updatedAt = updatedAt,
   )
 }
+
+/** The cover RomM keeps, else the metadata source's. RomM sends an empty string for none. */
+private fun RommRom.coverUrl(path: String?, client: RommClient): String? =
+  path?.takeIf { it.isNotBlank() }?.let(client::resolve) ?: urlCover?.takeIf { it.isNotBlank() }
 
 internal fun RommRomFile.toDomain() =
   RomFile(

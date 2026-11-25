@@ -38,6 +38,8 @@ object Fixtures {
     alternativeNames: List<String> = emptyList(),
     files: List<String> = listOf(file(id * 10, id, fsName, 1024)),
     multi: Boolean = files.size > 1,
+    hasCover: Boolean = true,
+    urlCover: String = "https://images.example/cover/$id.jpg",
   ) =
     """
     {
@@ -59,9 +61,9 @@ object Fixtures {
         "player_count": "1", "first_release_date": 1000000000000, "average_rating": null
       },
       "igdb_metadata": {"total_rating": "80", "genres": ["Platform"]},
-      "path_cover_small": "/assets/romm/resources/roms/$platformId/$id/cover/small.png?ts=2025-01-01 00:00:00",
-      "path_cover_large": "/assets/romm/resources/roms/$platformId/$id/cover/big.png?ts=2025-01-01 00:00:00",
-      "url_cover": "https://images.example/cover/$id.jpg", "has_manual": false,
+      "path_cover_small": "${if (hasCover) "/assets/romm/resources/roms/$platformId/$id/cover/small.png?ts=2025-01-01 00:00:00" else ""}",
+      "path_cover_large": "${if (hasCover) "/assets/romm/resources/roms/$platformId/$id/cover/big.png?ts=2025-01-01 00:00:00" else ""}",
+      "url_cover": "$urlCover", "has_manual": false,
       "is_identified": true, "revision": null, "regions": ["USA"], "languages": [], "tags": [],
       "has_simple_single_file": ${!multi}, "has_nested_single_file": false,
       "has_multiple_files": $multi, "full_path": "roms/test/$fsName",

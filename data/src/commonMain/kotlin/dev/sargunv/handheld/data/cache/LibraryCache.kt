@@ -132,6 +132,8 @@ private constructor(
     }
   }
 
+  internal suspend fun romIds(): Set<Long> = transaction { queries.romIds().awaitAsList().toSet() }
+
   /** Removes the ROMs whose ids aren't in [ids], and returns how many it removed. */
   internal suspend fun retainRoms(ids: Set<Long>): Int = transaction {
     val removed = queries.romIds().awaitAsList().filterNot { it in ids }

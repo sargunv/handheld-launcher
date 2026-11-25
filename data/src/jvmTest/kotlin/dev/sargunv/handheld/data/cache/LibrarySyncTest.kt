@@ -3,6 +3,8 @@ package dev.sargunv.handheld.data.cache
 import dev.sargunv.handheld.data.Fixtures
 import dev.sargunv.handheld.data.romm.MockServer
 import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.data.romm.RommJson
+import dev.sargunv.handheld.data.romm.RommRom
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
@@ -29,6 +31,9 @@ class LibrarySyncTest {
   /** A fake library: ROM ids to when they changed. */
   private class Library {
     val roms = mutableMapOf<Long, String>()
+
+    /** ROM ids the server lists but no longer has, as when a ROM is deleted during a sync. */
+    val unlisted = mutableSetOf<Long>()
     var failRoms = false
 
     fun romJson(id: Long) =
@@ -66,11 +71,15 @@ class LibrarySyncTest {
             ),
           )
         }
-        "roms/identifiers" -> json(library.roms.keys.sorted().toString())
+        "roms/identifiers" -> json((library.roms.keys + library.unlisted).sorted().toString())
         "collections" ->
           json("[${Fixtures.collection(1, "Favourites", listOf(1, 2), favorite = true)}]")
         "collections/smart" -> json("[${Fixtures.smartCollection(1, "Odd ones", listOf(1, 3))}]")
-        else -> respondError(HttpStatusCode.NotFound)
+        else -> {
+          val id = request.apiPath.removePrefix("roms/").toLongOrNull()
+          if (id != null && id in library.roms) json(library.romJson(id))
+          else respondError(HttpStatusCode.NotFound)
+        }
       }
     }
   private val sync = LibrarySync(server.client, cache, pageSize = 2)
@@ -156,6 +165,40 @@ class LibrarySyncTest {
     server.requests.clear()
     sync.sync()
     assertEquals("2025-03-02T23:50:00Z", romRequests().single().url.parameters["updated_after"])
+  }
+
+  @Test
+  fun fetchesRomsTheServerListsButTheCacheLacks() = runTest {
+    library.roms += mapOf(1L to "2025-03-01T00:00:00+00:00")
+    sync.sync()
+    server.requests.clear()
+
+    // An unhidden ROM keeps its old update time, so the window doesn't include it.
+    library.roms[5] = "2025-01-01T00:00:00+00:00"
+    library.unlisted += 6
+    val result = sync.sync()
+
+    assertEquals(
+      listOf("roms", "roms/identifiers", "roms/5", "roms/6"),
+      server.requests.map { it.apiPath }.filter { it.startsWith("roms") },
+    )
+    // ROM 1 again, since it's inside the window, and ROM 5.
+    assertEquals(2, result.romsFetched)
+    assertEquals(setOf(1L, 5L), cache.romIds())
+    assertEquals("Game 5", cache.rom(5)!!.title)
+  }
+
+  @Test
+  fun fallsBackToTheMetadataSourcesCover() {
+    fun rom(json: String) =
+      RommJson.decodeFromString(RommRom.serializer(), json).toDomain(server.client)
+
+    val noCover = rom(Fixtures.rom(1, hasCover = false, urlCover = ""))
+    assertNull(noCover.coverSmallUrl)
+    assertNull(noCover.coverLargeUrl)
+    val sourceCover = rom(Fixtures.rom(1, hasCover = false))
+    assertEquals("https://images.example/cover/1.jpg", sourceCover.coverSmallUrl)
+    assertEquals("https://images.example/cover/1.jpg", sourceCover.coverLargeUrl)
   }
 
   @Test
