@@ -28,8 +28,8 @@ class LaunchResolverTest {
   private fun resolved(resolution: LaunchResolution): LaunchResolution.Resolved =
     assertIs<LaunchResolution.Resolved>(resolution)
 
-  // Argosy #651: a game sent to an app the registry doesn't know lost to the platform's known
-  // default. Here any app wins at any level.
+  // The vision's first acceptance test. PocketGOAL is an app the registry doesn't know, and it
+  // still beats the platform's known default at either level.
   @Test
   fun jakGamesOpenInPocketGoalAndOtherPs2GamesInArmsx2() {
     val installed = setOf(armsx2, pocketGoal, "xyz.aethersx2.android")

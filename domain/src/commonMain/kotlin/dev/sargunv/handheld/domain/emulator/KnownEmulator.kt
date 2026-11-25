@@ -1,3 +1,5 @@
+// Ported from Argosy (https://github.com/rommapp/argosy-launcher), GPL-3.0.
+
 package dev.sargunv.handheld.domain.emulator
 
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
