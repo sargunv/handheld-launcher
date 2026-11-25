@@ -1,0 +1,3 @@
+[bindings.kotlin]
+package_name = "dev.sargunv.handheld.session"
+cdylib_name = "handheld_session"

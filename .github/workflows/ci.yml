@@ -26,5 +26,32 @@ jobs:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
       - uses: gradle/actions/setup-gradle@v6
+      # The session's test cores build against GL and GL ES and render with
+      # Mesa's EGL; its desktop runner needs ALSA and libudev.
+      - run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          libgl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri libasound2-dev
+          libudev-dev
+      # The session's Android build uses the NDK that libs.versions.toml pins.
+      - run: >-
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
+          "ndk;$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p'
+          gradle/libs.versions.toml)"
+      # The session's test fixtures, which fixtures.sh builds from the sources
+      # fixture-sources.sh pins.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/handheld/session-fixtures
+          key:
+            session-fixtures-${{ hashFiles('session/fixtures.sh',
+            'session/fixture-sources.sh') }}
       - run: mise run build
       - run: mise run test
+        env:
+          HANDHELD_REQUIRE_EGL: "1"
+      - run:
+          cargo clippy -p handheld-session --features runner --all-targets -- -D
+          warnings
+      - run:
+          cargo clippy -p handheld-session --target aarch64-linux-android
+          --all-targets -- -D warnings

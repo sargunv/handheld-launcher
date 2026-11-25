@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Builds the libretro cores and downloads the content that the session's tests
+# run, into a cache directory, from pinned sources with pinned checksums.
+#
+# The libretro buildbot rebuilds its cores nightly and keeps no old builds, so
+# the cores are built from pinned commits instead. Building needs a C and C++
+# toolchain and the OpenGL and OpenGL ES development libraries.
+#
+# The fixtures:
+# - test_libretro.so: libretro-samples' software test core (MIT).
+# - testgl_{gl,gles,core}_libretro.so: libretro-samples' GL test core, built for
+#   OpenGL 2 (compatibility), OpenGL ES 2 and OpenGL 3.1 core (MIT).
+# - gambatte_libretro.so: the Gambatte Game Boy core (GPL-2.0).
+# - ucity.gbc: µCity, a Game Boy Color city builder by Antonio Niño Díaz (code
+#   GPL-3.0-or-later, graphics and music CC BY-SA 4.0).
+set -euo pipefail
+
+here="$(dirname "${BASH_SOURCE[0]}")"
+# shellcheck source=session/fixture-sources.sh
+source "$here/fixture-sources.sh"
+
+dest="${HANDHELD_SESSION_FIXTURES:-${XDG_CACHE_HOME:-$HOME/.cache}/handheld/session-fixtures}"
+stamp="$(cat "${BASH_SOURCE[0]}" "$here/fixture-sources.sh" | sha256sum | cut -d' ' -f1)"
+if [[ -f "$dest/.stamp" && "$(cat "$dest/.stamp")" == "$stamp" ]]; then
+  echo "Session fixtures are up to date in $dest"
+  exit 0
+fi
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+jobs="$(nproc 2>/dev/null || echo 4)"
+
+out="$work/out"
+mkdir -p "$out"
+
+echo "Building libretro-samples' test cores"
+fetch_samples "$work/samples"
+make -s -C "$work/samples/tests/test" -j"$jobs"
+cp "$work/samples/tests/test/test_libretro.so" "$out/"
+for variant in gl gles core; do
+  src="$work/samples-$variant"
+  cp -r "$work/samples/video/opengl/libretro_test_gl_shaders" "$src"
+  case "$variant" in
+    gl) flags=() ;;
+    gles) flags=(GLES=1) ;;
+    core) flags=(CORE=1) ;;
+  esac
+  make -s -C "$src" -j"$jobs" "${flags[@]}"
+  cp "$src/testgl_libretro.so" "$out/testgl_${variant}_libretro.so"
+done
+
+echo "Building Gambatte"
+fetch_gambatte "$work/gambatte"
+make -s -C "$work/gambatte" -j"$jobs" GIT_VERSION=" ${gambatte_commit:0:7}"
+cp "$work/gambatte/gambatte_libretro.so" "$out/"
+
+echo "Downloading µCity"
+fetch_ucity "$out/ucity.gbc"
+
+echo "$stamp" >"$out/.stamp"
+mkdir -p "$(dirname "$dest")"
+rm -rf "$dest"
+mv "$out" "$dest"
+echo "Session fixtures are ready in $dest"

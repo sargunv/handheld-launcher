@@ -27,8 +27,17 @@ class MainActivity : ComponentActivity() {
   /** A layout forced from the launch intent, for development on single-display devices. */
   private var forcedLayout by mutableStateOf<DualScreenLayout?>(null)
 
+  private var showsDebugScreen = false
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    val debugScreen = debugScreen(this)
+    if (debugScreen != null) {
+      // A debug screen takes the controller's input as it comes, without the launcher's mapping.
+      showsDebugScreen = true
+      setContent { debugScreen() }
+      return
+    }
     forcedLayout = forcedLayout(intent)
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
     setContent {
@@ -55,13 +64,19 @@ class MainActivity : ComponentActivity() {
   }
 
   override fun onDestroy() {
-    getSystemService(InputManager::class.java).unregisterInputDeviceListener(gamepadMotion)
+    if (!showsDebugScreen) {
+      getSystemService(InputManager::class.java).unregisterInputDeviceListener(gamepadMotion)
+    }
     super.onDestroy()
   }
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    forcedLayout = forcedLayout(intent)
+    setIntent(intent)
+    // The activity picks a debug screen when it's created, so a launch that opens, leaves or
+    // changes one recreates it. That also closes a game session the old screen was running.
+    if (showsDebugScreen || debugScreen(this) != null) recreate()
+    else forcedLayout = forcedLayout(intent)
   }
 
   // The window sees every key, even while nothing in its content has focus. Activity's
@@ -73,11 +88,12 @@ class MainActivity : ComponentActivity() {
   }
 
   override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-    gamepadMotion.onGenericMotionEvent(event) || super.dispatchGenericMotionEvent(event)
+    (!showsDebugScreen && gamepadMotion.onGenericMotionEvent(event)) ||
+      super.dispatchGenericMotionEvent(event)
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (!hasFocus) gamepadMotion.release()
+    if (!hasFocus && !showsDebugScreen) gamepadMotion.release()
   }
 
   /**

@@ -33,6 +33,12 @@ common ones:
   print its path.
 - `mise run android:action <action>`: send a semantic action (`confirm`, `back`,
   `up`, `menu`, ...) to the app as a key event.
+- `mise run session:fixtures`: build the cores and fetch the content the
+  session's tests run. `mise run test` runs it first.
+- `mise run session:run -- <core> [content]`: run a core in the session's
+  desktop development runner (session/README.md).
+- `mise run session:android-fixtures -- <abi>`: build the test cores for
+  Android, to run in the debug app's session test screen (session/README.md).
 
 ## Android dev device
 
