@@ -129,7 +129,10 @@ impl AudioSink for AAudioSink {
             self.reopen();
         }
         // Whole frames only, so the callback always reads left then right.
-        let n = samples.len().min(self.queue.slots()) & !1;
+        // Audio past the queue's capacity is dropped rather than added as
+        // latency that rate control would take minutes to work off.
+        let room = self.capacity().saturating_sub(self.queued()) * 2;
+        let n = samples.len().min(room).min(self.queue.slots()) & !1;
         let _ = self.queue.push_partial_slice(&samples[..n]);
         if !self.playing && !self.paused && self.queued() >= self.capacity() / 2 {
             match self.stream.request_start() {
