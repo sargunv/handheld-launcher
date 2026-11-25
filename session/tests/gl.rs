@@ -3,7 +3,8 @@
 //!
 //! The core clears to a slate blue and draws two spinning quads, the second
 //! smaller one offset up and to the right. Each test skips when the machine
-//! has no usable EGL, unless `HANDHELD_REQUIRE_EGL` is set.
+//! has no usable EGL, unless `HANDHELD_REQUIRE_EGL` is set, and they're ignored
+//! on macOS, which has no EGL.
 
 mod common;
 
@@ -66,16 +67,19 @@ fn check(core: &str, name: &str) {
 }
 
 #[test]
+#[cfg_attr(target_os = "macos", ignore = "macOS has no EGL")]
 fn renders_with_opengl() {
     check("testgl_gl_libretro.so", "testgl-gl");
 }
 
 #[test]
+#[cfg_attr(target_os = "macos", ignore = "macOS has no EGL")]
 fn renders_with_opengl_es() {
     check("testgl_gles_libretro.so", "testgl-gles");
 }
 
 #[test]
+#[cfg_attr(target_os = "macos", ignore = "macOS has no EGL")]
 fn renders_with_an_opengl_core_profile() {
     check("testgl_core_libretro.so", "testgl-core");
 }

@@ -15,7 +15,7 @@ lockfile_mode = "merge"
 
 [env]
 # The runner images set ANDROID_HOME; locally it defaults to Android Studio's path.
-ANDROID_HOME = "{{ get_env(name='ANDROID_HOME', default=env.HOME ~ '/Android/Sdk') }}"
+ANDROID_HOME = "{% if os() == 'macos' %}{% set sdk = env.HOME ~ '/Library/Android/sdk' %}{% else %}{% set sdk = env.HOME ~ '/Android/Sdk' %}{% endif %}{{ get_env(name='ANDROID_HOME', default=sdk) }}"
 
 [tasks.check]
 description = "Run the formatters and linters"
@@ -51,7 +51,8 @@ run = [
 
 [tasks."android:screenshot"]
 description = "Save a screenshot of the connected device to a temp file and print its path"
-run = 'f="$(mktemp --suffix=.png)" && adb exec-out screencap -p > "$f" && echo "$f"'
+# A directory, since macOS's mktemp can't add a suffix to a file name.
+run = 'f="$(mktemp -d)/screen.png" && adb exec-out screencap -p > "$f" && echo "$f"'
 
 [tasks."android:action"]
 description = "Send a semantic action to the app on the connected device"

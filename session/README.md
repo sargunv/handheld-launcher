@@ -61,11 +61,13 @@ a cold cache builds and downloads them; the tests themselves stay offline. CI
 caches them by the files that pin them. Building them needs a C and C++
 toolchain and the OpenGL and OpenGL ES development libraries
 (`mesa-libGL-devel mesa-libGLES-devel` on Fedora, `libgl-dev libgles-dev` on
-Debian and Ubuntu).
+Debian and Ubuntu). On macOS, the Xcode command line tools are enough: the GL
+test cores aren't built there.
 
 The GL tests skip on machines without a usable EGL, unless
-`HANDHELD_REQUIRE_EGL` is set, as it is in CI. Set `HANDHELD_SESSION_DUMP_DIR`
-to a directory to see the frames the tests check, as PNGs.
+`HANDHELD_REQUIRE_EGL` is set, as it is in CI. macOS has no EGL, so they're
+ignored there. Set `HANDHELD_SESSION_DUMP_DIR` to a directory to see the frames
+the tests check, as PNGs.
 
 ## Desktop runner
 
