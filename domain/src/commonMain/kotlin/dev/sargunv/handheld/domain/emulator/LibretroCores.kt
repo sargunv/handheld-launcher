@@ -1,0 +1,121 @@
+package dev.sargunv.handheld.domain.emulator
+
+import dev.sargunv.handheld.domain.platform.PlatformCatalog
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.ARCADE
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.DREAMCAST
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.FDS
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAMECUBE
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAME_GEAR
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBC
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GENESIS
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.MASTER_SYSTEM
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.N3DS
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64DD
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.NDS
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.NES
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.POKEMON_MINI
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS3
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSP
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSX
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.SATURN
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.SEGA_32X
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.SEGA_CD
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.SNES
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.SWITCH
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.TG16
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.TG_CD
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.VITA
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.WII
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.WII_U
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.XBOX
+import dev.sargunv.handheld.domain.platform.PlatformSlug
+
+/**
+ * A libretro core, named as the libretro buildbot names its library, such as `snes9x_libretro`.
+ *
+ * [androidLibrary] is the name on the Android buildbot where it differs, for cores built per
+ * graphics API there. [retroArchFolder] is the folder RetroArch sorts the core's saves and states
+ * into.
+ */
+data class LibretroCore(
+  val library: String,
+  val androidLibrary: String = library,
+  val retroArchFolder: String,
+)
+
+/** The libretro core recommended for each platform, for the built-in session and for RetroArch. */
+object LibretroCores {
+  private val mesen = LibretroCore("mesen_libretro", retroArchFolder = "Mesen")
+  private val snes9x = LibretroCore("snes9x_libretro", retroArchFolder = "Snes9x")
+  private val mupen64plusNext =
+    LibretroCore(
+      "mupen64plus_next_libretro",
+      androidLibrary = "mupen64plus_next_gles3_libretro",
+      retroArchFolder = "Mupen64Plus-Next",
+    )
+  private val parallelN64 = LibretroCore("parallel_n64_libretro", retroArchFolder = "ParaLLEl N64")
+  private val gambatte = LibretroCore("gambatte_libretro", retroArchFolder = "Gambatte")
+  private val mgba = LibretroCore("mgba_libretro", retroArchFolder = "mGBA")
+  private val melonDsDs = LibretroCore("melondsds_libretro", retroArchFolder = "melonDS DS")
+  private val azahar = LibretroCore("azahar_libretro", retroArchFolder = "Azahar")
+  private val dolphin = LibretroCore("dolphin_libretro", retroArchFolder = "dolphin-emu")
+  private val beetlePsxHw =
+    LibretroCore("mednafen_psx_hw_libretro", retroArchFolder = "Beetle PSX HW")
+  private val ppsspp = LibretroCore("ppsspp_libretro", retroArchFolder = "PPSSPP")
+  private val genesisPlusGx =
+    LibretroCore("genesis_plus_gx_libretro", retroArchFolder = "Genesis Plus GX")
+  private val picoDrive = LibretroCore("picodrive_libretro", retroArchFolder = "PicoDrive")
+  private val beetleSaturn =
+    LibretroCore("mednafen_saturn_libretro", retroArchFolder = "Beetle Saturn")
+  private val flycast = LibretroCore("flycast_libretro", retroArchFolder = "Flycast")
+  private val beetlePce = LibretroCore("mednafen_pce_libretro", retroArchFolder = "Beetle PCE")
+  private val pokeMini = LibretroCore("pokemini_libretro", retroArchFolder = "PokeMini")
+  private val fbNeo = LibretroCore("fbneo_libretro", retroArchFolder = "FinalBurn Neo")
+
+  /**
+   * Every catalog platform that runs as itself, with its recommended core, or null where no
+   * libretro core runs it well and a standalone emulator is the way to play.
+   */
+  val recommended: Map<PlatformSlug, LibretroCore?> =
+    mapOf(
+      NES to mesen,
+      FDS to mesen,
+      SNES to snes9x,
+      N64 to mupen64plusNext,
+      N64DD to parallelN64,
+      GB to gambatte,
+      GBC to gambatte,
+      GBA to mgba,
+      NDS to melonDsDs,
+      N3DS to azahar,
+      GAMECUBE to dolphin,
+      WII to dolphin,
+      WII_U to null,
+      SWITCH to null,
+      PSX to beetlePsxHw,
+      PS2 to null,
+      PS3 to null,
+      PSP to ppsspp,
+      VITA to null,
+      GENESIS to genesisPlusGx,
+      MASTER_SYSTEM to genesisPlusGx,
+      GAME_GEAR to genesisPlusGx,
+      SEGA_CD to genesisPlusGx,
+      SEGA_32X to picoDrive,
+      SATURN to beetleSaturn,
+      DREAMCAST to flycast,
+      TG16 to beetlePce,
+      TG_CD to beetlePce,
+      POKEMON_MINI to pokeMini,
+      XBOX to null,
+      ARCADE to fbNeo,
+    )
+
+  /** The core recommended for [platform], or null when there's none or the platform is unknown. */
+  fun recommendedFor(platform: PlatformSlug): LibretroCore? =
+    recommended[PlatformCatalog.emulatedAs(platform)]
+}
