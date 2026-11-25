@@ -23,6 +23,10 @@ pub trait AudioSink {
     fn buffer_status(&self) -> Option<BufferStatus> {
         None
     }
+
+    /// Called when the session pauses or resumes, so the sink can stop its
+    /// output while no audio comes.
+    fn set_paused(&mut self, _paused: bool) {}
 }
 
 /// How full an [`AudioSink`]'s queue is, in stereo frames.

@@ -26,6 +26,15 @@ impl Frame<'_> {
     }
 }
 
+/// A copy of a frame, as tightly packed RGBA8 rows from top to bottom.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct CapturedFrame {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height * 4` bytes, in R, G, B, A order with A always 255.
+    pub pixels: Vec<u8>,
+}
+
 /// Receives the frames a session produces when it doesn't present them to a
 /// window itself.
 ///

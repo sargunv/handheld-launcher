@@ -13,21 +13,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::audio::AudioSink;
 use crate::core::{Core, CoreLoadError};
 use crate::ffi;
-use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow};
+use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
 use crate::host::{self, Gpu, Host, VideoTarget};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::{CoreOption, Options, opt_string};
-use crate::video::{PixelFormat, VideoSink};
+use crate::video::{CapturedFrame, PixelFormat, VideoSink};
 
 /// Where a session's frames go.
 pub enum VideoOutput {
     /// The session hands every frame to the sink, reading hardware-rendered
     /// frames back from the GPU.
     Sink(Box<dyn VideoSink>),
-    /// The session presents every frame to the window itself, through an EGL
-    /// context it creates on the window.
+    /// The session presents every frame to a window itself, through an EGL
+    /// context it owns. [`Session::set_window`] replaces the window or
+    /// detaches it, keeping the context.
     Window {
-        window: NativeWindow,
+        /// The window to start with. A session that starts without one uses
+        /// the platform's default EGL display, so only windows on that
+        /// display can be attached later, which on Android is every window.
+        window: Option<NativeWindow>,
         /// The window's size in pixels.
         width: u32,
         height: u32,
@@ -113,7 +117,8 @@ pub struct InputDescriptor {
 }
 
 /// Why a session failed.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum SessionError {
     #[error("another session is running in this process")]
     AlreadyActive,
@@ -127,6 +132,12 @@ pub enum SessionError {
     LoadGame,
     #[error("can't set up OpenGL")]
     Gl(#[from] GlError),
+    #[error("the session doesn't present to a window")]
+    NoWindowOutput,
+    #[error("the session can't present to this kind of window here")]
+    UnsupportedWindow,
+    #[error("the session has stopped")]
+    Stopped,
     #[error("the core doesn't support save states")]
     StatesUnsupported,
     #[error("the core couldn't save its state")]
@@ -343,28 +354,30 @@ impl Session {
     /// up its GL state.
     fn set_up_video(&mut self) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let (window, vsync) = match &host.video {
+        let (target, vsync) = match &host.video {
             VideoTarget::Window {
                 window,
                 width,
                 height,
                 vsync,
-            } => (Some((*window, *width, *height)), *vsync),
-            VideoTarget::Sink(_) => (None, false),
+            } => (
+                Target::Window(window.as_ref().map(|w| (w, *width, *height))),
+                Some(*vsync),
+            ),
+            VideoTarget::Sink(_) => (Target::Headless, None),
         };
-        let window = window
-            .as_ref()
-            .map(|(w, width, height)| (w, *width, *height));
         let hw = host.hw_render;
-        let context = match (hw, window) {
-            (Some(cb), _) => {
+        let mut context = match (hw, target) {
+            (Some(cb), target) => {
                 let api = host::hw_api(&cb).expect("accepted in SET_HW_RENDER");
-                GlContext::new(api, window, cb.debug_context)?
+                GlContext::new(api, target, cb.debug_context)?
             }
-            (None, Some(_)) => GlContext::new(GlApi::Gles { major: 3, minor: 0 }, window, false)?,
-            (None, None) => return Ok(()),
+            (None, target @ Target::Window(_)) => {
+                GlContext::new(GlApi::Gles { major: 3, minor: 0 }, target, false)?
+            }
+            (None, Target::Headless) => return Ok(()),
         };
-        if window.is_some() {
+        if let Some(vsync) = vsync {
             context.set_vsync(vsync);
         }
         let mut gpu = Gpu::new(context);
@@ -497,7 +510,63 @@ impl Session {
             if let Some(gpu) = &host.gpu {
                 gpu.context.resize(width, height);
             }
+            host.redraw();
         }
+    }
+
+    /// Replaces the window the session presents to, or detaches it with
+    /// `None`, keeping the GL context and everything in it. The new window
+    /// shows the last frame at once. On an error, the session has no window.
+    ///
+    /// When this returns, the session no longer uses the old window.
+    ///
+    /// # Safety
+    ///
+    /// The window outlives its attachment: until the session drops or this
+    /// is called again.
+    pub unsafe fn set_window(
+        &mut self,
+        window: Option<(NativeWindow, u32, u32)>,
+    ) -> Result<(), SessionError> {
+        let host = self.host_mut();
+        let VideoTarget::Window {
+            window: current,
+            width,
+            height,
+            ..
+        } = &mut host.video
+        else {
+            return Err(SessionError::NoWindowOutput);
+        };
+        *current = window.map(|(w, ..)| w);
+        if let Some((_, w, h)) = window {
+            (*width, *height) = (w, h);
+        }
+        let Some(gpu) = &mut host.gpu else {
+            return Ok(());
+        };
+        let result = gpu.context.set_window(
+            window
+                .as_ref()
+                .map(|(w, width, height)| (w, *width, *height)),
+        );
+        if result.is_err() {
+            *current = None;
+        }
+        result?;
+        host.redraw();
+        Ok(())
+    }
+
+    /// Tells the audio sink whether the session is paused, so it can stop its
+    /// output while no audio comes.
+    pub fn set_audio_paused(&mut self, paused: bool) {
+        self.host_mut().audio_sink.set_paused(paused);
+    }
+
+    /// A copy of the last frame, or `None` before the first.
+    pub fn capture_frame(&mut self) -> Option<CapturedFrame> {
+        self.host_mut().capture()
     }
 
     /// The core's battery-backed save memory, if it has any.

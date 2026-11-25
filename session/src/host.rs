@@ -16,7 +16,7 @@ use crate::ffi;
 use crate::gl::{self, Framebuffer, GlApi, GlContext, NativeWindow};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
 use crate::options::{Options, opt_string};
-use crate::video::{self, Frame, PixelFormat, VideoSink};
+use crate::video::{self, CapturedFrame, Frame, PixelFormat, VideoSink};
 use crate::{AvInfo, InputDescriptor};
 
 thread_local! {
@@ -27,7 +27,7 @@ thread_local! {
 pub(crate) enum VideoTarget {
     Sink(Box<dyn VideoSink>),
     Window {
-        window: NativeWindow,
+        window: Option<NativeWindow>,
         width: u32,
         height: u32,
         vsync: bool,
@@ -207,6 +207,50 @@ impl Host {
         video::convert_frame(format, src, w, h, pitch, &mut self.frame);
         self.frame_size = (width, height);
         self.show_sw_frame();
+    }
+
+    /// Presents the last frame again, as when a window is attached.
+    pub(crate) fn redraw(&mut self) {
+        if !matches!(self.video, VideoTarget::Window { .. }) {
+            return;
+        }
+        if self.last_frame_hw {
+            let (w, h) = self.frame_size;
+            self.show_hw_frame(w, h);
+        } else {
+            self.show_sw_frame();
+        }
+    }
+
+    /// A copy of the last frame, reading it back from the GPU if the core
+    /// rendered it there.
+    pub(crate) fn capture(&mut self) -> Option<CapturedFrame> {
+        let (width, height) = self.frame_size;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        if !self.last_frame_hw {
+            return Some(CapturedFrame {
+                width,
+                height,
+                pixels: self.frame.clone(),
+            });
+        }
+        let bottom_left_origin = self.hw_render.is_some_and(|hw| hw.bottom_left_origin);
+        let gpu = self.gpu.as_ref()?;
+        let fb = gpu.hw.as_ref()?;
+        let (width, height) = (width.min(fb.width), height.min(fb.height));
+        let mut pixels = Vec::new();
+        fb.read(&gpu.context.gl, width, height, &mut pixels);
+        gl::drain_errors(&gpu.context.gl, "capturing a frame");
+        if bottom_left_origin {
+            video::flip_rows(&mut pixels, width as usize, height as usize);
+        }
+        Some(CapturedFrame {
+            width,
+            height,
+            pixels,
+        })
     }
 
     fn show_sw_frame(&mut self) {

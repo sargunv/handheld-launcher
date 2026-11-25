@@ -21,6 +21,7 @@ pub(crate) const EGL_ALPHA_SIZE: EGLint = 0x3021;
 pub(crate) const EGL_BLUE_SIZE: EGLint = 0x3022;
 pub(crate) const EGL_GREEN_SIZE: EGLint = 0x3023;
 pub(crate) const EGL_RED_SIZE: EGLint = 0x3024;
+pub(crate) const EGL_NO_SURFACE: EGLSurface = std::ptr::null_mut();
 pub(crate) const EGL_SURFACE_TYPE: EGLint = 0x3033;
 pub(crate) const EGL_RENDERABLE_TYPE: EGLint = 0x3040;
 pub(crate) const EGL_PBUFFER_BIT: EGLint = 0x0001;
@@ -77,6 +78,8 @@ pub(crate) struct Egl {
     pub(crate) swap_interval: unsafe extern "C" fn(EGLDisplay, EGLint) -> EGLBoolean,
     pub(crate) query_surface:
         unsafe extern "C" fn(EGLDisplay, EGLSurface, EGLint, *mut EGLint) -> EGLBoolean,
+    pub(crate) get_config_attrib:
+        unsafe extern "C" fn(EGLDisplay, EGLConfig, EGLint, *mut EGLint) -> EGLBoolean,
     _library: Library,
 }
 
@@ -128,6 +131,7 @@ impl Egl {
             swap_buffers: get!(c"eglSwapBuffers"),
             swap_interval: get!(c"eglSwapInterval"),
             query_surface: get!(c"eglQuerySurface"),
+            get_config_attrib: get!(c"eglGetConfigAttrib"),
             _library: library,
         })
     }

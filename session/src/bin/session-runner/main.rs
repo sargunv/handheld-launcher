@@ -235,7 +235,7 @@ impl App {
 
         let video = match self.args.present {
             Present::Gl => VideoOutput::Window {
-                window: native_window(&window)?,
+                window: Some(native_window(&window)?),
                 width: size.width,
                 height: size.height,
                 // The runner handles window events on the session's thread,

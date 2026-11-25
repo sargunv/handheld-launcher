@@ -92,6 +92,20 @@ pub(crate) enum GlApi {
     Gles { major: u32, minor: u32 },
 }
 
+/// What a [`GlContext`] draws to.
+pub(crate) enum Target<'a> {
+    /// No window: frames stay in framebuffers the session reads back.
+    Headless,
+    /// A window, attached now or later with [`GlContext::set_window`]. A
+    /// context that starts without one uses the platform's default display,
+    /// so only windows on that display can be attached later, which on
+    /// Android is every window.
+    Window(Option<WindowRef<'a>>),
+}
+
+/// A window and its size in pixels.
+pub(crate) type WindowRef<'a> = (&'a NativeWindow, u32, u32);
+
 /// An EGL context, current on the thread that created it, with a window or
 /// headless surface.
 pub(crate) struct GlContext {
@@ -103,24 +117,26 @@ pub(crate) struct GlContext {
 struct Handles {
     egl: &'static Egl,
     display: EGLDisplay,
+    config: EGLConfig,
     context: EGLContext,
-    surface: EGLSurface,
+    /// The attached window's surface, or [`EGL_NO_SURFACE`].
+    window_surface: EGLSurface,
+    /// The surface the context is current on without a window: a small
+    /// pbuffer, or [`EGL_NO_SURFACE`] where EGL allows surfaceless contexts.
+    idle_surface: EGLSurface,
     wayland_window: Option<NonNull<c_void>>,
+    vsync: bool,
 }
 
 impl GlContext {
-    /// Creates a context for `api` and makes it current. With a window, the
-    /// context draws to it; otherwise it has no default framebuffer to speak
-    /// of. The session needs GL 3.0 or GL ES 3.0, for framebuffer blits.
-    pub(crate) fn new(
-        api: GlApi,
-        window: Option<(&NativeWindow, u32, u32)>,
-        debug: bool,
-    ) -> Result<Self, GlError> {
+    /// Creates a context for `api` and makes it current. The session needs
+    /// GL 3.0 or GL ES 3.0, for framebuffer blits.
+    pub(crate) fn new(api: GlApi, target: Target<'_>, debug: bool) -> Result<Self, GlError> {
         let egl = Egl::get().map_err(GlError::Unavailable)?;
-        let display = match window {
-            None => headless_display(egl),
-            Some((window, ..)) => window_display(egl, window),
+        let display = match &target {
+            Target::Headless => headless_display(egl),
+            Target::Window(Some((window, ..))) => window_display(egl, window),
+            Target::Window(None) => default_display(egl),
         }
         .ok_or_else(|| GlError::Unavailable("no EGL display".into()))?;
         let (mut major, mut minor) = (0, 0);
@@ -133,8 +149,7 @@ impl GlContext {
         }
         log::debug!("EGL {major}.{minor}: {}", query(egl, display, EGL_VERSION));
 
-        let surfaceless =
-            window.is_none() && egl.has_extension(display, "EGL_KHR_surfaceless_context");
+        let surfaceless = egl.has_extension(display, "EGL_KHR_surfaceless_context");
         let (bind, renderable) = match api {
             GlApi::Gl { .. } => (EGL_OPENGL_API, EGL_OPENGL_BIT),
             GlApi::Gles { .. } => (EGL_OPENGL_ES_API, EGL_OPENGL_ES3_BIT),
@@ -146,33 +161,14 @@ impl GlContext {
                 egl.error()
             )));
         }
-        let surface_type = match (window, surfaceless) {
-            (Some(_), _) => EGL_WINDOW_BIT,
-            (None, true) => 0,
-            (None, false) => EGL_PBUFFER_BIT,
+        let idle_bit = if surfaceless { 0 } else { EGL_PBUFFER_BIT };
+        let surface_type = match target {
+            Target::Window(_) => EGL_WINDOW_BIT | idle_bit,
+            Target::Headless => idle_bit,
         };
-        #[rustfmt::skip]
-        let config_attribs = [
-            EGL_SURFACE_TYPE, surface_type,
-            EGL_RENDERABLE_TYPE, renderable,
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 0,
-            EGL_NONE,
-        ];
-        let mut config = ptr::null_mut();
-        let mut count = 0;
-        // SAFETY: a terminated attribute list and room for one config.
-        let ok = unsafe {
-            (egl.choose_config)(display, config_attribs.as_ptr(), &mut config, 1, &mut count)
-        };
-        if ok == EGL_FALSE || count == 0 {
-            return Err(GlError::Unavailable(format!(
-                "no EGL config for {api:?}: {}",
-                egl.error()
-            )));
-        }
+        let config = choose_config(egl, display, surface_type, renderable).ok_or_else(|| {
+            GlError::Unavailable(format!("no EGL config for {api:?}: {}", egl.error()))
+        })?;
 
         let mut context_attribs = Vec::new();
         match api {
@@ -216,29 +212,29 @@ impl GlContext {
         let mut handles = Handles {
             egl,
             display,
+            config,
             context,
-            surface: ptr::null_mut(),
+            window_surface: EGL_NO_SURFACE,
+            idle_surface: EGL_NO_SURFACE,
             wayland_window: None,
+            vsync: true,
         };
-        handles.surface = match window {
-            Some((window, width, height)) => {
-                handles.create_window_surface(config, window, width, height)?
+        if !surfaceless {
+            let attribs = [EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE];
+            // SAFETY: a valid config and a terminated attribute list.
+            let surface =
+                unsafe { (egl.create_pbuffer_surface)(display, config, attribs.as_ptr()) };
+            if surface.is_null() {
+                return Err(GlError::Egl(format!(
+                    "can't create a pbuffer: {}",
+                    egl.error()
+                )));
             }
-            None if surfaceless => ptr::null_mut(),
-            None => {
-                let attribs = [EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE];
-                // SAFETY: a valid config and a terminated attribute list.
-                let surface =
-                    unsafe { (egl.create_pbuffer_surface)(display, config, attribs.as_ptr()) };
-                if surface.is_null() {
-                    return Err(GlError::Egl(format!(
-                        "can't create a pbuffer: {}",
-                        egl.error()
-                    )));
-                }
-                surface
-            }
-        };
+            handles.idle_surface = surface;
+        }
+        if let Target::Window(Some((window, width, height))) = target {
+            handles.window_surface = handles.create_window_surface(window, width, height)?;
+        }
         handles.make_current()?;
         // SAFETY: the context is current, and EGL resolves its functions.
         let gl = unsafe { glow::Context::from_loader_function_cstr(|name| egl.proc_address(name)) };
@@ -269,12 +265,40 @@ impl GlContext {
         self.handles.make_current()
     }
 
-    /// Sets whether swapping buffers waits for the display's next refresh.
-    pub(crate) fn set_vsync(&self, vsync: bool) {
-        let h = &self.handles;
-        // SAFETY: the display is initialized and this context is current.
-        if unsafe { (h.egl.swap_interval)(h.display, i32::from(vsync)) } == EGL_FALSE {
-            log::warn!("can't set the swap interval: {}", h.egl.error());
+    /// Replaces the window the context draws to, or detaches it with `None`.
+    /// The context, and every GL object in it, stays. On an error, the
+    /// context has no window.
+    ///
+    /// The old window's surface is gone when this returns, so a platform that
+    /// requires it, as Android does before a `Surface` is destroyed, can let
+    /// the window go.
+    pub(crate) fn set_window(&mut self, window: Option<WindowRef<'_>>) -> Result<(), GlError> {
+        let h = &mut self.handles;
+        h.destroy_window_surface();
+        h.make_current()?;
+        if let Some((window, width, height)) = window {
+            h.window_surface = h.create_window_surface(window, width, height)?;
+            if let Err(e) = h.make_current() {
+                h.destroy_window_surface();
+                h.make_current()?;
+                return Err(e);
+            }
+            h.apply_vsync();
+        }
+        Ok(())
+    }
+
+    /// Whether the context has a window to present to.
+    pub(crate) fn has_window(&self) -> bool {
+        !self.handles.window_surface.is_null()
+    }
+
+    /// Sets whether swapping buffers waits for the display's next refresh,
+    /// now and for windows attached later.
+    pub(crate) fn set_vsync(&mut self, vsync: bool) {
+        self.handles.vsync = vsync;
+        if self.has_window() {
+            self.handles.apply_vsync();
         }
     }
 
@@ -282,7 +306,7 @@ impl GlContext {
     pub(crate) fn swap_buffers(&self) {
         let h = &self.handles;
         // SAFETY: the display and surface belong together.
-        if unsafe { (h.egl.swap_buffers)(h.display, h.surface) } == EGL_FALSE {
+        if unsafe { (h.egl.swap_buffers)(h.display, h.window_surface) } == EGL_FALSE {
             log::warn!("can't present: {}", h.egl.error());
         }
     }
@@ -293,8 +317,8 @@ impl GlContext {
         let (mut width, mut height) = (0, 0);
         // SAFETY: the display and surface belong together.
         unsafe {
-            (h.egl.query_surface)(h.display, h.surface, EGL_WIDTH, &mut width);
-            (h.egl.query_surface)(h.display, h.surface, EGL_HEIGHT, &mut height);
+            (h.egl.query_surface)(h.display, h.window_surface, EGL_WIDTH, &mut width);
+            (h.egl.query_surface)(h.display, h.window_surface, EGL_HEIGHT, &mut height);
         }
         (width.max(0) as u32, height.max(0) as u32)
     }
@@ -320,7 +344,6 @@ impl GlContext {
 impl Handles {
     fn create_window_surface(
         &mut self,
-        config: EGLConfig,
         window: &NativeWindow,
         width: u32,
         height: u32,
@@ -343,23 +366,66 @@ impl Handles {
             WindowKind::Android { window } => window.as_ptr(),
         };
         // SAFETY: a valid config and a native window of the display's platform.
-        let surface =
-            unsafe { (self.egl.create_window_surface)(self.display, config, native, ptr::null()) };
+        let surface = unsafe {
+            (self.egl.create_window_surface)(self.display, self.config, native, ptr::null())
+        };
         if surface.is_null() {
+            let error = self.egl.error();
+            self.destroy_wayland_window();
             return Err(GlError::Egl(format!(
-                "can't create a window surface: {}",
-                self.egl.error()
+                "can't create a window surface: {error}"
             )));
         }
         Ok(surface)
     }
 
-    /// Makes the context current on this thread.
-    pub(crate) fn make_current(&self) -> Result<(), GlError> {
-        // SAFETY: the display, surface and context belong together.
-        let ok = unsafe {
-            (self.egl.make_current)(self.display, self.surface, self.surface, self.context)
+    /// Destroys the window surface, after making the context current without
+    /// it, as EGL needs to release the window at once.
+    fn destroy_window_surface(&mut self) {
+        if self.window_surface.is_null() {
+            return;
+        }
+        // SAFETY: the handles belong to this display; the context is current
+        // on no surface until the caller makes it current again.
+        unsafe {
+            (self.egl.make_current)(
+                self.display,
+                EGL_NO_SURFACE,
+                EGL_NO_SURFACE,
+                ptr::null_mut(),
+            );
+            (self.egl.destroy_surface)(self.display, self.window_surface);
+        }
+        self.window_surface = EGL_NO_SURFACE;
+        self.destroy_wayland_window();
+    }
+
+    fn destroy_wayland_window(&mut self) {
+        if let (Some(window), Ok(wl)) = (self.wayland_window.take(), WaylandEgl::get()) {
+            // SAFETY: the window came from wl_egl_window_create, and no EGL
+            // surface uses it anymore.
+            unsafe { (wl.destroy)(window.as_ptr()) };
+        }
+    }
+
+    fn apply_vsync(&self) {
+        // SAFETY: the display is initialized and the context is current on
+        // the window surface.
+        if unsafe { (self.egl.swap_interval)(self.display, i32::from(self.vsync)) } == EGL_FALSE {
+            log::warn!("can't set the swap interval: {}", self.egl.error());
+        }
+    }
+
+    /// Makes the context current on this thread, on the window surface if
+    /// there is one.
+    fn make_current(&self) -> Result<(), GlError> {
+        let surface = if self.window_surface.is_null() {
+            self.idle_surface
+        } else {
+            self.window_surface
         };
+        // SAFETY: the display, surface and context belong together.
+        let ok = unsafe { (self.egl.make_current)(self.display, surface, surface, self.context) };
         if ok == EGL_FALSE {
             return Err(GlError::Egl(format!(
                 "can't make the context current: {}",
@@ -372,24 +438,76 @@ impl Handles {
 
 impl Drop for Handles {
     fn drop(&mut self) {
+        self.destroy_window_surface();
         // SAFETY: the handles came from this display, and nothing uses them
         // after this.
         unsafe {
             (self.egl.make_current)(
                 self.display,
-                ptr::null_mut(),
-                ptr::null_mut(),
+                EGL_NO_SURFACE,
+                EGL_NO_SURFACE,
                 ptr::null_mut(),
             );
-            if !self.surface.is_null() {
-                (self.egl.destroy_surface)(self.display, self.surface);
+            if !self.idle_surface.is_null() {
+                (self.egl.destroy_surface)(self.display, self.idle_surface);
             }
             (self.egl.destroy_context)(self.display, self.context);
-            if let (Some(window), Ok(wl)) = (self.wayland_window, WaylandEgl::get()) {
-                (wl.destroy)(window.as_ptr());
-            }
         }
     }
+}
+
+/// The config with 8-bit red, green and blue that best matches, preferring
+/// one without alpha. EGL sorts deeper colors first, which would pick 10-bit
+/// configs where the platform offers them.
+fn choose_config(
+    egl: &Egl,
+    display: EGLDisplay,
+    surface_type: EGLint,
+    renderable: EGLint,
+) -> Option<EGLConfig> {
+    #[rustfmt::skip]
+    let attribs = [
+        EGL_SURFACE_TYPE, surface_type,
+        EGL_RENDERABLE_TYPE, renderable,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 0,
+        EGL_NONE,
+    ];
+    let mut configs = [ptr::null_mut(); 64];
+    let mut count = 0;
+    // SAFETY: a terminated attribute list and room for `configs.len()`.
+    let ok = unsafe {
+        (egl.choose_config)(
+            display,
+            attribs.as_ptr(),
+            configs.as_mut_ptr(),
+            configs.len() as EGLint,
+            &mut count,
+        )
+    };
+    if ok == EGL_FALSE || count <= 0 {
+        return None;
+    }
+    let configs = &configs[..count as usize];
+    let attrib = |config: EGLConfig, name: EGLint| {
+        let mut value = 0;
+        // SAFETY: a config of this display.
+        unsafe { (egl.get_config_attrib)(display, config, name, &mut value) };
+        value
+    };
+    let rgb888 = |config: &&EGLConfig| {
+        [EGL_RED_SIZE, EGL_GREEN_SIZE, EGL_BLUE_SIZE]
+            .iter()
+            .all(|&name| attrib(**config, name) == 8)
+    };
+    configs
+        .iter()
+        .filter(rgb888)
+        .min_by_key(|config| attrib(**config, EGL_ALPHA_SIZE))
+        .or(configs.first())
+        .copied()
 }
 
 fn query(egl: &Egl, display: EGLDisplay, name: EGLint) -> String {
@@ -408,9 +526,7 @@ fn headless_display(egl: &Egl) -> Option<EGLDisplay> {
     {
         return Some(display);
     }
-    // SAFETY: EGL_DEFAULT_DISPLAY is null.
-    let display = unsafe { (egl.get_display)(ptr::null_mut()) };
-    (!display.is_null()).then_some(display)
+    default_display(egl)
 }
 
 fn window_display(egl: &Egl, window: &NativeWindow) -> Option<EGLDisplay> {
@@ -422,12 +538,14 @@ fn window_display(egl: &Egl, window: &NativeWindow) -> Option<EGLDisplay> {
             egl.platform_display(EGL_PLATFORM_X11_KHR, display.as_ptr())
         }
         #[cfg(target_os = "android")]
-        WindowKind::Android { .. } => {
-            // SAFETY: EGL_DEFAULT_DISPLAY is null.
-            let display = unsafe { (egl.get_display)(ptr::null_mut()) };
-            (!display.is_null()).then_some(display)
-        }
+        WindowKind::Android { .. } => default_display(egl),
     }
+}
+
+fn default_display(egl: &Egl) -> Option<EGLDisplay> {
+    // SAFETY: EGL_DEFAULT_DISPLAY is null.
+    let display = unsafe { (egl.get_display)(ptr::null_mut()) };
+    (!display.is_null()).then_some(display)
 }
 
 /// An offscreen framebuffer with a color texture and optional depth and
@@ -623,7 +741,7 @@ impl Framebuffer {
 
 /// Draws the `width` by `height` region at `source`'s origin to the window,
 /// scaled to fit at `aspect` (width over height) and centered on black, then
-/// presents it. `top_row_first` says the region's first row (GL's lowest) is
+/// presents it. Without a window, it does nothing. `top_row_first` says the region's first row (GL's lowest) is
 /// the image's top, as with uploaded frames and cores that render with a
 /// top-left origin.
 pub(crate) fn present(
@@ -634,6 +752,9 @@ pub(crate) fn present(
     aspect: f32,
     top_row_first: bool,
 ) {
+    if !context.has_window() {
+        return;
+    }
     let gl = &context.gl;
     let (win_w, win_h) = context.surface_size();
     log::trace!("presenting {width}x{height} to a {win_w}x{win_h} surface");
