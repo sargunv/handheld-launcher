@@ -72,7 +72,11 @@ class MainActivity : ComponentActivity() {
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
-    forcedLayout = forcedLayout(intent)
+    setIntent(intent)
+    // The activity picks a debug screen when it's created, so a launch that opens, leaves or
+    // changes one recreates it. That also closes a game session the old screen was running.
+    if (showsDebugScreen || debugScreen(this) != null) recreate()
+    else forcedLayout = forcedLayout(intent)
   }
 
   // The window sees every key, even while nothing in its content has focus. Activity's

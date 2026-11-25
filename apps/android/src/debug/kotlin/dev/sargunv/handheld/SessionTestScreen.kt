@@ -26,7 +26,6 @@ import dev.sargunv.handheld.session.VideoMode
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 private sealed interface Status {
@@ -50,16 +49,22 @@ internal fun SessionTestScreen(dir: File, core: File?, content: File?) {
       status = Status.Failed("No core: pass one with --es core <file in ${dir.path}>")
       return@LaunchedEffect
     }
-    // Starting can't be abandoned halfway; a session nobody shows is stopped at once.
-    val result =
-      withContext(Dispatchers.IO + NonCancellable) {
-        try {
-          Status.Running(GameSession.start(options(dir, core, content)))
-        } catch (e: SessionException) {
-          Status.Failed("Can't start ${core.name}: ${e.message}")
+    // Starting can't be abandoned halfway. If the screen goes away meanwhile, withContext throws on
+    // the way back and the session it started is closed here, since nothing will show it.
+    var unclaimed: GameSession? = null
+    try {
+      status =
+        withContext(Dispatchers.IO + NonCancellable) {
+          try {
+            Status.Running(GameSession.start(options(dir, core, content)).also { unclaimed = it })
+          } catch (e: SessionException) {
+            Status.Failed("Can't start ${core.name}: ${e.message}")
+          }
         }
-      }
-    if (isActive) status = result else (result as? Status.Running)?.session?.close()
+      unclaimed = null
+    } finally {
+      unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
+    }
   }
 
   Box(Modifier.fillMaxSize().background(Color.Black)) {
