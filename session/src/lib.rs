@@ -17,6 +17,7 @@ mod host;
 mod input;
 mod options;
 mod platform;
+mod save;
 mod session;
 mod video;
 
@@ -27,7 +28,8 @@ pub use crate::handle::{GameSession, SessionInfo, SessionOptions, VideoMode, Win
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
 pub use crate::options::{CoreOption, OptionValue};
 pub use crate::session::{
-    AvInfo, InputDescriptor, Session, SessionConfig, SessionError, SystemInfo, VideoOutput,
+    AvInfo, InputDescriptor, SaveRamLoad, Session, SessionConfig, SessionError, SystemInfo,
+    VideoOutput,
 };
 pub use crate::video::{CapturedFrame, Frame, PixelFormat, VideoSink, convert_frame};
 

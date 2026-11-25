@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
@@ -17,6 +17,7 @@ use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
 use crate::host::{self, Gpu, Host, VideoTarget};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::{CoreOption, Options, opt_string};
+use crate::save::{back_up, write_atomically};
 use crate::video::{CapturedFrame, PixelFormat, VideoSink};
 
 /// Where a session's frames go.
@@ -115,6 +116,18 @@ pub struct InputDescriptor {
     pub index: u32,
     pub id: u32,
     pub description: String,
+}
+
+/// What [`Session::load_save_ram`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SaveRamLoad {
+    /// Nothing: the core has no save memory, or the file doesn't exist.
+    Nothing,
+    /// The file filled the core's save memory.
+    Loaded,
+    /// The file's size differs from the core's save memory's, so it filled
+    /// what fits, after the file was copied to `backup`.
+    Mismatched { backup: PathBuf },
 }
 
 /// Why a session failed.
@@ -574,29 +587,36 @@ impl Session {
     }
 
     /// Fills the core's save memory from the file at `path`, as a frontend
-    /// does right after loading content. It returns false if the core has no
-    /// save memory or the file doesn't exist. A file of a different size fills
-    /// what fits.
-    pub fn load_save_ram(&mut self, path: &Path) -> io::Result<bool> {
+    /// does right after loading content.
+    ///
+    /// A file of a different size fills what fits, but writing save memory
+    /// back would lose the rest, so the file is copied to a backup beside it
+    /// first, and loading fails if that copy can't be made.
+    pub fn load_save_ram(&mut self, path: &Path) -> io::Result<SaveRamLoad> {
         let Some(memory) = self.save_ram_mut() else {
-            return Ok(false);
+            return Ok(SaveRamLoad::Nothing);
         };
         let data = match fs::read(path) {
             Ok(data) => data,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(SaveRamLoad::Nothing),
             Err(e) => return Err(e),
         };
-        if data.len() != memory.len() {
+        let n = data.len().min(memory.len());
+        let loaded = if data.len() == memory.len() {
+            SaveRamLoad::Loaded
+        } else {
+            let backup = back_up(path, &data)?;
             log::warn!(
-                "save file {} has {} bytes, but the core's save memory has {}",
+                "save file {} has {} bytes, but the core's save memory has {}; kept a copy at {}",
                 path.display(),
                 data.len(),
-                memory.len()
+                memory.len(),
+                backup.display()
             );
-        }
-        let n = data.len().min(memory.len());
+            SaveRamLoad::Mismatched { backup }
+        };
         memory[..n].copy_from_slice(&data[..n]);
-        Ok(true)
+        Ok(loaded)
     }
 
     /// Writes the core's save memory to `path`, replacing the file only once
@@ -681,53 +701,4 @@ fn path_cstring(path: &Path) -> CString {
         log::warn!("path {} contains a null byte", path.display());
         CString::default()
     })
-}
-
-/// Writes `data` to a temporary file beside `path`, flushes it to disk, and
-/// renames it over `path`, so that a crash leaves either the old file or the
-/// new one.
-fn write_atomically(path: &Path, data: &[u8]) -> io::Result<()> {
-    let dir = path
-        .parent()
-        .filter(|d| !d.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    fs::create_dir_all(dir)?;
-    let name = path
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
-    let mut tmp_name = std::ffi::OsString::from(".");
-    tmp_name.push(name);
-    tmp_name.push(format!(".{}.tmp", std::process::id()));
-    let tmp = dir.join(tmp_name);
-    let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(data)?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        // Persist the rename itself.
-        fs::File::open(dir)?.sync_all()
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn writes_atomically_and_replaces() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("nested").join("save.srm");
-        write_atomically(&path, b"one").unwrap();
-        write_atomically(&path, b"two").unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"two");
-        let leftovers: Vec<_> = fs::read_dir(path.parent().unwrap())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(leftovers, [std::ffi::OsString::from("save.srm")]);
-    }
 }

@@ -4,7 +4,7 @@
 mod common;
 
 use common::{Harness, lock};
-use handheld_session::{Button, PixelFormat, SessionError};
+use handheld_session::{Button, PixelFormat, SaveRamLoad, SessionError};
 
 const CORE: &str = "gambatte_libretro.so";
 const GAME: &str = "ucity.gbc";
@@ -58,13 +58,17 @@ fn save_ram_round_trips_through_the_core() {
     {
         let mut h = Harness::start(CORE, Some(GAME)).unwrap();
         assert_eq!(h.session.save_ram().map(<[u8]>::len), Some(SAVE_RAM_SIZE));
-        assert!(h.session.load_save_ram(&original).unwrap());
+        assert_eq!(
+            h.session.load_save_ram(&original).unwrap(),
+            SaveRamLoad::Loaded
+        );
         assert_eq!(h.session.save_ram().unwrap(), pattern);
         assert!(h.session.flush_save_ram(&flushed).unwrap());
-        assert!(
-            !h.session
+        assert_eq!(
+            h.session
                 .load_save_ram(&dir.path().join("missing.srm"))
-                .unwrap()
+                .unwrap(),
+            SaveRamLoad::Nothing
         );
     }
     assert_eq!(std::fs::read(&flushed).unwrap(), pattern);
@@ -72,8 +76,33 @@ fn save_ram_round_trips_through_the_core() {
     // A new session picks the flushed save up.
     let mut h = Harness::start(CORE, Some(GAME)).unwrap();
     assert_ne!(h.session.save_ram().unwrap(), pattern);
-    assert!(h.session.load_save_ram(&flushed).unwrap());
+    assert_eq!(
+        h.session.load_save_ram(&flushed).unwrap(),
+        SaveRamLoad::Loaded
+    );
     assert_eq!(h.session.save_ram().unwrap(), pattern);
+}
+
+#[test]
+fn a_save_file_of_another_size_is_backed_up_as_it_loads() {
+    let _lock = lock();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ucity.srm");
+    let short: Vec<u8> = (0..1000).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&path, &short).unwrap();
+
+    let mut h = Harness::start(CORE, Some(GAME)).unwrap();
+    let SaveRamLoad::Mismatched { backup } = h.session.load_save_ram(&path).unwrap() else {
+        panic!("the sizes differ");
+    };
+    assert_eq!(backup.parent(), Some(dir.path()));
+    assert_eq!(std::fs::read(&backup).unwrap(), short);
+    assert_eq!(&h.session.save_ram().unwrap()[..short.len()], short);
+
+    // Writing save memory back leaves the original in the backup.
+    assert!(h.session.flush_save_ram(&path).unwrap());
+    assert_eq!(std::fs::read(&path).unwrap().len(), SAVE_RAM_SIZE);
+    assert_eq!(std::fs::read(&backup).unwrap(), short);
 }
 
 #[test]

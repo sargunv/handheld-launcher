@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, Session, SessionConfig, VideoOutput,
-    VideoSink,
+    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, SaveRamLoad, Session, SessionConfig,
+    VideoOutput, VideoSink,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -287,8 +287,8 @@ impl App {
 
         if let Some(path) = &self.save_ram {
             match session.load_save_ram(path) {
-                Ok(true) => log::info!("loaded save memory from {}", path.display()),
-                Ok(false) => {}
+                Ok(SaveRamLoad::Nothing) => {}
+                Ok(_) => log::info!("loaded save memory from {}", path.display()),
                 // Running anyway would replace the file with fresh save
                 // memory on exit.
                 Err(e) => return Err(format!("can't load {}: {e}", path.display())),

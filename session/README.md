@@ -26,8 +26,10 @@ the core at its frame rate between the app's commands. It starts paused. On
 Android it presents to an `ANativeWindow` through an OpenGL ES context that
 outlives the windows, plays audio through AAudio, and `GameSessionView` shows it
 in a `SurfaceView`, feeding it the gamepad and pausing it while the surface is
-gone or the window loses focus. Save memory is written when the session pauses
-or stops.
+gone or the window loses focus. Save memory is written to its file within a few
+seconds of changing and whenever the session pauses or stops, on a thread of its
+own, replacing the file atomically. A save file whose size differs from the
+core's save memory is copied to a backup beside it before it's replaced.
 
 ## On a device
 

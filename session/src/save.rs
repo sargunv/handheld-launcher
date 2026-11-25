@@ -1,0 +1,247 @@
+//! Writing save files so that a crash, a full disk or a mismatched file never
+//! costs the player a save.
+
+use std::ffi::OsString;
+use std::fs;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::JoinHandle;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Writes `data` to a temporary file beside `path`, flushes it to disk, and
+/// renames it over `path`, so that a crash leaves either the old file or the
+/// new one.
+pub(crate) fn write_atomically(path: &Path, data: &[u8]) -> io::Result<()> {
+    let dir = parent_dir(path);
+    fs::create_dir_all(dir)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    let mut tmp_name = OsString::from(".");
+    tmp_name.push(name);
+    tmp_name.push(format!(".{}.tmp", std::process::id()));
+    let tmp = dir.join(tmp_name);
+    let result = (|| {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)?;
+        // Persist the rename itself.
+        fs::File::open(dir)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Writes `data`, a save file's contents, to a new file beside `path` named
+/// `<name>.<unix time>.bak`, and returns its path.
+pub(crate) fn back_up(path: &Path, data: &[u8]) -> io::Result<PathBuf> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
+    let time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    let dir = parent_dir(path);
+    let backup = (0..)
+        .map(|n| {
+            let mut backup = name.to_owned();
+            match n {
+                0 => backup.push(format!(".{time}.bak")),
+                n => backup.push(format!(".{time}-{n}.bak")),
+            }
+            dir.join(backup)
+        })
+        .find(|backup| !backup.exists())
+        .expect("an unused name");
+    write_atomically(&backup, data)?;
+    Ok(backup)
+}
+
+fn parent_dir(path: &Path) -> &Path {
+    path.parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+}
+
+/// A thread that writes one save file, so that waiting for the disk never
+/// holds up the thread that hands it data.
+pub(crate) struct SaveWriter {
+    jobs: Option<Sender<Job>>,
+    /// Whether the last write failed, so the caller writes again.
+    failed: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+enum Job {
+    Write(Vec<u8>),
+    Wait(Sender<io::Result<()>>),
+}
+
+impl SaveWriter {
+    pub(crate) fn new(path: PathBuf) -> io::Result<Self> {
+        let (jobs, receiver) = mpsc::channel();
+        let failed = Arc::new(AtomicBool::new(false));
+        let thread_failed = failed.clone();
+        let thread = std::thread::Builder::new()
+            .name("save-writer".into())
+            .spawn(move || write_jobs(&path, &receiver, &thread_failed))?;
+        Ok(Self {
+            jobs: Some(jobs),
+            failed,
+            thread: Some(thread),
+        })
+    }
+
+    /// Writes `data` over the file, after any writes before it.
+    pub(crate) fn write(&self, data: Vec<u8>) {
+        self.send(Job::Write(data));
+    }
+
+    /// Whether the last write failed.
+    pub(crate) fn failed(&self) -> bool {
+        self.failed.load(Ordering::Acquire)
+    }
+
+    /// Waits for every write so far, and returns the last one's error, if it
+    /// failed.
+    pub(crate) fn wait(&self) -> io::Result<()> {
+        let (reply, result) = mpsc::channel();
+        self.send(Job::Wait(reply));
+        result
+            .recv()
+            .unwrap_or_else(|_| Err(io::Error::other("the save writer stopped")))
+    }
+
+    fn send(&self, job: Job) {
+        if let Some(jobs) = &self.jobs {
+            // The thread only ends when `jobs` drops.
+            let _ = jobs.send(job);
+        }
+    }
+}
+
+impl Drop for SaveWriter {
+    fn drop(&mut self) {
+        self.jobs = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn write_jobs(path: &Path, jobs: &Receiver<Job>, failed: &AtomicBool) {
+    let mut error: Option<io::Error> = None;
+    let mut next = jobs.recv().ok();
+    while let Some(job) = next.take() {
+        match job {
+            Job::Write(mut data) => {
+                // Only the newest of the writes queued up matters.
+                loop {
+                    match jobs.try_recv() {
+                        Ok(Job::Write(newer)) => data = newer,
+                        Ok(other) => {
+                            next = Some(other);
+                            break;
+                        }
+                        Err(_) => break,
+                    }
+                }
+                match write_atomically(path, &data) {
+                    Ok(()) => {
+                        log::info!("wrote save memory to {}", path.display());
+                        failed.store(false, Ordering::Release);
+                        error = None;
+                    }
+                    Err(e) => {
+                        if !failed.swap(true, Ordering::AcqRel) {
+                            log::error!("can't write save memory to {}: {e}", path.display());
+                        }
+                        error = Some(e);
+                    }
+                }
+            }
+            Job::Wait(reply) => {
+                let result = match &error {
+                    Some(e) => Err(io::Error::new(e.kind(), e.to_string())),
+                    None => Ok(()),
+                };
+                let _ = reply.send(result);
+            }
+        }
+        if next.is_none() {
+            next = jobs.recv().ok();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn writes_atomically_and_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested").join("save.srm");
+        write_atomically(&path, b"one").unwrap();
+        write_atomically(&path, b"two").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        assert_eq!(names(path.parent().unwrap()), ["save.srm"]);
+    }
+
+    #[test]
+    fn backs_up_beside_the_file_without_replacing_backups() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("game.srm");
+        let first = back_up(&path, b"one").unwrap();
+        let second = back_up(&path, b"two").unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(&first).unwrap(), b"one");
+        assert_eq!(fs::read(&second).unwrap(), b"two");
+        let name = first.file_name().unwrap().to_str().unwrap();
+        let time = name
+            .strip_prefix("game.srm.")
+            .and_then(|n| n.strip_suffix(".bak"))
+            .unwrap();
+        assert!(time.parse::<u64>().unwrap() > 1_700_000_000, "{name}");
+    }
+
+    #[test]
+    fn the_writer_writes_in_order_and_reports_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("game.srm");
+        let writer = SaveWriter::new(path.clone()).unwrap();
+        writer.write(b"one".to_vec());
+        writer.write(b"two".to_vec());
+        writer.wait().unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"two");
+        assert!(!writer.failed());
+
+        // A directory where the file goes can't be replaced by one.
+        let blocked = dir.path().join("blocked.srm");
+        fs::create_dir_all(blocked.join("inside")).unwrap();
+        let writer = SaveWriter::new(blocked.clone()).unwrap();
+        writer.write(b"one".to_vec());
+        assert!(writer.wait().is_err());
+        assert!(writer.failed());
+        fs::remove_dir_all(&blocked).unwrap();
+        writer.write(b"two".to_vec());
+        writer.wait().unwrap();
+        assert!(!writer.failed());
+        assert_eq!(fs::read(&blocked).unwrap(), b"two");
+    }
+}

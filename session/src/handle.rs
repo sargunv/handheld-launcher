@@ -15,7 +15,8 @@ use std::time::{Duration, Instant};
 
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
-use crate::session::{Session, SessionConfig, SessionError, VideoOutput};
+use crate::save::SaveWriter;
+use crate::session::{SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, VideoSink};
 
 /// What [`GameSession::start`] needs.
@@ -30,9 +31,12 @@ pub struct SessionOptions {
     /// Where the core may write its own save files.
     pub save_dir: String,
     /// The file the core's save memory loads from when the session starts,
-    /// and is written to when it pauses or stops. A missing file starts the
-    /// game with blank save memory; one that can't be read fails the start.
-    /// `None` keeps save memory only in memory.
+    /// and is written to, replacing it atomically, within a few seconds of
+    /// changing and whenever the session pauses or stops. A missing file
+    /// starts the game with blank save memory; one that can't be read fails
+    /// the start. A file whose size differs from save memory's is copied to
+    /// `<name>.<unix time>.bak` beside it first. `None` keeps save memory
+    /// only in memory.
     pub save_ram_path: Option<String>,
     /// Core option values to use instead of the core's defaults, by key.
     pub core_options: HashMap<String, String>,
@@ -173,7 +177,8 @@ impl GameSession {
     }
 
     /// Stops running frames, and writes save memory to its file. When this
-    /// returns, the core is between frames.
+    /// returns, the core is between frames and the file is on disk. Writing
+    /// can take a while, so call it off the UI thread.
     pub fn pause(&self) -> Result<(), SessionError> {
         self.request(Command::Pause)
     }
@@ -334,10 +339,14 @@ fn run(
             return;
         }
     };
-    if let Some(path) = &save_ram_path {
-        match session.load_save_ram(path) {
-            Ok(true) => log::info!("loaded save memory from {}", path.display()),
-            Ok(false) => {}
+    let loaded = match &save_ram_path {
+        Some(path) => match session.load_save_ram(path) {
+            Ok(loaded) => {
+                if loaded != SaveRamLoad::Nothing {
+                    log::info!("loaded save memory from {}", path.display());
+                }
+                loaded
+            }
             Err(e) => {
                 // Running anyway would replace the file with fresh save
                 // memory the first time the game saves.
@@ -345,8 +354,16 @@ fn run(
                 let _ = started.send(Err(SessionError::ReadSaveRam(e)));
                 return;
             }
+        },
+        None => SaveRamLoad::Nothing,
+    };
+    let save_ram = match SaveRam::new(save_ram_path, &session, &loaded) {
+        Ok(save_ram) => save_ram,
+        Err(e) => {
+            let _ = started.send(Err(e.into()));
+            return;
         }
-    }
+    };
     let av = session.av_info();
     let info = SessionInfo {
         library_name: session.system_info().library_name.clone(),
@@ -361,14 +378,13 @@ fn run(
     if started.send(Ok(info)).is_err() {
         return;
     }
-    let mut runner = Runner {
+    let runner = Runner {
         session,
         window: None,
-        save_ram: SaveRam::new(save_ram_path),
+        save_ram,
         paused: true,
         next_frame: Instant::now(),
     };
-    runner.save_ram.mark_clean(&runner.session);
     runner.run(&commands);
 }
 
@@ -477,6 +493,7 @@ impl Runner {
 
     fn run_frame(&mut self) {
         self.session.run_frame();
+        self.save_ram.write_if_due(&self.session);
         let period = self.frame_period();
         self.next_frame += period;
         let now = Instant::now();
@@ -557,36 +574,76 @@ impl Runner {
     }
 }
 
-/// Writes save memory to its file when it changed since it was last read or
-/// written.
+/// How often a running session compares save memory with its file.
+const SAVE_RAM_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Keeps save memory's file up to date: the session thread compares save
+/// memory with what it last wrote, and a writer thread writes the changes.
 struct SaveRam {
-    path: Option<PathBuf>,
+    /// The writer, if the core has save memory and it has a file.
+    writer: Option<SaveWriter>,
+    /// Save memory as last handed to the writer.
     written: Vec<u8>,
+    /// When a running session next compares save memory.
+    next_check: Instant,
 }
 
 impl SaveRam {
-    fn new(path: Option<PathBuf>) -> Self {
-        Self {
-            path,
-            written: Vec::new(),
-        }
-    }
-
-    fn mark_clean(&mut self, session: &Session) {
-        self.written = session.save_ram().map(<[u8]>::to_vec).unwrap_or_default();
-    }
-
-    fn flush(&mut self, session: &Session) -> Result<(), SessionError> {
-        let (Some(path), Some(memory)) = (&self.path, session.save_ram()) else {
-            return Ok(());
+    fn new(
+        path: Option<PathBuf>,
+        session: &Session,
+        loaded: &SaveRamLoad,
+    ) -> std::io::Result<Self> {
+        let writer = match (path, session.save_ram()) {
+            (Some(path), Some(_)) => Some(SaveWriter::new(path)?),
+            _ => None,
         };
-        if memory == self.written.as_slice() {
-            return Ok(());
+        let written = match loaded {
+            // A file of another size gets rewritten at save memory's size,
+            // now that a backup holds the original.
+            SaveRamLoad::Mismatched { .. } => Vec::new(),
+            SaveRamLoad::Nothing | SaveRamLoad::Loaded => {
+                session.save_ram().map(<[u8]>::to_vec).unwrap_or_default()
+            }
+        };
+        Ok(Self {
+            writer,
+            written,
+            next_check: Instant::now() + SAVE_RAM_CHECK_INTERVAL,
+        })
+    }
+
+    /// Hands save memory to the writer if it changed since the last write,
+    /// or the last write failed.
+    fn write_if_changed(&mut self, session: &Session) {
+        let (Some(writer), Some(memory)) = (&self.writer, session.save_ram()) else {
+            return;
+        };
+        if memory != self.written.as_slice() || writer.failed() {
+            self.written.clear();
+            self.written.extend_from_slice(memory);
+            writer.write(memory.to_vec());
         }
-        session.flush_save_ram(path)?;
-        log::info!("wrote save memory to {}", path.display());
-        self.mark_clean(session);
-        Ok(())
+    }
+
+    /// Calls [`SaveRam::write_if_changed`] every
+    /// [`SAVE_RAM_CHECK_INTERVAL`].
+    fn write_if_due(&mut self, session: &Session) {
+        let now = Instant::now();
+        if now >= self.next_check {
+            self.next_check = now + SAVE_RAM_CHECK_INTERVAL;
+            self.write_if_changed(session);
+        }
+    }
+
+    /// Writes save memory if it changed, and waits until every write so far
+    /// is on disk.
+    fn flush(&mut self, session: &Session) -> Result<(), SessionError> {
+        self.write_if_changed(session);
+        match &self.writer {
+            Some(writer) => Ok(writer.wait()?),
+            None => Ok(()),
+        }
     }
 }
 
