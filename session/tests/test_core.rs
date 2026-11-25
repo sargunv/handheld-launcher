@@ -43,6 +43,13 @@ fn draws_the_checkerboard() {
 }
 
 #[test]
+fn creates_the_save_directory_for_the_core() {
+    let _lock = lock();
+    let h = Harness::start(CORE, None).unwrap();
+    assert!(h.dirs.path().join("saves").is_dir());
+}
+
+#[test]
 fn the_dpad_scrolls_the_checkerboard() {
     let _lock = lock();
     let mut h = Harness::start(CORE, None).unwrap();

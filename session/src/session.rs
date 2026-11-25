@@ -51,7 +51,8 @@ pub struct SessionConfig {
     pub content: Option<PathBuf>,
     /// Where the core looks for BIOS and other system files.
     pub system_dir: PathBuf,
-    /// Where the core may write its own save files.
+    /// Where the core may write its own save files. The session creates it
+    /// if it's missing.
     pub save_dir: PathBuf,
     pub video: VideoOutput,
     pub audio: Box<dyn AudioSink>,
@@ -196,6 +197,8 @@ impl Session {
     /// `config.core` must be a libretro core. Loading it runs its code.
     pub unsafe fn new(config: SessionConfig) -> Result<Self, SessionError> {
         let claim = ActiveClaim::claim()?;
+        // Cores open files in it from the start.
+        fs::create_dir_all(&config.save_dir)?;
         // SAFETY: the caller vouches for the core.
         let core = unsafe { Core::load(&config.core)? };
         let host = Box::new(Host::new(
