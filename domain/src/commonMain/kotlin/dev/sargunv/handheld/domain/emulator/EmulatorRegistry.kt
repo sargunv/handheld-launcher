@@ -429,7 +429,8 @@ object EmulatorRegistry {
           LaunchRecipe(
             activity = "com.dsemu.drastic.DraSticActivity",
             categories = emptyList(),
-            data = RomData.Path,
+            // DraStic reads a file URI's decoded path, and opens nothing for a bare path.
+            data = RomData.FileUri,
             mimeType = null,
             flags = setOf(LaunchFlag.ClearTask, LaunchFlag.ClearTop, LaunchFlag.NoHistory),
             method = LaunchMethod.Shell,
@@ -718,6 +719,7 @@ object EmulatorRegistry {
         recipe =
           LaunchRecipe(
             activity = "com.flycast.emulator.MainActivity",
+            // Flycast opens the URI's string as a path unless it's a content URI.
             data = RomData.Path,
             method = LaunchMethod.Shell,
           ),

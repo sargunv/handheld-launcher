@@ -66,8 +66,18 @@ sealed interface RomData {
   /** A content URI from the app's FileProvider. */
   data object ProviderUri : RomData
 
-  /** The ROM's absolute path, written as the URI. */
+  /**
+   * The ROM's absolute path, written as the URI unencoded, for apps that read the URI's string as a
+   * path. Android keeps that string as written, so any file name reaches the app intact.
+   */
   data object Path : RomData
+
+  /**
+   * A `file://` URI for the ROM, with its path percent-encoded, for apps that read the URI's
+   * decoded path. Android refuses to start an activity with one from an app's own process, so a
+   * recipe that uses it goes through [LaunchMethod.Shell].
+   */
+  data object FileUri : RomData
 
   /** `scheme://authority` followed by the ROM's absolute path, percent-encoded. */
   data class Scheme(val scheme: String, val authority: String) : RomData

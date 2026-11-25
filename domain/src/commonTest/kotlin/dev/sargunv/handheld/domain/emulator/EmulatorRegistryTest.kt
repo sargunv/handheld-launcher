@@ -5,7 +5,9 @@ import dev.sargunv.handheld.domain.launch.LaunchBuild
 import dev.sargunv.handheld.domain.launch.LaunchCommandBuilder
 import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchInput
+import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
+import dev.sargunv.handheld.domain.launch.RomData
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -101,6 +103,13 @@ class EmulatorRegistryTest {
     assertTrue(armsx2.matches("com.armsx2.nightly"))
     assertTrue(!armsx2.matches("com.armsx21"))
     assertTrue(!armsx2.matches("xcom.armsx2.nightly"))
+  }
+
+  @Test
+  fun fileUriRecipesGoThroughTheShell() {
+    for ((name, recipe) in recipes) {
+      if (recipe.data == RomData.FileUri) assertEquals(LaunchMethod.Shell, recipe.method, name)
+    }
   }
 
   @Test

@@ -16,6 +16,9 @@ import kotlin.test.assertTrue
 class LaunchCommandBuilderTest {
   private val rom = "/storage/emulated/0/ROMs/game.iso"
 
+  // A file name with every character that a URI treats specially.
+  private val awkwardRom = "/storage/emulated/0/ROMs/Pokémon #1 (100%)?.nds"
+
   private fun emulator(id: String): KnownEmulator = assertNotNull(EmulatorRegistry[EmulatorId(id)])
 
   private fun build(emulator: KnownEmulator, input: LaunchInput): LaunchCommand =
@@ -156,9 +159,9 @@ class LaunchCommandBuilderTest {
   }
 
   @Test
-  fun draSticGoesThroughTheShellByPath() {
+  fun draSticGetsAFileUriThroughTheShell() {
     val command = build("drastic", PlatformCatalog.NDS, "/storage/emulated/0/ROMs/game.nds")
-    assertEquals(LaunchUri.Raw("/storage/emulated/0/ROMs/game.nds"), command.data)
+    assertEquals(LaunchUri.Raw("file:///storage/emulated/0/ROMs/game.nds"), command.data)
     assertNull(command.mimeType)
     assertEquals(LaunchMethod.Shell, command.method)
     assertTrue(command.canUseShell)
@@ -182,6 +185,24 @@ class LaunchCommandBuilderTest {
       ),
       command.data,
     )
+  }
+
+  @Test
+  fun fileUrisEncodeThePath() {
+    val command = build("drastic", PlatformCatalog.NDS, awkwardRom)
+    assertEquals(
+      LaunchUri.Raw("file:///storage/emulated/0/ROMs/Pok%C3%A9mon%20%231%20(100%25)%3F.nds"),
+      command.data,
+    )
+  }
+
+  @Test
+  fun pathsPassAsWritten() {
+    val flycast = build("flycast", PlatformCatalog.DREAMCAST, awkwardRom)
+    assertEquals(LaunchUri.Raw(awkwardRom), flycast.data)
+
+    val seedless = build("seedlessds", PlatformCatalog.NDS, awkwardRom)
+    assertEquals(listOf(LaunchExtra.StringValue("rom_path", awkwardRom)), seedless.extras)
   }
 
   @Test

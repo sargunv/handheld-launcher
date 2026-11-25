@@ -62,6 +62,7 @@ object LaunchCommandBuilder {
         null -> null
         RomData.ProviderUri -> rom
         RomData.Path -> LaunchUri.Raw(input.romPath)
+        RomData.FileUri -> LaunchUri.Raw("file://${encodePath(input.romPath)}")
         is RomData.Scheme ->
           LaunchUri.Raw("${romData.scheme}://${romData.authority}${encodePath(input.romPath)}")
       }

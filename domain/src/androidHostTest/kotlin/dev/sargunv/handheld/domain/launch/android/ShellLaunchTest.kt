@@ -38,7 +38,7 @@ class ShellLaunchTest {
         "-n",
         "com.dsemu.drastic/com.dsemu.drastic.DraSticActivity",
         "-d",
-        "/storage/emulated/0/ROMs/game.nds",
+        "file:///storage/emulated/0/ROMs/game.nds",
         "-f",
         "0x44008000",
       ),
@@ -68,6 +68,18 @@ class ShellLaunchTest {
       ),
       ShellLaunch.argv(command),
     )
+  }
+
+  @Test
+  fun awkwardFileNamesReachTheCommandIntact() {
+    val rom = "/storage/emulated/0/ROMs/Pokémon #1 (100%)?.nds"
+    fun dataOf(command: LaunchCommand) = ShellLaunch.argv(command).let { it[it.indexOf("-d") + 1] }
+
+    assertEquals(
+      "file:///storage/emulated/0/ROMs/Pok%C3%A9mon%20%231%20(100%25)%3F.nds",
+      dataOf(command("drastic", PlatformCatalog.NDS, rom)),
+    )
+    assertEquals(rom, dataOf(command("flycast", PlatformCatalog.DREAMCAST, rom)))
   }
 
   @Test

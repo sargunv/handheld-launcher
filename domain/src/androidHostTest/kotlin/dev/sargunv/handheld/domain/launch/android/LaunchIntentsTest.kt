@@ -31,12 +31,17 @@ class LaunchIntentsTest {
   private val contentUris = ContentUris { Uri.parse("content://test.fileprovider/root$it") }
   private val romUri = Uri.parse("content://test.fileprovider/root$rom")
 
+  // A file name with every character that a URI treats specially.
+  private val awkwardRom = "/storage/emulated/0/ROMs/Pokémon #1 (100%)?.nds"
+
   private fun command(
     emulator: String,
     platform: dev.sargunv.handheld.domain.platform.PlatformSlug,
+    romPath: String = rom,
   ) =
     EmulatorRegistry[EmulatorId(emulator)]!!.let {
-      val build = LaunchCommandBuilder.build(it.recipe, it.packageName, LaunchInput(rom, platform))
+      val build =
+        LaunchCommandBuilder.build(it.recipe, it.packageName, LaunchInput(romPath, platform))
       assertIs<LaunchBuild.Ready>(build).command
     }
 
@@ -108,16 +113,38 @@ class LaunchIntentsTest {
     assertContentEquals(arrayOf("-r", "PCSE00120"), intent.getStringArrayExtra("args"))
   }
 
+  // DraStic opens `getData().getPath()` when the scheme is `file`.
   @Test
-  fun rawUrisPassThrough() {
-    val intent = LaunchIntents.toIntent(command("drastic", PlatformCatalog.NDS), contentUris)
-    assertEquals(Uri.parse(rom), intent.data)
+  fun fileUrisDecodeToTheRomPath() {
+    val intent =
+      LaunchIntents.toIntent(command("drastic", PlatformCatalog.NDS, awkwardRom), contentUris)
+    assertEquals("file", intent.data?.scheme)
+    assertEquals(awkwardRom, intent.data?.path)
     assertNull(intent.type)
     assertNull(intent.clipData)
     assertEquals(
       "com.dsemu.drastic/com.dsemu.drastic.DraSticActivity",
       intent.component?.flattenToString(),
     )
+  }
+
+  // Flycast opens `getData().toString()` as a path.
+  @Test
+  fun pathUrisKeepTheRomPathAsWritten() {
+    val intent =
+      LaunchIntents.toIntent(
+        command("flycast", PlatformCatalog.DREAMCAST, awkwardRom),
+        contentUris,
+      )
+    assertEquals(awkwardRom, intent.data.toString())
+    assertNull(intent.clipData)
+  }
+
+  @Test
+  fun pathExtrasKeepTheRomPath() {
+    val intent =
+      LaunchIntents.toIntent(command("seedlessds", PlatformCatalog.NDS, awkwardRom), contentUris)
+    assertEquals(awkwardRom, intent.getStringExtra("rom_path"))
   }
 
   @Test
