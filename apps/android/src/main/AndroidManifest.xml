@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application android:label="Handheld" android:theme="@android:style/Theme.Material.NoActionBar">
-    <activity android:name=".MainActivity" android:exported="true">
+    <!-- Compose handles configuration changes, so the activity, and a game running in it,
+         survives rotation and controllers connecting. -->
+    <activity
+      android:name=".MainActivity"
+      android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|uiMode"
+      android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

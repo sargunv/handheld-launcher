@@ -13,6 +13,8 @@ android {
     targetSdk = libs.versions.android.targetSdk.get().toInt()
     versionCode = 1
     versionName = "0.1.0"
+    // The ABIs the game session builds for.
+    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
   }
 }
 
@@ -20,4 +22,5 @@ dependencies {
   implementation(project(":ui"))
   implementation(project(":data"))
   implementation(libs.androidx.activity.compose)
+  debugImplementation(project(":session"))
 }

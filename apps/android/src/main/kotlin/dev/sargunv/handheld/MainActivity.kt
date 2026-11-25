@@ -9,6 +9,7 @@ import dev.sargunv.handheld.ui.App
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    setContent { App(EmptyLibrary.games()) }
+    val debugScreen = debugScreen(this)
+    setContent { if (debugScreen != null) debugScreen() else App(EmptyLibrary.games()) }
   }
 }
