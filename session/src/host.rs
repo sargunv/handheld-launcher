@@ -95,6 +95,8 @@ pub(crate) struct Host {
     pub(crate) support_no_game: bool,
     pub(crate) frame_time: Option<ffi::retro_frame_time_callback>,
     pub(crate) shutdown_requested: bool,
+    /// The `RETRO_SERIALIZATION_QUIRK_*` flags the core declared.
+    serialization_quirks: u64,
     unhandled: HashSet<c_uint>,
 }
 
@@ -131,6 +133,7 @@ impl Host {
             support_no_game: false,
             frame_time: None,
             shutdown_requested: false,
+            serialization_quirks: 0,
             unhandled: HashSet::new(),
         }
     }
@@ -545,6 +548,13 @@ impl Host {
                 }
                 ffi::RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE => write::<c_int>(data, 0b11),
                 ffi::RETRO_ENVIRONMENT_GET_FASTFORWARDING => write(data, false),
+                ffi::RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS => {
+                    let Some(&quirks) = data.cast::<u64>().as_ref() else {
+                        return false;
+                    };
+                    self.serialization_quirks = quirks;
+                    true
+                }
                 ffi::RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT => {
                     write::<c_int>(data, ffi::RETRO_SAVESTATE_CONTEXT_NORMAL as c_int)
                 }
@@ -553,7 +563,6 @@ impl Host {
                 ffi::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
                 | ffi::RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO
                 | ffi::RETRO_ENVIRONMENT_SET_MEMORY_MAPS
-                | ffi::RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS
                 | ffi::RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS
                 | ffi::RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK => true,
                 _ => {
@@ -564,6 +573,13 @@ impl Host {
                 }
             }
         }
+    }
+
+    /// Whether the core's states may outlive the session that made them. A
+    /// core with the single-session quirk can only restore its states in the
+    /// same run.
+    pub(crate) fn states_persist(&self) -> bool {
+        self.serialization_quirks & u64::from(ffi::RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION) == 0
     }
 
     /// Accepts a hardware render request the session can serve, and fills in
@@ -814,6 +830,18 @@ mod tests {
             ffi::RETRO_ENVIRONMENT_GET_INPUT_BITMASKS,
             std::ptr::null_mut(),
         ));
+    }
+
+    #[test]
+    fn single_session_states_dont_persist() {
+        let mut host = host();
+        assert!(host.states_persist());
+        let mut quirks = u64::from(ffi::RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION);
+        assert!(host.environment(
+            ffi::RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS,
+            (&raw mut quirks).cast(),
+        ));
+        assert!(!host.states_persist());
     }
 
     #[test]

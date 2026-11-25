@@ -156,6 +156,8 @@ pub enum SessionError {
     Stopped,
     #[error("the core doesn't support save states")]
     StatesUnsupported,
+    #[error("the core's states only work in the session that made them")]
+    StatesNotPersistent,
     #[error("the core couldn't save its state")]
     Serialize,
     #[error("the core couldn't restore the state")]
@@ -660,12 +662,18 @@ impl Session {
     /// Saves the core's state to `path`, replacing the file only once the new
     /// contents are on disk.
     pub fn save_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        if !self.host().states_persist() {
+            return Err(SessionError::StatesNotPersistent);
+        }
         let state = self.serialize_state()?;
         Ok(write_atomically(path, &state)?)
     }
 
     /// Restores a state that [`Session::save_state`] wrote.
     pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        if !self.host().states_persist() {
+            return Err(SessionError::StatesNotPersistent);
+        }
         let state = fs::read(path)?;
         self.unserialize_state(&state)
     }
