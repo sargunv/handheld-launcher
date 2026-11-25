@@ -1,0 +1,95 @@
+package dev.sargunv.handheld.data.auth
+
+import dev.sargunv.handheld.data.romm.DefaultDeviceScopes
+import dev.sargunv.handheld.data.romm.DeviceAuthRequest
+import dev.sargunv.handheld.data.romm.DeviceCode
+import dev.sargunv.handheld.data.romm.RommClient
+import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.data.romm.platformHttpEngine
+import io.ktor.client.engine.HttpClientEngine
+
+/** This device, as it introduces itself to a server it pairs with. */
+data class DeviceDescription(
+  /** An id that stays the same across sign-ins on this install, so the server reuses its device. */
+  val identifier: String,
+  /** The name the server shows for the device, such as `AYN Thor`. */
+  val name: String,
+  /** The operating system, such as `android`. */
+  val platform: String?,
+  val appVersion: String?,
+)
+
+/**
+ * Signs this device in to a RomM server and keeps its credentials in [store].
+ *
+ * @param engine makes the HTTP engine for each request's client.
+ */
+class RommSignIn(
+  private val store: CredentialStore,
+  private val engine: () -> HttpClientEngine = ::platformHttpEngine,
+) {
+  /**
+   * Signs in by pairing: the server issues a code, [onCode] shows it, and a user approves it on the
+   * server's web page, signed in there however the server allows. This works on a server that only
+   * signs in through a single sign-on provider.
+   *
+   * @throws RommException.DeviceAuthDenied when the user denies the code.
+   * @throws RommException.DeviceAuthExpired when the code expires before anyone approves it.
+   */
+  suspend fun withDeviceCode(
+    baseUrl: String,
+    device: DeviceDescription,
+    scopes: List<String> = DefaultDeviceScopes,
+    onCode: suspend (DeviceCode) -> Unit,
+  ): RommCredentials {
+    val token =
+      RommClient(baseUrl, engine = engine()).use { client ->
+        val code =
+          client.startDeviceAuth(
+            DeviceAuthRequest(
+              clientDeviceIdentifier = device.identifier,
+              name = device.name,
+              client = CLIENT_NAME,
+              platform = device.platform,
+              clientVersion = device.appVersion,
+              requestedScopes = scopes,
+            ),
+          )
+        onCode(code)
+        client.awaitDeviceAuth(code)
+      }
+    val credentials =
+      RommCredentials(
+        baseUrl = baseUrl,
+        token = token.accessToken,
+        deviceId = token.deviceId,
+        scopes = token.scopes,
+        expiresAt = token.expiresAt,
+      )
+    store.save(credentials)
+    return credentials
+  }
+
+  /**
+   * Signs in with a client API token the user created on the server's web page. The token is
+   * checked against the server before it's stored.
+   *
+   * @throws RommException.Unauthorized when the server doesn't accept the token.
+   */
+  suspend fun withToken(baseUrl: String, token: String): RommCredentials {
+    RommClient(baseUrl, token.trim(), engine()).use { it.me() }
+    val credentials = RommCredentials(baseUrl = baseUrl, token = token.trim())
+    store.save(credentials)
+    return credentials
+  }
+
+  suspend fun signOut() = store.clear()
+
+  /** A client for the signed-in server, or null when the device isn't signed in. */
+  suspend fun client(): RommClient? =
+    store.load()?.let { RommClient(it.baseUrl, it.token, engine()) }
+
+  private companion object {
+    const val CLIENT_NAME = "handheld"
+  }
+}
