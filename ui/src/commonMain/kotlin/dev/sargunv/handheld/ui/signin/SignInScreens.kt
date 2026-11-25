@@ -75,7 +75,6 @@ class SignInState(
 ) {
   val navigator = Navigator<SignInScreen>(SignInScreen.Address)
   internal val address = TextFieldState()
-  internal val token = TextFieldState()
   internal var help: Help? by mutableStateOf(null)
 }
 
@@ -126,7 +125,7 @@ private fun AddressScreen(state: SignInState) {
       help =
         Help(
           "Server address",
-          "The address you open RomM at in a browser. Without http:// or https://, it's https.",
+          "The address you open RomM at in a browser, such as romm.example.com.",
         ),
       keyboardOptions =
         KeyboardOptions(
@@ -205,11 +204,13 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
 private fun TokenScreen(state: SignInState, baseUrl: String) {
   var error by remember { mutableStateOf<String?>(null) }
   var checking by remember { mutableStateOf(false) }
+  // Each visit starts empty, so a token typed for one server isn't sent to another.
+  val field = remember { TextFieldState() }
   val scope = rememberCoroutineScope()
   val clipboard = LocalClipboard.current
   fun submit() {
     if (checking) return
-    val token = state.token.text.toString()
+    val token = field.text.toString()
     if (token.isBlank()) {
       error = "Paste or type a client API token first."
       return
@@ -239,7 +240,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       TextEntry(
         state = state,
         key = "token",
-        field = state.token,
+        field = field,
         modifier = Modifier.weight(1f),
         placeholder = "API token",
         help = Help("API token", "A client API token from RomM, for $baseUrl."),
@@ -258,7 +259,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
           if (text.isNullOrEmpty()) {
             error = "The clipboard has no text to paste."
           } else {
-            state.token.setTextAndPlaceCursorAtEnd(text)
+            field.setTextAndPlaceCursorAtEnd(text)
             error = null
           }
         }
