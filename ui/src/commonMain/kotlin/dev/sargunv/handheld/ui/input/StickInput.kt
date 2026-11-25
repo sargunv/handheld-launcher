@@ -44,6 +44,11 @@ class StickDirection(
     return current
   }
 
+  /** Forgets the held direction, as if the stick were centered. */
+  fun reset() {
+    current = null
+  }
+
   private fun lean(direction: Direction, x: Float, y: Float): Float =
     when (direction) {
       Direction.Left -> -x
@@ -96,5 +101,46 @@ class DirectionRepeater(
         delay(interval)
       }
     }
+  }
+}
+
+/**
+ * Holds one direction at a time from controllers' hats and left sticks, with key repeat. A leaning
+ * hat wins over the stick. The direction ends when the controller that last moved goes away.
+ *
+ * @param onPress called for each press; `repeat` is false for the first.
+ * @param onRelease called when the held direction ends or changes.
+ */
+class ControllerDirections(
+  scope: CoroutineScope,
+  initialDelay: Duration = 400.milliseconds,
+  interval: Duration = 100.milliseconds,
+  onPress: (direction: Direction, repeat: Boolean) -> Unit,
+  onRelease: (direction: Direction) -> Unit,
+) {
+  private val stick = StickDirection()
+  private val hat = StickDirection()
+  private var device: Int? = null
+  private val repeater = DirectionRepeater(scope, initialDelay, interval, onPress, onRelease)
+
+  /** Takes the positions of [device]'s hat and left stick. */
+  fun move(device: Int, hatX: Float, hatY: Float, stickX: Float, stickY: Float) {
+    this.device = device
+    val fromHat = hat.update(hatX, hatY)
+    val fromStick = stick.update(stickX, stickY)
+    repeater.hold(fromHat ?: fromStick)
+  }
+
+  /** Ends the held direction, as when the window loses focus or the controller's input stops. */
+  fun release() {
+    device = null
+    stick.reset()
+    hat.reset()
+    repeater.hold(null)
+  }
+
+  /** Ends the held direction if [device], which has gone away, was the last to move. */
+  fun deviceRemoved(device: Int) {
+    if (device == this.device) release()
   }
 }

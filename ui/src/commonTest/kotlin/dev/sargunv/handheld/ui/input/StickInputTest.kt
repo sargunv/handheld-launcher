@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -85,5 +86,44 @@ class DirectionRepeaterTest {
     repeater.hold(Direction.Left)
     runCurrent()
     assertEquals(listOf("Up", "^Up", "Left"), events)
+  }
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class ControllerDirectionsTest {
+  private fun TestScope.directions(events: MutableList<String>) =
+    ControllerDirections(
+      scope = backgroundScope,
+      onPress = { direction, repeat -> events += "$direction${if (repeat) "+" else ""}" },
+      onRelease = { events += "^$it" },
+    )
+
+  @Test
+  fun removingTheControllerThatHoldsADirectionStopsItsRepeats() = runTest {
+    val events = mutableListOf<String>()
+    val directions = directions(events)
+    directions.move(device = 7, hatX = 0f, hatY = 0f, stickX = 1f, stickY = 0f)
+    runCurrent()
+
+    directions.deviceRemoved(7)
+    advanceTimeBy(1000.milliseconds)
+    assertEquals(listOf("Right", "^Right"), events)
+
+    // The stick that was held doesn't come back as held when input resumes.
+    directions.move(device = 8, hatX = 0f, hatY = 0f, stickX = 0.4f, stickY = 0f)
+    runCurrent()
+    assertEquals(listOf("Right", "^Right"), events)
+  }
+
+  @Test
+  fun removingAnotherControllerKeepsTheDirection() = runTest {
+    val events = mutableListOf<String>()
+    val directions = directions(events)
+    directions.move(device = 7, hatX = 0f, hatY = -1f, stickX = 0f, stickY = 0f)
+    runCurrent()
+
+    directions.deviceRemoved(8)
+    advanceTimeBy(401.milliseconds)
+    assertEquals(listOf("Up", "Up+"), events)
   }
 }

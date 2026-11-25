@@ -3,6 +3,7 @@ package dev.sargunv.handheld
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.hardware.input.InputManager
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -29,6 +30,7 @@ class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     forcedLayout = forcedLayout(intent)
+    getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
     setContent {
       val display = rememberSecondaryDisplay()
       var failedDisplayId by remember { mutableStateOf<Int?>(null) }
@@ -50,6 +52,11 @@ class MainActivity : ComponentActivity() {
         },
       )
     }
+  }
+
+  override fun onDestroy() {
+    getSystemService(InputManager::class.java).unregisterInputDeviceListener(gamepadMotion)
+    super.onDestroy()
   }
 
   override fun onNewIntent(intent: Intent) {
