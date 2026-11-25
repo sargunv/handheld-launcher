@@ -267,7 +267,6 @@ impl Session {
         unsafe { (session.core.get_system_av_info)(&mut av) };
         let host = session.host_mut();
         host.av_info = AvInfo::from_retro(&av);
-        host.av_info_changed = false;
         log::info!("core AV info: {:?}", host.av_info);
         host.reset_audio();
 
@@ -421,29 +420,7 @@ impl Session {
         }
         // SAFETY: the game is loaded and no host reference is live.
         unsafe { (self.core.run)() };
-        let host = self.host_mut();
-        host.flush_audio();
-        if std::mem::take(&mut host.av_info_changed) {
-            self.apply_av_info();
-        }
-    }
-
-    /// Applies timing and geometry the core changed during a frame.
-    fn apply_av_info(&mut self) {
-        let host = self.host_mut();
-        host.reset_audio();
-        let av = host.av_info;
-        if let Some(gpu) = &mut host.gpu
-            && let Some(fb) = &mut gpu.hw
-        {
-            let (w, h) = (
-                av.max_width.max(av.base_width),
-                av.max_height.max(av.base_height),
-            );
-            if w > fb.width || h > fb.height {
-                fb.resize(&gpu.context.gl, w.max(fb.width), h.max(fb.height));
-            }
-        }
+        self.host_mut().flush_audio();
     }
 
     /// Resets the core, like a console's reset button.

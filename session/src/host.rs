@@ -95,9 +95,6 @@ pub(crate) struct Host {
     pub(crate) support_no_game: bool,
     pub(crate) frame_time: Option<ffi::retro_frame_time_callback>,
     pub(crate) shutdown_requested: bool,
-    /// The core changed its timing or geometry mid-frame; the session applies
-    /// it once the frame ends.
-    pub(crate) av_info_changed: bool,
     unhandled: HashSet<c_uint>,
 }
 
@@ -134,7 +131,6 @@ impl Host {
             support_no_game: false,
             frame_time: None,
             shutdown_requested: false,
-            av_info_changed: false,
             unhandled: HashSet::new(),
         }
     }
@@ -161,6 +157,27 @@ impl Host {
         self.audio = AudioPipeline::new(self.av_info.sample_rate, self.audio_sink.sample_rate());
         if self.audio.is_none() && self.av_info.sample_rate > 0.0 {
             log::warn!("the session can't play the core's audio");
+        }
+    }
+
+    /// Adopts timing and geometry the core set mid-frame: the audio that
+    /// came before plays at the old rate, and the hardware framebuffer grows
+    /// at once, since the core may draw at the new size before the frame
+    /// ends.
+    fn apply_av_info(&mut self, av: AvInfo) {
+        self.flush_audio();
+        self.av_info = av;
+        self.reset_audio();
+        if let Some(gpu) = &mut self.gpu
+            && let Some(fb) = &mut gpu.hw
+        {
+            let (w, h) = (
+                av.max_width.max(av.base_width),
+                av.max_height.max(av.base_height),
+            );
+            if w > fb.width || h > fb.height {
+                fb.resize(&gpu.context.gl, w.max(fb.width), h.max(fb.height));
+            }
         }
     }
 
@@ -325,11 +342,12 @@ impl Host {
     }
 
     fn environment(&mut self, cmd: c_uint, data: *mut c_void) -> bool {
-        let base = cmd & !(ffi::RETRO_ENVIRONMENT_EXPERIMENTAL | ffi::RETRO_ENVIRONMENT_PRIVATE);
+        // libretro.h's constants for experimental commands carry the
+        // experimental bit, so commands match whole.
         // SAFETY (whole match): each command's `data` has the type libretro.h
         // documents for it, and is checked for null before use.
         unsafe {
-            match base {
+            match cmd {
                 ffi::RETRO_ENVIRONMENT_GET_CAN_DUPE => write(data, true),
                 ffi::RETRO_ENVIRONMENT_GET_OVERSCAN => write(data, false),
                 ffi::RETRO_ENVIRONMENT_SET_MESSAGE => {
@@ -510,8 +528,7 @@ impl Host {
                     let Some(info) = data.cast::<ffi::retro_system_av_info>().as_ref() else {
                         return false;
                     };
-                    self.av_info = AvInfo::from_retro(info);
-                    self.av_info_changed = true;
+                    self.apply_av_info(AvInfo::from_retro(info));
                     log::debug!("core AV info: {:?}", self.av_info);
                     true
                 }
@@ -537,11 +554,10 @@ impl Host {
                 | ffi::RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO
                 | ffi::RETRO_ENVIRONMENT_SET_MEMORY_MAPS
                 | ffi::RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS
-                | ffi::RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE
                 | ffi::RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS
                 | ffi::RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK => true,
                 _ => {
-                    if self.unhandled.insert(base) {
+                    if self.unhandled.insert(cmd) {
                         log::debug!("core used unsupported environment command {cmd:#x}");
                     }
                     false
@@ -749,3 +765,86 @@ unsafe extern "C" fn perf_get_cpu_features() -> u64 {
 unsafe extern "C" fn perf_noop(_counter: *mut ffi::retro_perf_counter) {}
 
 unsafe extern "C" fn perf_log() {}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::audio::NullAudioSink;
+
+    struct Discard;
+
+    impl VideoSink for Discard {
+        fn frame(&mut self, _frame: Frame<'_>) {}
+    }
+
+    fn host() -> Host {
+        Host::new(
+            CString::default(),
+            CString::default(),
+            Options::new(HashMap::new()),
+            Arc::new(InputState::new()),
+            Box::new(NullAudioSink),
+            VideoTarget::Sink(Box::new(Discard)),
+        )
+    }
+
+    fn av_info(max_width: u32, max_height: u32, sample_rate: f64) -> ffi::retro_system_av_info {
+        let mut info = ffi::retro_system_av_info::default();
+        info.geometry.base_width = 320;
+        info.geometry.base_height = 240;
+        info.geometry.max_width = max_width;
+        info.geometry.max_height = max_height;
+        info.timing.fps = 60.0;
+        info.timing.sample_rate = sample_rate;
+        info
+    }
+
+    #[test]
+    fn experimental_commands_reach_their_handlers() {
+        let mut host = host();
+        let mut enabled: c_int = 0;
+        assert!(host.environment(
+            ffi::RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE,
+            (&raw mut enabled).cast(),
+        ));
+        assert_eq!(enabled, 0b11);
+        assert!(host.environment(
+            ffi::RETRO_ENVIRONMENT_GET_INPUT_BITMASKS,
+            std::ptr::null_mut(),
+        ));
+    }
+
+    #[test]
+    fn turns_down_content_overrides() {
+        // The session loads content by the core's global need_fullpath only.
+        let mut host = host();
+        assert!(!host.environment(
+            ffi::RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE,
+            std::ptr::null_mut(),
+        ));
+    }
+
+    #[test]
+    fn new_av_info_takes_effect_within_the_frame() {
+        let mut host = host();
+        host.av_info = AvInfo::from_retro(&av_info(320, 240, 32_000.0));
+        host.reset_audio();
+        if let Some(context) = gl::test_context() {
+            let fb = Framebuffer::new(&context.gl, 320, 240, false, false).unwrap();
+            let mut gpu = Gpu::new(context);
+            gpu.hw = Some(fb);
+            host.gpu = Some(gpu);
+        }
+        let mut info = av_info(640, 480, 44_100.0);
+        assert!(host.environment(
+            ffi::RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
+            (&raw mut info).cast(),
+        ));
+        assert_eq!(host.audio_rate, 44_100.0);
+        if let Some(fb) = host.gpu.as_ref().and_then(|gpu| gpu.hw.as_ref()) {
+            assert_eq!((fb.width, fb.height), (640, 480));
+        }
+    }
+}
