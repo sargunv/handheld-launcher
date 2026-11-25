@@ -2,7 +2,8 @@
 
 The software a gaming handheld runs: browse, get, play and keep games from a
 RomM server. Read [docs/vision.md](docs/vision.md) before you design a feature.
-It sets the scope and the priorities.
+It sets the scope and the priorities. Before you build a screen, read
+[docs/screens.md](docs/screens.md) for its agreed structure.
 
 ## Project map
 
