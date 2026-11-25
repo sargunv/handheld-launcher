@@ -1,6 +1,5 @@
 package dev.sargunv.handheld.ui.focus
 
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
@@ -12,6 +11,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,7 +21,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
 
 /**
@@ -68,7 +70,11 @@ internal class FocusMemory(
   private val saved: MutableState<String?>,
   private val isRecording: () -> Boolean,
 ) {
-  private val items = mutableMapOf<String, FocusRequester>()
+  private val items = mutableStateMapOf<String, FocusRequester>()
+
+  /** Whether no items are composed. Reading this observes it. */
+  val isEmpty: Boolean
+    get() = items.isEmpty()
 
   val lastFocusedKey: String?
     get() = saved.value
@@ -121,7 +127,7 @@ internal constructor(saved: MutableState<String?>, private val scopes: FocusScop
 
   /**
    * Puts focus back in this scope: on the item that had it last if that item is still composed,
-   * otherwise on the first item.
+   * otherwise on the first item, or on the scope itself when it has no items.
    */
   fun restore(): Boolean {
     restorePending = false
@@ -138,6 +144,9 @@ internal constructor(saved: MutableState<String?>, private val scopes: FocusScop
  * nothing inside has focus (the focused item went away), focus returns to the item that had it
  * last, or [initialFocus], or the first item. The remembered item survives this scope leaving
  * composition the way [rememberSaveable] state does.
+ *
+ * A scope with no items, such as an empty or loading screen, holds focus itself, so actions like
+ * [Action.Back][dev.sargunv.handheld.ui.input.Action.Back] still reach it and its ancestors.
  */
 @Composable
 fun FocusScope(
@@ -177,7 +186,10 @@ fun FocusScope(
       modifier
         .onFocusChanged { state.hasFocus = it.hasFocus }
         .focusRequester(state.group)
-        .focusGroup(),
+        // A group while it has items; otherwise a focus target itself. When items appear, the
+        // scope gives up focus and the restore effect above moves it to them.
+        .focusProperties { canFocus = state.memory.isEmpty }
+        .focusTarget(),
       content = content,
     )
   }
