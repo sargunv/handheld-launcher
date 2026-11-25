@@ -16,6 +16,11 @@ android {
     // The ABIs the game session builds for.
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
   }
+
+  // The project's shared debug key, which `mise run android:debug-key` unpacks from fnox, so every
+  // machine's debug build installs over the others'. Without it, the machine's own key signs.
+  val sharedDebugKey = file("debug.keystore")
+  if (sharedDebugKey.exists()) signingConfigs.getByName("debug") { storeFile = sharedDebugKey }
 }
 
 dependencies {

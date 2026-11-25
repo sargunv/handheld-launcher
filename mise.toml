@@ -42,8 +42,19 @@ run = "fnox exec -- ./gradlew :data:jvmTest --tests '*LiveLibrarySyncTest' --rer
 description = "Run the desktop app"
 run = "./gradlew :apps:desktop:run"
 
+[tasks."android:debug-key"]
+description = "Unpack the project's shared debug signing key from fnox"
+run = """
+k=apps/android/debug.keystore
+[ -f "$k" ] && exit 0
+b64="$(fnox get ANDROID_DEBUG_KEYSTORE)"
+f="$(mktemp)"
+printf %s "$b64" | base64 -d > "$f" && mv "$f" "$k"
+"""
+
 [tasks."run:android"]
 description = "Install and launch the debug app on the connected device"
+depends = ["android:debug-key"]
 run = [
   "./gradlew :apps:android:installDebug",
   "adb shell am start -W -n dev.sargunv.handheld/.MainActivity ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}",

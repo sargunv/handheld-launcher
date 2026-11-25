@@ -5,3 +5,4 @@ target/
 local.properties
 *.iml
 .idea/
+apps/android/debug.keystore
