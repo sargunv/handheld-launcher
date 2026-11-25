@@ -11,6 +11,7 @@ lockfile_mode = "merge"
 "aqua:koalaman/shellcheck" = "0.11.0"
 "core:java" = "zulu-25.38.201.0"
 "core:rust" = { version = "1.100.0", profile = "minimal", components = "rustfmt,clippy", targets = "aarch64-linux-android,x86_64-linux-android" }
+"github:jdx/fnox" = "1.50.0"
 
 [env]
 # The runner images set ANDROID_HOME; locally it defaults to Android Studio's path.
@@ -32,6 +33,10 @@ run = ["./gradlew assemble", "cargo build --workspace"]
 description = "Run the Kotlin and Rust tests"
 depends = ["session:fixtures"]
 run = ["./gradlew check", "cargo test --workspace"]
+
+[tasks."test:live"]
+description = "Sync the dev RomM server's library read-only, with credentials from fnox"
+run = "fnox exec -- ./gradlew :data:jvmTest --tests '*LiveLibrarySyncTest' --rerun"
 
 [tasks."run:desktop"]
 description = "Run the desktop app"

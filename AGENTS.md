@@ -49,4 +49,11 @@ devices may be connected. Innkeeper has one display, so use
 `HANDHELD_LAYOUT=frame` to see both screens. Don't set `overlay_display_devices`
 to simulate a second display: it crashes Innkeeper's system_server.
 
+## Secrets
+
+Development secrets, such as a read-only token for a RomM server, are encrypted
+in `fnox.toml`. Read one with `fnox get NAME`, or run a command with all of them
+in its environment with `fnox exec -- <command>`. CI has no key, so tests that
+need a secret skip there. `mise run test:live` runs the live RomM test.
+
 ## Project invariants

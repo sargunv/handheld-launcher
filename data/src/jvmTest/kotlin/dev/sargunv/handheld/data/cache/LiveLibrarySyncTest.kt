@@ -13,10 +13,8 @@ import org.junit.Assume.assumeTrue
 
 /**
  * Syncs a real server's library into a fresh cache, reading only. It runs when `ROMM_URL` and
- * `ROMM_TOKEN` are set, and prints counts but no library contents:
- * ```sh
- * ROMM_URL=... ROMM_TOKEN=... ./gradlew :data:jvmTest --tests '*LiveLibrarySyncTest' --rerun
- * ```
+ * `ROMM_TOKEN` are set, and prints counts but no library contents. `mise run test:live` sets them
+ * from fnox.
  */
 class LiveLibrarySyncTest {
   @Test
