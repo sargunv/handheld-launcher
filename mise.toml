@@ -30,6 +30,7 @@ run = ["./gradlew assemble", "cargo build --workspace"]
 
 [tasks.test]
 description = "Run the Kotlin and Rust tests"
+depends = ["session:fixtures"]
 run = ["./gradlew check", "cargo test --workspace"]
 
 [tasks."run:desktop"]
@@ -52,3 +53,6 @@ tools = { "cargo:bindgen-cli" = "0.73.2" }
 dir = "session"
 run = "bindgen vendor/libretro/libretro.h --rust-edition 2024 --rust-target 1.85 --use-core --allowlist-item 'retro_.*|RETRO_.*' --ignore-functions --no-layout-tests --no-doc-comments --no-prepend-enum-name --with-derive-default --sort-semantically -o src/ffi/generated.rs"
 
+[tasks."session:fixtures"]
+description = "Build and download the cores and content the session's tests run"
+run = "session/fixtures.sh"
