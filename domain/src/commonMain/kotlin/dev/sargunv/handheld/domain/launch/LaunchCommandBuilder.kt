@@ -38,7 +38,8 @@ sealed interface LaunchBuild {
 
 /** Fills [LaunchRecipe]s with games. */
 object LaunchCommandBuilder {
-  private val placeholder = Regex("""\{(\w+)}""")
+  // Android's regex engine, ICU, needs the closing brace escaped too.
+  private val placeholder = Regex("""\{(\w+)\}""")
   private val buildNumber = Regex("""^\d+\.\d+-(\d+)""")
 
   /** The placeholders [ExtraValue.Text] understands. */
