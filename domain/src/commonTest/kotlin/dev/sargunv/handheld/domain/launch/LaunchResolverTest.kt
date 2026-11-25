@@ -67,6 +67,28 @@ class LaunchResolverTest {
     }
   }
 
+  // Genshin Impact: some Eden builds take its package name to get its GPU driver tuning.
+  @Test
+  fun onlyAnExplicitChoiceSendsAGameToAnAppThatIsNotAnEmulator() {
+    val genshin = "com.miHoYo.Yuanshen"
+    val zelda = LaunchSubject(gameId = 5, platform = SWITCH)
+
+    assertIs<LaunchResolution.NoEmulatorInstalled>(
+      LaunchResolver.resolve(zelda, LaunchRules(), setOf(genshin)),
+    )
+
+    val chosen =
+      resolved(
+        LaunchResolver.resolve(
+          zelda,
+          LaunchRules(platformDefaults = mapOf(SWITCH to LaunchChoice(genshin))),
+          setOf(genshin),
+        ),
+      )
+    assertEquals(genshin, chosen.target.packageName)
+    assertNull(chosen.target.emulator)
+  }
+
   @Test
   fun gameOverrideBeatsCollectionBeatsPlatform() {
     val installed = setOf("a.game", "b.collection", "c.platform")

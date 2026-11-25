@@ -332,9 +332,7 @@ object EmulatorRegistry {
         packageName = "dev.eden.eden_emulator",
         platforms = setOf(SWITCH),
         recipe = LaunchRecipe(activity = yuzuActivity, method = LaunchMethod.Shell),
-        // Some Eden builds take a game's package name so GPU drivers apply that game's tuning.
-        packagePatterns =
-          listOf("dev.eden.*", "dev.legacy.eden*", "org.eden.*", "com.miHoYo.Yuanshen"),
+        packagePatterns = listOf("dev.eden.*", "dev.legacy.eden*", "org.eden.*"),
         forkRecipe = LaunchRecipe.ViewRom,
         downloadUrl = "https://git.eden-emu.dev/eden-emu/eden/releases",
         releases = ReleaseSource.Gitea("https://git.eden-emu.dev", "eden-emu/eden"),
