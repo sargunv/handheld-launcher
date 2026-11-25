@@ -37,6 +37,14 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
           "ndk;$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p'
           gradle/libs.versions.toml)"
+      # The session's test fixtures, which fixtures.sh builds from the sources
+      # fixture-sources.sh pins.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/handheld/session-fixtures
+          key:
+            session-fixtures-${{ hashFiles('session/fixtures.sh',
+            'session/fixture-sources.sh') }}
       - run: mise run build
       - run: mise run test
         env:

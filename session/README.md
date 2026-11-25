@@ -54,8 +54,10 @@ cores, and Gambatte with µCity, a Game Boy Color game under the GPL-3.0-or-late
 with CC BY-SA 4.0 graphics and music. `fixtures.sh`, which
 `mise run session:fixtures` runs, builds the cores from pinned commits and
 downloads the game into `~/.cache/handheld/session-fixtures`, or
-`$HANDHELD_SESSION_FIXTURES`. Building them needs a C and C++ toolchain and the
-OpenGL and OpenGL ES development libraries
+`$HANDHELD_SESSION_FIXTURES`. `mise run test` runs it first, so the first run on
+a cold cache builds and downloads them; the tests themselves stay offline. CI
+caches them by the files that pin them. Building them needs a C and C++
+toolchain and the OpenGL and OpenGL ES development libraries
 (`mesa-libGL-devel mesa-libGLES-devel` on Fedora, `libgl-dev libgles-dev` on
 Debian and Ubuntu).
 
