@@ -1,6 +1,8 @@
 //! The game session: hosts libretro cores and owns their video, audio and
 //! input. The Kotlin app drives it through UniFFI.
 
+mod ffi;
+
 uniffi::setup_scaffolding!();
 
 /// The version of the session library, for the app to check it loaded the

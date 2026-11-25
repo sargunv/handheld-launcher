@@ -45,3 +45,10 @@ run = [
 
 [hooks]
 postinstall = ["hk install --mise"]
+
+[tasks."session:bindings"]
+description = "Regenerate the session's libretro bindings from the vendored libretro.h"
+tools = { "cargo:bindgen-cli" = "0.73.2" }
+dir = "session"
+run = "bindgen vendor/libretro/libretro.h --rust-edition 2024 --rust-target 1.85 --use-core --allowlist-item 'retro_.*|RETRO_.*' --ignore-functions --no-layout-tests --no-doc-comments --no-prepend-enum-name --with-derive-default --sort-semantically -o src/ffi/generated.rs"
+
