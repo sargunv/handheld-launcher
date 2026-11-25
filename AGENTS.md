@@ -28,11 +28,25 @@ common ones:
 - `mise run check`, `mise run fix`: the formatters and linters (hk.pkl).
 - `mise run run:desktop`: run the desktop app.
 - `mise run run:android`: install and launch on the connected device.
+  `HANDHELD_LAYOUT=frame` (or `folded`) forces a dual-screen layout.
+- `mise run android:screenshot`: save the device's screen to a temp file and
+  print its path.
+- `mise run android:action <action>`: send a semantic action (`confirm`, `back`,
+  `up`, `menu`, ...) to the app as a key event.
 - `mise run session:fixtures`: build the cores and fetch the content the
   session's tests run. `mise run test` runs it first.
 - `mise run session:run -- <core> [content]`: run a core in the session's
   desktop development runner (session/README.md).
 - `mise run session:android-fixtures -- <abi>`: build the test cores for
   Android, to run in the debug app's session test screen (session/README.md).
+
+## Android dev device
+
+The default dev device is Innkeeper, an x86_64 Android userspace on the Linux
+desktop that exposes adb. The Android tasks and Gradle's install use
+`$ANDROID_SERIAL`; set it to your Innkeeper profile's serial, since other
+devices may be connected. Innkeeper has one display, so use
+`HANDHELD_LAYOUT=frame` to see both screens. Don't set `overlay_display_devices`
+to simulate a second display: it crashes Innkeeper's system_server.
 
 ## Project invariants

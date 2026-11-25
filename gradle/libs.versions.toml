@@ -19,6 +19,8 @@ robolectric-android-all = "17-robolectric-16653203-i7"
 junit = "4.13.2"
 android-ndk = "30.0.16248370"
 jna = "5.19.1"
+navigation3 = "1.2.0"
+navigationevent = "1.1.0"
 
 [libraries]
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
@@ -44,6 +46,9 @@ robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectr
 robolectric-android-all = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectric-android-all" }
 junit = { module = "junit:junit", version.ref = "junit" }
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
+compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "compose-multiplatform" }
+navigation3-ui = { module = "org.jetbrains.androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
+navigationevent-compose = { module = "org.jetbrains.androidx.navigationevent:navigationevent-compose", version.ref = "navigationevent" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

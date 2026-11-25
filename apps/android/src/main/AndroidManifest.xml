@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application android:label="Handheld" android:theme="@android:style/Theme.Material.NoActionBar">
-    <!-- Compose handles configuration changes, so the activity, and a game running in it,
-         survives rotation and controllers connecting. -->
+    <!-- Compose handles configuration changes itself. Without these, connecting a gamepad
+         (keyboard, navigation) or changing the screen recreates the activity, and stops a game
+         running in it. -->
     <activity
       android:name=".MainActivity"
-      android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density|uiMode"
-      android:exported="true">
+      android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|density|uiMode"
+      android:exported="true"
+      android:launchMode="singleTask">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

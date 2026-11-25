@@ -45,7 +45,9 @@ adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen sessi
 ```
 
 The core and content paths are relative to the app's `files/session-test`, or
-absolute. F2 saves a state and F4 loads it.
+absolute. Innkeeper has no `run-as`, so there, pass the absolute paths under
+`/data/local/tmp/session-test` instead of copying the files. F2 saves a state
+and F4 loads it.
 
 ## Tests
 
