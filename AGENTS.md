@@ -28,5 +28,9 @@ common ones:
 - `mise run check`, `mise run fix`: the formatters and linters (hk.pkl).
 - `mise run run:desktop`: run the desktop app.
 - `mise run run:android`: install and launch on the connected device.
+- `mise run session:fixtures`: build the cores and fetch the content the
+  session's tests run. `mise run test` runs it first.
+- `mise run session:run -- <core> [content]`: run a core in the session's
+  desktop development runner (session/README.md).
 
 ## Project invariants

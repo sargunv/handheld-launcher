@@ -56,3 +56,7 @@ run = "bindgen vendor/libretro/libretro.h --rust-edition 2024 --rust-target 1.85
 [tasks."session:fixtures"]
 description = "Build and download the cores and content the session's tests run"
 run = "session/fixtures.sh"
+
+[tasks."session:run"]
+description = "Run a libretro core in the session's desktop development runner"
+run = "cargo run -p handheld-session --features runner --bin session-runner --"

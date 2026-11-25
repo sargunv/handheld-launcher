@@ -9,6 +9,21 @@ rust-version.workspace = true
 crate-type = ["cdylib", "lib"]
 name = "handheld_session"
 
+[[bin]]
+name = "session-runner"
+required-features = ["runner"]
+
+[features]
+# The desktop development runner. It needs ALSA and libudev headers on Linux.
+runner = [
+  "dep:clap",
+  "dep:cpal",
+  "dep:env_logger",
+  "dep:gilrs",
+  "dep:softbuffer",
+  "dep:winit",
+]
+
 [dependencies]
 glow = "0.18.0"
 libloading = "0.9.1"
@@ -16,6 +31,13 @@ log = "0.4.35"
 rubato = { version = "5.1.0", default-features = false }
 thiserror = "2.0.21"
 uniffi = "0.32.2"
+
+clap = { version = "4.6.10", features = ["derive"], optional = true }
+cpal = { version = "0.18.2", optional = true }
+env_logger = { version = "0.11.12", optional = true }
+gilrs = { version = "0.11.2", optional = true }
+softbuffer = { version = "0.4.8", optional = true }
+winit = { version = "0.30.13", optional = true }
 
 
 [dev-dependencies]
