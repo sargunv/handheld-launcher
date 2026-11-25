@@ -633,11 +633,14 @@ impl Framebuffer {
     /// # Safety
     ///
     /// The context is current. It changes the texture and renderbuffer
-    /// bindings.
+    /// bindings, and unbinds the pixel unpack buffer.
     unsafe fn allocate(&mut self, gl: &glow::Context, width: u32, height: u32) {
         let (w, h) = (width.max(1) as i32, height.max(1) as i32);
         // SAFETY: forwarded from the caller.
         unsafe {
+            // With an unpack buffer bound, the null data below would be an
+            // offset into it rather than no data.
+            gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None);
             gl.bind_texture(glow::TEXTURE_2D, Some(self.color));
             gl.tex_image_2d(
                 glow::TEXTURE_2D,
@@ -686,6 +689,8 @@ impl Framebuffer {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.color));
             gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
             gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, 0);
+            gl.pixel_store_i32(glow::UNPACK_SKIP_ROWS, 0);
+            gl.pixel_store_i32(glow::UNPACK_SKIP_PIXELS, 0);
             gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None);
             gl.tex_sub_image_2d(
                 glow::TEXTURE_2D,
@@ -711,8 +716,11 @@ impl Framebuffer {
             let saved = SavedBindings::save(gl);
             gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(self.fbo));
             gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
+            // Anything else a core left set would make GL write outside `out`.
             gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
             gl.pixel_store_i32(glow::PACK_ROW_LENGTH, 0);
+            gl.pixel_store_i32(glow::PACK_SKIP_ROWS, 0);
+            gl.pixel_store_i32(glow::PACK_SKIP_PIXELS, 0);
             gl.read_pixels(
                 0,
                 0,
@@ -841,8 +849,12 @@ struct SavedBindings {
     color_mask: [bool; 4],
     pack_alignment: i32,
     pack_row_length: i32,
+    pack_skip_rows: i32,
+    pack_skip_pixels: i32,
     unpack_alignment: i32,
     unpack_row_length: i32,
+    unpack_skip_rows: i32,
+    unpack_skip_pixels: i32,
 }
 
 impl SavedBindings {
@@ -868,8 +880,12 @@ impl SavedBindings {
                 color_mask: mask.map(|m| m != 0),
                 pack_alignment: gl.get_parameter_i32(glow::PACK_ALIGNMENT),
                 pack_row_length: gl.get_parameter_i32(glow::PACK_ROW_LENGTH),
+                pack_skip_rows: gl.get_parameter_i32(glow::PACK_SKIP_ROWS),
+                pack_skip_pixels: gl.get_parameter_i32(glow::PACK_SKIP_PIXELS),
                 unpack_alignment: gl.get_parameter_i32(glow::UNPACK_ALIGNMENT),
                 unpack_row_length: gl.get_parameter_i32(glow::UNPACK_ROW_LENGTH),
+                unpack_skip_rows: gl.get_parameter_i32(glow::UNPACK_SKIP_ROWS),
+                unpack_skip_pixels: gl.get_parameter_i32(glow::UNPACK_SKIP_PIXELS),
             }
         }
     }
@@ -913,15 +929,117 @@ impl SavedBindings {
             gl.color_mask(r, g, b, a);
             gl.pixel_store_i32(glow::PACK_ALIGNMENT, self.pack_alignment);
             gl.pixel_store_i32(glow::PACK_ROW_LENGTH, self.pack_row_length);
+            gl.pixel_store_i32(glow::PACK_SKIP_ROWS, self.pack_skip_rows);
+            gl.pixel_store_i32(glow::PACK_SKIP_PIXELS, self.pack_skip_pixels);
             gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, self.unpack_alignment);
             gl.pixel_store_i32(glow::UNPACK_ROW_LENGTH, self.unpack_row_length);
+            gl.pixel_store_i32(glow::UNPACK_SKIP_ROWS, self.unpack_skip_rows);
+            gl.pixel_store_i32(glow::UNPACK_SKIP_PIXELS, self.unpack_skip_pixels);
         }
+    }
+}
+
+/// A headless GL ES context for tests, or `None` where EGL isn't available
+/// and `HANDHELD_REQUIRE_EGL` isn't set.
+#[cfg(test)]
+pub(crate) fn test_context() -> Option<GlContext> {
+    match GlContext::new(GlApi::Gles { major: 3, minor: 0 }, Target::Headless, false) {
+        Ok(context) => Some(context),
+        Err(GlError::Unavailable(reason)) if std::env::var_os("HANDHELD_REQUIRE_EGL").is_none() => {
+            eprintln!("skipping: {reason}");
+            None
+        }
+        Err(e) => panic!("{e}"),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::fit;
+    use glow::HasContext;
+
+    use super::{Framebuffer, fit, test_context};
+
+    /// Fills `fb` with one color.
+    fn clear(gl: &glow::Context, fb: &Framebuffer, color: [f32; 4]) {
+        // SAFETY: the test's context is current.
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb.fbo));
+            gl.clear_color(color[0], color[1], color[2], color[3]);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        }
+    }
+
+    #[test]
+    fn reads_back_tightly_packed_whatever_the_core_left_set() {
+        let Some(context) = test_context() else {
+            return;
+        };
+        let gl = &context.gl;
+        let fb = Framebuffer::new(gl, 4, 4, false, false).unwrap();
+        clear(gl, &fb, [1.0, 0.0, 0.0, 1.0]);
+        // SAFETY: the context is current.
+        unsafe {
+            gl.pixel_store_i32(glow::PACK_SKIP_ROWS, 2);
+            gl.pixel_store_i32(glow::PACK_SKIP_PIXELS, 1);
+        }
+        // Spare capacity keeps a broken readback from overrunning the
+        // allocation while the test catches it.
+        let mut out = Vec::with_capacity(4096);
+        fb.read(gl, 4, 4, &mut out);
+        assert_eq!(out.len(), 4 * 4 * 4);
+        assert!(
+            out.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [255, 0, 0, 255]),
+            "{out:?}"
+        );
+        // SAFETY: the context is current.
+        unsafe {
+            assert_eq!(gl.get_parameter_i32(glow::PACK_SKIP_ROWS), 2);
+            assert_eq!(gl.get_parameter_i32(glow::PACK_SKIP_PIXELS), 1);
+            assert_eq!(gl.get_error(), glow::NO_ERROR);
+        }
+        fb.delete(gl);
+    }
+
+    #[test]
+    fn grows_while_the_core_has_an_unpack_buffer_bound() {
+        let Some(context) = test_context() else {
+            return;
+        };
+        let gl = &context.gl;
+        let mut fb = Framebuffer::new(gl, 1, 1, true, true).unwrap();
+        // SAFETY: the context is current.
+        let buffer = unsafe {
+            let buffer = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, Some(buffer));
+            gl.buffer_data_size(glow::PIXEL_UNPACK_BUFFER, 4, glow::STREAM_DRAW);
+            buffer
+        };
+        fb.resize(gl, 64, 64);
+        // SAFETY: the context is current.
+        unsafe {
+            assert_eq!(gl.get_error(), glow::NO_ERROR);
+            assert_eq!(
+                gl.get_parameter_i32(glow::PIXEL_UNPACK_BUFFER_BINDING) as u32,
+                buffer.0.get()
+            );
+            gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None);
+            gl.delete_buffer(buffer);
+        }
+        clear(gl, &fb, [0.0, 0.0, 1.0, 1.0]);
+        let mut out = Vec::new();
+        fb.read(gl, 64, 64, &mut out);
+        assert!(
+            out.as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [0, 0, 255, 255])
+        );
+        fb.delete(gl);
+    }
 
     #[test]
     fn fit_letterboxes_and_pillarboxes() {
