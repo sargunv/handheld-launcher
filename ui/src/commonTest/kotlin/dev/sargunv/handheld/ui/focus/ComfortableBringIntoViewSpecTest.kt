@@ -40,4 +40,31 @@ class ComfortableBringIntoViewSpecTest {
       spec.calculateScrollDistance(offset = 250f, size = 800f, containerSize = 1000f),
     )
   }
+
+  @Test
+  fun itemLargerThanTheViewportRestsWhereverItCoversIt() {
+    // Any offset that leaves the item covering the whole viewport is a resting position, so the
+    // scroll animation settles instead of chasing the far edge.
+    for (offset in listOf(0f, -30f, -60f)) {
+      assertEquals(
+        0f,
+        spec.calculateScrollDistance(offset = offset, size = 160f, containerSize = 100f),
+        "offset $offset",
+      )
+    }
+  }
+
+  @Test
+  fun itemLargerThanTheViewportScrollsToItsNearestEdge() {
+    // Coming in from the end, its start lines up with the viewport's start.
+    assertEquals(
+      40f,
+      spec.calculateScrollDistance(offset = 40f, size = 160f, containerSize = 100f),
+    )
+    // Coming in from the start, its end lines up with the viewport's end.
+    assertEquals(
+      -40f,
+      spec.calculateScrollDistance(offset = -100f, size = 160f, containerSize = 100f),
+    )
+  }
 }

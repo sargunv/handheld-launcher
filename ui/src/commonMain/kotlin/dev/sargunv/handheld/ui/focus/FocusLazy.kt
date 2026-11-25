@@ -141,13 +141,22 @@ private fun FocusList(walls: Set<FocusDirection>, list: @Composable (Modifier) -
 /**
  * Scrolls a focused item into view with a margin of a fifth of the viewport on each side, so the
  * neighbors it leads to are already showing. The list's own bounds still apply, so the first and
- * last items sit at the ends.
+ * last items sit at the ends. An item larger than the viewport stays put while it covers the
+ * viewport, and otherwise scrolls only until it does.
  */
 @OptIn(ExperimentalFoundationApi::class)
 internal object ComfortableBringIntoViewSpec : BringIntoViewSpec {
   private const val MARGIN_FRACTION = 0.2f
 
   override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+    if (size > containerSize) {
+      val trailing = offset + size - containerSize
+      return when {
+        offset > 0 -> offset
+        trailing < 0 -> trailing
+        else -> 0f
+      }
+    }
     val margin =
       minOf(containerSize * MARGIN_FRACTION, ((containerSize - size) / 2).coerceAtLeast(0f))
     val leading = offset - margin
