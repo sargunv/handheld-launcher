@@ -94,6 +94,16 @@ class LibraryCacheTest {
   }
 
   @Test
+  fun movesAFileToAnotherRom() = runTest {
+    cache.upsertRoms(listOf(rom(1, "One"), rom(2, "Two")))
+    val moved = RomFile(10, "One.bin", 100, RomFileCategory.Game)
+    cache.upsertRoms(listOf(rom(2, "Two", files = listOf(moved))))
+
+    assertEquals(emptyList(), cache.rom(1)!!.files)
+    assertEquals(listOf(moved), cache.rom(2)!!.files)
+  }
+
+  @Test
   fun searchesTitlesByWordPrefixes() = runTest {
     cache.upsertRoms(
       listOf(
@@ -108,6 +118,8 @@ class LibraryCacheTest {
 
     assertEquals(setOf("Pokémon Crystal"), titles("pokemon"))
     assertEquals(setOf("Pokémon Crystal"), titles("POKé cry"))
+    // A decomposed accent stays part of its word.
+    assertEquals(setOf("Pokémon Crystal"), titles("Poke\u0301mon"))
     assertEquals(setOf("Super Mario Bros. 3", "Mario Kart", "Dr. Mario"), titles("mar"))
     assertEquals(setOf("Super Mario Bros. 3", "Mario Kart"), titles("super mario"))
     assertEquals(setOf("Super Mario Bros. 3"), titles("bros 3"))

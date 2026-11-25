@@ -172,8 +172,9 @@ JOIN collection_rom ON collection_rom.rom_id = rom_file.rom_id
 WHERE collection_rom.collection_kind = ? AND collection_rom.collection_id = ?
 ORDER BY rom_file.file_name, rom_file.id;
 
+-- Replacing keeps a file that moved to another ROM from failing the insert.
 insertFile:
-INSERT INTO rom_file VALUES ?;
+INSERT OR REPLACE INTO rom_file VALUES ?;
 
 deleteFilesOfRom:
 DELETE FROM rom_file WHERE rom_id = ?;

@@ -212,7 +212,8 @@ private constructor(
 /** An FTS5 query that matches rows with a word starting with each word of [text]. */
 internal fun ftsQuery(text: String): String? =
   text
-    .split(Regex("""[^\p{L}\p{N}]+"""))
+    // Combining marks belong to their letter, as they do for the index's tokenizer.
+    .split(Regex("""[^\p{L}\p{M}\p{N}]+"""))
     .filter { it.isNotEmpty() }
     .joinToString(" ") { "\"$it\"*" }
     .ifEmpty { null }
