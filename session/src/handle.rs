@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -80,8 +80,9 @@ pub struct SessionInfo {
 ///
 /// A session starts paused, so the app can attach a window first. Every
 /// method may be called from any thread. Once the session stops, by
-/// [`GameSession::stop`] or because its thread failed, methods that need the
-/// core return [`SessionError::Stopped`] and the rest do nothing.
+/// [`GameSession::stop`], because the core asked to quit, or because its
+/// thread failed, methods that need the core return [`SessionError::Stopped`]
+/// and the rest do nothing.
 #[derive(uniffi::Object)]
 pub struct GameSession {
     commands: Sender<Command>,
@@ -421,32 +422,52 @@ struct Runner {
 /// up and starts counting from now.
 const MAX_LAG_FRAMES: u32 = 4;
 
+/// What the session thread does next.
+enum Next {
+    Command(Command),
+    Frame,
+    Exit,
+}
+
+/// Waits for the next command, or, while running, until the next frame is
+/// due. Commands queued when a frame is due come first, so a core slower than
+/// its frame rate still takes them.
+fn next(commands: &Receiver<Command>, paused: bool, next_frame: Instant) -> Next {
+    if paused {
+        return commands.recv().map_or(Next::Exit, Next::Command);
+    }
+    let wait = next_frame.saturating_duration_since(Instant::now());
+    if wait.is_zero() {
+        return match commands.try_recv() {
+            Ok(command) => Next::Command(command),
+            Err(TryRecvError::Empty) => Next::Frame,
+            Err(TryRecvError::Disconnected) => Next::Exit,
+        };
+    }
+    match commands.recv_timeout(wait) {
+        Ok(command) => Next::Command(command),
+        Err(RecvTimeoutError::Timeout) => Next::Frame,
+        Err(RecvTimeoutError::Disconnected) => Next::Exit,
+    }
+}
+
 impl Runner {
     fn run(mut self, commands: &Receiver<Command>) {
         loop {
-            let command = if self.paused {
-                match commands.recv() {
-                    Ok(command) => Some(command),
-                    Err(_) => break,
-                }
-            } else {
-                let now = Instant::now();
-                match self.next_frame.checked_duration_since(now) {
-                    Some(wait) if !wait.is_zero() => match commands.recv_timeout(wait) {
-                        Ok(command) => Some(command),
-                        Err(RecvTimeoutError::Timeout) => None,
-                        Err(RecvTimeoutError::Disconnected) => break,
-                    },
-                    _ => None,
-                }
-            };
-            match command {
-                Some(Command::Stop(reply)) => {
+            match next(commands, self.paused, self.next_frame) {
+                Next::Command(Command::Stop(reply)) => {
                     let _ = reply.send(self.stop());
                     return;
                 }
-                Some(command) => self.handle(command),
-                None => self.run_frame(),
+                Next::Command(command) => self.handle(command),
+                Next::Frame => {
+                    self.run_frame();
+                    if self.session.shutdown_requested() {
+                        log::info!("the core asked to quit");
+                        break;
+                    }
+                }
+                Next::Exit => break,
             }
         }
         if let Err(e) = self.stop() {
@@ -566,5 +587,44 @@ impl SaveRam {
         log::info!("wrote save memory to {}", path.display());
         self.mark_clean(session);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn takes_commands_when_a_frame_is_overdue() {
+        let (commands, receiver) = mpsc::channel();
+        let overdue = Instant::now() - Duration::from_secs(1);
+        assert!(matches!(next(&receiver, false, overdue), Next::Frame));
+        commands.send(Command::Resume).unwrap();
+        assert!(matches!(
+            next(&receiver, false, overdue),
+            Next::Command(Command::Resume)
+        ));
+        assert!(matches!(next(&receiver, false, overdue), Next::Frame));
+        drop(commands);
+        assert!(matches!(next(&receiver, false, overdue), Next::Exit));
+    }
+
+    #[test]
+    fn waits_for_the_next_frame_or_a_command() {
+        let (commands, receiver) = mpsc::channel();
+        let soon = Instant::now() + Duration::from_millis(20);
+        assert!(matches!(next(&receiver, false, soon), Next::Frame));
+        assert!(Instant::now() >= soon);
+        commands.send(Command::Resume).unwrap();
+        let later = Instant::now() + Duration::from_secs(60);
+        assert!(matches!(
+            next(&receiver, false, later),
+            Next::Command(Command::Resume)
+        ));
+        commands.send(Command::Reset).unwrap();
+        assert!(matches!(
+            next(&receiver, true, Instant::now()),
+            Next::Command(Command::Reset)
+        ));
     }
 }
