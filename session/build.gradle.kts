@@ -211,6 +211,8 @@ androidComponents.onVariants { variant ->
 }
 
 tasks.named<Test>("jvmTest") {
+  // JNA loads the session library with System.load.
+  jvmArgs("--enable-native-access=ALL-UNNAMED")
   // The tests run the cores that `mise run session:fixtures` builds, wherever the tests look.
   val cache =
     providers
