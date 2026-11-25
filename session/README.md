@@ -48,13 +48,14 @@ absolute. F2 saves a state and F4 loads it.
 ## Tests
 
 The integration tests run real cores: libretro-samples' software and GL test
-cores, and Gambatte with µCity, a Game Boy Color game under the GPL-3.0 with CC
-BY-SA 4.0 graphics and music. `fixtures.sh`, which `mise run session:fixtures`
-runs, builds the cores from pinned commits and downloads the game into
-`~/.cache/handheld/session-fixtures`, or `$HANDHELD_SESSION_FIXTURES`. Building
-them needs a C and C++ toolchain and the OpenGL and OpenGL ES development
-libraries (`mesa-libGL-devel mesa-libGLES-devel` on Fedora,
-`libgl-dev libgles-dev` on Debian and Ubuntu).
+cores, and Gambatte with µCity, a Game Boy Color game under the GPL-3.0-or-later
+with CC BY-SA 4.0 graphics and music. `fixtures.sh`, which
+`mise run session:fixtures` runs, builds the cores from pinned commits and
+downloads the game into `~/.cache/handheld/session-fixtures`, or
+`$HANDHELD_SESSION_FIXTURES`. Building them needs a C and C++ toolchain and the
+OpenGL and OpenGL ES development libraries
+(`mesa-libGL-devel mesa-libGLES-devel` on Fedora, `libgl-dev libgles-dev` on
+Debian and Ubuntu).
 
 The GL tests skip on machines without a usable EGL, unless
 `HANDHELD_REQUIRE_EGL` is set, as it is in CI. Set `HANDHELD_SESSION_DUMP_DIR`
