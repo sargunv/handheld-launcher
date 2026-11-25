@@ -17,3 +17,5 @@ dependencyResolutionManagement {
 }
 
 include(":apps:android", ":apps:desktop", ":ui", ":domain", ":data")
+
+include(":session")
