@@ -216,6 +216,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
                         "The game's folder also holds ${removal.names.joinToString()}, " +
                           "so nothing was removed.",
                       )
+                    is Removal.Failed -> listOf("Couldn't remove the game: ${removal.reason}")
                     Removal.Removed,
                     Removal.NotOnDevice -> emptyList()
                   }

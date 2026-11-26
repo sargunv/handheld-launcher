@@ -33,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
@@ -423,6 +424,22 @@ class DownloadManagerTest {
     assertFalse(folder.exists())
     assertEquals(emptyMap(), waitFor { downloads.statuses().first { it.isEmpty() } })
     assertEquals(Removal.NotOnDevice, downloads.remove(sagaRom))
+  }
+
+  @Test
+  fun saysSoWhenAGameCantBeRemoved() = runTest {
+    fillLibrary()
+    val gba = file("ROMs/gba/Game (USA).gba").apply { parentFile.mkdirs() }
+    gba.writeBytes(game)
+    val downloads = manager(backgroundScope, server())
+    // A folder the app can't write to, as on a read-only card.
+    gba.parentFile.setWritable(false)
+    try {
+      assertIs<Removal.Failed>(downloads.remove(gameRom))
+      assertTrue(gba.exists())
+    } finally {
+      gba.parentFile.setWritable(true)
+    }
   }
 
   @Test

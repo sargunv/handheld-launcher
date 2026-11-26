@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.io.IOException
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -310,12 +311,17 @@ class DownloadManager(
         val names = rom.files.mapTo(mutableSetOf()) { it.fileName } + playlistName(path.name)
         val others = filesIn(path).map { it.name }.filterNot { it in names }
         if (others.isNotEmpty()) return@withContext Removal.HoldsOtherFiles(others.sorted())
-        deleteRecursively(path)
-      } else {
-        SystemFileSystem.delete(path)
       }
-      installs.update { it + 1 }
-      Removal.Removed
+      try {
+        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) deleteRecursively(path)
+        else SystemFileSystem.delete(path)
+        Removal.Removed
+      } catch (e: IOException) {
+        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
+      } finally {
+        // Even a removal that failed partway may have deleted some of the game.
+        installs.update { it + 1 }
+      }
     }
 
   /** Every file in [folder] and its subfolders. */
@@ -567,6 +573,9 @@ sealed interface Removal {
 
   /** The game's folder holds files that aren't the game's, named [names], so it stayed. */
   data class HoldsOtherFiles(val names: List<String>) : Removal
+
+  /** Deleting failed, for [reason], which may have left part of the game. */
+  data class Failed(val reason: String) : Removal
 }
 
 /** The playlist a download writes in the folder of a ROM of several files, named [folder]. */
