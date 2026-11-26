@@ -1,7 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
   <!-- RomM sign-in and sync. OkHttp declares it too, but the app shouldn't rely on that. -->
   <uses-permission android:name="android.permission.INTERNET" />
+
+  <!-- Games live in shared storage, such as /storage/emulated/0/ROMs, where an app reads only its
+       own files without this. The launcher reads them to hand them to emulators. -->
+  <uses-permission
+    android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    tools:ignore="ScopedStorage" />
+
+  <!-- Any installed app can run a game, so the launcher sees every app with a launcher icon. -->
+  <queries>
+    <intent>
+      <action android:name="android.intent.action.MAIN" />
+      <category android:name="android.intent.category.LAUNCHER" />
+    </intent>
+  </queries>
+
   <application android:label="Handheld" android:theme="@android:style/Theme.Material.NoActionBar">
     <!-- Compose handles configuration changes itself. Without these, connecting a gamepad
          (keyboard, navigation) or changing the screen recreates the activity, and stops a game
@@ -16,5 +32,15 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
+
+    <provider
+      android:name="androidx.core.content.FileProvider"
+      android:authorities="${applicationId}.launch"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data
+        android:name="android.support.FILE_PROVIDER_PATHS"
+        android:resource="@xml/launch_files" />
+    </provider>
   </application>
 </manifest>

@@ -46,6 +46,37 @@ data class LaunchCommand(
    */
   val canUseShell: Boolean
     get() = readGrants.isEmpty()
+
+  /** How this command goes: by [method], unless that's the shell and the command can't use it. */
+  val dispatchMethod: LaunchMethod
+    get() = if (canUseShell) method else LaunchMethod.Intent
+
+  /**
+   * The folders holding [readGrants], to grant [packageName] read access to along with the files,
+   * so an app can open the tracks or discs a `.cue`, `.gdi` or `.m3u` lists beside it. A folder
+   * that is a storage volume's root, or inside its `Android` folder where apps keep their own
+   * files, is left out: granting it would hand over far more than the game.
+   */
+  val readFolders: List<String>
+    get() = readGrants.mapNotNull { sharedFolderOf(it.path) }.distinct()
+
+  private companion object {
+    fun sharedFolderOf(path: String): String? {
+      val folder = path.split('/').drop(1).dropLast(1)
+      // A relative segment could climb out of the folder the checks below see.
+      if (folder.any { it == ".." || it == "." || it.isEmpty() }) return null
+      // `/storage/emulated/<user>` for internal storage, `/storage/<volume>` for a card.
+      val volumeDepth =
+        when {
+          folder.firstOrNull() != "storage" -> return null
+          folder.getOrNull(1) == "emulated" -> 3
+          else -> 2
+        }
+      if (folder.size <= volumeDepth) return null
+      if (folder[volumeDepth].equals("Android", ignoreCase = true)) return null
+      return folder.joinToString("/", prefix = "/")
+    }
+  }
 }
 
 /** A URI in a launch command. */
