@@ -39,8 +39,7 @@ pub(crate) struct AAudioSink {
     /// Set by the stream when its device goes away, as when headphones are
     /// unplugged. The next write opens a new stream on the new default.
     disconnected: Arc<AtomicBool>,
-    /// Whether the stream is started. It starts once the queue reaches its
-    /// target, so it doesn't underrun at first.
+    /// Whether the stream is started.
     playing: bool,
     paused: bool,
     /// Callbacks that found the queue short, since the sink opened.
@@ -164,17 +163,23 @@ impl AAudioSink {
         let xruns = self.stream.x_run_count();
         let underruns = self.underruns.load(Ordering::Relaxed);
         let s = &self.stats;
-        if s.samples > 0 {
-            let n = f64::from(s.samples);
+        let (new_xruns, new_underruns) = (xruns - s.xruns, underruns - s.underruns);
+        if s.samples > 0 || new_xruns > 0 || new_underruns > 0 {
+            let latency = if s.samples > 0 {
+                let n = f64::from(s.samples);
+                format!(
+                    "latency mean {:.1} ms (stream {:.1} ms), min {:.1} ms, max {:.1} ms",
+                    s.total.0 / n,
+                    s.stream / n,
+                    s.total.1,
+                    s.total.2,
+                )
+            } else {
+                "latency unknown".into()
+            };
             log::info!(
-                "audio: latency mean {:.1} ms (stream {:.1} ms), min {:.1} ms, max {:.1} ms; \
-                 {} xruns, {} queue underruns in {:.1} s; buffer {} frames",
-                s.total.0 / n,
-                s.stream / n,
-                s.total.1,
-                s.total.2,
-                xruns - s.xruns,
-                underruns - s.underruns,
+                "audio: {latency}; {new_xruns} xruns, {new_underruns} queue underruns in {:.1} s; \
+                 buffer {} frames",
                 s.since.elapsed().as_secs_f64(),
                 self.stream.buffer_size_in_frames(),
             );
@@ -287,10 +292,14 @@ impl AudioSink for AAudioSink {
         // Whole frames only, so the callback always reads left then right.
         // Audio past the queue's capacity is dropped rather than added as
         // latency that rate control would take minutes to work off.
-        let room = self.capacity().saturating_sub(self.queued()) * 2;
+        let queued = self.queued();
+        let room = self.capacity().saturating_sub(queued) * 2;
         let n = samples.len().min(room).min(self.queue.slots()) & !1;
         let _ = self.queue.push_partial_slice(&samples[..n]);
-        if !self.playing && !self.paused && self.queued() >= self.target() {
+        // The stream starts once the queue held its target before a frame's
+        // audio, as rate control keeps it, so the frame's audio lasts until
+        // the next frame's.
+        if !self.playing && !self.paused && queued >= self.target() {
             match self.stream.request_start() {
                 Ok(()) => self.playing = true,
                 Err(e) => log::error!("can't start audio output: {e}"),

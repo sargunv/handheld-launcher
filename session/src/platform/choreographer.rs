@@ -2,9 +2,8 @@
 
 use std::ffi::{c_int, c_void};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread::JoinHandle;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
 use crate::pacing::{Vsync, VsyncEstimator};
@@ -14,7 +13,6 @@ use crate::platform::android::monotonic_nanos;
 unsafe extern "C" {
     fn ALooper_prepare(opts: c_int) -> *mut c_void;
     fn ALooper_acquire(looper: *mut c_void);
-    fn ALooper_release(looper: *mut c_void);
     fn ALooper_wake(looper: *mut c_void);
     fn ALooper_pollOnce(
         timeout_millis: c_int,
@@ -30,54 +28,73 @@ unsafe extern "C" {
     );
 }
 
-/// What the clock's thread shares with its owner.
+/// The clock's thread and what it shares with the sessions.
 #[derive(Default)]
 struct Shared {
     estimator: Mutex<VsyncEstimator>,
-    /// Whether to follow vsync. While off, the thread sleeps.
-    running: AtomicBool,
-    stop: AtomicBool,
+    /// How many sessions follow vsync. While none do, the thread sleeps.
+    running: AtomicUsize,
+    /// The thread's looper, with a reference of ours that's never released,
+    /// to wake it.
+    looper: AtomicUsize,
 }
 
-/// Follows the display's vsync while running.
+/// The process's one vsync thread, or `None` if Choreographer isn't
+/// available. One thread serves every session, since Choreographer keeps a
+/// thread's instance until the process ends.
+static CLOCK: OnceLock<Option<Arc<Shared>>> = OnceLock::new();
+
+fn start() -> Option<Arc<Shared>> {
+    let shared = Arc::new(Shared::default());
+    let (ready, looper) = mpsc::channel();
+    let thread_shared = shared.clone();
+    std::thread::Builder::new()
+        .name("vsync".into())
+        .spawn(move || follow(thread_shared, ready))
+        .inspect_err(|e| log::warn!("can't start the vsync thread: {e}"))
+        .ok()?;
+    match looper.recv() {
+        Ok(looper) => {
+            shared.looper.store(looper, Ordering::Release);
+            Some(shared)
+        }
+        Err(_) => {
+            log::warn!("no Choreographer, so frames are paced by a timer");
+            None
+        }
+    }
+}
+
+/// A session's hold on the vsync thread, which follows vsync while any
+/// session's clock runs.
 pub(crate) struct VsyncClock {
     shared: Arc<Shared>,
-    /// The thread's looper, with a reference of ours, to wake it.
-    looper: usize,
-    thread: Option<JoinHandle<()>>,
+    running: bool,
 }
 
 impl VsyncClock {
-    /// Starts the clock's thread, stopped, or returns `None` if
-    /// Choreographer isn't available.
+    /// A stopped clock, or `None` if Choreographer isn't available.
     pub(crate) fn new() -> Option<Self> {
-        let shared = Arc::new(Shared::default());
-        let (ready, looper) = mpsc::channel();
-        let thread_shared = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("vsync".into())
-            .spawn(move || follow(thread_shared, ready))
-            .inspect_err(|e| log::warn!("can't start the vsync thread: {e}"))
-            .ok()?;
-        match looper.recv() {
-            Ok(looper) => Some(Self {
-                shared,
-                looper,
-                thread: Some(thread),
-            }),
-            Err(_) => {
-                let _ = thread.join();
-                log::warn!("no Choreographer, so frames are paced by a timer");
-                None
-            }
-        }
+        let shared = CLOCK.get_or_init(start).clone()?;
+        Some(Self {
+            shared,
+            running: false,
+        })
     }
 
     /// Starts or stops following vsync.
-    pub(crate) fn set_running(&self, running: bool) {
-        self.shared.running.store(running, Ordering::Release);
-        // SAFETY: we hold a reference to the looper.
-        unsafe { ALooper_wake(self.looper as *mut c_void) };
+    pub(crate) fn set_running(&mut self, running: bool) {
+        if self.running == running {
+            return;
+        }
+        self.running = running;
+        if running {
+            self.shared.running.fetch_add(1, Ordering::AcqRel);
+        } else {
+            self.shared.running.fetch_sub(1, Ordering::AcqRel);
+        }
+        // SAFETY: the looper's reference is never released.
+        unsafe { ALooper_wake(self.shared.looper.load(Ordering::Acquire) as *mut c_void) };
     }
 
     /// The display's vsync timing, once known.
@@ -92,13 +109,7 @@ impl VsyncClock {
 
 impl Drop for VsyncClock {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Release);
-        // SAFETY: we hold a reference to the looper, released last.
-        unsafe { ALooper_wake(self.looper as *mut c_void) };
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
-        unsafe { ALooper_release(self.looper as *mut c_void) };
+        self.set_running(false);
     }
 }
 
@@ -134,10 +145,9 @@ fn follow(shared: Arc<Shared>, ready: mpsc::Sender<usize>) {
     if looper.is_null() || choreographer.is_null() {
         return;
     }
-    // SAFETY: `looper` is this thread's; the reference is the owner's.
+    // SAFETY: `looper` is this thread's; the reference is the clock's.
     unsafe { ALooper_acquire(looper) };
     if ready.send(looper as usize).is_err() {
-        unsafe { ALooper_release(looper) };
         return;
     }
     let mut follower = Box::new(Follower {
@@ -145,14 +155,13 @@ fn follow(shared: Arc<Shared>, ready: mpsc::Sender<usize>) {
         choreographer,
         posted: false,
     });
-    while !follower.shared.stop.load(Ordering::Acquire) {
-        if follower.shared.running.load(Ordering::Acquire) && !follower.posted {
+    loop {
+        if follower.shared.running.load(Ordering::Acquire) > 0 && !follower.posted {
             follower.post();
         }
         // SAFETY: the looper is this thread's; null outputs are allowed.
         unsafe { ALooper_pollOnce(-1, ptr::null_mut(), ptr::null_mut(), ptr::null_mut()) };
     }
-    // A posted callback never runs: nothing polls the looper again.
 }
 
 unsafe extern "C" fn on_frame(frame_time_nanos: i64, data: *mut c_void) {
@@ -160,7 +169,7 @@ unsafe extern "C" fn on_frame(frame_time_nanos: i64, data: *mut c_void) {
     // and nothing else uses it while this runs.
     let follower = unsafe { &mut *data.cast::<Follower>() };
     follower.posted = false;
-    if !follower.shared.running.load(Ordering::Acquire) {
+    if follower.shared.running.load(Ordering::Acquire) == 0 {
         return;
     }
     let now = Instant::now();

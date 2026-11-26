@@ -334,6 +334,7 @@ fn run(
     started: Sender<Result<SessionInfo, SessionError>>,
 ) {
     let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
+    let presents_to_window = options.video == VideoMode::Window;
     let mut session = match start_session(options, input) {
         Ok(session) => session,
         Err(e) => {
@@ -377,7 +378,7 @@ fn run(
         hardware_rendered: session.is_hardware_rendered(),
     };
     session.set_audio_paused(true);
-    let vsync = vsync_clock(&session);
+    let vsync = presents_to_window.then(vsync_clock).flatten();
     if started.send(Ok(info)).is_err() {
         return;
     }
@@ -436,8 +437,8 @@ fn audio_sink() -> Box<dyn AudioSink> {
 type VsyncClock = crate::platform::VsyncClock;
 
 #[cfg(target_os = "android")]
-fn vsync_clock(session: &Session) -> Option<VsyncClock> {
-    session.presents_to_window().then(VsyncClock::new).flatten()
+fn vsync_clock() -> Option<VsyncClock> {
+    VsyncClock::new()
 }
 
 #[cfg(not(target_os = "android"))]
@@ -445,7 +446,7 @@ enum VsyncClock {}
 
 #[cfg(not(target_os = "android"))]
 impl VsyncClock {
-    fn set_running(&self, _running: bool) {
+    fn set_running(&mut self, _running: bool) {
         match *self {}
     }
 
@@ -455,7 +456,7 @@ impl VsyncClock {
 }
 
 #[cfg(not(target_os = "android"))]
-fn vsync_clock(_session: &Session) -> Option<VsyncClock> {
+fn vsync_clock() -> Option<VsyncClock> {
     None
 }
 
@@ -620,7 +621,7 @@ impl Runner {
         }
         self.paused = paused;
         self.session.set_audio_paused(paused);
-        if let Some(vsync) = &self.vsync {
+        if let Some(vsync) = &mut self.vsync {
             vsync.set_running(!paused);
         }
         let now = Instant::now();
