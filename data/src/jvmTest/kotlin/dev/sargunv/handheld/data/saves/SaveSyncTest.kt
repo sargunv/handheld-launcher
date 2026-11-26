@@ -1069,6 +1069,25 @@ class SaveSyncTest {
   }
 
   @Test
+  fun aProfileWithOnlyTheSizeFileDoesntHoldTheSwitchSave() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("eden"), PlatformCatalog.SWITCH))
+    val nand = File(root, "eden/nand/user/save").apply { mkdirs() }
+    val title = "0100ABCD12345000"
+    nand.put("0000000000000000/125D2DBAEBDEB11000296E1E1ECBF401/$title/main", "account save")
+    nand.put("0000000000000000/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/$title/.yuzu_save_size", "size")
+    val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
+    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val server = FakeRomm()
+
+    assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
+    assertEquals(
+      mapOf("$title/main" to "account save"),
+      entries(server.uploads.single().bytes),
+    )
+  }
+
+  @Test
   fun aGameCubeSaveIsTheGamesGciFiles() = runTest {
     val location =
       assertNotNull(SaveLocations.forEmulator(EmulatorId("dolphin"), PlatformCatalog.GAMECUBE))

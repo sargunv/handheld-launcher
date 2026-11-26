@@ -254,7 +254,8 @@ class SaveSync(
           record(
             game,
             file,
-            unit.read()?.hash ?: contentHash(serverBytes),
+            if (emulatorMayRun) contentHash(serverBytes)
+            else unit.read()?.hash ?: contentHash(serverBytes),
             conflict.server,
             if (emulatorMayRun) replaced?.hash else null,
           )
@@ -287,7 +288,10 @@ class SaveSync(
     val written = unit.read()
     // The copy the history kept is the one the emulator may write back.
     val replacedHash = if (emulatorMayRun) replaced?.hash else null
-    record(game, written?.file ?: target, written?.hash ?: contentHash(bytes), server, replacedHash)
+    // While the emulator may run, it can write its old save back as soon as the pull is in place,
+    // so the record keeps what the pull put there, not what's there now.
+    val hash = if (emulatorMayRun) contentHash(bytes) else written?.hash ?: contentHash(bytes)
+    record(game, written?.file ?: target, hash, server, replacedHash)
     return SaveSyncResult.Pulled(written?.file ?: target, server, replaced?.history)
   }
 

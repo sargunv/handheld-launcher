@@ -153,8 +153,12 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
         .map { it.name }
         .filter { it != SaveFolders.SWITCH_DEVICE }
     val account = roots.save.areas.first { SaveFolders.PROFILE in it.folder }
+    // A profile holds the save when its folder has something the save owns, not only the
+    // emulator's own files, such as the size it keeps beside a save.
     val holding = profiles.filter {
-      File(root, account.folder.replace(SaveFolders.PROFILE, it)).listFiles()?.isNotEmpty() == true
+      Place(account, File(root, account.folder.replace(SaveFolders.PROFILE, it)))
+        .owned()
+        .isNotEmpty()
     }
     if (holding.size > 1) {
       throw IOException(

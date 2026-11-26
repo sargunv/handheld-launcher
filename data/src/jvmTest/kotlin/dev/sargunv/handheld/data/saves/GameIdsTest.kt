@@ -204,6 +204,38 @@ class GameIdsTest {
   }
 
   @Test
+  fun readsAGamesSecondProgramAsItsFirstButAnAddOnAsItsGame() {
+    val key = ByteArray(32) { (it * 7 + 3).toByte() }
+    val keys =
+      file(
+        "prod.keys",
+        ("master_key_00 = 00\nheader_key = " + key.joinToString("") { "%02x".format(it) } + "\n")
+          .encodeToByteArray(),
+      )
+    fun nca(id: Long, contentType: Int): ByteArray {
+      val plain =
+        image(0x200) {
+          ascii(0, "NCA3")
+          put(5, contentType.toByte())
+          putLong(0x10, id)
+        }
+      return ByteArray(0x200) + GameIds.xts(plain, key, sector = 1, Cipher.ENCRYPT_MODE)
+    }
+    // A game of two programs: the second's id ends in 1.
+    val game = pfs0("a.nca" to nca(0x010049900F546000L, 0), "b.nca" to nca(0x010049900F546001L, 0))
+    assertEquals(
+      "010049900F546000",
+      GameIds.read(file("game.nsp", game), GameIdKind.Switch, switchKeys = keys),
+    )
+    // An add-on's data with the same id belongs to the game a block below.
+    val addOn = pfs0("c.nca" to nca(0x010049900F546001L, 4))
+    assertEquals(
+      "010049900F545000",
+      GameIds.read(file("dlc.nsp", addOn), GameIdKind.Switch, switchKeys = keys),
+    )
+  }
+
+  @Test
   fun readsASwitchIdFromAnXcisSecurePartition() {
     // A game card carries a ticket only for an update bundled with the game.
     val root =

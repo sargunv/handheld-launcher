@@ -267,14 +267,24 @@ object GameIds {
     return rights.be64(0).takeIf { it != 0L }
   }
 
-  /** The program id in an NCA's header, which [headerKey] decrypts. */
+  /** An NCA's content type for a program, as opposed to an add-on's data. */
+  private const val NCA_PROGRAM = 0
+
+  /**
+   * The program id in an NCA's header, which [headerKey] decrypts. A game made of several programs
+   * numbers them in the id's last digit, as yuzu's `GetBaseTitleIDWithProgramIndex` does, so a
+   * program's id is taken back to its first program's. An add-on's id can end the same way, so only
+   * a program's is.
+   */
   private fun ncaTitle(image: Image, offset: Long, headerKey: ByteArray): Long? {
-    // The magic and the program id sit in the header's second 0x200-byte sector.
+    // The magic, content type and program id sit in the header's second 0x200-byte sector.
     val sector = xtsDecrypt(image.bytes(offset + 0x200, 0x20), headerKey, sector = 1)
     val header = Bytes(sector)
     if (header.ascii(0, 3) != "NCA") return null
     // A game's program id starts with 01.
-    return header.le64(0x10).takeIf { it ushr 56 == 1L }
+    val id = header.le64(0x10).takeIf { it ushr 56 == 1L } ?: return null
+    val isProgram = sector[5].toInt() == NCA_PROGRAM
+    return if (isProgram && (id and 0xFFF) in 1L..0xFL) id and 0xFL.inv() else id
   }
 
   /**
