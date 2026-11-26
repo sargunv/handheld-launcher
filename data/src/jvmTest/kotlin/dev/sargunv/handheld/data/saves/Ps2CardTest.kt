@@ -180,6 +180,24 @@ class Ps2CardTest {
     assertTrue(gap.holds(save("BASLUS-20152AC04", "AC04.DAT" to "written in the gap")))
   }
 
+  // Deleting a save frees its files' whole chains, so a chain that runs on into another save's
+  // clusters makes both unsafe to touch, even past what the file's length needs.
+  @Test
+  fun aSaveWhoseChainRunsIntoAnothersIsCorrupt() {
+    val card = Ps2Card.format()
+    card.inject(packed("BASLUS-20152AC04"))
+    card.inject(packed("BESLES-12345OTHER"))
+    val (first, second) = card.list().entries.sortedBy { it.name }
+    fun dataFiles(entry: Ps2Entry) =
+      card.extract(entry.firstCluster).files.filter { u32(it.entry, LENGTH) > 0 }
+    val tail = assertNotNull(card.chain(u32(dataFiles(first).last().entry, CLUSTER))).last()
+    card.fatSet(tail, ALLOCATED or u32(dataFiles(second).first().entry, CLUSTER))
+
+    val listing = card.list()
+    assertTrue(first.name in listing.corrupt, "${listing.corrupt}")
+    assertTrue(second.name in listing.corrupt, "${listing.corrupt}")
+  }
+
   @Test
   fun refusesAUnitWithNoneOfTheGamesSaves() {
     val cards = memcards("refuse")

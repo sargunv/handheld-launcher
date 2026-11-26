@@ -119,7 +119,7 @@ private constructor(
    * The chain from relative cluster [first], or null when it meets a free cluster, leaves the card
    * or loops.
    */
-  private fun chain(first: Long): MutableList<Long>? {
+  internal fun chain(first: Long): MutableList<Long>? {
     val order = mutableListOf<Long>()
     var cluster = first
     while (order.size < allocEnd) {
@@ -176,12 +176,13 @@ private constructor(
   }
 
   /**
-   * Counts the first [span] clusters of the chain from [first] in [claims], or with [check] tells
-   * whether another chain also reached any of them.
+   * Counts every cluster of the chain from [first] in [claims], or with [check] tells whether
+   * another chain also reached any of them. The whole chain counts, past what the entry's length
+   * needs, since [delete] frees all of it.
    */
-  private fun claimChain(first: Long, span: Long, claims: IntArray, check: Boolean): Boolean {
+  private fun claimChain(first: Long, claims: IntArray, check: Boolean): Boolean {
     val order = chain(first) ?: return false
-    for (cluster in order.take(minOf(span, order.size.toLong()).toInt())) {
+    for (cluster in order) {
       if (check && claims[cluster.toInt()] > 1) return true
       if (!check) claims[cluster.toInt()]++
     }
@@ -191,14 +192,14 @@ private constructor(
   /** The clusters of a save folder, its directory's and each file's, as [claimChain] takes them. */
   private fun claimFolder(first: Long, count: Long, claims: IntArray, check: Boolean): Boolean {
     val entries = readDir(first, count) ?: return false
-    var shared = claimChain(first, clustersFor(count * ENTRY_SIZE), claims, check)
+    var shared = claimChain(first, claims, check)
     var i = 2
     while (i < count && !shared) {
       val e = i * ENTRY_SIZE
       val mode = u16(entries, e + MODE)
       if (mode and MODE_EXISTS != 0 && mode and MODE_FILE != 0) {
-        val need = clustersFor(u32(entries, e + LENGTH))
-        shared = claimChain(u32(entries, e + CLUSTER), need, claims, check)
+        if (u32(entries, e + LENGTH) > 0)
+          shared = claimChain(u32(entries, e + CLUSTER), claims, check)
       }
       i++
     }
@@ -214,7 +215,7 @@ private constructor(
     val root =
       readDir(rootdirCluster, count) ?: throw Ps2FormatException("The card's root doesn't read")
     val claims = IntArray(allocEnd.toInt())
-    claimChain(rootdirCluster, clustersFor(count * ENTRY_SIZE), claims, check = false)
+    claimChain(rootdirCluster, claims, check = false)
     val folders =
       (2 until count.toInt())
         .map { it * ENTRY_SIZE }
@@ -292,7 +293,7 @@ private constructor(
     dirty.fill(true, (absolute * pages).toInt(), ((absolute + 1) * pages).toInt())
   }
 
-  private fun fatSet(n: Long, value: Long) {
+  internal fun fatSet(n: Long, value: Long) {
     val (slot, fatCluster) =
       fatSlotAndCluster(n) ?: throw Ps2FormatException("The card's FAT doesn't read")
     putU32(clusters, slot, value)
@@ -674,7 +675,7 @@ private const val PAGE = 512
 private const val SPARE = 16
 private const val MAX_CLUSTERS = 1L shl 20
 private const val IFC_SLOTS = 32
-private const val ALLOCATED = 0x80000000L
+internal const val ALLOCATED = 0x80000000L
 private const val CHAIN_END = 0x7FFFFFFFL
 private const val PAD = 0xFF.toByte()
 
