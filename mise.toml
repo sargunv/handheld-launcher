@@ -76,7 +76,7 @@ run = 'f="$(mktemp -d)/screen.png" && adb exec-out screencap -p > "$f" && echo "
 
 [tasks."android:action"]
 description = "Send a semantic action to the app on the connected device"
-usage = 'arg "<action>" help="up, down, left, right, confirm, back, menu, previous-shelf, next-shelf, main-menu or select"'
+usage = 'arg "<action>" help="up, down, left, right, confirm, back, menu, previous-shelf, next-shelf or main-menu"'
 # Keyboard keys mean the same action whichever button confirms.
 run = """
 case "$usage_action" in
@@ -90,7 +90,6 @@ case "$usage_action" in
   previous-shelf) key=PAGE_UP ;;
   next-shelf) key=PAGE_DOWN ;;
   main-menu) key=F1 ;;
-  select) key=F2 ;;
   *) echo "unknown action: $usage_action" >&2; exit 2 ;;
 esac
 adb shell input -d 0 keyevent "KEYCODE_$key"

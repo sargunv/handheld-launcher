@@ -70,15 +70,11 @@ class RetroAchievementsSignIn(
   suspend fun signOut() = store.clear()
 }
 
-/** The quick menu's view of the RetroAchievements account. */
+/** Settings' view of the RetroAchievements account. */
 @Stable
 class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
   /** The signed-in username, or null when signed out or not yet read. */
   var username by mutableStateOf<String?>(null)
-    private set
-
-  /** Whether the stored account has been read. */
-  var loaded by mutableStateOf(false)
     private set
 
   /** Whether a sign-in is under way. */
@@ -95,7 +91,6 @@ class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
   /** Reads the stored account. */
   suspend fun load() {
     username = signIn.account()?.username
-    loaded = true
   }
 
   /** Signs in with what's in the fields, and forgets the password whatever happens. */
@@ -128,8 +123,8 @@ class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
 }
 
 /**
- * The RetroAchievements page of the launcher's quick menu: sign in when signed out; when signed in,
- * who is, hardcore mode, and signing out.
+ * Settings → RetroAchievements: sign in when signed out; when signed in, who is, hardcore mode, and
+ * signing out.
  */
 @Composable
 internal fun RetroAchievementsPanel(
@@ -211,10 +206,3 @@ internal fun RetroAchievementsPanel(
     }
   }
 }
-
-/** What the quick menu's RetroAchievements entry says about the account. */
-internal fun RetroAchievementsState.summary(): String =
-  when (val user = username) {
-    null -> if (loaded) "Not signed in" else ""
-    else -> user
-  }
