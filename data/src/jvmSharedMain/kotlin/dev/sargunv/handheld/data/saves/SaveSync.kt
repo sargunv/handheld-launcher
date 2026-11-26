@@ -349,7 +349,9 @@ class SaveSync(
             keepInHistory(game, SaveCopy.Device, current.name, current.bytes),
           )
       }
-    unit.write(current?.file ?: target, bytes)
+    unit.write(current?.file ?: target, bytes, current?.hash) { changed ->
+      keepInHistory(game, SaveCopy.Device, changed.name, changed.bytes)
+    }
     return replaced
   }
 

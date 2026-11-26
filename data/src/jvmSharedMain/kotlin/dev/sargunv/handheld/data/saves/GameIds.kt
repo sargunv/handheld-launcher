@@ -48,6 +48,10 @@ object GameIds {
       null
     } catch (e: IllegalArgumentException) {
       null
+    } catch (e: ArithmeticException) {
+      null
+    } catch (e: java.util.zip.DataFormatException) {
+      null
     }
 
   // PSP

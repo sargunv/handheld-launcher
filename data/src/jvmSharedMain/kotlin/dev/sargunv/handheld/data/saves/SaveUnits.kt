@@ -52,9 +52,11 @@ internal sealed interface SaveUnit {
 
   /**
    * Writes the server's save [bytes] in place of the device's, at [target], which is the save's
-   * [LocalCopy.file] or what [target] returned.
+   * [LocalCopy.file] or what [target] returned. [replaced] is the hash of the device's save the
+   * history already holds. When what the write replaced differs, because the emulator wrote in the
+   * meantime, [keep] gets it before it's gone.
    */
-  fun write(target: File, bytes: ByteArray)
+  fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit)
 }
 
 internal fun GameSave.unit(): SaveUnit = folders?.let(::FolderUnit) ?: FileUnit(candidates)
@@ -85,7 +87,12 @@ private class FileUnit(private val candidates: List<File>) : SaveUnit {
 
   override fun folders() = candidates.mapNotNull { it.parent }.distinct()
 
-  override fun write(target: File, bytes: ByteArray) {
+  override fun write(
+    target: File,
+    bytes: ByteArray,
+    replaced: String?,
+    keep: (LocalCopy) -> Unit,
+  ) {
     // Write a sibling and move it over the target, so the emulator never sees half a save.
     val temp = File(target.parentFile, ".${target.name}.handheld-part")
     temp.writeBytes(bytes)
@@ -159,7 +166,11 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
 
   override fun read(): LocalCopy? {
     val root = root() ?: return null
-    val places = places(root) ?: return null
+    return collect(places(root) ?: return null)
+  }
+
+  /** The entries [places] select, as one zip. */
+  private fun collect(places: List<Place>): LocalCopy? {
     val entries = mutableListOf<Pair<String, File>>()
     for (place in places) {
       for (owned in place.owned()) {
@@ -206,7 +217,12 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
 
   override fun folders() = roots.roots.map { it.path }
 
-  override fun write(target: File, bytes: ByteArray) {
+  override fun write(
+    target: File,
+    bytes: ByteArray,
+    replaced: String?,
+    keep: (LocalCopy) -> Unit,
+  ) {
     val root = roots.roots.first { target.path.startsWith(it.path) }
     val places = places(root) ?: throw IOException("The save's folder can't be told")
     val entries = unzip(bytes)
@@ -263,7 +279,11 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
       }
       val aside = staged.map { (place, _) -> File(place.dir, "$RESERVED$stamp-old") }
       swap(staged, aside)
-      // The old entries are in the history already. When a swap fails, they stay aside too.
+      // The old entries are in the history already, unless the emulator changed them since. When
+      // a swap fails, they stay aside too.
+      val asidePlaces = staged.map { it.first }.zip(aside).toMap()
+      val moved = collect(places.map { asidePlaces[it]?.let { dir -> Place(it.area, dir) } ?: it })
+      if (moved != null && moved.hash != replaced) keep(moved)
       aside.forEach { it.deleteRecursively() }
     } finally {
       for ((_, staging) in staged) staging.deleteRecursively()

@@ -205,8 +205,9 @@ object SaveLocations {
         switch("citron", "nand/user/save"),
         switch("sudachi", "nand/user/save"),
         switch("yuzu", "nand/user/save"),
-        switch("ryujinx", "bis/user/save"),
-        switch("kenjinx", "bis/user/save"),
+        // Ryujinx files a save under the id its save index gives it, not the game's.
+        switch("ryujinx", "bis/user/save").copy(syncable = false),
+        switch("kenjinx", "bis/user/save").copy(syncable = false),
         switch("strato", "switch/nand/user/save"),
         switch("skyline", "switch/nand/user/save"),
         SaveLocation(

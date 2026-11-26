@@ -964,6 +964,27 @@ class SaveSyncTest {
   }
 
   @Test
+  fun aPullKeepsWhatTheEmulatorWroteAfterTheHistoryCopy() {
+    pspFolders()
+    val unit = psp.unit()
+    val snapshot = assertNotNull(unit.read())
+    // The emulator writes after the history copy was taken, before the swap.
+    savedata.put("ULUS10064DATA00/DATA.BIN", "written in the gap")
+    val kept = mutableListOf<LocalCopy>()
+    unit.write(snapshot.file, zip("ULUS10064DATA00/DATA.BIN" to "from RomM"), snapshot.hash) {
+      kept += it
+    }
+    assertEquals("from RomM", File(savedata, "ULUS10064DATA00/DATA.BIN").readText())
+    assertEquals("written in the gap", entries(kept.single().bytes)["ULUS10064DATA00/DATA.BIN"])
+
+    // Nothing to keep when the history already has what was replaced.
+    val now = assertNotNull(unit.read())
+    kept.clear()
+    unit.write(now.file, zip("ULUS10064DATA00/DATA.BIN" to "again"), now.hash) { kept += it }
+    assertTrue(kept.isEmpty())
+  }
+
+  @Test
   fun refusesAZipThatReachesPastTheGamesSave() = runTest {
     for (name in listOf("ULUS99999DATA00/DATA.BIN", "../outside.bin", "ULUS10064GAMEDATA/X")) {
       root.resolve("records").deleteRecursively()
@@ -998,7 +1019,6 @@ class SaveSyncTest {
       "0004000000033500.zip",
       zip(
         "00040000/00033500/data/00000001/main" to "picross",
-        "00040000/00033500/extdata/00000001/ext" to "extra",
       ),
       Instant.parse("2025-04-01T00:00:00Z"),
       emulator = "azahar",
@@ -1009,7 +1029,6 @@ class SaveSyncTest {
     assertEquals(
       mapOf(
         "$ids/title/00040000/00033500/data/00000001/main" to "picross",
-        "$ids/extdata/00000000/00000335/00000001/ext" to "extra",
       ),
       tree(sdmc),
     )

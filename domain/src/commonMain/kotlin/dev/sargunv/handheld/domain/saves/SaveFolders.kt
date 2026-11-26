@@ -107,20 +107,14 @@ object SaveFolders {
           ?.let { if (location.layout == SaveLayout.WiiTitle) wii(it) else gameCube(it) }
     }
 
+  // Only the title's save data: a title's extdata id is in its exheader, which is encrypted in a
+  // retail dump, and a guess could claim another title's.
   private fun threeDs(id: String): FolderSave? {
     if (!HEX16.matches(id)) return null
     val high = id.take(8).lowercase()
     val low = id.drop(8).lowercase()
-    val extdata = (low.toLong(16) shr 8).toString(16).padStart(8, '0')
     return FolderSave(
-      listOf(
-        SaveArea("$CTR_IDS/title/$high/$low/data", "$high/$low/data/", SaveSelection.Whole()),
-        SaveArea(
-          "$CTR_IDS/extdata/00000000/$extdata",
-          "$high/$low/extdata/",
-          SaveSelection.Whole(),
-        ),
-      ),
+      listOf(SaveArea("$CTR_IDS/title/$high/$low/data", "$high/$low/data/", SaveSelection.Whole())),
       "${id.uppercase()}.zip",
     )
   }
