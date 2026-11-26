@@ -70,8 +70,12 @@ class BuiltInPlayer(private val activity: ComponentActivity) {
       )
     val result = awaitResult(intent)
     val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)
-    return if (error != null) listOf(PlayNote("Couldn't start the game: $error"))
-    else listOf(PlayNote("Back from the game in ${chosen.library}", quiet = true))
+    val saveError = result.data?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
+    return when {
+      error != null -> listOf(PlayNote("Couldn't start the game: $error"))
+      saveError != null -> listOf(PlayNote("The game's save couldn't be written: $saveError"))
+      else -> listOf(PlayNote("Back from the game in ${chosen.library}", quiet = true))
+    }
   }
 
   /** Starts [intent] and waits for the activity it starts to finish. */
