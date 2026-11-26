@@ -207,14 +207,14 @@ class FocusNavigationTest {
   }
 
   @Test
-  fun confirmOnEastSwapsConfirmAndBack() = runComposeUiTest {
+  fun confirmOnBSwapsConfirmAndBack() = runComposeUiTest {
     launch()
     press(Key.ButtonA)
     press(listOf(Key.DirectionRight, Key.DirectionRight))
     assertFocused("confirm")
-    // Confirm is south, so A confirms and swaps the setting to east.
+    // A confirms, so it swaps the setting to B.
     press(Key.ButtonA)
-    // Now B confirms, and swaps it back to south.
+    // Now B confirms, and swaps it back to A.
     press(Key.ButtonB)
     assertFocused("confirm")
     // So B goes back again.
@@ -223,7 +223,7 @@ class FocusNavigationTest {
   }
 
   @Test
-  fun eastConfirmOpensWithBAndGoesBackWithA() = runComposeUiTest {
+  fun bConfirmOpensWithBAndGoesBackWithA() = runComposeUiTest {
     launch()
     press(listOf(Key.ButtonA, Key.DirectionRight, Key.DirectionRight, Key.ButtonA))
     press(Key.ButtonA)
@@ -236,13 +236,13 @@ class FocusNavigationTest {
 
   @Test
   fun startsWithTheGivenSettings() = runComposeUiTest {
-    val state = DemoState(Settings(InputSettings(ConfirmButton.East)))
+    val state = DemoState(Settings(InputSettings(ConfirmButton.B)))
     launch(state = state)
     // B confirms from the first press.
     press(listOf(Key.ButtonB, Key.DirectionRight, Key.DirectionRight))
     assertFocused("confirm")
     press(Key.ButtonB)
-    assertEquals(Settings(InputSettings(ConfirmButton.South)), state.settings)
+    assertEquals(Settings(InputSettings(ConfirmButton.A)), state.settings)
   }
 
   @Test

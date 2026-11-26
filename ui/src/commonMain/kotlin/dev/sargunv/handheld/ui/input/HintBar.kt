@@ -57,14 +57,14 @@ fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier) {
   }
 }
 
-/** The name printed on the button, in the Xbox layout's names that Android reports. */
+/** The name printed on the button: a face button's name is its key code's. */
 internal val PadButton.label: String
   get() =
     when (this) {
-      PadButton.South -> "A"
-      PadButton.East -> "B"
-      PadButton.West -> "X"
-      PadButton.North -> "Y"
+      PadButton.A -> "A"
+      PadButton.B -> "B"
+      PadButton.X -> "X"
+      PadButton.Y -> "Y"
       PadButton.L1 -> "L"
       PadButton.R1 -> "R"
       PadButton.L2 -> "L2"

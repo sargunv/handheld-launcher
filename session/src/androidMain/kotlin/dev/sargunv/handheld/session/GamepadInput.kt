@@ -7,16 +7,37 @@ import android.view.MotionEvent
 import kotlin.math.roundToInt
 
 /**
+ * The Android key code each face button position sends, which a handheld's own layout setting
+ * decides. [ANDROID_DEFAULT] is Android's documented default, with `BUTTON_A` south, `BUTTON_B`
+ * east, `BUTTON_X` west and `BUTTON_Y` north.
+ */
+data class FaceKeyCodes(val south: Int, val east: Int, val west: Int, val north: Int) {
+  companion object {
+    val ANDROID_DEFAULT =
+      FaceKeyCodes(
+        south = KeyEvent.KEYCODE_BUTTON_A,
+        east = KeyEvent.KEYCODE_BUTTON_B,
+        west = KeyEvent.KEYCODE_BUTTON_X,
+        north = KeyEvent.KEYCODE_BUTTON_Y,
+      )
+  }
+}
+
+/**
  * Feeds Android key and motion events to a session's controller ports, mapped to the RetroPad by
- * position: the bottom face button, which Android calls A, is the RetroPad's B.
+ * position: the face button that [faceKeyCodes] puts south is the RetroPad's B, whatever its key
+ * code.
  *
  * Each gamepad takes the lowest free port as it connects, so the gamepads connected when the input
  * starts take ports in the order they connected, and a handheld's own controls, the only gamepad at
  * first, play on port 0. A gamepad's port frees when it disconnects. Keys from other devices, such
  * as a keyboard, go to port 0. [close] stops following connections.
  */
-class GamepadInput(private val session: GameSession, private val inputManager: InputManager) :
-  AutoCloseable {
+class GamepadInput(
+  private val session: GameSession,
+  private val inputManager: InputManager,
+  private val faceKeyCodes: FaceKeyCodes = FaceKeyCodes.ANDROID_DEFAULT,
+) : AutoCloseable {
   /** The port of each gamepad, by device ID. */
   private val ports = HashMap<Int, UInt>()
   private val hatX = IntArray(PORTS)
@@ -61,7 +82,7 @@ class GamepadInput(private val session: GameSession, private val inputManager: I
 
   /** Applies a key event, and returns whether it was a RetroPad button. */
   fun onKeyEvent(event: KeyEvent): Boolean {
-    val button = buttonFor(event.keyCode) ?: return false
+    val button = buttonFor(event.keyCode, faceKeyCodes) ?: return false
     val port = portFor(event.device) ?: return true
     when (event.action) {
       KeyEvent.ACTION_DOWN -> session.setButton(port, button, true)
@@ -155,13 +176,16 @@ class GamepadInput(private val session: GameSession, private val inputManager: I
       !isVirtual &&
         (supportsSource(InputDevice.SOURCE_GAMEPAD) || supportsSource(InputDevice.SOURCE_JOYSTICK))
 
-    /** The RetroPad button an Android key code stands for, if any. */
-    fun buttonFor(keyCode: Int): Button? =
+    /**
+     * The RetroPad button an Android key code stands for, if any, with the face buttons where
+     * [faceKeyCodes] puts them.
+     */
+    fun buttonFor(keyCode: Int, faceKeyCodes: FaceKeyCodes): Button? =
       when (keyCode) {
-        KeyEvent.KEYCODE_BUTTON_A -> Button.B
-        KeyEvent.KEYCODE_BUTTON_B -> Button.A
-        KeyEvent.KEYCODE_BUTTON_X -> Button.Y
-        KeyEvent.KEYCODE_BUTTON_Y -> Button.X
+        faceKeyCodes.south -> Button.B
+        faceKeyCodes.east -> Button.A
+        faceKeyCodes.west -> Button.Y
+        faceKeyCodes.north -> Button.X
         KeyEvent.KEYCODE_BUTTON_L1 -> Button.L
         KeyEvent.KEYCODE_BUTTON_R1 -> Button.R
         KeyEvent.KEYCODE_BUTTON_L2 -> Button.L2

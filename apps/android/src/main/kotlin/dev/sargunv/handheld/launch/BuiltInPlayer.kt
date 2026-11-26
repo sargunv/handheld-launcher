@@ -53,10 +53,10 @@ class BuiltInPlayer(private val activity: ComponentActivity) {
         return listOf(PlayNote("Couldn't download the game's core: ${e.message}"))
       }
     val folder = saves.folderOf(request.gameId)
-    val pauseWhenUnfocused =
+    val settings =
       withContext(Dispatchers.IO) {
         File(folder).mkdirs()
-        settingsFile(activity).read().pauseGameWhenUnfocused
+        settingsFile(activity).read()
       }
     val intent =
       SessionActivity.intent(
@@ -66,7 +66,8 @@ class BuiltInPlayer(private val activity: ComponentActivity) {
         systemDir = File(activity.filesDir, "system").path,
         saveDir = folder,
         saveRam = saves.saveRamOf(request.gameId, request.romPath),
-        pauseWhenUnfocused = pauseWhenUnfocused,
+        pauseWhenUnfocused = settings.pauseGameWhenUnfocused,
+        aButtonPosition = settings.input.aButtonPosition,
       )
     val result = awaitResult(intent)
     val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)

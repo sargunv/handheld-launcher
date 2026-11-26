@@ -29,4 +29,5 @@ dependencies {
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.core)
   implementation(project(":session"))
+  testImplementation(libs.kotlin.test.junit)
 }

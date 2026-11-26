@@ -5,16 +5,16 @@ import androidx.compose.ui.input.key.Key
 /**
  * The pad button [key] stands for, or null if it isn't a gamepad key.
  *
- * Android reports gamepad buttons with the Xbox layout's names in its positions: A is south, B
- * east, X west and Y north. A desktop gamepad source delivers the same [Key]s. D-pad keys double as
- * the keyboard's arrow keys.
+ * Face buttons map by key code, not position, so the button that sends `BUTTON_A` is [PadButton.A]
+ * under any [AButtonPosition]. A desktop gamepad source delivers the same [Key]s. D-pad keys double
+ * as the keyboard's arrow keys.
  */
 fun padButtonFor(key: Key): PadButton? =
   when (key) {
-    Key.ButtonA -> PadButton.South
-    Key.ButtonB -> PadButton.East
-    Key.ButtonX -> PadButton.West
-    Key.ButtonY -> PadButton.North
+    Key.ButtonA -> PadButton.A
+    Key.ButtonB -> PadButton.B
+    Key.ButtonX -> PadButton.X
+    Key.ButtonY -> PadButton.Y
     Key.ButtonL1 -> PadButton.L1
     Key.ButtonR1 -> PadButton.R1
     Key.ButtonL2 -> PadButton.L2
