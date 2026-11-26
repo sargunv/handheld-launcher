@@ -184,6 +184,17 @@ struct App {
     error: Option<String>,
 }
 
+/// Where zipped games are extracted for cores that can't open them, in
+/// $XDG_CACHE_HOME.
+fn content_cache() -> PathBuf {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache")
+        })
+        .join("handheld/session-runner/content")
+}
+
 impl App {
     fn new(args: Args) -> Self {
         let data = std::env::var_os("XDG_DATA_HOME")
@@ -275,6 +286,7 @@ impl App {
         let config = SessionConfig {
             core: self.args.core.clone(),
             content: self.args.content.clone(),
+            content_cache: Some(content_cache()),
             system_dir: self
                 .args
                 .system_dir

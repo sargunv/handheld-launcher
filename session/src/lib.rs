@@ -9,6 +9,7 @@
 //! with the platform's window and audio output.
 
 mod audio;
+mod content;
 mod core;
 mod ffi;
 mod gl;

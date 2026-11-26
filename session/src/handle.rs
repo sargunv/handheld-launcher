@@ -29,6 +29,12 @@ pub struct SessionOptions {
     pub core_path: String,
     /// The content to load, or `None` for cores that run without content.
     pub content_path: Option<String>,
+    /// Where a zipped game is extracted when the core can't open the zip,
+    /// as RetroArch does. The session owns the directory and keeps only the
+    /// last game extracted into it. `None` passes zips to the core as they
+    /// are.
+    #[uniffi(default = None)]
+    pub content_cache_dir: Option<String>,
     /// Where the core looks for BIOS and other system files.
     pub system_dir: String,
     /// Where the core may write its own save files.
@@ -492,6 +498,7 @@ fn start_session(options: SessionOptions, input: Arc<InputState>) -> Result<Sess
     let config = SessionConfig {
         core: options.core_path.into(),
         content: options.content_path.map(PathBuf::from),
+        content_cache: options.content_cache_dir.map(PathBuf::from),
         system_dir: options.system_dir.into(),
         save_dir: options.save_dir.into(),
         video,

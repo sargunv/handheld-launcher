@@ -42,6 +42,13 @@ changing and whenever the session pauses or stops, on a thread of its own,
 replacing the file atomically. A save file whose size differs from the core's
 save memory is copied to a backup beside it before it's replaced.
 
+A zipped game goes to the core as is when the core lists `zip` among its
+extensions or blocks extraction, as arcade cores do. Otherwise the session
+extracts the file in it that the core opens, the largest if several do, into the
+content cache directory the app gives it, which holds only the last game
+extracted, and loads that, as RetroArch does. Other archive formats go to the
+core as they are.
+
 On Android, frames start on the display's vsync, which a Choreographer thread
 follows, when the core's rate is within 2% of a whole fraction of the display's:
 every second vsync for a 60 fps core on a 120 Hz display. The core then runs
