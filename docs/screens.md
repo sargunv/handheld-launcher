@@ -71,11 +71,15 @@ across devices, what the copy on the device says about itself in its header,
 such as its serial and region, and where the game opens, with the rule that
 decides it.
 
-A local game always has Play. Its menu holds Open with, for its file, and Remove
-from device, which deletes the file after asking. Its saves don't sync, since
-RomM files saves by its own games, and the lower screen says they stay on the
-device until the game is on your server. Once a scan matches the file to a game
-of the server, the page becomes that game's.
+A local game always has Play. Its menu holds Open with, for its file, Remove
+from device, which deletes the file after asking, and Upload to RomM, which
+sends the file to its platform's folder on the server after asking, and only
+then. Its progress shows on the primary action, and Back stops it. RomM's
+refusal, such as an account that may not upload, shows in its words. Once
+uploaded, RomM is asked to scan the platform and the library syncs. Its saves
+don't sync, since RomM files saves by its own games, and the lower screen says
+they stay on the device until the game is on your server. Once a scan matches
+the file to a game of the server, the page becomes that game's.
 
 ## Open with
 

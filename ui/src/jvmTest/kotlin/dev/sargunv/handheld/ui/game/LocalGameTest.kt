@@ -10,6 +10,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -53,6 +54,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import java.io.File
+import java.util.Collections
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -75,6 +77,12 @@ class LocalGameTest {
 
   /** Whether the server has gained Homebrew, under the name of its file on the device. */
   @Volatile private var serverHasHomebrew = false
+
+  /** Whether the server refuses uploads, as for an account that may not upload games. */
+  @Volatile private var refuseUploads = false
+
+  /** The paths below `/api/` of the requests the server had about uploads and scans. */
+  private val uploadRequests = Collections.synchronizedList(mutableListOf<String>())
 
   init {
     homebrew.parentFile.mkdirs()
@@ -120,8 +128,28 @@ class LocalGameTest {
   private val server = {
     MockEngine { request ->
       val roms = listOfNotNull(Rom1, HomebrewRom.takeIf { serverHasHomebrew })
+      val path = request.url.encodedPath.substringAfter("/api/")
+      if (path.startsWith("roms/upload") || path.startsWith("tasks")) uploadRequests += path
       val body =
-        when (request.url.encodedPath.substringAfter("/api/")) {
+        when (path) {
+          "roms/upload/start" ->
+            if (refuseUploads) {
+              return@MockEngine respond(
+                """{"detail": "Forbidden"}""",
+                HttpStatusCode.Forbidden,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+              )
+            } else """{"upload_id": "u1"}"""
+          "roms/upload/u1" -> """{"received": 1, "total": 1}"""
+          "roms/upload/u1/complete" -> {
+            // The file is in the platform's folder on the server, which a scan adds.
+            serverHasHomebrew = true
+            "{}"
+          }
+          "tasks/scan",
+          "tasks/t1" ->
+            """{"task_key": null, "task_name": "scan", "task_id": "t1", "status": "finished",
+            "created_at": null, "enqueued_at": null}"""
           "platforms" -> "[$GameBoy, $N64]"
           "roms" ->
             if (request.url.parameters["last_played"] == "true") page(emptyList()) else page(roms)
@@ -279,9 +307,10 @@ class LocalGameTest {
     // The menu has what applies to a game on the device, and Open with for it.
     press(Key.ButtonX)
     awaitTag("menu:remove")
+    onNodeWithTag("menu:upload").assertExists()
     onNodeWithTag("menu:open-with").assertExists()
     onNodeWithTag("menu:cancel").assertDoesNotExist()
-    press(listOf(Key.DirectionDown, Key.ButtonA))
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Open Homebrew with")
     awaitText("keeps this choice for its file")
   }
@@ -326,6 +355,47 @@ class LocalGameTest {
     onNodeWithTag("game:saves-local").assertDoesNotExist()
     onNodeWithText("Homebrew (World)").assertExists()
     onNodeWithTag("primary").assertIsFocused()
+  }
+
+  @Test
+  fun uploadingALocalGameMakesItTheServersGame() = runComposeUiTest {
+    openHomebrew()
+    press(Key.ButtonX)
+    assertFocused("menu:remove")
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    awaitText("Upload Homebrew to RomM?")
+    // Cancel has focus first, so nothing goes to the server by accident.
+    assertFocused("upload:cancel")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    // RomM scans the game in, the library syncs, and the page is the server's game's.
+    awaitText("Homebrew (World)")
+    onNodeWithTag("game:saves-local").assertDoesNotExist()
+    assertEquals(
+      listOf(
+        "roms/upload/start",
+        "roms/upload/u1",
+        "roms/upload/u1/complete",
+        "tasks/scan",
+        "tasks/t1",
+      ),
+      uploadRequests.toList(),
+    )
+    assertTrue(homebrew.exists())
+  }
+
+  @Test
+  fun aRefusedUploadSaysWhy() = runComposeUiTest {
+    refuseUploads = true
+    openHomebrew()
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitTag("upload:confirm")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitText(
+      "RomM didn't allow the upload: Forbidden. Your account needs permission to upload games.",
+    )
+    assertEquals(listOf("roms/upload/start"), uploadRequests.toList())
+    onNodeWithTag("primary").assertTextEquals("Play")
+    onNodeWithTag("game:saves-local").assertExists()
   }
 
   private companion object {

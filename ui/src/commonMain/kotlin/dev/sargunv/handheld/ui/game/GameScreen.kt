@@ -41,7 +41,9 @@ import dev.sargunv.handheld.data.achievements.achievementProgress
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.Removal
 import dev.sargunv.handheld.data.downloads.RomStatus
+import dev.sargunv.handheld.data.downloads.UploadResult
 import dev.sargunv.handheld.data.downloads.formatSize
+import dev.sargunv.handheld.data.downloads.uploadLocalGame
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.KeptSave
@@ -72,9 +74,11 @@ import dev.sargunv.handheld.ui.saves.size
 import kotlin.time.Clock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.io.IOException
 
 /** A save conflict waiting for the player's choice. */
 private class PendingChoice(val conflict: SaveConflict) {
@@ -159,6 +163,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       .collectAsState(null)
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   var confirmRemove by rememberSaveable { mutableStateOf(false) }
+  var confirmUpload by rememberSaveable { mutableStateOf(false) }
+  var confirmStopUpload by rememberSaveable { mutableStateOf(false) }
+  // How an upload to RomM under way is going, in a few words, such as "Uploading 42%".
+  var uploading by remember { mutableStateOf<String?>(null) }
+  var upload by remember { mutableStateOf<Job?>(null) }
   // What the launch is doing before the game starts, such as getting its core.
   var playProgress by remember { mutableStateOf<String?>(null) }
   // What the player should know about the last thing they did here, such as how a play went.
@@ -212,6 +221,45 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     }
   }
 
+  fun upload(game: LocalGame) {
+    uploading = "Uploading"
+    notes = emptyList()
+    upload = scope.launch {
+      try {
+        val client =
+          state.romm.client()
+            ?: run {
+              notes = listOf("Sign in to RomM to upload the game.")
+              return@launch
+            }
+        val result = client.use {
+          uploadLocalGame(it, game) { sent, total ->
+            uploading =
+              if (sent < total) "Uploading ${sent * 100 / total.coerceAtLeast(1)}%"
+              else "Adding to your library"
+          }
+        }
+        notes =
+          listOf(
+            when (result) {
+              UploadResult.Added -> "Uploaded to RomM."
+              UploadResult.AwaitingScan ->
+                "Uploaded to RomM. It joins your library when RomM next scans it."
+            },
+          )
+        // The library learns of the game, and this page becomes its page.
+        state.syncNow()
+      } catch (e: RommException) {
+        notes = listOf(uploadError(e))
+      } catch (e: IOException) {
+        notes = listOf("Couldn't read the game's file: ${e.message}")
+      } finally {
+        uploading = null
+        upload = null
+      }
+    }
+  }
+
   val current = game
   val currentStatus = status
   LaunchedEffect(current, currentStatus) {
@@ -223,6 +271,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     if (currentStatus is RomStatus.OnDevice) play(current, currentStatus.path)
   }
   LaunchedEffect(playing) { if (!playing) confirmLeave = false }
+  LaunchedEffect(uploading) { if (uploading == null) confirmStopUpload = false }
   // The system back gesture asks too, as Back does, or cancels a save choice, as Back does there.
   if (playing && LocalNavigationEventDispatcherOwner.current != null) {
     NavigationBackHandler(
@@ -233,16 +282,26 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       },
     )
   }
-  val primary = current?.let { primaryAction(it, status, playing, playProgress) }
-  val hasMenu = current != null && status != null && !playing
+  if (uploading != null && LocalNavigationEventDispatcherOwner.current != null) {
+    NavigationBackHandler(
+      state = rememberNavigationEventState(NavigationEventInfo.None),
+      onBackCompleted = { confirmStopUpload = true },
+    )
+  }
+  val primary =
+    uploading?.let { PrimaryAction.Waiting(it) }
+      ?: current?.let { primaryAction(it, status, playing, playProgress) }
+  val hasMenu = current != null && status != null && !playing && uploading == null
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
       when {
         action == Action.Menu && hasMenu -> menuOpen = true
         // Leaving would stop the launch, so it asks first.
         action == Action.Back && playing -> confirmLeave = true
-        // The main menu waits for the launch, as it would leave the screen.
-        action == Action.MainMenu && playing -> Unit
+        // Back stops an upload, once the player says so.
+        action == Action.Back && uploading != null -> confirmStopUpload = true
+        // The main menu waits for the launch or the upload, as it would leave the screen.
+        action == Action.MainMenu && (playing || uploading != null) -> Unit
         else -> return@onAction false
       }
       true
@@ -317,9 +376,9 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       HintBar(
         buildList {
           if (primary?.isAction == true) add(Hint(Action.Confirm, primary.label))
-          add(Hint(Action.Back, "Back"))
+          add(Hint(Action.Back, if (uploading != null) "Stop upload" else "Back"))
           if (hasMenu) add(Hint(Action.Menu, "Menu"))
-          if (!playing) add(Hint(Action.MainMenu, "Main menu"))
+          if (!playing && uploading == null) add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }
@@ -346,6 +405,12 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               }
             RomStatus.NotOnDevice,
             null -> Unit
+          }
+          if (current is LocalGame) {
+            MenuButton("menu:upload", "Upload to RomM") {
+              close()
+              confirmUpload = true
+            }
           }
           MenuButton("menu:open-with", "Open with") {
             close()
@@ -408,6 +473,60 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         }
       }
     }
+    if (confirmUpload && current is LocalGame) {
+      val close = { confirmUpload = false }
+      Dialog(
+        close,
+        Modifier.background(Placeholder.dialog).padding(24.dp),
+        initialFocus = "upload:cancel",
+      ) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+          Text(
+            "Upload ${current.title} to RomM?",
+            color = Placeholder.text,
+            modifier = Modifier.semantics { heading() },
+          )
+          Text(
+            "It goes into its platform's folder on your server as ${current.fileName} " +
+              "(${formatSize(current.sizeBytes)}). Once RomM has it in your library, its saves " +
+              "sync like any game's.",
+            color = Placeholder.mutedText,
+          )
+          Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            MenuButton("upload:cancel", "Cancel", onConfirm = close)
+            MenuButton("upload:confirm", "Upload") {
+              close()
+              upload(current)
+            }
+          }
+        }
+      }
+    }
+    if (confirmStopUpload && uploading != null) {
+      val keep = { confirmStopUpload = false }
+      Dialog(
+        keep,
+        Modifier.background(Placeholder.dialog).padding(24.dp),
+        initialFocus = "upload:keep",
+      ) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+          Text(
+            "Stop uploading ${screen.title}?",
+            color = Placeholder.text,
+            modifier = Modifier.semantics { heading() },
+          )
+          Text("RomM drops what it received so far.", color = Placeholder.mutedText)
+          Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            MenuButton("upload:keep", "Keep uploading", onConfirm = keep)
+            MenuButton("upload:stop", "Stop upload") {
+              keep()
+              upload?.cancel()
+              notes = listOf("The upload stopped.")
+            }
+          }
+        }
+      }
+    }
     if (confirmLeave && playing) {
       LeaveDialog(
         screen.title,
@@ -453,6 +572,16 @@ private fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit) 
     }
   }
 }
+
+/** What the player reads when RomM refuses an upload, or can't be reached. */
+internal fun uploadError(e: RommException): String =
+  when (e) {
+    is RommException.Forbidden ->
+      "RomM didn't allow the upload${e.detail?.let { ": $it" } ?: ""}. Your account needs " +
+        "permission to upload games."
+    is RommException.Status -> "RomM refused the upload: ${e.detail ?: e.message}"
+    else -> "Couldn't upload the game: ${e.message}"
+  }
 
 /**
  * The game's platform, release year and genres, on one line. A local game has its platform, its
