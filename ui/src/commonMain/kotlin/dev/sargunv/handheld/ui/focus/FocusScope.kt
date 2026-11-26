@@ -28,7 +28,9 @@ import androidx.compose.ui.focus.onFocusChanged
 
 /**
  * The focus scopes on screen, in the order they appeared. The last one is the active one: the
- * screen on top, or the dialog over it. Only the active scope holds focus.
+ * screen on top, or the dialog over it. Only the active scope holds focus. A scope that appears
+ * while a dialog is open goes below the dialog, unless it's inside it, so a screen recomposing
+ * under a dialog doesn't take focus from it.
  */
 @Stable
 class FocusScopes internal constructor() {
@@ -38,7 +40,8 @@ class FocusScopes internal constructor() {
     get() = stack.lastOrNull()
 
   internal fun add(scope: FocusScopeState) {
-    stack.add(scope)
+    val dialog = stack.indexOfFirst { it.isModal && !scope.isInside(it) }
+    if (dialog < 0) stack.add(scope) else stack.add(dialog, scope)
   }
 
   internal fun remove(scope: FocusScopeState) {
@@ -101,7 +104,12 @@ internal val LocalFocusMemory = staticCompositionLocalOf<FocusMemory?> { null }
 /** The state of a [FocusScope]. */
 @Stable
 class FocusScopeState
-internal constructor(saved: MutableState<String?>, private val scopes: FocusScopes?) {
+internal constructor(
+  saved: MutableState<String?>,
+  private val scopes: FocusScopes?,
+  private val parent: FocusScopeState? = null,
+  internal val isModal: Boolean = false,
+) {
   internal val memory = FocusMemory(saved) { isRecording }
   internal val group = FocusRequester()
   internal var hasFocus by mutableStateOf(false)
@@ -116,6 +124,9 @@ internal constructor(saved: MutableState<String?>, private val scopes: FocusScop
   /** Whether focus landing on an item in this scope now is worth remembering. */
   internal val isRecording: Boolean
     get() = isActive && !restorePending
+
+  internal fun isInside(other: FocusScopeState): Boolean =
+    generateSequence(parent) { it.parent }.any { it === other }
 
   /** Whether this is the newest scope on screen, the one that holds focus. */
   val isActive: Boolean
@@ -153,10 +164,22 @@ fun FocusScope(
   modifier: Modifier = Modifier,
   initialFocus: String? = null,
   content: @Composable BoxScope.() -> Unit,
+) = FocusScope(modifier, initialFocus, isModal = false, content)
+
+/**
+ * A [FocusScope] that stays above scopes appearing outside it while it's open, as a dialog does.
+ */
+@Composable
+internal fun FocusScope(
+  modifier: Modifier,
+  initialFocus: String?,
+  isModal: Boolean,
+  content: @Composable BoxScope.() -> Unit,
 ) {
   val saved = rememberSaveable { mutableStateOf(initialFocus) }
   val scopes = LocalFocusScopes.current
-  val state = remember(saved, scopes) { FocusScopeState(saved, scopes) }
+  val parent = LocalFocusScope.current
+  val state = remember(saved, scopes) { FocusScopeState(saved, scopes, parent, isModal) }
 
   if (scopes != null) {
     DisposableEffect(scopes, state) {
