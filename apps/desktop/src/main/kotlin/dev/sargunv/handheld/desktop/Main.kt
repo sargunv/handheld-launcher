@@ -15,6 +15,7 @@ import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import kotlinx.io.files.Path
@@ -65,6 +66,14 @@ fun main(args: Array<String>) {
       DeviceDescription(installIdentifier(Path(dataDir, "install-id")), os, os.lowercase(), null)
     }
     val heldKeys = remember { HeldKeys() }
+    // The build passes the version and puts the list of components in the resources.
+    val appInfo = remember {
+      AppInfo(System.getProperty("handheld.version") ?: "unknown") {
+        ClassLoader.getSystemResourceAsStream("aboutlibraries.json")?.use {
+          it.readBytes().decodeToString()
+        }
+      }
+    }
     Window(
       onCloseRequest = ::exitApplication,
       // The window sees every key, even while nothing in its content has focus.
@@ -89,6 +98,7 @@ fun main(args: Array<String>) {
         coverCacheDir = cacheDir(),
         initialSettings = settings,
         saveSettings = settingsFile::write,
+        appInfo = appInfo,
       )
     }
   }

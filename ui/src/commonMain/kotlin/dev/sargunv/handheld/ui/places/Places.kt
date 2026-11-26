@@ -51,6 +51,11 @@ import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.ui.about.AboutScreen
+import dev.sargunv.handheld.ui.about.AboutSecondary
+import dev.sargunv.handheld.ui.about.AppInfo
+import dev.sargunv.handheld.ui.about.Component
+import dev.sargunv.handheld.ui.about.LicenceScreen
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsPanel
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.achievements.summary
@@ -104,6 +109,12 @@ sealed interface Screen {
 
   /** The app a game opens in, from the game's menu. */
   data class OpenWith(val romId: Long, val title: String) : Screen
+
+  /** About the app: its version, its licence, and the components it's built from. */
+  data object About : Screen
+
+  /** The licence texts of the component [componentId], from About. */
+  data class Licence(val componentId: String, val name: String) : Screen
 }
 
 /** How the library's latest sync with the server went. */
@@ -122,6 +133,8 @@ sealed interface Focused {
   data class OnGame(val rom: Rom) : Focused
 
   data class OnCollection(val collection: Collection) : Focused
+
+  data class OnComponent(val component: Component) : Focused
 }
 
 /** State the app's two screens share. */
@@ -136,6 +149,8 @@ class AppState(
   val httpEngine: () -> HttpClientEngine,
   /** The RetroAchievements account, on platforms whose games can earn achievements. */
   val retroAchievements: RetroAchievementsState? = null,
+  /** What About says about this build. */
+  val appInfo: AppInfo = AppInfo.Unknown,
 ) {
   var settings: Settings by mutableStateOf(settings)
   val navigator = Navigator<Screen>(Screen.Places)
@@ -193,6 +208,7 @@ class AppState(
         val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
         if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
       }
+      OpenTarget.About -> navigator.push(Screen.About)
       is OpenTarget.LibraryShelf -> {
         showPlace(Place.Library)
         libraryView.isOpen = false
@@ -237,6 +253,8 @@ fun MainPrimary(state: AppState) {
       Screen.Places -> NavEntry(screen) { PlacesScreen(state) }
       is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
       is Screen.OpenWith -> NavEntry(screen) { OpenWithScreen(state, screen) }
+      Screen.About -> NavEntry(screen) { AboutScreen(state) }
+      is Screen.Licence -> NavEntry(screen) { LicenceScreen(state, screen) }
     }
   }
 }
@@ -259,6 +277,10 @@ fun MainSecondary(state: AppState) {
     }
     if (screen is Screen.OpenWith) {
       OpenWithSecondary(state, screen)
+      return@Column
+    }
+    if (screen == Screen.About || screen is Screen.Licence) {
+      AboutSecondary(state, screen)
       return@Column
     }
     val focused = state.focused
@@ -381,6 +403,10 @@ private fun PlacesScreen(state: AppState) {
           quickMenu = false
           explainCloseEmulators = true
         },
+        onOpenAbout = {
+          quickMenu = false
+          state.navigator.push(Screen.About)
+        },
       )
     }
     if (explainCloseEmulators) {
@@ -489,13 +515,14 @@ private fun EmptyPlace(text: String) {
 
 /**
  * The global settings, on the quick menu button. Turning on closing emulators asks
- * [onTurnOnCloseEmulators] to explain it first.
+ * [onTurnOnCloseEmulators] to explain it first. Its last item opens About, with [onOpenAbout].
  */
 @Composable
 private fun QuickMenu(
   state: AppState,
   onDismissRequest: () -> Unit,
   onTurnOnCloseEmulators: () -> Unit,
+  onOpenAbout: () -> Unit,
 ) {
   var page by rememberSaveable { mutableStateOf(QuickMenuPage.Main) }
   Dialog(
@@ -548,6 +575,7 @@ private fun QuickMenu(
           page = QuickMenuPage.RetroAchievements
         }
       }
+      MenuButton("quick:about", "About", onConfirm = onOpenAbout)
     }
   }
 }

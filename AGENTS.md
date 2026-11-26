@@ -40,8 +40,8 @@ common ones:
   and Library marks the games on the device with an `onDevice:<romId>` element.
 - `mise run android:open <target>`: show a screen of the debug app straight
   away: `place:home`, `place:library`, `place:downloads`, `game:<romId>`,
-  `library` or `library:<platform-slug>`. It's the `open` extra of the launch
-  intent, so
+  `library`, `library:<platform-slug>` or `about`. It's the `open` extra of the
+  launch intent, so
   `adb shell am start -n dev.sargunv.handheld/.MainActivity --es open game:42`
   does the same.
 - `mise run android:lock -- <command>`: run a command while holding the device's
@@ -71,6 +71,17 @@ command ends, even when it fails. It also takes the older
 `/tmp/handheld-thor.lock` that earlier agents used. The lock is a directory: a
 holder that was killed outright leaves it behind, so remove it once nobody is
 using the device.
+
+## Licences
+
+About lists what each app ships with its licence texts, collected when it
+builds. AboutLibraries' Gradle plugin lists the Kotlin dependencies, offline,
+and takes their licence texts from `licences/licenses/`: a dependency under a
+licence with no text there fails the build, so add its SPDX text. The Android
+app adds the Rust crates the session links, which cargo-about finds with
+`session/about.toml`, and the vendored C code in `session/licences/`, with
+licence texts from the vendored files. `licences/libraries/` holds the code
+ported from elsewhere.
 
 ## Secrets
 

@@ -35,6 +35,7 @@ import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.StandalonePlayer
 import dev.sargunv.handheld.ui.App
+import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.places.HomePress
@@ -113,6 +114,11 @@ class MainActivity : ComponentActivity() {
     val retroAchievements = retroAchievementsSignIn(this)
     // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
+    // About reads the list of components that the build puts in the app's resources.
+    val appInfo =
+      AppInfo(packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown") {
+        resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() }
+      }
     setContent {
       val display = rememberSecondaryDisplay()
       // The presentation draws over the play companion's activity on the same display.
@@ -147,6 +153,7 @@ class MainActivity : ComponentActivity() {
         },
         openRequest = openRequest,
         homePress = homePress,
+        appInfo = appInfo,
       )
     }
   }

@@ -1,4 +1,6 @@
 [versions]
+# The app's own version.
+handheld = "0.1.0"
 agp = "9.5.3"
 kotlin = "2.4.21"
 compose-multiplatform = "1.12.2"
@@ -23,6 +25,7 @@ jna = "5.19.1"
 navigation3 = "1.2.0"
 navigationevent = "1.1.0"
 coil = "3.6.3"
+aboutlibraries = "15.3.0"
 
 [libraries]
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
@@ -66,3 +69,5 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
+aboutlibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutlibraries" }
+aboutlibraries-android = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutlibraries" }

@@ -1,0 +1,7 @@
+{
+  "uniqueId": "com.libretro:libretro.h",
+  "name": "libretro.h",
+  "description": "The libretro API header, which the game session hosts cores through.",
+  "website": "https://github.com/libretro/libretro-common",
+  "licenses": ["libretro.h"]
+}

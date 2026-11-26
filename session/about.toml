@@ -1,0 +1,24 @@
+# cargo-about's config, for the About screen's list of the crates the session
+# links. The Android app's build runs it for its targets
+# (apps/android/build.gradle.kts). Where a crate offers a choice, it takes the
+# first licence here that the crate offers.
+accepted = [
+  "MIT",
+  "Apache-2.0",
+  "MPL-2.0",
+  "ISC",
+  "Zlib",
+  "Unlicense",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "Unicode-3.0",
+  "BSL-1.0",
+  "CC0-1.0",
+  "0BSD",
+]
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+
+# The session itself, which the app's own licence covers.
+[handheld-session]
+accepted = ["GPL-3.0-or-later"]

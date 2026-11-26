@@ -17,10 +17,13 @@ sealed interface OpenTarget {
   /** Library: the games of the platform with [platformSlug], or the list of shelves when null. */
   data class LibraryShelf(val platformSlug: String?) : OpenTarget
 
+  /** About, over the places. */
+  data object About : OpenTarget
+
   companion object {
     /**
      * The target [text] names: `place:<place>` (such as `place:downloads`), `game:<romId>`,
-     * `library` or `library:<platform-slug>`. Null when it names none of those.
+     * `library`, `library:<platform-slug>` or `about`. Null when it names none of those.
      */
     fun parse(text: String): OpenTarget? {
       val kind = text.substringBefore(':')
@@ -29,6 +32,7 @@ sealed interface OpenTarget {
         "place" -> Place.entries.find { it.name.equals(arg, ignoreCase = true) }?.let(::AtPlace)
         "game" -> arg?.toLongOrNull()?.let(::Game)
         "library" -> LibraryShelf(arg)
+        "about" -> About.takeIf { arg == null }
         else -> null
       }
     }
