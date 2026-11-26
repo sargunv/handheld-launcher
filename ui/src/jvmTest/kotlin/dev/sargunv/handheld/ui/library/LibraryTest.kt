@@ -4,6 +4,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -18,6 +19,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
@@ -168,6 +170,9 @@ class LibraryTest {
     assertFocused("game:4")
     press(Key.ButtonB)
     assertFocused("library:platform:2")
+    // A screen reader opens a platform the same way.
+    onNodeWithTag("library:platform:1").performSemanticsAction(SemanticsActions.OnClick)
+    awaitTag("shelf:platform:1")
   }
 
   @Test

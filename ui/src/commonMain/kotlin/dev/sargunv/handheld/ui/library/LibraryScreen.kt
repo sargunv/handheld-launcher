@@ -227,6 +227,10 @@ private fun ShelfTiles(
           .semantics {
             contentDescription = summary.description
             role = Role.Button
+            onClick {
+              onOpen(summary.shelf)
+              true
+            }
           }
           .onFocusChanged { if (it.isFocused) onFocus(summary.shelf) }
           .focusItem(key, onConfirm = { onOpen(summary.shelf) })
