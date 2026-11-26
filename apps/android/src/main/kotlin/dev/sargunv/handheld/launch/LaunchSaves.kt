@@ -12,6 +12,7 @@ import dev.sargunv.handheld.domain.saves.SaveFiles
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * The save of the game at [romPath], the RomM ROM [romId], as [target] keeps it for [platform].
@@ -40,7 +41,7 @@ fun gameSaveFor(
       storage = storage,
       anyStorage = listOf(storage) + (volumes - storage),
       packageName = target.packageName,
-      core = target.core,
+      core = target.coreFor(platform),
     )
   val paths = SaveFiles.candidates(location, romPath, roots) ?: return null
   val files =
@@ -53,11 +54,22 @@ fun gameSaveFor(
   return GameSave(romId, emulator.id.value, files)
 }
 
-/** The launcher's [SaveSync] for [client], keeping its records and history in the app's files. */
-fun saveSync(context: Context, client: RommClient): SaveSync =
+/**
+ * The launcher's [SaveSync] for [client], keeping its records and history in the app's files. The
+ * records are kept apart per [account] (the server and the sign-in), so one account's record never
+ * decides what another account's save replaces.
+ */
+fun saveSync(context: Context, client: RommClient, account: String): SaveSync =
   SaveSync(
     client,
-    records = File(context.filesDir, "save-sync"),
+    records = File(context.filesDir, "save-sync/${accountKey(account)}"),
     history = File(context.filesDir, "save-history"),
     staging = File(context.cacheDir, "save-staging"),
   )
+
+private fun accountKey(account: String): String =
+  MessageDigest.getInstance("SHA-256").digest(account.encodeToByteArray()).take(8).joinToString(
+    "",
+  ) {
+    "%02x".format(it)
+  }

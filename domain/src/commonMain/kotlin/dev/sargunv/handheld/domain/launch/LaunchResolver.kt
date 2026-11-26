@@ -2,6 +2,7 @@ package dev.sargunv.handheld.domain.launch
 
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.KnownEmulator
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /** Which rule picked the app for a game. */
@@ -32,6 +33,13 @@ data class LaunchTarget(
   /** The command that launches [input] here, with this target's [core] unless [input] names one. */
   fun commandFor(input: LaunchInput): LaunchBuild =
     LaunchCommandBuilder.build(recipe, packageName, input.copy(core = input.core ?: core))
+
+  /**
+   * The libretro core, by library name, that a game on [platform] runs in here: this target's
+   * [core], or the platform's recommended one, which a libretro launch falls back to.
+   */
+  fun coreFor(platform: PlatformSlug): String? =
+    core ?: LibretroCores.recommendedFor(platform)?.library
 }
 
 /** A rule that named an app that isn't installed, so resolution moved past it. */

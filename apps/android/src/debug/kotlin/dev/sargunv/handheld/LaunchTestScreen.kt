@@ -219,11 +219,12 @@ internal fun LaunchTestScreen(
   }
 }
 
-private suspend fun client(activity: Activity, saves: SaveSyncOptions): RommClient? {
-  if (saves.serverUrl != null) return RommClient(saves.serverUrl)
+/** A client for the save server, and the account its sync records belong to. */
+private suspend fun client(activity: Activity, saves: SaveSyncOptions): Pair<RommClient, String>? {
+  if (saves.serverUrl != null) return RommClient(saves.serverUrl) to saves.serverUrl
   val signedIn =
     KeystoreCredentialStore(File(activity.filesDir, "credentials")).load() ?: return null
-  return RommClient(signedIn.baseUrl, signedIn.token)
+  return RommClient(signedIn.baseUrl, signedIn.token) to "${signedIn.baseUrl}\n${signedIn.token}"
 }
 
 /**
@@ -237,9 +238,9 @@ private suspend fun syncBeforeLaunch(
   rom: String,
   showConflict: (PendingConflict?) -> Unit,
 ): String? {
-  val client = client(activity, saves) ?: return "Not signed in, so the save didn't sync"
+  val (client, account) = client(activity, saves) ?: return "Not signed in, so the save didn't sync"
   return client.use {
-    val sync = saveSync(activity, it)
+    val sync = saveSync(activity, it, account)
     try {
         when (val result = sync.sync(game)) {
           is SaveSyncResult.Conflict -> {
@@ -276,10 +277,10 @@ private suspend fun syncAfterReturn(
   saves: SaveSyncOptions,
   game: GameSave,
 ): String {
-  val client = client(activity, saves) ?: return "Not signed in, so the save didn't sync"
+  val (client, account) = client(activity, saves) ?: return "Not signed in, so the save didn't sync"
   return client.use {
     try {
-        when (val result = saveSync(activity, it).sync(game)) {
+        when (val result = saveSync(activity, it, account).sync(game)) {
           // The conflict screen comes before a launch, so the choice waits for the next one.
           is SaveSyncResult.Conflict ->
             "The save changed on RomM during the game too, so you'll choose one next launch"
