@@ -6,30 +6,40 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class KeyMappingTest {
-  private val south = InputSettings(confirmButton = ConfirmButton.South)
-  private val east = InputSettings(confirmButton = ConfirmButton.East)
+  private val confirmA = InputSettings(confirmButton = ConfirmButton.A)
+  private val confirmB = InputSettings(confirmButton = ConfirmButton.B)
 
   @Test
-  fun gamepadButtonsArePositional() {
-    assertEquals(PadButton.South, padButtonFor(Key.ButtonA))
-    assertEquals(PadButton.East, padButtonFor(Key.ButtonB))
-    assertEquals(PadButton.West, padButtonFor(Key.ButtonX))
-    assertEquals(PadButton.North, padButtonFor(Key.ButtonY))
+  fun faceButtonsFollowTheirKeyCodes() {
+    assertEquals(PadButton.A, padButtonFor(Key.ButtonA))
+    assertEquals(PadButton.B, padButtonFor(Key.ButtonB))
+    assertEquals(PadButton.X, padButtonFor(Key.ButtonX))
+    assertEquals(PadButton.Y, padButtonFor(Key.ButtonY))
     assertEquals(PadButton.DpadUp, padButtonFor(Key.DirectionUp))
     assertNull(padButtonFor(Key.Enter))
   }
 
   @Test
-  fun confirmSettingSwapsTheSouthAndEastButtons() {
-    assertEquals(Action.Confirm, south.actionFor(Key.ButtonA))
-    assertEquals(Action.Back, south.actionFor(Key.ButtonB))
-    assertEquals(Action.Back, east.actionFor(Key.ButtonA))
-    assertEquals(Action.Confirm, east.actionFor(Key.ButtonB))
+  fun confirmSettingSwapsAAndB() {
+    assertEquals(Action.Confirm, confirmA.actionFor(Key.ButtonA))
+    assertEquals(Action.Back, confirmA.actionFor(Key.ButtonB))
+    assertEquals(Action.Back, confirmB.actionFor(Key.ButtonA))
+    assertEquals(Action.Confirm, confirmB.actionFor(Key.ButtonB))
+  }
+
+  @Test
+  fun faceButtonLayoutChangesNoAction() {
+    for (settings in listOf(confirmA, confirmB)) {
+      val nintendo = settings.copy(faceButtonLayout = FaceButtonLayout.Nintendo)
+      for (button in PadButton.entries) {
+        assertEquals(settings.actionFor(button), nintendo.actionFor(button))
+      }
+    }
   }
 
   @Test
   fun confirmSettingLeavesTheOtherButtonsAlone() {
-    for (settings in listOf(south, east)) {
+    for (settings in listOf(confirmA, confirmB)) {
       assertEquals(Action.Menu, settings.actionFor(Key.ButtonX))
       assertEquals(Action.Search, settings.actionFor(Key.ButtonY))
       assertEquals(Action.PreviousShelf, settings.actionFor(Key.ButtonL1))
@@ -43,7 +53,7 @@ class KeyMappingTest {
 
   @Test
   fun keyboardKeysMeanActionsWhateverTheConfirmSetting() {
-    for (settings in listOf(south, east)) {
+    for (settings in listOf(confirmA, confirmB)) {
       assertEquals(Action.Confirm, settings.actionFor(Key.Enter))
       assertEquals(Action.Back, settings.actionFor(Key.Escape))
       assertEquals(Action.Back, settings.actionFor(Key.Back))

@@ -65,6 +65,7 @@ import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ConfirmButton
+import dev.sargunv.handheld.ui.input.FaceButtonLayout
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.InputSettings
@@ -190,10 +191,19 @@ class AppState(
   fun swapConfirmButton() {
     val swapped =
       when (inputSettings.confirmButton) {
-        ConfirmButton.South -> ConfirmButton.East
-        ConfirmButton.East -> ConfirmButton.South
+        ConfirmButton.A -> ConfirmButton.B
+        ConfirmButton.B -> ConfirmButton.A
       }
     settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
+  }
+
+  fun switchFaceButtonLayout() {
+    val switched =
+      when (inputSettings.faceButtonLayout) {
+        FaceButtonLayout.Xbox -> FaceButtonLayout.Nintendo
+        FaceButtonLayout.Nintendo -> FaceButtonLayout.Xbox
+      }
+    settings = settings.copy(input = inputSettings.copy(faceButtonLayout = switched))
   }
 }
 
@@ -444,10 +454,18 @@ private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
       Text("Quick menu", color = Placeholder.text, modifier = Modifier.semantics { heading() })
       val confirm =
         when (state.inputSettings.confirmButton) {
-          ConfirmButton.South -> PadButton.South
-          ConfirmButton.East -> PadButton.East
+          ConfirmButton.A -> PadButton.A
+          ConfirmButton.B -> PadButton.B
         }
       MenuButton("quick:confirm", "Confirm with ${confirm.label}") { state.swapConfirmButton() }
+      val layout =
+        when (state.inputSettings.faceButtonLayout) {
+          FaceButtonLayout.Xbox -> "Xbox"
+          FaceButtonLayout.Nintendo -> "Nintendo"
+        }
+      MenuButton("quick:faceButtons", "Face buttons: $layout layout") {
+        state.switchFaceButtonLayout()
+      }
     }
   }
 }

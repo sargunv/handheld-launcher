@@ -61,8 +61,8 @@ class DemoState(settings: Settings = Settings()) {
   fun swapConfirmButton() {
     val swapped =
       when (inputSettings.confirmButton) {
-        ConfirmButton.South -> ConfirmButton.East
-        ConfirmButton.East -> ConfirmButton.South
+        ConfirmButton.A -> ConfirmButton.B
+        ConfirmButton.B -> ConfirmButton.A
       }
     settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
   }

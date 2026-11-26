@@ -34,11 +34,16 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       resumed = false
       field = value
       input?.close()
-      input = value?.let { GamepadInput(it, context.getSystemService(InputManager::class.java)) }
+      input = value?.let {
+        GamepadInput(it, context.getSystemService(InputManager::class.java), faceKeyCodes)
+      }
       val holder = holder
       if (value != null && holder.surface?.isValid == true) attach(value, holder)
       update()
     }
+
+  /** Where the gamepad's face buttons sit, for the next [session] set. */
+  var faceKeyCodes: FaceKeyCodes = FaceKeyCodes.ANDROID_DEFAULT
 
   /** Whether the session should run while it's visible. */
   var running: Boolean = true

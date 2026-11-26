@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui.input
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** What the player asked for, whatever button or key they used. Every screen speaks this. */
@@ -54,14 +55,15 @@ enum class Direction {
 }
 
 /**
- * A gamepad button, named by where it sits rather than by its label, because handhelds disagree on
- * which face button says "A".
+ * A gamepad button, named by the key code it sends. The face buttons are Android's `BUTTON_A`,
+ * `BUTTON_B`, `BUTTON_X` and `BUTTON_Y`, wherever they sit: a handheld's own layout setting decides
+ * which physical button sends which, and [FaceButtonLayout] says where each one is.
  */
 enum class PadButton {
-  South,
-  East,
-  West,
-  North,
+  A,
+  B,
+  X,
+  Y,
   L1,
   R1,
   L2,
@@ -77,21 +79,30 @@ enum class PadButton {
 }
 
 /** Which face button confirms. The other one of the pair goes back. */
+@Serializable
 enum class ConfirmButton {
-  South,
-  East,
+  // Stored under the positions these buttons were named for when Android's default layout was
+  // assumed, so a choice made then still holds.
+  @SerialName("South") A,
+  @SerialName("East") B,
 }
 
-/** The player's input preferences. */
+/**
+ * The player's input preferences. Navigation follows the key codes, so [faceButtonLayout] changes
+ * no action; it tells the built-in session where each face button sits.
+ */
 @Serializable
-data class InputSettings(val confirmButton: ConfirmButton = ConfirmButton.South) {
+data class InputSettings(
+  val confirmButton: ConfirmButton = ConfirmButton.A,
+  val faceButtonLayout: FaceButtonLayout = FaceButtonLayout.Xbox,
+) {
   /** The action [button] performs, or null if it does nothing. */
   fun actionFor(button: PadButton): Action? =
     when (button) {
-      PadButton.South -> if (confirmButton == ConfirmButton.South) Action.Confirm else Action.Back
-      PadButton.East -> if (confirmButton == ConfirmButton.East) Action.Confirm else Action.Back
-      PadButton.West -> Action.Menu
-      PadButton.North -> Action.Search
+      PadButton.A -> if (confirmButton == ConfirmButton.A) Action.Confirm else Action.Back
+      PadButton.B -> if (confirmButton == ConfirmButton.B) Action.Confirm else Action.Back
+      PadButton.X -> Action.Menu
+      PadButton.Y -> Action.Search
       PadButton.L1 -> Action.PreviousShelf
       PadButton.R1 -> Action.NextShelf
       PadButton.Start -> Action.QuickMenu
