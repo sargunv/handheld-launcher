@@ -53,7 +53,7 @@ fun rememberSecondaryDisplay(): Display? {
   return display
 }
 
-private fun DisplayManager.secondaryDisplay(): Display? =
+internal fun DisplayManager.secondaryDisplay(): Display? =
   getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).firstOrNull {
     it.displayId != Display.DEFAULT_DISPLAY && it.state != Display.STATE_OFF
   }

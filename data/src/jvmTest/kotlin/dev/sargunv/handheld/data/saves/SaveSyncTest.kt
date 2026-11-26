@@ -194,6 +194,44 @@ class SaveSyncTest {
   }
 
   @Test
+  fun aPushSendsALocalChange() = runTest {
+    val (server, sync) = synced()
+    saveFile.writeBytes(mine)
+
+    assertIs<SaveSyncResult.Pushed>(sync.push(game))
+    assertContentEquals(mine, server.uploads.single().bytes)
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(game), "The push was recorded")
+  }
+
+  @Test
+  fun aPushLeavesTheDevicesSaveAloneWhenTheServersIsNewer() = runTest {
+    val (server, sync) = synced()
+    val newer = server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
+
+    assertEquals(newer.id, assertIs<SaveSyncResult.ServerNewer>(sync.push(game)).server.id)
+    assertContentEquals(v1, saveFile.readBytes())
+    assertTrue(sync.history(game).isEmpty())
+    assertTrue(server.uploads.isEmpty())
+
+    saveFile.delete()
+    assertIs<SaveSyncResult.ServerNewer>(sync.push(game), "A missing save isn't pulled either")
+    assertTrue(!saveFile.exists())
+
+    assertIs<SaveSyncResult.Pulled>(sync.sync(game), "The next sync pulls it")
+  }
+
+  @Test
+  fun aPushReportsAConflictWithoutWritingAnything() = runTest {
+    val (server, sync) = synced()
+    server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
+    saveFile.writeBytes(mine)
+
+    assertIs<SaveSyncResult.Conflict>(sync.push(game))
+    assertContentEquals(mine, saveFile.readBytes())
+    assertTrue(server.uploads.isEmpty())
+  }
+
+  @Test
   fun listsTheCopiesKeptInHistoryNewestFirst() = runTest {
     val (server, sync) = synced()
     server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))

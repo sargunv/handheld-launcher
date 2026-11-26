@@ -71,6 +71,13 @@ sealed interface SaveSyncResult {
   data class NoFolder(val folders: List<String>) : SaveSyncResult
 
   /**
+   * The server's save [server] is newer and the device's didn't change, or the device has none, so
+   * there's nothing to push. [SaveSync.push] leaves the device's save alone; the next
+   * [SaveSync.sync] pulls it.
+   */
+  data class ServerNewer(val server: RommSave) : SaveSyncResult
+
+  /**
    * The player chose [kept] in a conflict, which is now the save at [file] and the slot's newest
    * save [save] on the server. The other copy is kept in the history at [history], and on the
    * server as [otherOnServer]: the server's old save when the device's copy won, or a separate
@@ -116,7 +123,19 @@ class SaveSync(
    * @throws RommException when the server can't be reached or refuses a call.
    * @throws IOException when a save file can't be read or written.
    */
-  suspend fun sync(game: GameSave): SaveSyncResult = mutex.withLock {
+  suspend fun sync(game: GameSave): SaveSyncResult = sync(game, pull = true)
+
+  /**
+   * Like [sync], but never writes to the device: when [sync] would pull, it reports
+   * [SaveSyncResult.ServerNewer] instead. For while the game runs, since an emulator holds its save
+   * in memory and would write over a pulled one.
+   *
+   * @throws RommException when the server can't be reached or refuses a call.
+   * @throws IOException when the save file can't be read.
+   */
+  suspend fun push(game: GameSave): SaveSyncResult = sync(game, pull = false)
+
+  private suspend fun sync(game: GameSave, pull: Boolean): SaveSyncResult = mutex.withLock {
     withContext(Dispatchers.IO) {
       val record = recordFile(game).read()
       val local = game.candidates.firstOrNull { it.isFile }
@@ -128,8 +147,10 @@ class SaveSync(
       when {
         local == null && server == null -> SaveSyncResult.NoSave
         // A missing save comes back from the server, since there's nothing to overwrite.
+        local == null && !pull -> SaveSyncResult.ServerNewer(server!!)
         local == null -> pull(game, server!!, null)
         !localChanged && !serverChanged -> SaveSyncResult.UpToDate(local)
+        !localChanged && !pull -> SaveSyncResult.ServerNewer(server!!)
         !localChanged -> pull(game, server!!, local)
         !serverChanged -> push(game, local!!, localBytes!!)
         localHash == server!!.contentHash -> {

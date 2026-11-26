@@ -39,6 +39,14 @@
       </intent-filter>
     </activity>
 
+    <!-- The companion on the second display while a game plays in another app. Its own task
+         affinity keeps it out of the launcher's task, on its own display and out of recents. -->
+    <activity
+      android:name=".launch.PlayCompanionActivity"
+      android:excludeFromRecents="true"
+      android:exported="false"
+      android:taskAffinity="${applicationId}.companion" />
+
     <service
       android:name=".DownloadService"
       android:exported="false"
