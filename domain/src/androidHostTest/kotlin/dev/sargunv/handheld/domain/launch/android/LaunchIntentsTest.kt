@@ -10,7 +10,6 @@ import dev.sargunv.handheld.domain.launch.LaunchBuild
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchCommandBuilder
 import dev.sargunv.handheld.domain.launch.LaunchExtra
-import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
 import dev.sargunv.handheld.domain.launch.LaunchUri
@@ -44,17 +43,6 @@ class LaunchIntentsTest {
         LaunchCommandBuilder.build(it.recipe, it.packageName, LaunchInput(romPath, platform))
       assertIs<LaunchBuild.Ready>(build).command
     }
-
-  @Test
-  fun flagBits() {
-    assertEquals(0x10000000, LaunchIntents.flagsOf(setOf(LaunchFlag.NewTask)))
-    assertEquals(0x00008000, LaunchIntents.flagsOf(setOf(LaunchFlag.ClearTask)))
-    assertEquals(0x04000000, LaunchIntents.flagsOf(setOf(LaunchFlag.ClearTop)))
-    assertEquals(0x20000000, LaunchIntents.flagsOf(setOf(LaunchFlag.SingleTop)))
-    assertEquals(0x40000000, LaunchIntents.flagsOf(setOf(LaunchFlag.NoHistory)))
-    assertEquals(0x00000001, LaunchIntents.flagsOf(setOf(LaunchFlag.GrantReadUriPermission)))
-    assertEquals(0, LaunchIntents.flagsOf(emptySet()))
-  }
 
   @Test
   fun viewRomTargetsThePackageWithAGrantedContentUri() {

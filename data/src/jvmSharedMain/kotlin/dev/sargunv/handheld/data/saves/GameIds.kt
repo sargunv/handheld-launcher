@@ -6,7 +6,6 @@
 
 package dev.sargunv.handheld.data.saves
 
-import dev.sargunv.handheld.domain.saves.GameIdKind
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
@@ -16,33 +15,16 @@ import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Reads the id a game's saves are filed under from its file, without the emulator: a Switch
- * application id from the game's own containers, and every other kind's from its header.
+ * Reads the application id a Switch game's saves are filed under from the game's own containers,
+ * without the emulator.
  */
 object GameIds {
   /**
-   * [file]'s id of [kind], as [dev.sargunv.handheld.domain.saves.SaveFolders.forGame] takes it, or
-   * null when the file doesn't carry one the launcher can read.
-   *
-   * @param switchKeys the emulator's `prod.keys`, which opens a Switch game that carries no ticket.
-   * @param header reads the id in [file]'s header, for every kind but a Switch game's.
+   * [file]'s application id, as [dev.sargunv.handheld.domain.saves.SaveFolders.forGame] takes it,
+   * or null when the file doesn't carry one the launcher can read. [keys], the emulator's
+   * `prod.keys`, opens a game that carries no ticket.
    */
-  fun read(
-    file: File,
-    kind: GameIdKind,
-    switchKeys: File? = null,
-    header: (File) -> String?,
-  ): String? =
-    when (kind) {
-      GameIdKind.Switch -> switch(file, switchKeys)
-      // Retail titles only: system titles and homebrew keep their saves elsewhere.
-      GameIdKind.N3ds -> header(file)?.takeIf { it.startsWith("0004") }
-      GameIdKind.Psp,
-      GameIdKind.Disc,
-      GameIdKind.Ps2 -> header(file)
-    }
-
-  private fun switch(file: File, keys: File?): String? =
+  fun switchTitle(file: File, keys: File? = null): String? =
     try {
       RandomAccessFile(file, "r").use { switch(Image(it), keys?.let(::headerKey)) }
     } catch (e: IOException) {

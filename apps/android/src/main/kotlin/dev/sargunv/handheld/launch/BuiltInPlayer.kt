@@ -7,7 +7,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.sargunv.handheld.data.cores.InstalledCores
+import dev.sargunv.handheld.data.saves.EmulatorState
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.data.saves.builtInGameSave
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
@@ -65,18 +67,30 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
       }
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)
+    val rom = request.game as? GameKey.Romm
     // The scan that matched the game's file may not have handed its saves over yet.
-    (request.game as? GameKey.Romm)?.let {
-      saveFolders.adopt(listOf(Adoption(GameKey.Local(request.romPath), it)))
-    }
+    rom?.let { saveFolders.adopt(listOf(Adoption(GameKey.Local(request.romPath), it))) }
     val settings =
       withContext(Dispatchers.IO) {
         // Made before the sync, which pulls a save only into a folder that exists.
         File(folder).mkdirs()
         activity.handheldApp.settingsFile.read()
       }
-    val game = request.romId?.let { builtInGameSave(it, chosen.library, File(saveRam)) }
-    if (game != null && !playSaves.beforeLaunch(request, game, chooseSave, note)) return
+    val game = rom?.let { builtInGameSave(it.romId, chosen.library, File(saveRam)) }
+    if (game != null) {
+      val synced =
+        playSaves.beforeLaunch(
+          request.title,
+          game,
+          chooseSave,
+          note,
+          emulator = EmulatorState.NotRunning("the built-in session"),
+          canClose = false,
+          askStillRunning = { StillRunningChoice.QuitFirst },
+          close = { false },
+        )
+      if (!synced) return
+    }
     val intent =
       SessionActivity.intent(
         activity,

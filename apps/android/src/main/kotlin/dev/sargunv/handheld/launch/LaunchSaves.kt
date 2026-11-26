@@ -3,14 +3,13 @@ package dev.sargunv.handheld.launch
 import android.content.Context
 import android.os.Environment
 import android.os.storage.StorageManager
-import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.saves.GameIds
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.Ps2CardRoots
 import dev.sargunv.handheld.data.saves.SaveFolderRoots
-import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
+import dev.sargunv.handheld.domain.saves.GameIdKind
 import dev.sargunv.handheld.domain.saves.SaveFiles
 import dev.sargunv.handheld.domain.saves.SaveFolders
 import dev.sargunv.handheld.domain.saves.SaveLayout
@@ -18,7 +17,6 @@ import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
 import dev.sargunv.handheld.session.romGameId
 import java.io.File
-import java.security.MessageDigest
 
 /** Where a game's save is on this device, or why it doesn't sync. */
 sealed interface SaveLookup {
@@ -80,8 +78,10 @@ fun gameSaveFor(
         else -> SaveLookup.NotSupported
       }
   val id =
-    GameIds.read(File(romPath), kind, switchKeys(storage, target.packageName)) { file ->
-      SessionRomHeaders.headerPlatform(platform)?.let { romGameId(it, file.path) }
+    if (kind == GameIdKind.Switch) {
+      GameIds.switchTitle(File(romPath), switchKeys(storage, target.packageName))
+    } else {
+      SessionRomHeaders.headerPlatform(platform)?.let { romGameId(it, romPath) }
     } ?: return SaveLookup.NoGameId
   val saveRoots = (folders ?: SaveFiles.folders(location.paths, roots)).map(::File)
   val layout = location.layout
@@ -106,26 +106,3 @@ private fun switchKeys(storage: String, packageName: String): File? =
   listOf("keys/prod.keys", "system/prod.keys")
     .map { File(storage, "Android/data/$packageName/files/$it") }
     .firstOrNull { it.isFile }
-
-/**
- * The launcher's [SaveSync] for [client], keeping its records and history in the app's files. The
- * records are kept apart per [account] (the server and the sign-in), so one account's record never
- * decides what another account's save replaces.
- */
-fun saveSync(context: Context, client: RommClient, account: String): SaveSync =
-  SaveSync(
-    client,
-    records = File(context.filesDir, "save-sync/${accountKey(account)}"),
-    history = saveHistory(context),
-    staging = File(context.cacheDir, "save-staging"),
-  )
-
-/** Where save sync keeps the copies it replaced, for every account. */
-fun saveHistory(context: Context): File = File(context.filesDir, "save-history")
-
-private fun accountKey(account: String): String =
-  MessageDigest.getInstance("SHA-256").digest(account.encodeToByteArray()).take(8).joinToString(
-    "",
-  ) {
-    "%02x".format(it)
-  }

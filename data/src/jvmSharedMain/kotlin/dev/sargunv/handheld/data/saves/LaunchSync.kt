@@ -104,14 +104,3 @@ suspend fun SaveSync.beforeLaunch(
     else -> BeforeLaunch.Synced(found)
   }
 }
-
-/**
- * Syncs [game]'s save once the player is back from the game: it sends what the game saved, and
- * never writes to the device. The emulator may still be running, or still writing its save as it
- * goes to the background, and would write over a pulled save, so a newer save on RomM waits for
- * [beforeLaunch].
- *
- * @throws RommException when the server can't be reached or refuses a call.
- * @throws IOException when the save file can't be read.
- */
-suspend fun SaveSync.afterReturn(game: GameSave): SaveSyncResult = push(game)

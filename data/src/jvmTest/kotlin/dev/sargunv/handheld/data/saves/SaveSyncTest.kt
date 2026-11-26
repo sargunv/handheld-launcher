@@ -654,28 +654,6 @@ class SaveSyncTest {
   }
 
   @Test
-  fun afterReturnOnlySends() = runTest {
-    val (server, sync) = serverNewer()
-    assertIs<SaveSyncResult.ServerNewer>(sync.afterReturn(game))
-    assertContentEquals(v1, saveFile.readBytes(), "RomM's newer save waits for the next launch")
-    assertTrue(sync.history(game).isEmpty())
-    assertTrue(server.uploads.isEmpty())
-
-    saveFile.writeBytes(mine)
-    assertIs<SaveSyncResult.Conflict>(sync.afterReturn(game), "Both changed, so nothing is sent")
-    assertContentEquals(mine, saveFile.readBytes())
-    assertTrue(server.uploads.isEmpty())
-  }
-
-  @Test
-  fun afterReturnSendsWhatTheGameSaved() = runTest {
-    val (server, sync) = synced()
-    saveFile.writeBytes(mine)
-    assertIs<SaveSyncResult.Pushed>(sync.afterReturn(game))
-    assertContentEquals(mine, server.uploads.single().bytes)
-  }
-
-  @Test
   fun beforeLaunchAsksBeforePullingWhileTheEmulatorHoldsTheGame() = runTest {
     for (canClose in listOf(false, true)) {
       val (server, sync) = serverNewer()
