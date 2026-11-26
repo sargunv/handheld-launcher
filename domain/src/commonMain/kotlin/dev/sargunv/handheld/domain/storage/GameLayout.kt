@@ -38,13 +38,31 @@ object GameLayout {
     val descriptors = files.filter { it.extension() in DiscDescriptors }
     val discs = descriptors.ifEmpty { files.filter { it.extension() in DiscImages } }
     if (discs.size < 2) return null
-    return discs.sortedWith(
-      compareBy(
-        { discNumber(it.substringAfterLast('/')) ?: discNumber(it) ?: Int.MAX_VALUE },
-        { it },
-      ),
-    )
+    return discs.sortedWith(DiscOrder)
   }
+
+  /**
+   * The file an emulator opens for a ROM made of several files, among the [files] in its folder:
+   * its playlist, else its first disc (by descriptor, else image), else the first file by name.
+   * Null when the folder is empty.
+   */
+  fun launchFile(files: List<String>): String? {
+    files
+      .filter { it.extension() == "m3u" }
+      .minOrNull()
+      ?.let {
+        return it
+      }
+    val descriptors = files.filter { it.extension() in DiscDescriptors }
+    val discs = descriptors.ifEmpty { files.filter { it.extension() in DiscImages } }
+    return discs.minWithOrNull(DiscOrder) ?: files.minOrNull()
+  }
+
+  private val DiscOrder =
+    compareBy<String>(
+      { discNumber(it.substringAfterLast('/')) ?: discNumber(it) ?: Int.MAX_VALUE },
+      { it },
+    )
 
   /** The platforms whose emulators switch discs through a playlist. */
   private val PlaylistPlatforms =

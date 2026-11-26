@@ -27,6 +27,7 @@ import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.launch.LaunchDispatcher
+import dev.sargunv.handheld.launch.StandalonePlayer
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -73,7 +74,7 @@ class MainActivity : ComponentActivity() {
     val settings = settingsFile.read()
     val downloads = downloadManager(this)
     keepDownloadsRunning()
-    enqueueDebugDownload(intent)
+    val launcher = StandalonePlayer(this, credentials)
     setContent {
       val display = rememberSecondaryDisplay()
       var failedDisplayId by remember { mutableStateOf<Int?>(null) }
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = settingsFile::write,
+        launcher = launcher,
         secondaryDisplay = { content ->
           if (usableDisplay != null) {
             SecondaryDisplayContent(
@@ -126,7 +128,6 @@ class MainActivity : ComponentActivity() {
       recreate()
     } else {
       forcedLayout = forcedLayout(intent)
-      enqueueDebugDownload(intent)
     }
   }
 
@@ -157,21 +158,6 @@ class MainActivity : ComponentActivity() {
             }
             DownloadService.start(this@MainActivity)
           }
-      }
-    }
-  }
-
-  /**
-   * Queues the game the `download_rom` extra names by its RomM id, which debuggable builds accept
-   * until the game screen can start a download: `am start -n ... --el download_rom 42`.
-   */
-  private fun enqueueDebugDownload(intent: Intent) {
-    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
-    val romId = intent.getLongExtra("download_rom", -1)
-    if (romId < 0) return
-    lifecycleScope.launch {
-      libraryCache(this@MainActivity).rom(romId)?.let {
-        downloadManager(this@MainActivity).enqueue(it)
       }
     }
   }

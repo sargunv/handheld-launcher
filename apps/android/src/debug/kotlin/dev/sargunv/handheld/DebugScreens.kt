@@ -2,6 +2,7 @@ package dev.sargunv.handheld
 
 import android.app.Activity
 import android.os.Build
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import dev.sargunv.handheld.data.cores.CoreChoices
 import dev.sargunv.handheld.data.cores.InstalledCores
@@ -75,7 +76,7 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
         intent.getStringExtra("rom_id")?.toLongOrNull()?.let {
           SaveSyncOptions(it, intent.getStringExtra("save_dir"), intent.getStringExtra("romm_url"))
         }
-      ({ LaunchTestScreen(activity, rom, platform, app, biosDir, saves) })
+      ({ LaunchTestScreen(activity as ComponentActivity, rom, platform, app, biosDir, saves) })
     }
     else -> null
   }

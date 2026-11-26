@@ -1,13 +1,16 @@
 package dev.sargunv.handheld.data.saves
 
 import dev.sargunv.handheld.data.romm.MockServer
+import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
 import java.io.File
 import java.io.IOException
@@ -60,6 +63,9 @@ class SaveSyncTest {
     val uploads = mutableListOf<Upload>()
     private var nextId = 100L
 
+    /** Whether the server refuses uploads, as it does for a read-only token. */
+    var refuseUploads = false
+
     val server = MockServer { request ->
       val path = request.apiPath
       when {
@@ -68,6 +74,12 @@ class SaveSyncTest {
             stored
               .filter { it.id > 0 && request.url.parameters["rom_id"] == "7" }
               .joinToString(",", "[", "]") { it.json() },
+          )
+        path == "saves" && request.method == HttpMethod.Post && refuseUploads ->
+          respond(
+            """{"detail": "Forbidden"}""",
+            HttpStatusCode.Forbidden,
+            headersOf(HttpHeaders.ContentType, "application/json"),
           )
         path == "saves" && request.method == HttpMethod.Post -> {
           val upload = parseUpload(request)
@@ -164,6 +176,54 @@ class SaveSyncTest {
 
     assertIs<SaveSyncResult.UpToDate>(sync.sync(game), "The push was recorded")
     assertEquals(1, server.uploads.size)
+  }
+
+  @Test
+  fun aRefusedPushLosesNothingAndPushesAgainNextTime() = runTest {
+    val (server, sync) = synced()
+    saveFile.writeBytes(mine)
+    server.refuseUploads = true
+
+    assertFailsWith<RommException> { sync.sync(game) }
+    assertContentEquals(mine, saveFile.readBytes())
+    assertTrue(sync.history(game).isEmpty())
+
+    server.refuseUploads = false
+    assertIs<SaveSyncResult.Pushed>(sync.sync(game))
+    assertContentEquals(mine, server.uploads.single().bytes)
+  }
+
+  @Test
+  fun listsTheCopiesKeptInHistoryNewestFirst() = runTest {
+    val (server, sync) = synced()
+    server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
+    val pulled = assertIs<SaveSyncResult.Pulled>(sync.sync(game))
+    now = Instant.parse("2025-03-02T00:00:00Z")
+    saveFile.writeBytes(mine)
+    server.push("Pokemon Black [2025].sav", v1, Instant.parse("2025-03-01T00:00:00Z"))
+    val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(game))
+    val resolved = sync.resolve(game, conflict, SaveCopy.Device)
+
+    assertEquals(
+      listOf(
+        KeptSave(
+          resolved.history.path,
+          Instant.parse("2025-03-02T00:00:00Z"),
+          SaveCopy.Server,
+          "melonds",
+          v1.size.toLong(),
+        ),
+        KeptSave(
+          pulled.previous!!.path,
+          Instant.parse("2025-03-01T00:00:00Z"),
+          SaveCopy.Device,
+          "melonds",
+          v1.size.toLong(),
+        ),
+      ),
+      keptSaves(File(root, "history"), romId = 7),
+    )
+    assertEquals(emptyList(), keptSaves(File(root, "history"), romId = 70))
   }
 
   @Test

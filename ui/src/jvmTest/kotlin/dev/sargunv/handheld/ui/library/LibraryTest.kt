@@ -16,6 +16,7 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestDevice
@@ -30,9 +31,10 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlinx.coroutines.flow.flowOf
 
 @OptIn(ExperimentalTestApi::class)
 class LibraryTest {
@@ -71,7 +73,7 @@ class LibraryTest {
   private fun ComposeUiTest.launch(
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
-    deviceStates: Map<Long, DeviceState> = emptyMap(),
+    storage: File? = null,
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
@@ -85,13 +87,16 @@ class LibraryTest {
         credentials,
         TestDevice,
         library,
-        rememberTestDownloads(library, credentials),
+        rememberTestDownloads(
+          library,
+          credentials,
+          listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
+        ),
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
         initialSettings = settings,
         saveSettings = saveSettings,
         httpEngine = server,
-        deviceStates = flowOf(deviceStates),
       )
     }
   }
@@ -100,9 +105,9 @@ class LibraryTest {
   private fun ComposeUiTest.openLibrary(
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
-    deviceStates: Map<Long, DeviceState> = emptyMap(),
+    storage: File? = null,
   ) {
-    launch(settings, saveSettings, deviceStates)
+    launch(settings, saveSettings, storage)
     awaitTag("shelf:RecentlyAdded")
     press(Key.ButtonR1)
   }
@@ -159,7 +164,7 @@ class LibraryTest {
     openLibrary()
     assertFocused("game:1")
     press(listOf(Key.DirectionRight, Key.ButtonA))
-    onNodeWithText("The game screen is coming soon.").assertExists()
+    assertFocused("primary")
     press(Key.ButtonB)
     assertFocused("game:2")
   }
@@ -218,7 +223,12 @@ class LibraryTest {
 
   @Test
   fun coversShowWhichGamesAreOnTheDeviceAndTheLowerScreenFilters() = runComposeUiTest {
-    openLibrary(deviceStates = mapOf(3L to DeviceState.OnDevice))
+    // Zulu is in its platform's folder.
+    val storage = createTempDirectory("library-storage").toFile()
+    File(storage, "ROMs/p1").mkdirs()
+    File(storage, "ROMs/p1/Zulu.bin").writeText("game")
+    openLibrary(storage = storage)
+    awaitTag("onDevice:3")
     assertFocused("game:1")
     onNodeWithTag("onDevice:3").assertExists()
     onNodeWithTag("onDevice:1").assertDoesNotExist()

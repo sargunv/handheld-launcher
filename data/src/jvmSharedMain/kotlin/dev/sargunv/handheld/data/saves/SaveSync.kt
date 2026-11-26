@@ -332,6 +332,31 @@ class SaveSync(
 }
 
 /**
+ * The copies of the ROM [romId]'s saves kept in [history], the history folder of a [SaveSync], for
+ * every emulator, newest first.
+ */
+fun keptSaves(history: File, romId: Long): List<KeptSave> =
+  history
+    .listFiles { file -> file.isDirectory && file.name.startsWith("$romId-") }
+    .orEmpty()
+    .flatMap { folder ->
+      val emulator = folder.name.removePrefix("$romId-")
+      folder.listFiles().orEmpty().mapNotNull { file ->
+        // Named <epoch millis>-<origin>-<name>, as keepInHistory names them.
+        val (stamp, origin) =
+          file.name.split('-', limit = 3).takeIf { it.size == 3 } ?: return@mapNotNull null
+        KeptSave(
+          path = file.path,
+          keptAt = Instant.fromEpochMilliseconds(stamp.toLongOrNull() ?: return@mapNotNull null),
+          copy = SaveCopy.entries.find { it.name.lowercase() == origin } ?: return@mapNotNull null,
+          emulator = emulator,
+          sizeBytes = file.length(),
+        )
+      }
+    }
+    .sortedByDescending { it.keptAt }
+
+/**
  * What the launcher last synced for a game: the save file at [path] with hash [localHash], and the
  * server's save [serverSaveId], last changed at [serverUpdatedAt]. Times are epoch milliseconds.
  */

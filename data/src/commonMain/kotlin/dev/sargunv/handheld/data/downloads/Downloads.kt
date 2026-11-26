@@ -10,6 +10,7 @@ import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommInstallStatus
 import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.platformHttpEngine
+import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.storage.GameLayout
@@ -18,6 +19,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
@@ -32,11 +35,13 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.io.IOException
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -89,6 +94,13 @@ enum class DownloadState {
   Failed,
 }
 
+private fun Download.status(): RomStatus =
+  when (state) {
+    DownloadState.Queued -> RomStatus.Queued
+    DownloadState.Downloading -> RomStatus.Downloading(bytesDownloaded, totalBytes)
+    DownloadState.Failed -> RomStatus.Failed(error.orEmpty())
+  }
+
 /** Whether a ROM is on the device, or how far it's got. */
 sealed interface RomStatus {
   data object NotOnDevice : RomStatus
@@ -140,6 +152,9 @@ class DownloadManager(
       },
     )
   private var running: Pair<Long, Job>? = null
+
+  /** Counts the changes to which games are on the device, so the checks for them run again. */
+  private val installs = MutableStateFlow(0)
 
   /** The queue, in the order it downloads. */
   val queue: StateFlow<List<Download>> = entries.asStateFlow()
@@ -222,23 +237,104 @@ class DownloadManager(
   fun status(rom: Rom): Flow<RomStatus> = flow {
     val folder = library.platform(rom.platformId)?.fsSlug
     emitAll(
-      entries
-        .map { list -> list.find { it.romId == rom.id } }
-        .distinctUntilChanged()
+      combine(entries.map { list -> list.find { it.romId == rom.id } }, installs) { download, _ ->
+          download
+        }
         .map { download ->
-          when (download?.state) {
-            null ->
-              folder?.let { locate(rom, it) }?.let { RomStatus.OnDevice(it.toString()) }
-                ?: RomStatus.NotOnDevice
-            DownloadState.Queued -> RomStatus.Queued
-            DownloadState.Downloading ->
-              RomStatus.Downloading(download.bytesDownloaded, download.totalBytes)
-            DownloadState.Failed -> RomStatus.Failed(download.error.orEmpty())
-          }
-        },
+          download?.status()
+            ?: folder?.let { locate(rom, it) }?.let { RomStatus.OnDevice(it.toString()) }
+            ?: RomStatus.NotOnDevice
+        }
+        .distinctUntilChanged(),
     )
   }
     .flowOn(Dispatchers.IO)
+
+  /**
+   * The library's games that are on the device or in the queue, by ROM id. A game missing here is
+   * only on the server. It checks the platforms' folders again when the library changes, and when a
+   * download finishes or a game is removed through this queue.
+   */
+  @OptIn(ExperimentalCoroutinesApi::class)
+  fun statuses(): Flow<Map<Long, RomStatus>> {
+    val installed =
+      combine(library.platforms(), library.allRoms(), installs) { platforms, roms, _ ->
+          platforms to roms
+        }
+        .mapLatest { (platforms, roms) -> installedRoms(platforms, roms) }
+        .flowOn(Dispatchers.IO)
+    return combine(installed, entries) { onDevice, queue ->
+      onDevice + queue.associate { it.romId to it.status() }
+    }
+  }
+
+  /** The [roms] in their platform's folder on any storage target, by id. */
+  private fun installedRoms(
+    platforms: List<Platform>,
+    roms: List<Rom>,
+  ): Map<Long, RomStatus.OnDevice> {
+    val folders = platforms.associate { it.id to it.fsSlug }
+    val targets = storage()
+    // Each folder is listed once, however many games it holds.
+    val listed = mutableMapOf<String, Set<String>>()
+    fun namesIn(folder: String) =
+      listed.getOrPut(folder) {
+        val path = Path(folder)
+        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+          SystemFileSystem.list(path).mapTo(mutableSetOf()) { it.name }
+        } else emptySet()
+      }
+    return buildMap {
+      for (rom in roms) {
+        val platformFolder = folders[rom.platformId] ?: continue
+        val name = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
+        val folder =
+          targets
+            .map { GameLayout.platformFolder(it.root, platformFolder) }
+            .firstOrNull { name in namesIn(it) } ?: continue
+        put(rom.id, RomStatus.OnDevice(Path(folder, name).toString()))
+      }
+    }
+  }
+
+  /**
+   * Deletes [rom]'s own files from the device: its file, or for a ROM of several files, its folder.
+   * A folder that holds anything besides the files the server lists for the game and the playlist
+   * its download wrote, such as a save an emulator keeps beside the game, stays as it is. So does
+   * one that holds more files of a name than the game has.
+   */
+  suspend fun remove(rom: Rom): Removal =
+    // Once begun, a removal finishes even if the screen that asked goes away.
+    withContext(NonCancellable + Dispatchers.IO) {
+      val folder = library.platform(rom.platformId)?.fsSlug
+      val path = folder?.let { locate(rom, it) } ?: return@withContext Removal.NotOnDevice
+      try {
+        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+          // A file is the game's while no more files have its name than the game has, so a stray
+          // file that shares a name with one of the game's isn't taken for it.
+          val expected =
+            (rom.files.map { it.fileName } + playlistName(path.name)).groupingBy { it }.eachCount()
+          val found = filesIn(path).groupingBy { it.name }.eachCount()
+          val others = found.filter { (name, count) -> count > (expected[name] ?: 0) }.keys
+          if (others.isNotEmpty()) return@withContext Removal.HoldsOtherFiles(others.sorted())
+          deleteRecursively(path)
+        } else {
+          SystemFileSystem.delete(path)
+        }
+        Removal.Removed
+      } catch (e: IOException) {
+        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
+      } finally {
+        // Even a removal that failed partway may have deleted some of the game.
+        installs.update { it + 1 }
+      }
+    }
+
+  /** Every file in [folder] and its subfolders. */
+  private fun filesIn(folder: Path): List<Path> =
+    SystemFileSystem.list(folder).flatMap {
+      if (SystemFileSystem.metadataOrNull(it)?.isDirectory == true) filesIn(it) else listOf(it)
+    }
 
   /** The room each storage target has left. */
   suspend fun storageSpace(): List<StorageSpace> =
@@ -291,6 +387,9 @@ class DownloadManager(
   /** Where [rom] is on the device, if it's on any storage target. */
   private fun locate(rom: Rom, platformFolder: String): Path? {
     val name = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
+    // A name that isn't one entry of the platform's folder never matches, so nothing outside the
+    // game's own place is taken for it, or deleted with it.
+    if (name.isEmpty() || name == "." || name == ".." || '/' in name) return null
     return storage()
       .map { Path(GameLayout.platformFolder(it.root, platformFolder), name) }
       .firstOrNull { SystemFileSystem.exists(it) }
@@ -300,6 +399,8 @@ class DownloadManager(
     setState(download.romId) { it.copy(state = DownloadState.Downloading, error = null) }
     try {
       val outcome = withContext(Dispatchers.IO) { fetch(download) }
+      // The game is in place, so the checks for it see it before it leaves the queue.
+      installs.update { it + 1 }
       // A request from the server may have joined the download while it ran.
       var current = download
       edit { list ->
@@ -376,8 +477,7 @@ class DownloadManager(
       if (multiFile) {
         val paths = files.map { relativePath(rom.files, it) }
         GameLayout.playlist(PlatformSlug(rom.platformSlug), paths)?.let {
-          SystemFileSystem.sink(Path(staging, "${name.removeSuffix(".m3u")}.m3u")).buffered().use {
-            sink ->
+          SystemFileSystem.sink(Path(staging, playlistName(name))).buffered().use { sink ->
             sink.writeString(it.joinToString("\n", postfix = "\n"))
           }
         }
@@ -470,6 +570,22 @@ class DownloadManager(
     true
   }
 }
+
+/** The outcome of [DownloadManager.remove]. */
+sealed interface Removal {
+  data object Removed : Removal
+
+  data object NotOnDevice : Removal
+
+  /** The game's folder holds files that aren't the game's, named [names], so it stayed. */
+  data class HoldsOtherFiles(val names: List<String>) : Removal
+
+  /** Deleting failed, for [reason], which may have left part of the game. */
+  data class Failed(val reason: String) : Removal
+}
+
+/** The playlist a download writes in the folder of a ROM of several files, named [folder]. */
+private fun playlistName(folder: String) = "${folder.removeSuffix(".m3u")}.m3u"
 
 /** A download that can't go on until something changes, such as freeing space. */
 class DownloadException(message: String) : Exception(message)

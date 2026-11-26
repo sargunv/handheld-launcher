@@ -63,9 +63,12 @@ fun saveSync(context: Context, client: RommClient, account: String): SaveSync =
   SaveSync(
     client,
     records = File(context.filesDir, "save-sync/${accountKey(account)}"),
-    history = File(context.filesDir, "save-history"),
+    history = saveHistory(context),
     staging = File(context.cacheDir, "save-staging"),
   )
+
+/** Where save sync keeps the copies it replaced, for every account. */
+fun saveHistory(context: Context): File = File(context.filesDir, "save-history")
 
 private fun accountKey(account: String): String =
   MessageDigest.getInstance("SHA-256").digest(account.encodeToByteArray()).take(8).joinToString(
