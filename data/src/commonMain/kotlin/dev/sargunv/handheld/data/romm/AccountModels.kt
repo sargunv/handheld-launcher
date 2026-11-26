@@ -117,3 +117,14 @@ val DefaultDeviceScopes: List<String> =
     "devices.read",
     "devices.write",
   )
+
+/**
+ * The scopes uploading a game needs, which a device requests only when the player allows it:
+ * `roms.write` sends the file, and `tasks.run` scans it into the library.
+ */
+val UploadScopes: List<String> = listOf(UPLOAD_SCOPE, "tasks.run")
+
+/**
+ * The scope a token needs to upload a game at all. Without `tasks.run`, the game waits for a scan.
+ */
+const val UPLOAD_SCOPE = "roms.write"

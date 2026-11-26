@@ -4,6 +4,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
@@ -81,6 +82,12 @@ class LocalGameTest {
   /** Whether the server refuses uploads, as for an account that may not upload games. */
   @Volatile private var refuseUploads = false
 
+  /** The scopes the account's role grants, or null when the server doesn't say. */
+  @Volatile private var accountScopes: String? = null
+
+  /** The device's sign-in: a pasted token by default, whose scopes RomM doesn't report. */
+  private val credentials = InMemoryCredentialStore(RommCredentials(Server, "rmm_token"))
+
   /** The paths below `/api/` of the requests the server had about uploads and scans. */
   private val uploadRequests = Collections.synchronizedList(mutableListOf<String>())
 
@@ -157,6 +164,12 @@ class LocalGameTest {
           "collections",
           "collections/smart" -> "[]"
           "saves" -> "[]"
+          "users/me" ->
+            accountScopes?.let {
+              """{"id": 1, "username": "player", "role": "user", "oauth_scopes": $it,
+              "created_at": "2024-01-01T00:00:00+00:00",
+              "updated_at": "2024-01-01T00:00:00+00:00"}"""
+            } ?: return@MockEngine respondError(HttpStatusCode.NotFound)
           else -> return@MockEngine respondError(HttpStatusCode.NotFound)
         }
       respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
@@ -170,9 +183,6 @@ class LocalGameTest {
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
-      val credentials = remember {
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token"))
-      }
       App(
         DualScreenLayout.Frame,
         heldKeys,
@@ -384,21 +394,86 @@ class LocalGameTest {
   }
 
   @Test
-  fun aRefusedUploadSaysWhy() = runComposeUiTest {
+  fun aRefusedUploadSaysWhyAndOffersToSignInAgain() = runComposeUiTest {
     refuseUploads = true
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitTag("upload:confirm")
     press(listOf(Key.DirectionRight, Key.ButtonA))
+    // A pasted token's permissions aren't known, so its sign-in may be why.
+    awaitText("Sign in again to allow uploads?")
+    onNodeWithText(
+        "RomM didn't allow the upload: Forbidden. This device's sign-in may not have " +
+          "permission to upload games.",
+      )
+      .assertExists()
+    assertFocused("allowUploads:cancel")
+    press(Key.ButtonA)
     awaitText(
       "RomM didn't allow the upload: Forbidden. Your account needs permission to upload games.",
     )
     assertEquals(listOf("roms/upload/start"), uploadRequests.toList())
     onNodeWithTag("primary").assertTextEquals("Play")
     onNodeWithTag("game:saves-local").assertExists()
+    assertTrue(runBlocking { credentials.load() } != null)
+  }
+
+  @Test
+  fun aRefusalDespitePermissionToUploadIsTheAccounts() = runComposeUiTest {
+    refuseUploads = true
+    runBlocking {
+      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.write")))
+    }
+    openHomebrew()
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitTag("upload:confirm")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitText("Your account needs permission to upload games.")
+    onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
+  }
+
+  @Test
+  fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
+    accountScopes = """["roms.read", "roms.write", "tasks.run"]"""
+    runBlocking {
+      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.read")))
+    }
+    openHomebrew()
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    // It asks before anything goes to the server.
+    awaitText("Sign in again to allow uploads?")
+    onNodeWithText("This device signed in without permission to upload games to your server.")
+      .assertExists()
+    onNodeWithTag("upload:confirm").assertDoesNotExist()
+    assertFocused("allowUploads:cancel")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    // The sign-in, on the same server, asking for permission to upload this time.
+    assertFocused("address")
+    onNodeWithTag("address").assertContentDescriptionEquals("Server address: $Server")
+    onNodeWithTag("allowUploads")
+      .assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
+    assertEquals(null, runBlocking { credentials.load() })
+    assertEquals(emptyList(), uploadRequests.toList())
+    assertTrue(homebrew.exists())
+  }
+
+  @Test
+  fun anAccountThatMayNotUploadIsToldSo() = runComposeUiTest {
+    accountScopes = """["roms.read"]"""
+    runBlocking {
+      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.read")))
+    }
+    openHomebrew()
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitText("Your RomM account may not upload games. An admin can allow it in RomM.")
+    onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
+    onNodeWithTag("upload:confirm").assertDoesNotExist()
+    assertEquals(emptyList(), uploadRequests.toList())
   }
 
   private companion object {
+    const val Server = "https://romm.test"
+
     const val GameBoy =
       """{"id": 1, "slug": "gb", "fs_slug": "gb", "name": "Game Boy", "display_name": "Game Boy",
       "rom_count": 1, "created_at": "2024-01-01T00:00:00+00:00",

@@ -176,6 +176,7 @@ fun App(
         device,
         onSignedIn = { state.signedIn = true },
         address = state.signedOutOf.orEmpty(),
+        allowUploads = state.signInAllowsUploads,
       )
     }
   LaunchedEffect(signedIn, state, state.syncRequests) {

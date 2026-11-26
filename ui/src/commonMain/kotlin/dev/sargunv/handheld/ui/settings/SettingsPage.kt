@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageSpace
 import dev.sargunv.handheld.data.downloads.StorageTarget
@@ -71,7 +72,10 @@ import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.Help
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -145,6 +149,12 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   if (section != view.section) SideEffect { view.section = section }
   var explainCloseEmulators by rememberSaveable { mutableStateOf(false) }
   var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+  var confirmAllowUploads by rememberSaveable { mutableStateOf(false) }
+  // Asked when RomM shows, and again after each sync, since the account's permissions can change.
+  val uploadAccess by
+    produceState<UploadAccess?>(null, state.sync, signedIn, section) {
+      if (signedIn && section == SettingsSection.RomM) value = state.romm.uploadAccess()
+    }
   // The storage whose menu is open, by its id.
   var storageMenu by rememberSaveable { mutableStateOf<String?>(null) }
   // Whether turning off the last storage that's on was just refused.
@@ -219,7 +229,9 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               SettingsSection.RomM ->
                 romm(
                   state,
+                  uploadAccess,
                   onSignOut = { confirmSignOut = true },
+                  onAllowUploads = { confirmAllowUploads = true },
                   onSignInAgain = {
                     scope.launch { state.signOut() }
                   },
@@ -277,6 +289,18 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           scope.launch { state.signOut() }
         },
         onDismissRequest = { confirmSignOut = false },
+      )
+    }
+    if (confirmAllowUploads) {
+      val queue by state.downloads.queue.collectAsState()
+      AllowUploadsDialog(
+        UPLOADS_NOT_REQUESTED,
+        queued = queue.isNotEmpty(),
+        onSignInAgain = {
+          confirmAllowUploads = false
+          scope.launch { state.signOut(allowUploads = true) }
+        },
+        onDismissRequest = { confirmAllowUploads = false },
       )
     }
   }
@@ -405,7 +429,9 @@ private fun LazyListScope.controls(state: AppState) {
 
 private fun LazyListScope.romm(
   state: AppState,
+  uploadAccess: UploadAccess?,
   onSignOut: () -> Unit,
+  onAllowUploads: () -> Unit,
   onSignInAgain: () -> Unit,
 ) {
   sectionHeading("RomM")
@@ -487,6 +513,32 @@ private fun LazyListScope.romm(
       )
     }
   }
+  item(key = "uploads") {
+    SettingRow(
+      view,
+      "settings:romm:uploads",
+      "Uploads",
+      uploadsSummary(uploadAccess),
+      Help("Uploads", uploadsHelp(uploadAccess)),
+    )
+  }
+  // A refused sign-in offers to sign in again already.
+  if (uploadAccess == UploadAccess.NotRequested && state.sync != SyncStatus.Unauthorized) {
+    item(key = "allowUploads") {
+      SettingRow(
+        view,
+        "settings:romm:allowUploads",
+        "Allow uploads",
+        null,
+        Help(
+          "Allow uploads",
+          "Signs in again to this server, asking for permission to upload games. Your games, " +
+            "saves and settings stay on this device.",
+        ),
+        onConfirm = onAllowUploads,
+      )
+    }
+  }
   item(key = "syncNow") {
     val syncing = state.sync == SyncStatus.Syncing || state.sync == SyncStatus.FirstSync
     SettingRow(
@@ -513,6 +565,28 @@ private fun LazyListScope.romm(
     )
   }
 }
+
+/** What the RomM section says about uploading games, or nothing while it's being asked. */
+internal fun uploadsSummary(access: UploadAccess?): String =
+  when (access) {
+    null -> ""
+    UploadAccess.Allowed -> "Allowed"
+    UploadAccess.NotRequested -> "Not allowed by this sign-in"
+    UploadAccess.AccountMayNot -> "Not allowed for your account"
+    UploadAccess.Unknown -> "Up to your API token"
+  }
+
+private fun uploadsHelp(access: UploadAccess?): String =
+  when (access) {
+    null -> "Whether this device may upload games that aren't on your server."
+    UploadAccess.Allowed ->
+      "This device may upload games that aren't on your server, from the game's page."
+    UploadAccess.NotRequested -> "$UPLOADS_NOT_REQUESTED Allow uploads to sign in again with it."
+    UploadAccess.AccountMayNot -> UPLOADS_NOT_FOR_ACCOUNT
+    UploadAccess.Unknown ->
+      "This device signed in with an API token, and RomM doesn't say whether it may upload " +
+        "games. If it may not, an upload says so."
+  }
 
 /** What the RomM section says about the latest sync. */
 internal fun syncSummary(sync: SyncStatus): String =
