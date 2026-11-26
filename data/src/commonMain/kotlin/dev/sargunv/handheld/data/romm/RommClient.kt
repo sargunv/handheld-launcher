@@ -125,6 +125,7 @@ class RommClient(
       query.smartCollectionId?.let { append("smart_collection_id", it.toString()) }
       query.search?.let { append("search_term", it) }
       query.updatedAfter?.let { append("updated_after", it.toString()) }
+      query.lastPlayed?.let { append("last_played", it.toString()) }
       append("order_by", query.orderBy?.apiName ?: "")
       append("order_dir", if (query.descending) "desc" else "asc")
       append("with_files", query.withFiles.toString())
@@ -376,6 +377,8 @@ data class RomQuery(
   val search: String? = null,
   /** ROMs the server changed after this time. */
   val updatedAfter: Instant? = null,
+  /** ROMs the signed-in user has played (true) or hasn't (false), or all ROMs when null. */
+  val lastPlayed: Boolean? = null,
   /** Whether to include each ROM's files. */
   val withFiles: Boolean = false,
   /** The order, or null for the server's default, which ranks a search by relevance. */
@@ -387,6 +390,8 @@ enum class RomOrder(internal val apiName: String) {
   Id("id"),
   Name("name"),
   UpdatedAt("updated_at"),
+  /** When the signed-in user last played the ROM. */
+  LastPlayed("last_played"),
 }
 
 /** The JSON format of RomM's API, which tolerates fields and values this client doesn't know. */

@@ -21,7 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -29,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Game
+import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
@@ -236,13 +236,3 @@ private fun TouchShortcut(label: String, onTap: () -> Unit) {
 }
 
 internal fun gameKey(game: Game) = "game:${game.rommId}"
-
-/** Neutral stand-in colors until the design system exists. */
-internal object Placeholder {
-  val background = Color(0xFF2B2A28)
-  val secondaryBackground = Color(0xFF242321)
-  val tile = Color(0xFF55534F)
-  val dialog = Color(0xFF3A3936)
-  val text = Color(0xFFE8E4DC)
-  val mutedText = Color(0xFFA9A49A)
-}

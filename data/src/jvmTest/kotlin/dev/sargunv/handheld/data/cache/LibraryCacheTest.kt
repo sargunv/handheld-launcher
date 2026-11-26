@@ -28,6 +28,7 @@ class LibraryCacheTest {
     platformId: Long = 1,
     alternativeNames: List<String> = emptyList(),
     files: List<RomFile> = listOf(RomFile(id * 10, "$title.bin", 100, RomFileCategory.Game)),
+    createdAt: Instant = Instant.parse("2024-06-01T00:00:00Z"),
   ) =
     Rom(
       id = id,
@@ -47,6 +48,7 @@ class LibraryCacheTest {
       hasMultipleFiles = files.size > 1,
       files = files,
       updatedAt = Instant.parse("2025-01-01T00:00:00Z"),
+      createdAt = createdAt,
     )
 
   @Test
@@ -184,6 +186,37 @@ class LibraryCacheTest {
   }
 
   @Test
+  fun listsTheRecentlyAddedNewestFirst() = runTest {
+    cache.upsertRoms(
+      listOf(
+        rom(1, "Old", createdAt = Instant.parse("2024-01-01T00:00:00Z")),
+        rom(2, "Newest", createdAt = Instant.parse("2024-03-01T00:00:00Z")),
+        rom(3, "Middle", createdAt = Instant.parse("2024-02-01T00:00:00Z")),
+      ),
+    )
+
+    assertEquals(listOf("Newest", "Middle"), cache.recentlyAdded(2).first().map { it.title })
+    assertEquals(listOf(2L), cache.recentlyAdded(1).first().single().files.map { it.id / 10 })
+  }
+
+  @Test
+  fun listsTheRecentlyPlayedLatestFirst() = runTest {
+    cache.upsertRoms(listOf(rom(1, "One"), rom(2, "Two"), rom(3, "Three")))
+    cache.replaceRecentlyPlayed(
+      mapOf(
+        1L to Instant.parse("2025-01-01T00:00:00Z"),
+        3L to Instant.parse("2025-03-01T00:00:00Z"),
+        // A ROM the cache doesn't have yet stays off the list.
+        99L to Instant.parse("2025-04-01T00:00:00Z"),
+      ),
+    )
+    assertEquals(listOf("Three", "One"), cache.recentlyPlayed(10).first().map { it.title })
+
+    cache.replaceRecentlyPlayed(mapOf(2L to Instant.parse("2025-05-01T00:00:00Z")))
+    assertEquals(listOf("Two"), cache.recentlyPlayed(10).first().map { it.title })
+  }
+
+  @Test
   fun emitsAgainWhenTheLibraryChanges() = runTest {
     cache.upsertRoms(listOf(rom(1, "First")))
     val shelves = Channel<List<String>>(Channel.UNLIMITED)
@@ -201,12 +234,14 @@ class LibraryCacheTest {
   fun clearsEverything() = runTest {
     cache.replacePlatforms(listOf(Platform(1, "p1", "p1", "One", 1)))
     cache.upsertRoms(listOf(rom(1, "Game")))
+    cache.replaceRecentlyPlayed(mapOf(1L to Instant.parse("2025-01-01T00:00:00Z")))
     cache.setSyncValue("key", "value")
     cache.clear()
 
     assertEquals(emptyList(), cache.platforms().first())
     assertEquals(0, cache.romCount())
     assertEquals(emptyList(), cache.search("game"))
+    assertEquals(emptyList(), cache.recentlyPlayed(10).first())
     assertNull(cache.syncValue("key"))
   }
 }

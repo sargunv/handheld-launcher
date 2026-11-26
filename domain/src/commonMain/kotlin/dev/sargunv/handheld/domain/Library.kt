@@ -43,6 +43,8 @@ data class Rom(
   val files: List<RomFile>,
   /** When the server last changed the ROM. */
   val updatedAt: Instant,
+  /** When the ROM was added to the server. */
+  val createdAt: Instant,
 )
 
 /** One file of a [Rom]. */

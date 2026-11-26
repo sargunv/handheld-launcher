@@ -40,6 +40,8 @@ object Fixtures {
     multi: Boolean = files.size > 1,
     hasCover: Boolean = true,
     urlCover: String = "https://images.example/cover/$id.jpg",
+    createdAt: String = "2025-01-01T00:00:00+00:00",
+    lastPlayed: String? = null,
   ) =
     """
     {
@@ -67,9 +69,12 @@ object Fixtures {
       "is_identified": true, "revision": null, "regions": ["USA"], "languages": [], "tags": [],
       "has_simple_single_file": ${!multi}, "has_nested_single_file": false,
       "has_multiple_files": $multi, "full_path": "roms/test/$fsName",
-      "created_at": "2025-01-01T00:00:00+00:00", "updated_at": "$updatedAt",
+      "created_at": "$createdAt", "updated_at": "$updatedAt",
       "missing_from_fs": false,
-      "rom_user": {"id": 1, "user_id": 1, "rom_id": $id, "last_played": null, "hidden": false},
+      "rom_user": {
+        "id": 1, "user_id": 1, "rom_id": $id,
+        "last_played": ${lastPlayed?.let { "\"$it\"" } ?: "null"}, "hidden": false
+      },
       "files": [${files.joinToString()}], "sibling_roms": []
     }
     """

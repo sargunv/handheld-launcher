@@ -26,6 +26,8 @@ kotlin {
       implementation(libs.compose.unstyled)
       implementation(libs.navigation3.ui)
       implementation(libs.navigationevent.compose)
+      implementation(libs.coil.compose)
+      implementation(libs.coil.network.ktor3)
     }
     commonTest.dependencies {
       implementation(libs.kotlin.test)
@@ -33,6 +35,7 @@ kotlin {
     }
     jvmTest.dependencies {
       implementation(libs.compose.ui.test)
+      implementation(libs.ktor.client.mock)
       implementation(compose.desktop.currentOs)
     }
   }

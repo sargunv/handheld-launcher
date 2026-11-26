@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -17,7 +18,9 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.TraversableNode
 import androidx.compose.ui.node.currentValueOf
+import androidx.compose.ui.node.traverseAncestors
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 
@@ -67,6 +70,9 @@ class ActionDecoder internal constructor(settings: InputSettings, heldKeys: Held
 
 internal val LocalActionDecoder = staticCompositionLocalOf<ActionDecoder?> { null }
 
+/** The input settings of the nearest [ActionInputRoot]. */
+val LocalInputSettings = compositionLocalOf { InputSettings() }
+
 /**
  * The root of a window's controller-driven content. It decodes key events into [Action]s for every
  * [onAction] below it, and moves focus for the directions nobody else handled. It consumes every
@@ -88,7 +94,10 @@ fun ActionInputRoot(
   val windowFocused = LocalWindowInfo.current.isWindowFocused
   LaunchedEffect(heldKeys, windowFocused) { if (!windowFocused) heldKeys.releaseAll() }
 
-  CompositionLocalProvider(LocalActionDecoder provides decoder) {
+  CompositionLocalProvider(
+    LocalActionDecoder provides decoder,
+    LocalInputSettings provides settings,
+  ) {
     Box(
       modifier.onKeyEvent { event ->
         if (decoder.settings.actionFor(event.key) == null) return@onKeyEvent false
@@ -117,7 +126,8 @@ internal val Direction.focusDirection: FocusDirection
 /**
  * Calls [onAction] for each [Action] that reaches this element while it or a descendant has focus.
  * Return true to consume the action; unconsumed actions continue to the ancestors, and unconsumed
- * directions move focus.
+ * directions move focus. Other actions go straight to the next [onAction] above, so no other key
+ * handler in between acts on their keys.
  */
 fun Modifier.onAction(onAction: (Action) -> Boolean): Modifier = this then OnActionElement(onAction)
 
@@ -131,12 +141,23 @@ private data class OnActionElement(val onAction: (Action) -> Boolean) :
 }
 
 private class OnActionNode(var onAction: (Action) -> Boolean) :
-  Modifier.Node(), KeyInputModifierNode, CompositionLocalConsumerModifierNode {
+  Modifier.Node(), KeyInputModifierNode, CompositionLocalConsumerModifierNode, TraversableNode {
+  override val traverseKey = OnActionTraverseKey
+
   override fun onKeyEvent(event: KeyEvent): Boolean {
     val decoder = currentValueOf(LocalActionDecoder) ?: return false
     val action = decoder.decode(event) ?: return false
-    return onAction(action)
+    if (onAction(action)) return true
+    // Directions go on as keys, so the root moves focus once nobody else wants them.
+    if (action.direction != null) return false
+    // Hand the action to the handlers above directly, rather than letting the key go on. Other key
+    // handlers on the way, such as a lazy list's paging on PageUp and PageDown, would act on a key
+    // that means an action here.
+    traverseAncestors(OnActionTraverseKey) { node -> !(node as OnActionNode).onAction(action) }
+    return true
   }
 
   override fun onPreKeyEvent(event: KeyEvent): Boolean = false
 }
+
+private object OnActionTraverseKey

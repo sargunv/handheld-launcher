@@ -1,6 +1,7 @@
 package dev.sargunv.handheld
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.hardware.input.InputManager
@@ -19,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.KeystoreCredentialStore
 import dev.sargunv.handheld.data.auth.installIdentifier
+import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -73,6 +75,8 @@ class MainActivity : ComponentActivity() {
         heldKeys = heldKeys,
         credentials = credentials,
         device = device,
+        library = libraryCache(this),
+        coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = settingsFile::write,
         secondaryDisplay = { content ->
@@ -134,3 +138,17 @@ class MainActivity : ComponentActivity() {
     }
   }
 }
+
+private var openLibrary: LibraryCache? = null
+
+/**
+ * The library cache, in the app's databases directory. It stays open for the life of the process,
+ * so an activity that's recreated doesn't open a second connection to it.
+ */
+@Synchronized
+private fun libraryCache(context: Context): LibraryCache =
+  openLibrary
+    ?: LibraryCache.open(
+        context.getDatabasePath("library.db").also { it.parentFile?.mkdirs() }.path,
+      )
+      .also { openLibrary = it }

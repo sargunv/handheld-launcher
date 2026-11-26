@@ -43,7 +43,7 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.romm.DeviceCode
-import dev.sargunv.handheld.ui.demo.Placeholder
+import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.navigation.NavigationHost

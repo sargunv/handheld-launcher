@@ -13,12 +13,14 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.testCoverDir
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -29,7 +31,15 @@ class SignInTest {
   private fun androidx.compose.ui.test.ComposeUiTest.launch(store: CredentialStore) {
     setContent {
       val heldKeys = remember { HeldKeys() }
-      App(DualScreenLayout.Separate, heldKeys, store, TestDevice, Modifier.trackHeldKeys(heldKeys))
+      App(
+        DualScreenLayout.Separate,
+        heldKeys,
+        store,
+        TestDevice,
+        remember { LibraryCache.open(path = null) },
+        remember { testCoverDir() },
+        Modifier.trackHeldKeys(heldKeys),
+      )
     }
     waitForIdle()
   }

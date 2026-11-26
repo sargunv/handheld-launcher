@@ -14,10 +14,14 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
-import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.ui.demo.DemoLibrary
+import dev.sargunv.handheld.ui.demo.DemoPrimary
+import dev.sargunv.handheld.ui.demo.DemoSecondary
+import dev.sargunv.handheld.ui.demo.DemoState
+import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
+import dev.sargunv.handheld.ui.focus.FocusRoot
+import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.InputSettings
@@ -49,22 +53,18 @@ class FocusNavigationTest {
     onNodeWithTag(tag).assertIsFocused()
   }
 
+  /** Shows the demo screens, which exercise the focus and navigation foundation, as App would. */
   private fun ComposeUiTest.launch(
     layout: DualScreenLayout = DualScreenLayout.Separate,
-    settings: Settings = Settings(),
-    saveSettings: suspend (Settings) -> Unit = {},
+    state: DemoState = DemoState(),
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
-      App(
-        layout,
-        heldKeys,
-        InMemoryCredentialStore(RommCredentials("https://romm.example.com", "rmm_token")),
-        TestDevice,
-        Modifier.trackHeldKeys(heldKeys),
-        settings,
-        saveSettings,
-      )
+      ActionInputRoot(state.inputSettings, heldKeys, Modifier.trackHeldKeys(heldKeys)) {
+        FocusRoot {
+          DualScreen(layout, primary = { DemoPrimary(state) }, secondary = { DemoSecondary(state) })
+        }
+      }
     }
     waitForIdle()
   }
@@ -124,6 +124,16 @@ class FocusNavigationTest {
     press(listOf(Key.ButtonR1, Key.ButtonR1))
     assertFocused(tile(2, 0))
     press(Key.ButtonL1)
+    assertFocused(tile(1, 0))
+  }
+
+  @Test
+  fun pageKeysJumpBetweenShelvesRatherThanScrollingOne() = runComposeUiTest {
+    launch()
+    // A lazy row pages on these keys itself, but here they mean the shoulder buttons.
+    press(listOf(Key.PageDown, Key.PageDown))
+    assertFocused(tile(2, 0))
+    press(Key.PageUp)
     assertFocused(tile(1, 0))
   }
 
@@ -225,15 +235,14 @@ class FocusNavigationTest {
   }
 
   @Test
-  fun startsWithTheStoredSettingsAndSavesChanges() = runComposeUiTest {
-    val saved = mutableListOf<Settings>()
-    launch(settings = Settings(InputSettings(ConfirmButton.East)), saveSettings = { saved += it })
+  fun startsWithTheGivenSettings() = runComposeUiTest {
+    val state = DemoState(Settings(InputSettings(ConfirmButton.East)))
+    launch(state = state)
     // B confirms from the first press.
     press(listOf(Key.ButtonB, Key.DirectionRight, Key.DirectionRight))
     assertFocused("confirm")
-    assertEquals(emptyList(), saved)
     press(Key.ButtonB)
-    assertEquals(listOf(Settings(InputSettings(ConfirmButton.South))), saved)
+    assertEquals(Settings(InputSettings(ConfirmButton.South)), state.settings)
   }
 
   @Test

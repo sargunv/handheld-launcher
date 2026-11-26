@@ -29,10 +29,20 @@ CREATE TABLE rom (
   cover_small_url TEXT,
   cover_large_url TEXT,
   has_multiple_files INTEGER AS Boolean NOT NULL,
-  updated_at INTEGER AS Instant NOT NULL
+  updated_at INTEGER AS Instant NOT NULL,
+  created_at INTEGER AS Instant NOT NULL
 );
 
 CREATE INDEX rom_by_platform ON rom(platform_id, sort_key);
+
+CREATE INDEX rom_by_created ON rom(created_at);
+
+-- The ROMs the signed-in user played most recently. It isn't part of the rom table because the
+-- server doesn't count a play as a change to the ROM, so each sync replaces it whole.
+CREATE TABLE recently_played (
+  rom_id INTEGER NOT NULL PRIMARY KEY,
+  last_played INTEGER AS Instant NOT NULL
+);
 
 CREATE TABLE rom_file (
   id INTEGER NOT NULL PRIMARY KEY,
@@ -114,6 +124,15 @@ JOIN collection_rom ON collection_rom.rom_id = rom.id
 WHERE collection_rom.collection_kind = ? AND collection_rom.collection_id = ?
 ORDER BY rom.sort_key COLLATE NOCASE, rom.id;
 
+recentlyAdded:
+SELECT * FROM rom ORDER BY created_at DESC, id DESC LIMIT :limit;
+
+recentlyPlayed:
+SELECT rom.* FROM recently_played
+JOIN rom ON rom.id = recently_played.rom_id
+ORDER BY recently_played.last_played DESC, rom.id
+LIMIT :limit;
+
 search:
 SELECT rom.* FROM rom_search
 JOIN rom ON rom.id = rom_search.rowid
@@ -144,7 +163,8 @@ ON CONFLICT (id) DO UPDATE SET
   cover_small_url = excluded.cover_small_url,
   cover_large_url = excluded.cover_large_url,
   has_multiple_files = excluded.has_multiple_files,
-  updated_at = excluded.updated_at;
+  updated_at = excluded.updated_at,
+  created_at = excluded.created_at;
 
 deleteRom:
 DELETE FROM rom WHERE id = ?;
@@ -198,6 +218,14 @@ DELETE FROM collection;
 
 deleteCollectionRoms:
 DELETE FROM collection_rom;
+
+-- Recently played
+
+insertRecentlyPlayed:
+INSERT OR REPLACE INTO recently_played VALUES ?;
+
+deleteRecentlyPlayed:
+DELETE FROM recently_played;
 
 -- Sync state
 

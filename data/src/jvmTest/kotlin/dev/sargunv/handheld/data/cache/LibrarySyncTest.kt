@@ -34,6 +34,9 @@ class LibrarySyncTest {
 
     /** ROM ids the server lists but no longer has, as when a ROM is deleted during a sync. */
     val unlisted = mutableSetOf<Long>()
+
+    /** ROM ids to when the user last played them. */
+    val lastPlayed = mutableMapOf<Long, String>()
     var failRoms = false
 
     fun romJson(id: Long) =
@@ -43,6 +46,8 @@ class LibrarySyncTest {
         name = if (id == 3L) null else "Game $id",
         fsName = "Game $id (Europe).iso",
         updatedAt = roms.getValue(id),
+        createdAt = "2024-01-0${id}T00:00:00+00:00",
+        lastPlayed = lastPlayed[id],
       )
   }
 
@@ -57,6 +62,17 @@ class LibrarySyncTest {
           )
         "roms" -> {
           if (library.failRoms) return@MockServer respondError(HttpStatusCode.InternalServerError)
+          if (params["last_played"] == "true") {
+            val played = library.lastPlayed.entries.sortedByDescending { it.value }.map { it.key }
+            return@MockServer json(
+              Fixtures.page(
+                played.map(library::romJson),
+                played.size,
+                params["limit"]!!.toInt(),
+                0,
+              ),
+            )
+          }
           val after = params["updated_after"]?.let(Instant::parse)
           val matching =
             library.roms.filterValues { after == null || Instant.parse(it) > after }.keys.sorted()
@@ -84,7 +100,9 @@ class LibrarySyncTest {
     }
   private val sync = LibrarySync(server.client, cache, pageSize = 2)
 
-  private fun romRequests() = server.requests.filter { it.apiPath == "roms" }
+  /** The requests that walked the library's ROMs, leaving out the one for recently played ROMs. */
+  private fun romRequests() =
+    server.requests.filter { it.apiPath == "roms" && it.url.parameters["last_played"] == null }
 
   @Test
   fun fetchesTheWholeLibraryAtFirst() = runTest {
@@ -134,6 +152,24 @@ class LibrarySyncTest {
       cache.romsInCollection(CollectionKind.Smart, 1).first().map { it.id },
     )
     assertEquals(listOf(1L), cache.search("game 1").map { it.id })
+    assertEquals(listOf(3L, 2L), cache.recentlyAdded(2).first().map { it.id })
+  }
+
+  @Test
+  fun keepsTheRecentlyPlayed() = runTest {
+    library.roms += mapOf(1L to "2025-01-01T00:00:00+00:00", 2L to "2025-01-01T00:00:00+00:00")
+    library.lastPlayed[1] = "2025-02-01T00:00:00+00:00"
+    library.lastPlayed[2] = "2025-03-01T00:00:00+00:00"
+    sync.sync()
+    assertEquals(listOf(2L, 1L), cache.recentlyPlayed(10).first().map { it.id })
+
+    // Playing a game doesn't change the ROM, so an incremental sync still sees it.
+    library.lastPlayed[1] = "2025-04-01T00:00:00+00:00"
+    sync.sync()
+    assertEquals(listOf(1L, 2L), cache.recentlyPlayed(10).first().map { it.id })
+    val request = server.requests.last { it.url.parameters["last_played"] == "true" }
+    assertEquals("last_played", request.url.parameters["order_by"])
+    assertEquals("desc", request.url.parameters["order_dir"])
   }
 
   @Test
@@ -179,7 +215,7 @@ class LibrarySyncTest {
     val result = sync.sync()
 
     assertEquals(
-      listOf("roms", "roms/identifiers", "roms/5", "roms/6"),
+      listOf("roms", "roms/identifiers", "roms/5", "roms/6", "roms"),
       server.requests.map { it.apiPath }.filter { it.startsWith("roms") },
     )
     // ROM 1 again, since it's inside the window, and ROM 5.
@@ -248,7 +284,7 @@ class LibrarySyncTest {
     val result = LibrarySync(other.client, cache).sync()
 
     assertTrue(!result.incremental)
-    assertNull(other.requests.single { it.apiPath == "roms" }.url.parameters["updated_after"])
+    assertNull(other.requests.first { it.apiPath == "roms" }.url.parameters["updated_after"])
     assertEquals(0, cache.romCount())
     assertEquals(emptyList(), cache.platforms().first())
   }
