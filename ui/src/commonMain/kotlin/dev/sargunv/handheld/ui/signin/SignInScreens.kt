@@ -70,15 +70,20 @@ sealed interface SignInScreen {
 /** What the lower screen says about the focused item. */
 @Immutable data class Help(val title: String, val text: String)
 
-/** State the sign-in's two screens share. */
+/**
+ * State the sign-in's two screens share.
+ *
+ * @param address the server's address to start with, such as the one the device signed out of.
+ */
 @Stable
 class SignInState(
   internal val signIn: RommSignIn,
   internal val device: DeviceDescription,
   internal val onSignedIn: () -> Unit,
+  address: String = "",
 ) {
   val navigator = Navigator<SignInScreen>(SignInScreen.Address)
-  internal val address = TextFieldState()
+  internal val address = TextFieldState(address)
   internal var help: Help? by mutableStateOf(null)
 }
 

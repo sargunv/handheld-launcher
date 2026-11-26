@@ -188,8 +188,9 @@ private fun ShelfList(
       HintBar(
         buildList {
           if (summaries.isNotEmpty()) add(Hint(Action.Confirm, "Open"))
+          add(Hint(Action.Back, "Home"))
           add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.QuickMenu, "Quick menu"))
+          add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }
@@ -371,7 +372,7 @@ private fun ShelfGames(
           if (state.focused is Focused.OnGame) add(Hint(Action.Confirm, "Open"))
           add(Hint(Action.Back, "Back"))
           add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.QuickMenu, "Quick menu"))
+          add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }

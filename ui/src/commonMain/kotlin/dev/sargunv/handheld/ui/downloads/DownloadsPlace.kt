@@ -92,8 +92,9 @@ internal fun DownloadsPlace(downloads: DownloadManager) {
       }
       HintBar(
         buildList {
+          add(Hint(Action.Back, "Home"))
           if (focused != null) add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.QuickMenu, "Quick menu"))
+          add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }

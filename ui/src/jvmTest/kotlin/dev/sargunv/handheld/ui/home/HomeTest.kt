@@ -46,6 +46,7 @@ import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.rememberTestDownloads
+import dev.sargunv.handheld.ui.settings.SettingsSection
 import dev.sargunv.handheld.ui.testCoverDir
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -148,10 +149,18 @@ class HomeTest {
 
   private fun ComposeUiTest.press(key: Key) = press(listOf(key))
 
+  /** Goes to [place] from Home with the main menu, as the player would. */
+  private fun ComposeUiTest.goFromHome(place: Place) {
+    press(Key.ButtonStart)
+    awaitTag("main:Home")
+    press(List(place.ordinal) { Key.DirectionDown } + Key.ButtonA)
+    awaitTag("place:${place.name}")
+  }
+
   private fun ComposeUiTest.assertFocused(tag: String) = onNodeWithTag(tag).assertIsFocused()
 
   @Test
-  fun coversTabsAndHintsDescribeThemselvesToAccessibilityServices() = runComposeUiTest {
+  fun coversHeadersAndHintsDescribeThemselvesToAccessibilityServices() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
     // A cover is one button, which says the game's title once and whether it's on the device.
@@ -161,9 +170,7 @@ class HomeTest {
       .assertHasClickAction()
     onAllNodesWithText("Game 2").assertCountEquals(0)
     onNodeWithText("Continue playing").assert(isHeading())
-    onNodeWithTag("place:Home").assert(expectValue(SemanticsProperties.Role, Role.Tab))
-    onNodeWithTag("place:Home").assertIsSelected()
-    onNodeWithTag("place:Library").assertIsNotSelected()
+    onNodeWithTag("place:Home").assert(isHeading()).assertTextEquals("Home")
     // Each hint is one element: the button, then what it does.
     onNodeWithTag("hint:Confirm").assertTextEquals("A", "Open")
   }
@@ -180,12 +187,17 @@ class HomeTest {
   }
 
   @Test
-  fun aScreenReaderPicksAPlaceByItsTab() = runComposeUiTest {
+  fun aScreenReaderPicksAPlaceInTheMainMenu() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
-    onNodeWithTag("place:Downloads").performSemanticsAction(SemanticsActions.OnClick)
-    onNodeWithTag("place:Downloads").assertIsSelected()
+    press(Key.ButtonStart)
+    awaitTag("main:Downloads")
+    onNodeWithTag("main:Home").assertIsSelected()
+    onNodeWithTag("main:Downloads").assertIsNotSelected()
+    onNodeWithTag("main:Downloads").performSemanticsAction(SemanticsActions.OnClick)
+    awaitTag("place:Downloads")
     onNodeWithText("Nothing is downloading.").assertExists()
+    onNodeWithTag("main:Downloads").assertDoesNotExist()
   }
 
   @Test
@@ -193,10 +205,9 @@ class HomeTest {
     launch()
     awaitTag("continue:2")
     press(Key.ButtonStart)
-    awaitTag("quick:confirm")
-    onNodeWithTag("quick:confirm").assertHasClickAction()
+    awaitTag("main:Home")
+    onNodeWithTag("main:Settings").assertHasClickAction()
     onNodeWithTag("continue:2").assertHasNoClickAction()
-    onNodeWithTag("place:Downloads").assertHasNoClickAction()
   }
 
   @Test
@@ -215,7 +226,7 @@ class HomeTest {
     waitUntil(timeoutMillis = 5_000) {
       onAllNodesWithText("Nothing is downloading.").fetchSemanticsNodes().isNotEmpty()
     }
-    onNodeWithTag("place:Downloads").assertIsSelected()
+    onNodeWithTag("place:Downloads").assertExists()
   }
 
   @Test
@@ -223,14 +234,22 @@ class HomeTest {
     launch(open = OpenRequest(OpenTarget.LibraryShelf("gb")))
     // The shelf's games, rather than the list of shelves.
     awaitTag("shelf:platform:1")
-    onNodeWithTag("place:Library").assertIsSelected()
+    onNodeWithTag("place:Library").assertExists()
   }
 
   @Test
   fun anOpenRequestForLibraryShowsItsShelves() = runComposeUiTest {
     launch(open = OpenRequest(OpenTarget.LibraryShelf(null)))
     awaitTag("library:shelves")
-    onNodeWithTag("place:Library").assertIsSelected()
+    onNodeWithTag("place:Library").assertExists()
+  }
+
+  @Test
+  fun anOpenRequestForASettingsSectionFocusesIt() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.Settings(SettingsSection.Storage)))
+    awaitTag("settings:Storage")
+    awaitFocused("settings:Storage")
+    onNodeWithTag("settings:storage:note").assertExists()
   }
 
   @Test
@@ -248,20 +267,53 @@ class HomeTest {
   }
 
   @Test
-  fun shoulderButtonsSwitchPlacesAndFocusComesBack() = runComposeUiTest {
+  fun theMainMenuGoesToPlacesAndBackComesHome() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
     assertFocused("RecentlyAdded:2")
-    press(Key.ButtonR1)
+    // Focus starts on the place showing.
+    press(Key.ButtonStart)
+    awaitTag("main:Home")
+    assertFocused("main:Home")
+    press(listOf(Key.DirectionDown, Key.ButtonA))
     awaitTag("library:platform:1")
+    onNodeWithTag("place:Library").assertExists()
+    // Start closes the menu too, leaving focus where it was.
+    press(Key.ButtonStart)
+    assertFocused("main:Library")
+    press(Key.ButtonStart)
+    onNodeWithTag("main:Library").assertDoesNotExist()
+    assertFocused("library:platform:1")
+    // L and R no longer switch places.
     press(Key.ButtonR1)
-    onNodeWithText("Nothing is downloading.").assertExists()
-    // Downloads is the last place.
-    press(Key.ButtonR1)
-    onNodeWithText("Nothing is downloading.").assertExists()
-    press(listOf(Key.ButtonL1, Key.ButtonL1))
+    onNodeWithTag("place:Library").assertExists()
+    // Back goes Home, with focus where it was.
+    press(Key.ButtonB)
+    onNodeWithTag("place:Home").assertExists()
     assertFocused("RecentlyAdded:2")
+    // On Home, Back does nothing.
+    press(Key.ButtonB)
+    onNodeWithTag("place:Home").assertExists()
+    assertFocused("RecentlyAdded:2")
+  }
+
+  @Test
+  fun theMainMenuLeavesAGameForAPlace() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(Key.ButtonA)
+    awaitTag("primary")
+    // Nothing covered by the game is the current place.
+    press(Key.ButtonStart)
+    awaitTag("main:Home")
+    onNodeWithTag("main:Home").assertIsNotSelected()
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitTag("place:Settings")
+    onNodeWithTag("primary").assertDoesNotExist()
+    // Back from Settings goes Home, not to the game.
+    press(Key.ButtonB)
+    awaitFocused("continue:2")
   }
 
   @Test
@@ -283,10 +335,10 @@ class HomeTest {
     awaitTag("continue:2")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
     assertFocused("RecentlyAdded:2")
-    press(Key.ButtonR1)
+    goFromHome(Place.Library)
     awaitTag("library:platform:1")
     pressHome()
-    onNodeWithTag("place:Home").assertIsSelected()
+    onNodeWithTag("place:Home").assertExists()
     awaitFocused("continue:2")
   }
 
@@ -315,17 +367,17 @@ class HomeTest {
   fun homeClosesAnOpenDialogFirst() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
-    press(Key.ButtonR1)
+    goFromHome(Place.Library)
     awaitTag("library:platform:1")
     press(Key.ButtonStart)
-    awaitTag("quick:confirm")
+    awaitTag("main:Home")
     pressHome()
-    onNodeWithTag("quick:confirm").assertDoesNotExist()
-    onNodeWithTag("place:Library").assertIsSelected()
+    onNodeWithTag("main:Home").assertDoesNotExist()
+    onNodeWithTag("place:Library").assertExists()
     assertFocused("library:platform:1")
     // The next press goes Home.
     pressHome()
-    onNodeWithTag("place:Home").assertIsSelected()
+    onNodeWithTag("place:Home").assertExists()
     awaitFocused("continue:2")
   }
 
@@ -335,9 +387,9 @@ class HomeTest {
     awaitTag("continue:2")
     pressHome()
     press(Key.ButtonStart)
-    awaitTag("quick:confirm")
+    awaitTag("main:Home")
     waitForIdle()
-    onNodeWithTag("quick:confirm").assertExists()
+    onNodeWithTag("main:Home").assertExists()
   }
 
   private fun ComposeUiTest.awaitText(text: String) {
@@ -355,9 +407,13 @@ class HomeTest {
     awaitTag("primary")
     press(Key.ButtonX)
     assertFocused("menu:download")
-    press(listOf(Key.ButtonA, Key.ButtonB, Key.ButtonR1, Key.ButtonR1))
+    press(listOf(Key.ButtonA, Key.ButtonB))
+    // The main menu counts the queue.
+    press(Key.ButtonStart)
+    awaitTag("main:Downloads")
+    onNodeWithTag("main:Downloads").assertContentDescriptionEquals("Downloads, 1 in the queue")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitTag("download:2")
-    onNodeWithText("Downloads 1").assertExists()
     // The test server doesn't serve the game, so the download fails and waits for a retry.
     awaitText("The server didn't find it")
     press(Key.ButtonX)

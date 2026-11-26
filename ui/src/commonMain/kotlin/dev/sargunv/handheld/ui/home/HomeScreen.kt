@@ -190,7 +190,7 @@ internal fun HomePlace(state: AppState) {
           buildList {
             if (hasItems && focusedGame) add(Hint(Action.Confirm, "Open"))
             if (hasMenu) add(Hint(Action.Menu, "Menu"))
-            add(Hint(Action.QuickMenu, "Quick menu"))
+            add(Hint(Action.MainMenu, "Main menu"))
           },
         )
       }

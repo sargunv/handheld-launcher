@@ -8,8 +8,8 @@ import dev.sargunv.handheld.ui.library.LibrarySettings
 import kotlinx.serialization.Serializable
 
 /**
- * The settings the app keeps between launches. Each is changed on the screen it applies to, not on
- * a settings screen.
+ * The settings the app keeps between launches. Each is changed where it applies: a game's in its
+ * menu, and the device-wide ones on the Settings page.
  *
  * Add a setting as a property with a default. The default is also its value on a device that stored
  * its settings before the property existed.

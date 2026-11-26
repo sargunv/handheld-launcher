@@ -11,27 +11,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
-import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
 import dev.sargunv.handheld.domain.launch.LaunchSubject
@@ -48,66 +39,95 @@ import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
+import kotlinx.coroutines.flow.first
 
-/** What the Open with screens show about a game: its collections, and the apps it can open in. */
-private class OpenWithGame(
-  val rom: Rom,
+/**
+ * What the Open with screens show: the platform the choice is about, the game's collections when
+ * it's for a game, and the apps the games can open in.
+ */
+private class OpenWithContext(
+  val scope: OpenWithScope,
+  val platform: PlatformSlug,
   val platformName: String,
   val collections: List<Collection>,
   val apps: List<InstalledApp>,
 ) {
-  val platform = PlatformSlug(rom.platformSlug)
+  private val installed = apps.mapTo(mutableSetOf()) { it.packageName }
 
-  /**
-   * How far a choice can reach, with each level's name: the game, each collection, the platform.
-   */
-  val levels: List<Pair<RuleLevel, String>> =
-    listOf(RuleLevel.Game(rom.id) to "This game") +
-      collections.map {
-        RuleLevel.InCollection(it.launchId, platform) to "Collection '${it.name}'"
-      } +
-      (RuleLevel.Platform(platform) to "All $platformName games")
+  val forGame: Boolean
+    get() = scope is OpenWithScope.Game
 
   fun chain(launch: LaunchSettings): List<RuleStep> =
-    RuleChain.explain(
-      LaunchSubject(rom.id, platform, collections.mapTo(mutableSetOf()) { it.launchId }),
-      launch.toRules(),
-      apps.mapTo(mutableSetOf()) { it.packageName },
-    )
+    when (scope) {
+      is OpenWithScope.Game ->
+        RuleChain.explain(
+          LaunchSubject(scope.romId, platform, collections.mapTo(mutableSetOf()) { it.launchId }),
+          launch.toRules(),
+          installed,
+        )
+      is OpenWithScope.Platform -> platformChain(platform, launch, installed)
+    }
+
+  /** The app that wins under [launch], by name, or null when none can open the games. */
+  fun opensIn(launch: LaunchSettings): String? {
+    val winner = chain(launch).firstOrNull { it.status == RuleStatus.Wins } ?: return null
+    return when (val app = winner.packageName) {
+      null -> null
+      LaunchChoice.BUILT_IN -> "the built-in session"
+      else -> name(app, winner.core)
+    }
+  }
 
   fun name(packageName: String, core: String?) = appName(packageName, core, apps, platform)
 }
 
 @Composable
-private fun rememberOpenWithGame(state: AppState, romId: Long): OpenWithGame? {
-  val game by
-    produceState<OpenWithGame?>(null, romId) {
-      val rom = state.library.rom(romId) ?: return@produceState
+private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): OpenWithContext? {
+  val context by
+    produceState<OpenWithContext?>(null, scope) {
       value =
-        OpenWithGame(
-          rom,
-          state.library.platform(rom.platformId)?.name ?: rom.platformSlug,
-          state.library.collectionsOf(rom.id),
-          state.apps.apps(),
-        )
+        when (scope) {
+          is OpenWithScope.Game -> {
+            val rom = state.library.rom(scope.romId) ?: return@produceState
+            OpenWithContext(
+              scope,
+              PlatformSlug(rom.platformSlug),
+              state.library.platform(rom.platformId)?.name ?: rom.platformSlug,
+              state.library.collectionsOf(rom.id),
+              state.apps.apps(),
+            )
+          }
+          is OpenWithScope.Platform -> {
+            val slug = scope.platform.value
+            OpenWithContext(
+              scope,
+              scope.platform,
+              state.library.platforms().first().find { it.slug == slug }?.name ?: slug,
+              emptyList(),
+              state.apps.apps(),
+            )
+          }
+        }
     }
-  return game
+  return context
 }
 
 /**
- * Picks the app a game opens in: any installed app, known emulators for its platform first, for the
- * game alone, one of its collections, or its whole platform. Choosing an app, or clearing the
- * level's choice, goes back to the game.
+ * Picks the app games open in, for what the screen was opened from: one game from its menu, or a
+ * platform's games from Settings → Emulators. Any installed app can be picked, known emulators for
+ * the platform first. Choosing an app, or clearing the choice, goes back.
  */
 @Composable
 internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
-  val game = rememberOpenWithGame(state, screen.romId)
+  val context = rememberOpenWithContext(state, screen.scope)
   val launch = state.settings.launch
-  // The level the player picked, by index; until they pick, the most specific one with a choice.
-  var picked by rememberSaveable { mutableIntStateOf(-1) }
+  val level = screen.scope.level
   Column(Modifier.fillMaxSize()) {
     Text(
-      "Open ${screen.title} with",
+      when (screen.scope) {
+        is OpenWithScope.Game -> "Open ${screen.title} with"
+        is OpenWithScope.Platform -> "Open ${screen.title} games with"
+      },
       color = Placeholder.text,
       fontSize = 28.sp,
       modifier =
@@ -115,19 +135,13 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           heading()
         },
     )
-    if (game == null) {
+    if (context == null) {
       Spacer(Modifier.weight(1f))
     } else {
-      val levels = game.levels
-      val levelIndex =
-        picked.takeIf { it in levels.indices }
-          ?: levels.indexOfFirst { launch.choiceAt(it.first) != null }.takeIf { it >= 0 }
-          ?: 0
-      val level = levels[levelIndex].first
       val current = launch.choiceAt(level)
-      // The app the platform's defaults pick, which opens the game when no choice applies.
+      // The app the platform's defaults pick, which opens the games when no choice applies.
       val default =
-        game
+        context
           .chain(launch)
           .firstOrNull {
             (it.rule == LaunchRule.BuiltInDefault || it.rule == LaunchRule.FirstInstalled) &&
@@ -143,7 +157,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(32.dp),
       ) {
-        val options = appOptions(game.platform, game.apps)
+        val options = appOptions(context.platform, context.apps)
         if (options.isEmpty()) {
           Text(
             "No apps on this device can open games.",
@@ -159,45 +173,38 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             items(options, key = { "app:${it.choice.packageName}:${it.choice.core}" }) { option ->
               val notes =
                 listOfNotNull(
-                  "${game.platformName} default"
-                    .takeIf {
-                      option.known && option.choice.packageName == default
-                    },
+                  "${context.platformName} default"
+                    .takeIf { option.known && option.choice.packageName == default },
                   "current".takeIf { option.choice == current },
                 )
               OptionRow(
                 key = "app:${option.choice.packageName}:${option.choice.core}",
                 label = option.label,
                 note = notes.joinToString(" · ").ifEmpty { null },
-                background = Placeholder.tile,
                 onConfirm = { choose(option.choice) },
               )
             }
           }
         }
-        // A game in many collections has more levels than fit, so the column scrolls.
-        Column(
-          Modifier.width(360.dp).verticalScroll(rememberScrollState()),
-          verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        Column(Modifier.width(360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
-            "Use for",
+            if (context.forGame) "Chosen for this game"
+            else "Chosen for ${context.platformName} games",
             color = Placeholder.mutedText,
             modifier = Modifier.padding(top = 8.dp).semantics { heading() },
           )
-          levels.forEachIndexed { index, (rowLevel, name) ->
-            val choice = launch.choiceAt(rowLevel)
-            OptionRow(
-              key = "level:$index",
-              label = name,
-              note = choice?.let { game.name(it.packageName, it.core) } ?: "Not set",
-              background = if (index == levelIndex) Placeholder.tile else Placeholder.background,
-              selected = index == levelIndex,
-              onConfirm = { picked = index },
-            )
-          }
+          Text(
+            current?.let { context.name(it.packageName, it.core) } ?: "Nothing chosen",
+            color = Placeholder.text,
+            modifier = Modifier.testTag("openWith:current"),
+          )
           if (current != null) {
-            Spacer(Modifier.width(8.dp))
+            val after = context.opensIn(launch.withChoice(level, null))
+            Text(
+              after?.let { "Clearing it opens ${if (context.forGame) "it" else "them"} in $it." }
+                ?: "Clearing it leaves no app on this device that can open it.",
+              color = Placeholder.mutedText,
+            )
             MenuButton("clear", "Clear this choice") { choose(null) }
           }
         }
@@ -207,60 +214,50 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
   }
 }
 
-/**
- * One choice in a list: an app, or a level the choice applies to.
- *
- * @param selected for one of a set of options, whether it's the one picked, which a dot marks.
- */
+/** An app to choose, with [note] saying whether it's the default or the current choice. */
 @Composable
 private fun OptionRow(
   key: String,
   label: String,
   note: String?,
-  background: Color,
   onConfirm: () -> Unit,
-  selected: Boolean? = null,
 ) {
   Column(
     Modifier.fillMaxWidth()
-      .then(if (selected != null) Modifier.semantics { this.selected = selected } else Modifier)
-      .focusItem(
-        key,
-        onConfirm = onConfirm,
-        role = if (selected != null) Role.RadioButton else Role.Button,
-        // The dot is for the eye; a screen reader says the option is selected instead.
-        description = if (selected == true) listOfNotNull(label, note).joinToString(", ") else null,
-      )
-      .background(background)
+      .focusItem(key, onConfirm = onConfirm)
+      .background(Placeholder.tile)
       .padding(horizontal = 20.dp, vertical = 10.dp),
   ) {
-    Text(if (selected == true) "● $label" else label, color = Placeholder.text)
+    Text(label, color = Placeholder.text)
     note?.let { Text(it, color = Placeholder.mutedText, fontSize = 14.sp) }
   }
 }
 
-/** The lower screen for Open with: the rule chain that decides where the game opens, and why. */
+/**
+ * The lower screen for Open with: the rule chain that decides where the game, or the platform's
+ * games, open, and why.
+ */
 @Composable
 internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
-  val game = rememberOpenWithGame(state, screen.romId) ?: return
-  val steps = game.chain(state.settings.launch)
-  val winner = steps.firstOrNull { it.status == RuleStatus.Wins }
+  val context = rememberOpenWithContext(state, screen.scope) ?: return
+  val launch = state.settings.launch
+  val steps = context.chain(launch)
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    val winnerApp = winner?.packageName
-    val opensIn =
-      when (winnerApp) {
-        null -> null
-        LaunchChoice.BUILT_IN -> "the built-in session"
-        else -> game.name(winnerApp, winner.core)
-      }
+    val opensIn = context.opensIn(launch)
+    val subject = if (context.forGame) "it" else "${context.platformName} games"
     Text(
-      opensIn?.let { "Why it opens in $it" } ?: "No app on this device can open it",
+      when {
+        opensIn == null -> "No app on this device can open $subject"
+        context.forGame -> "Why it opens in $opensIn"
+        else -> "Why ${context.platformName} games open in $opensIn"
+      },
       color = Placeholder.text,
       fontSize = 20.sp,
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.semantics { heading() },
     )
-    val lines = chainLines(steps, game.collections, game.platformName, game::name)
+    val lines =
+      chainLines(steps, context.collections, context.platformName, context.forGame, context::name)
     lines.forEachIndexed { index, line ->
       Text(
         (if (index > 0) "→ " else "") + line.text,
@@ -269,6 +266,10 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
         modifier = Modifier.testTag("chain"),
       )
     }
-    Text("The most specific choice wins.", color = Placeholder.mutedText)
+    Text(
+      if (context.forGame) "The most specific choice wins."
+      else "A game's own choice, or its collection's, comes before the platform's.",
+      color = Placeholder.mutedText,
+    )
   }
 }

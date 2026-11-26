@@ -248,7 +248,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           }
           MenuButton("menu:open-with", "Open with") {
             close()
-            state.navigator.push(Screen.OpenWith(current.id, current.title))
+            state.navigator.push(Screen.OpenWith(OpenWithScope.Game(current.id), current.title))
           }
         }
       }

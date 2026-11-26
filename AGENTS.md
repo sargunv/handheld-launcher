@@ -39,9 +39,11 @@ common ones:
   the device downloads it, so check first: Home's covers say so in their label,
   and Library marks the games on the device with an `onDevice:<romId>` element.
 - `mise run android:open <target>`: show a screen of the debug app straight
-  away: `place:home`, `place:library`, `place:downloads`, `game:<romId>`,
-  `library`, `library:<platform-slug>` or `about`. It's the `open` extra of the
-  launch intent, so
+  away: `place:home`, `place:library`, `place:downloads`, `place:settings`,
+  `game:<romId>`, `library`, `library:<platform-slug>`, `settings` or
+  `settings:<section>` (`controls`, `romm`, `retroachievements`, `emulators`,
+  `storage`, `about`). Before sign-in, only the `settings` targets show. It's
+  the `open` extra of the launch intent, so
   `adb shell am start -n dev.sargunv.handheld/.MainActivity --es open game:42`
   does the same.
 - `mise run android:lock -- <command>`: run a command while holding the device's

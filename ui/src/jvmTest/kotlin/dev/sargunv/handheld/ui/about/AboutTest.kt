@@ -93,16 +93,23 @@ class AboutTest {
 
   private fun ComposeUiTest.press(key: Key) = press(listOf(key))
 
+  private fun ComposeUiTest.isFocused(tag: String) =
+    onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
+
   @Test
-  fun opensFromTheQuickMenuAndShowsEachComponentsLicence() = runComposeUiTest {
+  fun opensFromSettingsAndShowsEachComponentsLicence() = runComposeUiTest {
     launch()
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasText("Offline")).fetchSemanticsNodes().isNotEmpty()
     }
     press(Key.ButtonStart)
-    awaitFocused("quick:confirm")
-    press(listOf(Key.DirectionDown, Key.DirectionDown))
-    onNodeWithTag("quick:about").assertIsFocused()
+    awaitFocused("main:Home")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitFocused("settings:Controls")
+    repeat(6) { if (!isFocused("settings:About")) press(Key.DirectionDown) }
+    onNodeWithTag("settings:About").assertIsFocused()
+    press(Key.DirectionRight)
+    awaitFocused("settings:about:open")
     press(Key.ButtonA)
 
     // The components come by name, whatever their case, and the first one has focus.

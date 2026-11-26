@@ -18,8 +18,8 @@ enum class Action {
   Search,
   PreviousShelf,
   NextShelf,
-  /** Opens the quick menu (the Start button). */
-  QuickMenu,
+  /** Opens the main menu (the Start button), which goes to the top-level pages. */
+  MainMenu,
   Select;
 
   /** Whether holding the input repeats this action. Only movement repeats. */
@@ -105,7 +105,7 @@ data class InputSettings(
       PadButton.Y -> Action.Search
       PadButton.L1 -> Action.PreviousShelf
       PadButton.R1 -> Action.NextShelf
-      PadButton.Start -> Action.QuickMenu
+      PadButton.Start -> Action.MainMenu
       PadButton.Select -> Action.Select
       PadButton.DpadUp -> Action.Up
       PadButton.DpadDown -> Action.Down

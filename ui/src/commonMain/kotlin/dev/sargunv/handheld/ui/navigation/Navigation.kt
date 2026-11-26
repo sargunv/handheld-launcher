@@ -36,6 +36,11 @@ class Navigator<T : Any>(start: T) {
     backStack.removeAt(backStack.lastIndex)
     return true
   }
+
+  /** Leaves every screen but the first. */
+  fun backToStart() {
+    while (back()) continue
+  }
 }
 
 /**

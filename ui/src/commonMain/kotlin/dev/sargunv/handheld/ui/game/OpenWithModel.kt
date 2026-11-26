@@ -1,10 +1,13 @@
 package dev.sargunv.handheld.ui.game
 
+import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
+import dev.sargunv.handheld.domain.launch.LaunchSubject
+import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.launch.RuleStatus
 import dev.sargunv.handheld.domain.launch.RuleStep
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -21,6 +24,58 @@ fun interface AppCatalog {
     /** A catalog for platforms that can't open games in other apps. */
     val None = AppCatalog { emptyList() }
   }
+}
+
+/**
+ * What a choice on the Open with screen applies to, which comes from where the screen was opened: a
+ * game's menu chooses for the game, and Settings → Emulators for a platform's games.
+ */
+@Immutable
+sealed interface OpenWithScope {
+  val level: RuleLevel
+
+  data class Game(val romId: Long) : OpenWithScope {
+    override val level: RuleLevel
+      get() = RuleLevel.Game(romId)
+  }
+
+  data class Platform(val platform: PlatformSlug) : OpenWithScope {
+    override val level: RuleLevel
+      get() = RuleLevel.Platform(platform)
+  }
+}
+
+/**
+ * The rule chain for [platform]'s games that no game or collection choice covers, which the
+ * platform's own choice and the defaults decide.
+ */
+internal fun platformChain(
+  platform: PlatformSlug,
+  launch: LaunchSettings,
+  installed: Set<String>,
+): List<RuleStep> =
+  RuleChain.explain(
+    // No game has this id, and the subject is in no collection, so only the platform's rules apply.
+    LaunchSubject(gameId = -1, platform = platform),
+    launch.toRules().copy(gameOverrides = emptyMap(), collectionRules = emptyList()),
+    installed,
+  )
+
+/**
+ * The app [platform]'s games open in when nothing more specific applies, such as "Built-in · mGBA"
+ * or "PPSSPP", or null when no app on the device can open them.
+ */
+internal fun platformOpensIn(
+  platform: PlatformSlug,
+  launch: LaunchSettings,
+  apps: List<InstalledApp>,
+): String? {
+  val winner =
+    platformChain(platform, launch, apps.mapTo(mutableSetOf()) { it.packageName }).firstOrNull {
+      it.status == RuleStatus.Wins
+    }
+  val packageName = winner?.packageName ?: return null
+  return appName(packageName, winner.core, apps, platform)
 }
 
 /** An app the Open with screen offers. [known] marks a known emulator for the game's platform. */
@@ -108,11 +163,14 @@ internal data class ChainLine(val text: String, val wins: Boolean = false)
  *
  * @param collections the game's collections, which name the collections' rules.
  * @param name names an app by package name and core.
+ * @param forGame whether the chain is a game's. A platform's chain leaves out the game's and the
+ *   collections' levels, which don't apply to it.
  */
 internal fun chainLines(
   steps: List<RuleStep>,
   collections: List<Collection>,
   platformName: String,
+  forGame: Boolean = true,
   name: (String, String?) -> String,
 ): List<ChainLine> {
   fun line(
@@ -143,13 +201,13 @@ internal fun chainLines(
   return buildList {
     for (step in steps) {
       when (val rule = step.rule) {
-        LaunchRule.GameOverride -> add(line("Game", step))
+        LaunchRule.GameOverride -> if (forGame) add(line("Game", step))
         is LaunchRule.CollectionOverride -> {
           val collection = collections.firstOrNull { it.launchId == rule.collection }
           add(line("Collection '${collection?.name ?: rule.collection}'", step))
         }
         LaunchRule.PlatformDefault -> {
-          if (steps.none { it.rule is LaunchRule.CollectionOverride }) {
+          if (forGame && steps.none { it.rule is LaunchRule.CollectionOverride }) {
             add(ChainLine("Collection: none"))
           }
           if (step.status != RuleStatus.Unset) add(line(platformLevel, step))
