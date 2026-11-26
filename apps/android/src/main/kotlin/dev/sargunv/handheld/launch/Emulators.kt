@@ -23,9 +23,9 @@ import kotlinx.io.files.Path
 
 /**
  * The standalone emulators the launcher started, and what it can tell and do about them on this
- * device. One for the process, so its records have one writer.
+ * device. The app holds one, so its records have one writer.
  */
-internal class Emulators private constructor(private val context: Context) {
+internal class Emulators(private val context: Context) {
   private val launched = LaunchedEmulators(Path(context.filesDir.path, "launched-emulators.json"))
 
   /** Whether the device has a root service the launcher can close emulators with. */
@@ -66,15 +66,8 @@ internal class Emulators private constructor(private val context: Context) {
     return gone
   }
 
-  companion object {
-    private const val TAG = "Emulators"
-    @Volatile private var instance: Emulators? = null
-
-    fun of(context: Context): Emulators =
-      instance
-        ?: synchronized(this) {
-          instance ?: Emulators(context.applicationContext).also { instance = it }
-        }
+  private companion object {
+    const val TAG = "Emulators"
   }
 }
 

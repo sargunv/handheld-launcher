@@ -2,7 +2,6 @@ package dev.sargunv.handheld
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
@@ -29,13 +28,10 @@ import androidx.lifecycle.repeatOnLifecycle
 import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
-import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadState
-import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.launch.StandalonePlayer
-import dev.sargunv.handheld.launch.builtInSaveFolders
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -66,8 +62,6 @@ class MainActivity : ComponentActivity() {
 
   private var showsDebugScreen = false
 
-  private val credentials by lazy { credentialStore(this) }
-
   private val device by lazy {
     DeviceDescription(
       identifier = installIdentifier(Path(filesDir.path, "install-id")),
@@ -75,7 +69,7 @@ class MainActivity : ComponentActivity() {
         if (Build.MODEL.startsWith(Build.MANUFACTURER)) Build.MODEL
         else "${Build.MANUFACTURER} ${Build.MODEL}",
       platform = "android",
-      appVersion = packageManager.getPackageInfo(packageName, 0).versionName,
+      appVersion = handheldApp.versionName,
     )
   }
 
@@ -108,18 +102,16 @@ class MainActivity : ComponentActivity() {
     // A recreated activity has already shown the screen its intent asked for.
     if (savedInstanceState == null) openRequest = openRequest(intent)
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
-    val settingsFile = settingsFile(this)
-    val settings = settingsFile.read()
-    val downloads = downloadManager(this)
+    val app = handheldApp
+    val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val launcher = StandalonePlayer(this, credentials).also { player = it }
+    val launcher = StandalonePlayer(this, app.credentials).also { player = it }
     val retroAchievements = retroAchievementsSignIn(this)
     // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
-    val gameState = builtInSaveFolders(this)
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
-      AppInfo(packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown") {
+      AppInfo(app.versionName) {
         resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() }
       }
     setContent {
@@ -135,13 +127,13 @@ class MainActivity : ComponentActivity() {
         modifier = Modifier.exposeTestTags(),
         layout = layout,
         heldKeys = heldKeys,
-        credentials = credentials,
+        credentials = app.credentials,
         device = device,
-        library = libraryCache(this),
-        downloads = downloads,
+        library = app.libraryCache,
+        downloads = app.downloadManager,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
-        saveSettings = settingsFile::write,
+        saveSettings = app.settingsFile::write,
         launcher = launcher,
         retroAchievements = retroAchievements,
         apps = apps,
@@ -158,7 +150,7 @@ class MainActivity : ComponentActivity() {
         openRequest = openRequest,
         homePress = homePress,
         appInfo = appInfo,
-        gameState = gameState,
+        gameState = app.builtInSaveFolders,
       )
     }
   }
@@ -174,9 +166,9 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     // The user may be back from granting all-files access, which queued downloads wait for.
-    allFilesAccess.value = Environment.isExternalStorageManager()
+    handheldApp.allFilesAccess.value = Environment.isExternalStorageManager()
     // Games may have been copied onto the device, or deleted, while the app was away.
-    if (!showsDebugScreen && !redirected) downloadManager(this).recheck()
+    if (!showsDebugScreen && !redirected) handheldApp.downloadManager.recheck()
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -219,15 +211,14 @@ class MainActivity : ComponentActivity() {
   private fun keepDownloadsRunning() {
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) {
-        downloadManager(this@MainActivity)
-          .queue
+        handheldApp.downloadManager.queue
           .map { queue -> queue.any { it.state != DownloadState.Failed } }
           .distinctUntilChanged()
           .collect { active ->
             if (!active) return@collect
             // Games go to shared storage, where the app writes only with all-files access.
             if (!Environment.isExternalStorageManager()) {
-              startActivity(LaunchDispatcher(this@MainActivity).allFilesAccessSettings())
+              startActivity(handheldApp.allFilesAccessSettings())
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
@@ -298,17 +289,3 @@ private val running = mutableSetOf<MainActivity>()
 internal fun isLauncherResumed(): Boolean = running.any {
   it.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
 }
-
-private var openLibrary: LibraryCache? = null
-
-/**
- * The library cache, in the app's databases directory. It stays open for the life of the process,
- * so an activity that's recreated doesn't open a second connection to it.
- */
-@Synchronized
-internal fun libraryCache(context: Context): LibraryCache =
-  openLibrary
-    ?: LibraryCache.open(
-        context.getDatabasePath("library.db").also { it.parentFile?.mkdirs() }.path,
-      )
-      .also { openLibrary = it }

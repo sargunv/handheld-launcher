@@ -24,6 +24,7 @@ import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.storage.GameLayout
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
@@ -72,7 +73,7 @@ class StandalonePlayer(
   private val dispatcher = LaunchDispatcher(activity)
   private val saves = PlaySaves(activity, credentials)
   private val builtIn = BuiltInPlayer(activity, saves)
-  private val emulators = Emulators.of(activity)
+  private val emulators = activity.handheldApp.emulators
 
   override val canCloseEmulators: Boolean
     get() = emulators.canClose
@@ -216,7 +217,7 @@ class StandalonePlayer(
             LaunchOutcome.NeedsAllFilesAccess -> {
               // Nothing started, so the emulator still holds whatever game it held.
               emulators.launchFailed(packageName, before)
-              activity.startActivity(dispatcher.allFilesAccessSettings())
+              activity.startActivity(activity.handheldApp.allFilesAccessSettings())
               note("Allow access to all files, then play again.")
               return@launch
             }

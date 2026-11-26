@@ -1,6 +1,5 @@
 package dev.sargunv.handheld.launch
 
-import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
@@ -8,15 +7,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.sargunv.handheld.data.cores.InstalledCores
-import dev.sargunv.handheld.data.saves.BuiltInSaveFolders
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.builtInGameSave
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
 import dev.sargunv.handheld.domain.emulator.LibretroCores
-import dev.sargunv.handheld.domain.saves.BuiltInSaves
-import dev.sargunv.handheld.settingsFile
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import java.io.File
 import java.io.IOException
@@ -34,7 +31,7 @@ import kotlinx.io.files.Path
  */
 class BuiltInPlayer(private val activity: ComponentActivity, private val playSaves: PlaySaves) {
   private val coresDir = Path(activity.filesDir.path, "cores")
-  private val saveFolders = builtInSaveFolders(activity)
+  private val saveFolders = activity.handheldApp.builtInSaveFolders
   private val saves = saveFolders.saves
 
   /**
@@ -76,7 +73,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
       withContext(Dispatchers.IO) {
         // Made before the sync, which pulls a save only into a folder that exists.
         File(folder).mkdirs()
-        settingsFile(activity).read()
+        activity.handheldApp.settingsFile.read()
       }
     val game = request.romId?.let { builtInGameSave(it, chosen.library, File(saveRam)) }
     if (game != null && !playSaves.beforeLaunch(request, game, chooseSave, note)) return
@@ -137,10 +134,3 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     const val TAG = "BuiltInPlayer"
   }
 }
-
-/** The built-in session's save folders, in the app's files, with save sync's history. */
-fun builtInSaveFolders(context: Context): BuiltInSaveFolders =
-  BuiltInSaveFolders(
-    BuiltInSaves(File(context.filesDir, "saves").path),
-    saveHistory(context),
-  )
