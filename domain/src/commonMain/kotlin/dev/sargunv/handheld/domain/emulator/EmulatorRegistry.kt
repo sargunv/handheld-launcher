@@ -469,9 +469,11 @@ object EmulatorRegistry {
           "https://github.com/rafaelvcaetano/melonDS-android/releases/tag/nightly-release",
         releases = gitHub("rafaelvcaetano/melonDS-android"),
       ),
+      // SapphireRhodonite's dual-screen fork, first MelonDualDS, now WatermelonDS, still under its
+      // first package name.
       KnownEmulator(
         id = EmulatorId("melondualds"),
-        displayName = "MelonDualDS",
+        displayName = "WatermelonDS",
         packageName = "me.magnum.melondualds",
         platforms = setOf(NDS),
         recipe =
@@ -482,8 +484,8 @@ object EmulatorRegistry {
             data = RomData.ProviderUri,
           ),
         drawsBothScreens = true,
-        downloadUrl = "https://github.com/SapphireRhodonite/melonDS-android/releases",
-        releases = gitHub("SapphireRhodonite/melonDS-android"),
+        downloadUrl = "https://github.com/SapphireRhodonite/WatermelonDS/releases",
+        releases = gitHub("SapphireRhodonite/WatermelonDS"),
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_ds"),
