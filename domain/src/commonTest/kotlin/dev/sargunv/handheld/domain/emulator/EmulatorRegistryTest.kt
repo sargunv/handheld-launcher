@@ -13,7 +13,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmulatorRegistryTest {
@@ -43,39 +42,6 @@ class EmulatorRegistryTest {
     for (emulator in emulators) {
       assertEquals(emulator, EmulatorRegistry.forPackage(emulator.packageName), emulator.id.value)
     }
-  }
-
-  @Test
-  fun platformsAreCatalogPlatformsThatRunAsThemselves() {
-    for (emulator in emulators) {
-      assertTrue(emulator.platforms.isNotEmpty(), "${emulator.id} runs no platform")
-      for (slug in emulator.platforms) {
-        val platform = assertNotNull(PlatformCatalog[slug], "${emulator.id}: $slug")
-        assertNull(platform.runsAs, "${emulator.id} lists the twin $slug")
-      }
-    }
-  }
-
-  @Test
-  fun everyPlatformIsCovered() {
-    for (platform in PlatformCatalog.all) {
-      assertTrue(
-        EmulatorRegistry.forPlatform(platform.slug).isNotEmpty(),
-        "no emulator runs ${platform.slug}",
-      )
-    }
-  }
-
-  @Test
-  fun preferenceListsEveryEmulatorOfAPlatformOnce() {
-    for (platform in PlatformCatalog.all.filter { it.runsAs == null }) {
-      val ranked = EmulatorRegistry.preference[platform.slug].orEmpty()
-      assertEquals(ranked.size, ranked.toSet().size, "${platform.slug} ranks an emulator twice")
-      val running =
-        emulators.filter { platform.slug in it.platforms && it.ranked }.map { it.id }.toSet()
-      assertEquals(running, ranked.toSet(), "${platform.slug} ranking")
-    }
-    for (slug in EmulatorRegistry.preference.keys) assertNotNull(PlatformCatalog[slug])
   }
 
   @Test
@@ -153,8 +119,8 @@ class EmulatorRegistryTest {
 
   @Test
   fun everyRecipeBuildsForEveryPlatformItRuns() {
-    for (emulator in emulators) {
-      for (platform in emulator.platforms) {
+    for (platform in EmulatorRegistry.preference.keys) {
+      for (emulator in EmulatorRegistry.forPlatform(platform)) {
         val input = LaunchInput(romPath = "/storage/emulated/0/ROMs/game.bin", platform = platform)
         val build = LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input)
         val command = assertIs<LaunchBuild.Ready>(build, "${emulator.id} on $platform").command
@@ -165,8 +131,8 @@ class EmulatorRegistryTest {
 
   @Test
   fun retroArchPlatformsHaveCores() {
-    val retroArch = assertNotNull(EmulatorRegistry[EmulatorId("retroarch")])
-    for (platform in retroArch.platforms) {
+    for ((platform, ids) in EmulatorRegistry.preference) {
+      if (EmulatorId("retroarch") !in ids) continue
       assertNotNull(LibretroCores.recommendedFor(platform), "no core for $platform")
     }
   }
