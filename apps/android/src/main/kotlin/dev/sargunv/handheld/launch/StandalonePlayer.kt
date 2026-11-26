@@ -167,7 +167,7 @@ class StandalonePlayer(
   ): List<PlayNote> {
     plays++
     try {
-      return playOnce(request, onProgress, chooseSave)
+      return playOnce(request, onProgress, askStillRunning, chooseSave)
     } finally {
       plays--
     }
@@ -176,6 +176,7 @@ class StandalonePlayer(
   private suspend fun playOnce(
     request: PlayRequest,
     onProgress: (String) -> Unit,
+    askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<PlayNote> {
     val notes = mutableListOf<PlayNote>()
