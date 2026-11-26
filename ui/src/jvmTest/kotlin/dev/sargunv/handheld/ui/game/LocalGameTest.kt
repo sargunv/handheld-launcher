@@ -325,6 +325,18 @@ class LocalGameTest {
     awaitText("keeps this choice for its file")
   }
 
+  // An upload sends one file, so a disc set, whose other files would stay behind, has none.
+  @Test
+  fun aDiscSetOffersNoUpload() = runComposeUiTest {
+    val cue = File(storage, "ROMs/gb/Disc.cue").apply { writeText("FILE \"Disc.bin\" BINARY\n") }
+    File(storage, "ROMs/gb/Disc.bin").writeBytes(ByteArray(8))
+    launch(open = OpenRequest(OpenTarget.Local(cue.path)))
+    awaitText("Play")
+    press(Key.ButtonX)
+    awaitTag("menu:remove")
+    onNodeWithTag("menu:upload").assertDoesNotExist()
+  }
+
   @Test
   fun removingALocalGameDeletesItsFileAfterAsking() = runComposeUiTest {
     openLibrary()

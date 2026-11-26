@@ -442,7 +442,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             RomStatus.NotOnDevice,
             null -> Unit
           }
-          if (current is LocalGame) {
+          // A disc set's other files would stay behind, since the upload sends one file.
+          if (current is LocalGame && current.otherFiles.isEmpty()) {
             MenuButton("menu:upload", "Upload to RomM") {
               close()
               notes = emptyList()
