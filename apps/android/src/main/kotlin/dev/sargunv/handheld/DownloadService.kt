@@ -37,13 +37,13 @@ class DownloadService : Service() {
     )
     startForeground(
       NOTIFICATION,
-      notification(downloadManager(this).queue.value),
+      notification(handheldApp.downloadManager.queue.value),
       ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
     @OptIn(FlowPreview::class)
     scope.launch {
       // The system limits how often an app updates a notification.
-      downloadManager(this@DownloadService).queue.sample(1000).collect { queue ->
+      handheldApp.downloadManager.queue.sample(1000).collect { queue ->
         if (queue.none { it.isActive }) {
           stopForeground(STOP_FOREGROUND_REMOVE)
           stopSelf()

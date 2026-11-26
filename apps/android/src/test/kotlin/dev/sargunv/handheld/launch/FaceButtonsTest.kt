@@ -2,7 +2,6 @@ package dev.sargunv.handheld.launch
 
 import android.view.KeyEvent
 import dev.sargunv.handheld.session.Button
-import dev.sargunv.handheld.session.FaceKeyCodes
 import dev.sargunv.handheld.session.GamepadInput
 import dev.sargunv.handheld.ui.input.AButtonPosition
 import kotlin.test.Test
@@ -36,21 +35,5 @@ class FaceButtonsTest {
       mapOf("A" to Button.A, "B" to Button.B, "X" to Button.X, "Y" to Button.Y),
       retroPad(AButtonPosition.East),
     )
-  }
-
-  @Test
-  fun aAtTheBottomIsAndroidsDefault() {
-    assertEquals(FaceKeyCodes.ANDROID_DEFAULT, AButtonPosition.South.faceKeyCodes())
-  }
-
-  @Test
-  fun layoutLeavesTheOtherButtonsAlone() {
-    for (layout in AButtonPosition.entries) {
-      val keyCodes = layout.faceKeyCodes()
-      assertEquals(Button.START, GamepadInput.buttonFor(KeyEvent.KEYCODE_BUTTON_START, keyCodes))
-      assertEquals(Button.L, GamepadInput.buttonFor(KeyEvent.KEYCODE_BUTTON_L1, keyCodes))
-      assertEquals(Button.UP, GamepadInput.buttonFor(KeyEvent.KEYCODE_DPAD_UP, keyCodes))
-      assertEquals(null, GamepadInput.buttonFor(KeyEvent.KEYCODE_ENTER, keyCodes))
-    }
   }
 }

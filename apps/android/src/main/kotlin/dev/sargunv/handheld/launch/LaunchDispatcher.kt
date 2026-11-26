@@ -3,16 +3,15 @@ package dev.sargunv.handheld.launch
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Environment
 import android.os.FileUriExposedException
-import android.provider.Settings
 import androidx.core.content.FileProvider
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.android.ContentUris
 import dev.sargunv.handheld.domain.launch.android.LaunchIntents
 import dev.sargunv.handheld.domain.launch.android.ShellLaunch
+import dev.sargunv.handheld.launcherApps
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -24,7 +23,7 @@ sealed interface LaunchOutcome {
 
   /**
    * The command hands over a file the launcher can't read without all-files access, which it
-   * doesn't have. [LaunchDispatcher.allFilesAccessSettings] opens the page that grants it.
+   * doesn't have.
    */
   data object NeedsAllFilesAccess : LaunchOutcome
 
@@ -45,22 +44,13 @@ class LaunchDispatcher(private val context: Context) {
 
   /** The installed apps a game can launch in: every app with a launcher icon. */
   fun installedPackages(): Set<String> =
-    context.packageManager
-      .queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
-      .mapTo(mutableSetOf()) { it.activityInfo.packageName }
+    launcherApps(context).mapTo(mutableSetOf()) { it.packageName }
 
   /** The version name of [packageName], for recipes that depend on the installed build. */
   fun versionName(packageName: String): String? = runCatching {
     context.packageManager.getPackageInfo(packageName, 0).versionName
   }
     .getOrNull()
-
-  /** The system page where the user grants the launcher all-files access. */
-  fun allFilesAccessSettings(): Intent =
-    Intent(
-      Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-      Uri.fromParts("package", context.packageName, null),
-    )
 
   suspend fun launch(command: LaunchCommand): LaunchOutcome {
     if (command.readGrants.isNotEmpty() && !Environment.isExternalStorageManager()) {

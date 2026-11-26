@@ -37,25 +37,6 @@ class LibretroCoresTest {
   }
 
   @Test
-  fun anOverrideReplacesTheRecommendedCore() {
-    val overrides = mapOf(PlatformCatalog.GB to "mgba_libretro")
-    assertEquals("mgba_libretro", LibretroCores.coreFor(PlatformCatalog.GB, overrides)?.library)
-    assertEquals(
-      "gambatte_libretro",
-      LibretroCores.coreFor(PlatformCatalog.GBC, overrides)?.library,
-    )
-  }
-
-  @Test
-  fun anOverrideNamingAnUnknownCoreFallsBackToTheRecommendedOne() {
-    val overrides = mapOf(PlatformCatalog.GB to "nonexistent_libretro")
-    assertEquals(
-      "gambatte_libretro",
-      LibretroCores.coreFor(PlatformCatalog.GB, overrides)?.library,
-    )
-  }
-
-  @Test
   fun findsAReleaseAssetForAnAbi() {
     val source = LibretroCores.byLibrary("azahar_libretro")?.source
     assertTrue(source is CoreSource.GitHubRelease)

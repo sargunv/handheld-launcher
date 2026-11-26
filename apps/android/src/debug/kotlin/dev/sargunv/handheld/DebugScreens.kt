@@ -2,10 +2,9 @@ package dev.sargunv.handheld
 
 import android.app.Activity
 import android.os.Build
-import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
-import dev.sargunv.handheld.data.cores.CoreChoices
 import dev.sargunv.handheld.data.cores.InstalledCores
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import java.io.File
 import java.io.IOException
@@ -13,26 +12,12 @@ import kotlinx.io.files.Path
 
 /**
  * The debug screen the launching intent asks for with its `debug_screen` extra, if any:
- * - `session_test`: runs a libretro core in a game session. The `core` extra names the core and the
- *   optional `content` extra the content, as paths relative to the app's `files/session-test`
- *   directory or absolute ones. A `platform` extra, a platform slug such as `gbc`, runs that
- *   platform's core instead, installing it first through [InstalledCores] if it isn't installed or
- *   has an update. The optional `core_options` extra, a string array of `key=value`, sets core
- *   options, such as a renderer.
- * - `launch`: launches the game at the `rom` extra, an absolute path, for the platform the
- *   `platform` extra names by slug, through the launch resolver and dispatcher. The optional `app`
- *   extra names a package to launch it in, as a game's own override would. Before the launch, the
- *   emulator's firmware for the platform goes in place from the signed-in RomM server; the optional
- *   `bios_dir` extra, an absolute path, takes it instead of the emulator's own folder. With a
- *   `rom_id` extra, the game's RomM id, the game's save syncs with the server before the launch and
- *   again when the launcher is back in front. The optional `save_dir` extra, an absolute path,
- *   stands in for the emulator's save folders, and the optional `romm_url` extra names a server to
- *   sync with, without a token, instead of the signed-in one. With the `find_save` boolean extra,
- *   the screen only shows where the game's save is, as the launch would find it, and neither syncs
- *   nor launches. With the `sync_only` boolean extra, it syncs the save as before a launch, and
- *   doesn't launch.
- * - `sign_in`: the sign-in screens, for a test server. What they sign in to stays in memory, so the
- *   app stays signed in to its own server.
+ * `session_test`, which runs a libretro core in a game session. The `core` extra names the core and
+ * the optional `content` extra the content, as paths relative to the app's `files/session-test`
+ * directory or absolute ones. A `platform` extra, a platform slug such as `gbc`, runs that
+ * platform's core instead, installing it first through [InstalledCores] if it isn't installed or
+ * has an update. The optional `core_options` extra, a string array of `key=value`, sets core
+ * options, such as a renderer.
  *
  * For example:
  * ```
@@ -43,12 +28,6 @@ import kotlinx.io.files.Path
  * adb shell am start -n dev.sargunv.handheld/.MainActivity \
  *   --es debug_screen session_test --es platform psp --es content game.iso \
  *   --esa core_options ppsspp_backend=vulkan
- * adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen launch \
- *   --es rom "'/storage/emulated/0/ROMs/ps2/Jak II.chd'" --es platform ps2 \
- *   --es app dev.sargunv.pocketgoal
- * adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen launch \
- *   --es rom /sdcard/ROMs/nds/game.nds --es platform nds --es rom_id 42 \
- *   --es save_dir /sdcard/Download/scratch-saves --es romm_url http://localhost:8099
  * ```
  */
 internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
@@ -71,43 +50,16 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
         }
       ({ SessionTestScreen(dir, core, content, coreOptions) })
     }
-    "launch" -> {
-      val rom = intent.getStringExtra("rom")
-      val platform = intent.getStringExtra("platform")
-      val app = intent.getStringExtra("app")
-      val biosDir = intent.getStringExtra("bios_dir")
-      val saves =
-        intent.getStringExtra("rom_id")?.toLongOrNull()?.let {
-          SaveSyncOptions(it, intent.getStringExtra("save_dir"), intent.getStringExtra("romm_url"))
-        }
-      val findSave = intent.getBooleanExtra("find_save", false)
-      val syncOnly = intent.getBooleanExtra("sync_only", false)
-      ({
-        LaunchTestScreen(
-          activity as ComponentActivity,
-          rom,
-          platform,
-          app,
-          biosDir,
-          saves,
-          findSave,
-          syncOnly,
-        )
-      })
-    }
-    "sign_in" -> ({ SignInTestScreen() })
     else -> null
   }
 }
 
 /** The installed core for [platform], installed or updated first when needed, under [dir]. */
 private suspend fun installedCoreFor(dir: File, platform: PlatformSlug): File {
-  val root = Path(dir.path)
   val core =
-    CoreChoices(Path(root, "choices.json")).coreFor(platform)
-      ?: throw IOException("No libretro core runs $platform")
+    LibretroCores.recommendedFor(platform) ?: throw IOException("No libretro core runs $platform")
   // The app's native libraries are built for the device's first ABI.
-  return InstalledCores(root, Build.SUPPORTED_ABIS.first()).use { cores ->
+  return InstalledCores(Path(dir.path), Build.SUPPORTED_ABIS.first()).use { cores ->
     if (cores.hasUpdate(core)) cores.install(core)
     File(cores.fileOf(core).toString())
   }

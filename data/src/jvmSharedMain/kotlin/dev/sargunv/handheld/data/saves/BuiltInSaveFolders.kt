@@ -23,6 +23,8 @@ class BuiltInSaveFolders(
   private val history: File,
   private val clock: Clock = Clock.System,
 ) : PerGameState {
+  private val lock = Mutex()
+
   override suspend fun adopt(adoptions: List<Adoption>) =
     withContext(Dispatchers.IO) {
       // A play and a scan may adopt the same game at once.
@@ -79,8 +81,4 @@ class BuiltInSaveFolders(
   }
 
   private fun filesIn(folder: File): List<File> = folder.walkTopDown().filter { it.isFile }.toList()
-
-  private companion object {
-    val lock = Mutex()
-  }
 }

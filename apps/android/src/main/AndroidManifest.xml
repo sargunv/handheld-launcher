@@ -25,6 +25,7 @@
   </queries>
 
   <application
+    android:name=".HandheldApp"
     android:label="Handheld"
     android:networkSecurityConfig="@xml/network_security"
     android:theme="@android:style/Theme.Material.NoActionBar">

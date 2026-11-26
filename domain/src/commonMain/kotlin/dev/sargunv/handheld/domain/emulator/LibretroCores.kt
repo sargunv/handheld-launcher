@@ -189,11 +189,4 @@ object LibretroCores {
 
   /** The known core whose library is [library], or null when there's none. */
   fun byLibrary(library: String): LibretroCore? = all.firstOrNull { it.library == library }
-
-  /**
-   * The core that runs [platform]: the one [overrides] names for it by library, when that's a known
-   * core, or else the recommended one.
-   */
-  fun coreFor(platform: PlatformSlug, overrides: Map<PlatformSlug, String>): LibretroCore? =
-    overrides[platform]?.let(::byLibrary) ?: recommendedFor(platform)
 }
