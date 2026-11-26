@@ -94,7 +94,11 @@ fun gameSaveFor(
     // Named after the game's file, as Argosy names the card it syncs.
     val name = File(romPath).nameWithoutExtension + ".ps2"
     val cards = Ps2CardRoots(saveRoots, id, name, folderCards = layout.folderCards)
-    return SaveLookup.Found(GameSave(romId, emulator.id.value, emptyList(), cards = cards))
+    // Every PS2 card emulator syncs the same card, so a save from one plays in another.
+    val sharesWith = SaveLocations.ps2Cards.map { it.value }.toSet() - emulator.id.value
+    return SaveLookup.Found(
+      GameSave(romId, emulator.id.value, emptyList(), cards = cards, sharesWith = sharesWith),
+    )
   }
   val save = SaveFolders.forGame(location, platform, id) ?: return SaveLookup.NoGameId
   return SaveLookup.Found(
