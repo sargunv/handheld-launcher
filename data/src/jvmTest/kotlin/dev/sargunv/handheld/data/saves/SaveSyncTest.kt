@@ -1088,6 +1088,24 @@ class SaveSyncTest {
   }
 
   @Test
+  fun aSwitchDeviceSaveSyncsWithoutAnAccountProfile() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("eden"), PlatformCatalog.SWITCH))
+    val nand = File(root, "eden/nand/user/save").apply { mkdirs() }
+    val title = "0100ABCD12345000"
+    nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
+    val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
+    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val server = FakeRomm()
+
+    assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
+    assertEquals(
+      mapOf("device/$title/shared" to "device save"),
+      entries(server.uploads.single().bytes),
+    )
+  }
+
+  @Test
   fun aGameCubeSaveIsTheGamesGciFiles() = runTest {
     val location =
       assertNotNull(SaveLocations.forEmulator(EmulatorId("dolphin"), PlatformCatalog.GAMECUBE))

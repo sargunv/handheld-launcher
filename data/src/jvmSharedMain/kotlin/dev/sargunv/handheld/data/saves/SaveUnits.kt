@@ -130,13 +130,23 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
       ?: existing.firstOrNull()
   }
 
-  /** The save's areas under [root], or null when the Switch profile they're in can't be told. */
+  /**
+   * The save's areas under [root]. Without a Switch profile to put the account save in, only the
+   * areas that don't depend on one, such as the device save, or null when there are none.
+   */
   private fun places(root: File): List<Place>? {
     val profile =
       if (roots.save.areas.any { SaveFolders.PROFILE in it.folder }) profile(root) else ""
-    profile ?: return null
-    return roots.save.areas.map {
-      Place(it, File(root, it.folder.replace(SaveFolders.PROFILE, profile)))
+    val areas =
+      if (profile != null) roots.save.areas
+      else
+        roots.save.areas
+          .filter { SaveFolders.PROFILE !in it.folder }
+          .ifEmpty {
+            return null
+          }
+    return areas.map {
+      Place(it, File(root, it.folder.replace(SaveFolders.PROFILE, profile.orEmpty())))
     }
   }
 
