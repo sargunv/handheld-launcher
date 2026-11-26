@@ -25,9 +25,10 @@ import dev.sargunv.handheld.ui.input.onAction
  * A dialog over the screen. Place it last in a box that fills the screen, so it covers what came
  * before it.
  *
- * While open it holds focus: directions can't leave it, the content behind it can't be tapped, and
- * [Action.Back], the system back gesture or a tap outside the panel calls [onDismissRequest]. When
- * it closes, the screen's [FocusScope] puts focus back where it was.
+ * While open it holds focus: directions can't leave it, the content behind it can't be tapped or
+ * act on the actions the dialog doesn't handle, and [Action.Back], the system back gesture or a tap
+ * outside the panel calls [onDismissRequest]. When it closes, the screen's [FocusScope] puts focus
+ * back where it was.
  *
  * @param initialFocus the key of the item to focus first; the first item by default.
  * @param modifier applies to the panel.
@@ -58,12 +59,10 @@ fun Dialog(
           .pointerInput(Unit) { detectTapGestures {} }
           .focusProperties { onExit = { cancelFocusChange() } }
           .onAction { action ->
-            if (action == Action.Back) {
-              dismiss()
-              true
-            } else {
-              false
-            }
+            if (action == Action.Back) dismiss()
+            // The screen behind doesn't act while the dialog is open. Directions go on, to move
+            // focus within the dialog.
+            action.direction == null
           },
       initialFocus = initialFocus,
       content = content,

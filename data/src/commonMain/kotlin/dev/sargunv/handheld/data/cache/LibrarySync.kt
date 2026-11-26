@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.cache
 
+import dev.sargunv.handheld.data.romm.RomOrder
 import dev.sargunv.handheld.data.romm.RomQuery
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommCollection
@@ -41,7 +42,8 @@ class LibrarySync(
    * Brings the cache up to date with the server. Platforms and collections are small, so they're
    * fetched whole every time. ROMs are fetched whole the first time, or when [full] is true, and
    * afterwards only those the server changed since the last sync. The server's list of ROM ids then
-   * tells which ROMs are gone, and which ones the cache lacks, which are fetched one by one.
+   * tells which ROMs are gone, and which ones the cache lacks, which are fetched one by one. The
+   * user's recently played ROMs are fetched whole too, since playing doesn't change a ROM.
    *
    * A sync that fails leaves the cache usable: what it wrote stays, and the next sync fetches the
    * same changes again.
@@ -88,6 +90,17 @@ class LibrarySync(
         client.smartCollections().map { it.toDomain() to it.romIds }
     cache.replaceCollections(collections)
 
+    val played =
+      client
+        .roms(
+          RomQuery(lastPlayed = true, orderBy = RomOrder.LastPlayed, descending = true),
+          limit = RECENTLY_PLAYED_LIMIT,
+        )
+        .items
+    cache.replaceRecentlyPlayed(
+      played.mapNotNull { rom -> rom.romUser?.lastPlayed?.let { rom.id to it } }.toMap(),
+    )
+
     newest?.let { cache.setSyncValue(ROM_CURSOR_KEY, it.toString()) }
     return LibrarySyncResult(
       platforms = platforms.size,
@@ -109,6 +122,9 @@ class LibrarySync(
      * ROM twice is harmless.
      */
     val CURSOR_OVERLAP = 10.minutes
+
+    /** How many of the user's most recently played ROMs a sync keeps. */
+    const val RECENTLY_PLAYED_LIMIT = 20
   }
 }
 
@@ -135,6 +151,7 @@ internal fun RommRom.toDomain(client: RommClient): Rom {
     hasMultipleFiles = hasMultipleFiles,
     files = files.map { it.toDomain() },
     updatedAt = updatedAt,
+    createdAt = createdAt,
   )
 }
 

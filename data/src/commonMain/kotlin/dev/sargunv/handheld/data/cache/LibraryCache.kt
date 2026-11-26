@@ -3,6 +3,7 @@ package dev.sargunv.handheld.data.cache
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import app.cash.sqldelight.ColumnAdapter
 import app.cash.sqldelight.EnumColumnAdapter
+import app.cash.sqldelight.Query
 import app.cash.sqldelight.async.coroutines.awaitAsList
 import app.cash.sqldelight.async.coroutines.awaitAsOne
 import app.cash.sqldelight.async.coroutines.awaitAsOneOrNull
@@ -14,6 +15,7 @@ import dev.sargunv.handheld.data.cache.db.Collection as CollectionRow
 import dev.sargunv.handheld.data.cache.db.Collection_rom as CollectionRomRow
 import dev.sargunv.handheld.data.cache.db.LibraryDatabase
 import dev.sargunv.handheld.data.cache.db.Platform as PlatformRow
+import dev.sargunv.handheld.data.cache.db.Recently_played
 import dev.sargunv.handheld.data.cache.db.Rom as RomRow
 import dev.sargunv.handheld.data.cache.db.Rom_file
 import dev.sargunv.handheld.domain.Collection
@@ -53,8 +55,10 @@ private constructor(
           regionsAdapter = StringListAdapter,
           release_dateAdapter = InstantAdapter,
           updated_atAdapter = InstantAdapter,
+          created_atAdapter = InstantAdapter,
         ),
       rom_fileAdapter = Rom_file.Adapter(categoryAdapter = EnumColumnAdapter()),
+      recently_playedAdapter = Recently_played.Adapter(last_playedAdapter = InstantAdapter),
     )
   private val queries = database.libraryQueries
 
@@ -84,6 +88,18 @@ private constructor(
       transaction {
         withFiles(query.awaitAsList(), queries.filesInCollection(kind, id).awaitAsList())
       }
+    }
+
+  /** The ROMs the user played most recently, latest first. */
+  fun recentlyPlayed(limit: Int): Flow<List<Rom>> =
+    queries.recentlyPlayed(limit.toLong()).asFlow().map { query ->
+      transaction { romsWithFiles(query) }
+    }
+
+  /** The ROMs added to the server most recently, newest first. */
+  fun recentlyAdded(limit: Int): Flow<List<Rom>> =
+    queries.recentlyAdded(limit.toLong()).asFlow().map { query ->
+      transaction { romsWithFiles(query) }
     }
 
   suspend fun rom(id: Long): Rom? = transaction {
@@ -165,6 +181,12 @@ private constructor(
       }
     }
 
+  /** Replaces the recently played ROMs with [lastPlayed], ROM ids to when the user played them. */
+  internal suspend fun replaceRecentlyPlayed(lastPlayed: Map<Long, Instant>) = transaction {
+    queries.deleteRecentlyPlayed()
+    for ((romId, time) in lastPlayed) queries.insertRecentlyPlayed(Recently_played(romId, time))
+  }
+
   internal suspend fun syncValue(key: String): String? = transaction {
     queries.syncValue(key).awaitAsOneOrNull()
   }
@@ -180,7 +202,14 @@ private constructor(
     queries.deleteAllFiles()
     queries.deleteCollections()
     queries.deleteCollectionRoms()
+    queries.deleteRecentlyPlayed()
     queries.deleteSyncState()
+  }
+
+  /** The ROMs [query] selects, with their files. */
+  private suspend fun romsWithFiles(query: Query<RomRow>): List<Rom> {
+    val roms = query.awaitAsList()
+    return withFiles(roms, queries.filesOfRoms(roms.map { it.id }).awaitAsList())
   }
 
   /** Runs [block] in a transaction, so it sees or makes one consistent state. */
@@ -249,6 +278,7 @@ private fun RomRow.toDomain(files: List<RomFile>) =
     hasMultipleFiles = has_multiple_files,
     files = files,
     updatedAt = updated_at,
+    createdAt = created_at,
   )
 
 private fun Rom.toRow() =
@@ -269,6 +299,7 @@ private fun Rom.toRow() =
     cover_large_url = coverLargeUrl,
     has_multiple_files = hasMultipleFiles,
     updated_at = updatedAt,
+    created_at = createdAt,
   )
 
 /**

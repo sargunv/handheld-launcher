@@ -1,0 +1,70 @@
+package dev.sargunv.handheld.ui.cover
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.compose.AsyncImage
+import coil3.disk.DiskCache
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import com.composeunstyled.Text
+import dev.sargunv.handheld.data.romm.platformHttpEngine
+import dev.sargunv.handheld.ui.Placeholder
+import io.ktor.client.HttpClient
+import kotlinx.io.files.Path
+import okio.Path.Companion.toPath
+
+/**
+ * A game's box art from [url]. While it loads, or when there's none, a neutral tile shows the
+ * game's [title] instead.
+ */
+@Composable
+internal fun Cover(url: String?, title: String, modifier: Modifier = Modifier) {
+  var loaded by remember(url) { mutableStateOf(false) }
+  Box(modifier.background(Placeholder.tile)) {
+    if (!loaded) {
+      Text(
+        title,
+        color = Placeholder.text,
+        modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+      )
+    }
+    if (url != null) {
+      AsyncImage(
+        model = url,
+        contentDescription = title,
+        modifier = Modifier.matchParentSize(),
+        contentScale = ContentScale.Crop,
+        onSuccess = { loaded = true },
+      )
+    }
+  }
+}
+
+/**
+ * The image loader for covers. It keeps the covers it fetched in [cacheDir], so they show offline
+ * and after a restart. The server's covers need no sign-in, so requests carry no token, which also
+ * keeps it from reaching the metadata sources' image hosts.
+ */
+fun coverImageLoader(context: PlatformContext, cacheDir: Path): ImageLoader =
+  ImageLoader.Builder(context)
+    .components {
+      add(KtorNetworkFetcherFactory(httpClient = { HttpClient(platformHttpEngine()) }))
+    }
+    .diskCache {
+      DiskCache.Builder().directory(cacheDir.toString().toPath()).maxSizeBytes(CACHE_SIZE).build()
+    }
+    .build()
+
+/** Enough for the covers of a large library at the sizes the server keeps. */
+private const val CACHE_SIZE = 512L * 1024 * 1024

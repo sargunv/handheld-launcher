@@ -2,10 +2,10 @@ package dev.sargunv.handheld.ui.demo
 
 import dev.sargunv.handheld.domain.Game
 
-/** A row of games on the home screen. */
+/** A row of games on the demo screen. */
 data class Shelf(val id: String, val title: String, val games: List<Game>)
 
-/** Made-up shelves for exercising focus and navigation before the library exists. */
+/** Made-up shelves for exercising focus and navigation in the tests. */
 object DemoLibrary {
   val shelves: List<Shelf> =
     listOf(

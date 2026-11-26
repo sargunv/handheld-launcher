@@ -1,0 +1,68 @@
+package dev.sargunv.handheld.ui.home
+
+import dev.sargunv.handheld.ui.home.HomeShelf.Collections
+import dev.sargunv.handheld.ui.home.HomeShelf.RecentlyAdded
+import dev.sargunv.handheld.ui.home.HomeShelf.RecentlyPlayed
+import kotlin.test.Test
+import kotlin.test.assertEquals
+
+class HomeSettingsTest {
+  @Test
+  fun showsEveryShelfByDefault() {
+    assertEquals(listOf(RecentlyPlayed, Collections, RecentlyAdded), HomeSettings().visible)
+  }
+
+  @Test
+  fun hidesAndShowsAShelfInItsPlace() {
+    val hidden = HomeSettings().hide(Collections)
+    assertEquals(listOf(RecentlyPlayed, RecentlyAdded), hidden.visible)
+    assertEquals(
+      listOf(RecentlyPlayed, Collections, RecentlyAdded),
+      hidden.show(Collections).visible,
+    )
+  }
+
+  @Test
+  fun movesAShelfPastItsVisibleNeighbor() {
+    val settings = HomeSettings()
+    assertEquals(
+      listOf(RecentlyPlayed, RecentlyAdded, Collections),
+      settings.moveUp(RecentlyAdded).visible,
+    )
+    assertEquals(
+      listOf(Collections, RecentlyPlayed, RecentlyAdded),
+      settings.moveDown(RecentlyPlayed).visible,
+    )
+    // A hidden shelf in between doesn't take a move.
+    val skipping = settings.hide(Collections).moveDown(RecentlyPlayed)
+    assertEquals(listOf(RecentlyAdded, RecentlyPlayed), skipping.visible)
+    assertEquals(
+      listOf(RecentlyAdded, Collections, RecentlyPlayed),
+      skipping.show(Collections).visible,
+    )
+    // So doesn't one that's off the screen, such as an empty one.
+    assertEquals(
+      listOf(RecentlyAdded, Collections, RecentlyPlayed),
+      settings.moveDown(RecentlyPlayed, shown = listOf(RecentlyPlayed, RecentlyAdded)).visible,
+    )
+  }
+
+  @Test
+  fun movingPastTheEndsDoesNothing() {
+    val settings = HomeSettings()
+    assertEquals(settings, settings.moveUp(RecentlyPlayed))
+    assertEquals(settings, settings.moveDown(RecentlyAdded))
+    val hidden = settings.hide(Collections)
+    assertEquals(hidden, hidden.moveUp(Collections))
+  }
+
+  @Test
+  fun aShelfMissingFromTheStoredOrderGoesLast() {
+    val stored = HomeSettings(order = listOf(RecentlyAdded, RecentlyPlayed))
+    assertEquals(listOf(RecentlyAdded, RecentlyPlayed, Collections), stored.visible)
+    assertEquals(
+      listOf(RecentlyAdded, Collections, RecentlyPlayed),
+      stored.moveUp(Collections).visible,
+    )
+  }
+}

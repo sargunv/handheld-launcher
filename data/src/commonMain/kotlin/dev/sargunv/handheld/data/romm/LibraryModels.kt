@@ -69,8 +69,17 @@ data class RommRom(
   /** The ROM's files. `GET /api/roms` includes them only when asked to. */
   val files: List<RommRomFile> = emptyList(),
   @SerialName("missing_from_fs") val missingFromFs: Boolean = false,
+  /** What the signed-in user keeps about the ROM, or null when they've kept nothing. */
+  @SerialName("rom_user") val romUser: RommRomUser? = null,
   @SerialName("created_at") val createdAt: Instant,
   @SerialName("updated_at") val updatedAt: Instant,
+)
+
+/** What one user keeps about a ROM. */
+@Serializable
+data class RommRomUser(
+  /** When the user last played the ROM, or null when they haven't. */
+  @SerialName("last_played") val lastPlayed: Instant? = null,
 )
 
 /** The metadata RomM merges from its sources for a ROM. */
