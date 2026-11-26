@@ -304,7 +304,8 @@ class DownloadManager(
     // Once begun, a removal finishes even if the screen that asked goes away.
     withContext(NonCancellable + Dispatchers.IO) {
       val path = Path(game.path)
-      val found = scanned.value.unmatched.any { it.path == game.path }
+      val found =
+        scanned.value.unmatched.any { it.path == game.path && it.sizeBytes == game.sizeBytes }
       val metadata = SystemFileSystem.metadataOrNull(path)
       if (!found || metadata?.isRegularFile != true || metadata.size != game.sizeBytes) {
         installs.update { it + 1 }

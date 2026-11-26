@@ -116,13 +116,16 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
 
   /**
    * Moves the saves a game made while its file matched nothing on the server, as a local game, into
-   * [folder], the ROM's own, the first time the ROM plays, so they sync from then on.
+   * [folder], the ROM's own, while that holds nothing, so they sync from then on. A ROM folder with
+   * saves of its own keeps them, and the local ones stay where they are.
    */
   private fun adoptLocalSaves(request: PlayRequest, folder: String) {
     if (request.game !is GameKey.Romm) return
     val local = File(saves.localFolderOf(request.platform, request.romPath))
     val own = File(folder)
-    if (!local.isDirectory || own.exists()) return
+    if (!local.isDirectory) return
+    // An empty folder, such as one a launch canceled at the save choice left, holds no saves.
+    if (own.exists() && (!own.isDirectory || !own.delete())) return
     own.parentFile?.mkdirs()
     if (!local.renameTo(own)) Log.w(TAG, "Couldn't move the saves in $local to $own")
   }
