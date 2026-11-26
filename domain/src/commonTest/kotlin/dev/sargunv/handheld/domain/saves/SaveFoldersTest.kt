@@ -35,19 +35,17 @@ class SaveFoldersTest {
     )
     assertNull(SaveFolders.forGame(psp, PlatformCatalog.PSP, "not a serial"))
 
-    val azahar =
-      assertNotNull(
-        SaveFolders.forGame(
-          location("azahar", PlatformCatalog.N3DS),
-          PlatformCatalog.N3DS,
-          "0004000000033500",
-        ),
-      )
+    val n3ds = location("azahar", PlatformCatalog.N3DS)
+    val azahar = assertNotNull(SaveFolders.forGame(n3ds, PlatformCatalog.N3DS, "0004000000033500"))
     assertEquals(
       listOf(
         "00000000000000000000000000000000/00000000000000000000000000000000/title/00040000/00033500/data",
       ),
       azahar.areas.map { it.folder },
+    )
+    assertNull(
+      SaveFolders.forGame(n3ds, PlatformCatalog.N3DS, "0001000000000000"),
+      "Only a retail title's saves are filed by its id",
     )
 
     val eden =

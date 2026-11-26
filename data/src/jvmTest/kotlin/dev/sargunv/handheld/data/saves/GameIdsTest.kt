@@ -1,6 +1,5 @@
 package dev.sargunv.handheld.data.saves
 
-import dev.sargunv.handheld.domain.saves.GameIdKind
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -25,18 +24,6 @@ class GameIdsTest {
   private fun ByteBuffer.ascii(at: Int, text: String) = apply {
     text.encodeToByteArray().forEachIndexed { i, b -> put(at + i, b) }
   }
-
-  private fun switchId(file: File, keys: File? = null) =
-    GameIds.read(file, GameIdKind.Switch, keys) { error("A Switch game's id isn't in a header") }
-
-  @Test
-  fun takesOnlyARetail3dsTitlesId() {
-    val game = File(root, "game.cxi")
-    assertEquals("0004000000033500", GameIds.read(game, GameIdKind.N3ds) { "0004000000033500" })
-    assertNull(GameIds.read(game, GameIdKind.N3ds) { "0001000000000000" })
-  }
-
-  // Switch
 
   /** A PFS0 partition holding [files]. */
   private fun pfs0(vararg files: Pair<String, ByteArray>): ByteArray {
@@ -66,18 +53,18 @@ class GameIdsTest {
   @Test
   fun readsASwitchIdFromAnNspTicket() {
     val nsp = pfs0("0100abcd12345000000000000000000a.tik" to ticket(0x0100ABCD12345000L))
-    assertEquals("0100ABCD12345000", switchId(file("game.nsp", nsp)))
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(file("game.nsp", nsp)))
   }
 
   @Test
   fun readsAnUpdateOrAddOnAsItsGame() {
     val update = pfs0("u.tik" to ticket(0x0100ABCD12345800L))
-    assertEquals("0100ABCD12345000", switchId(file("update.nsp", update)))
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(file("update.nsp", update)))
     val addOn = pfs0("a.tik" to ticket(0x0100152000023001L))
-    assertEquals("0100152000022000", switchId(file("dlc.nsp", addOn)))
+    assertEquals("0100152000022000", GameIds.switchTitle(file("dlc.nsp", addOn)))
     val twoGames =
       pfs0("a.tik" to ticket(0x0100ABCD12345000L), "b.tik" to ticket(0x0100000000010000L))
-    assertNull(switchId(file("two.nsp", twoGames)))
+    assertNull(GameIds.switchTitle(file("two.nsp", twoGames)))
   }
 
   @Test
@@ -96,8 +83,8 @@ class GameIdsTest {
       }
     val nca = ByteArray(0x200) + GameIds.xts(plain, key, sector = 1, Cipher.ENCRYPT_MODE)
     val nsp = file("game.nsp", pfs0("0123.nca" to nca))
-    assertEquals("0100ABCD12345000", switchId(nsp, keys))
-    assertNull(switchId(nsp), "Without keys or a ticket there's no id")
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(nsp, keys))
+    assertNull(GameIds.switchTitle(nsp), "Without keys or a ticket there's no id")
   }
 
   @Test
@@ -122,13 +109,13 @@ class GameIdsTest {
     val game = pfs0("a.nca" to nca(0x010049900F546000L, 0), "b.nca" to nca(0x010049900F546001L, 0))
     assertEquals(
       "010049900F546000",
-      switchId(file("game.nsp", game), keys),
+      GameIds.switchTitle(file("game.nsp", game), keys),
     )
     // An add-on's data with the same id belongs to the game a block below.
     val addOn = pfs0("c.nca" to nca(0x010049900F546001L, 4))
     assertEquals(
       "010049900F545000",
-      switchId(file("dlc.nsp", addOn), keys),
+      GameIds.switchTitle(file("dlc.nsp", addOn), keys),
     )
   }
 
@@ -142,7 +129,7 @@ class GameIdsTest {
         ascii(0x100, "HEAD")
         putLong(0x130, 0x200)
       } + root
-    assertEquals("0100ABCD12345000", switchId(file("game.xci", xci)))
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(file("game.xci", xci)))
   }
 
   private fun hfs0(vararg files: Pair<String, ByteArray>): ByteArray {

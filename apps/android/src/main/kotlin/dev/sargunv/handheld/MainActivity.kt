@@ -29,9 +29,9 @@ import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.downloads.DownloadState
+import dev.sargunv.handheld.launch.AndroidGameLauncher
 import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.SessionRomHeaders
-import dev.sargunv.handheld.launch.StandalonePlayer
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
   /** The latest press of HOME while the launcher was in front. */
   private var homePress by mutableStateOf<HomePress?>(null)
 
-  private var player: StandalonePlayer? = null
+  private var player: AndroidGameLauncher? = null
 
   private var showsDebugScreen = false
 
@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
     val app = handheldApp
     val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val launcher = StandalonePlayer(this, app.credentials).also { player = it }
+    val launcher = AndroidGameLauncher(this, app.credentials).also { player = it }
     val retroAchievements = retroAchievementsSignIn(this)
     // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
