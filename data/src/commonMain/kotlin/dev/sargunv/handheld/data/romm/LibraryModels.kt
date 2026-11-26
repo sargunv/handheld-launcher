@@ -71,9 +71,19 @@ data class RommRom(
   @SerialName("missing_from_fs") val missingFromFs: Boolean = false,
   /** What the signed-in user keeps about the ROM, or null when they've kept nothing. */
   @SerialName("rom_user") val romUser: RommRomUser? = null,
+  /** RetroAchievements' id for the game, when RomM matched it there. */
+  @SerialName("ra_id") val raId: Long? = null,
+  /** What RomM keeps from RetroAchievements about the game. */
+  @SerialName("merged_ra_metadata") val raMetadata: RommRaMetadata? = null,
   @SerialName("created_at") val createdAt: Instant,
   @SerialName("updated_at") val updatedAt: Instant,
 )
+
+/** What RomM keeps from RetroAchievements about a game. */
+@Serializable data class RommRaMetadata(val achievements: List<RommRaAchievement> = emptyList())
+
+/** One of a game's achievements, as RomM keeps it. */
+@Serializable data class RommRaAchievement(@SerialName("ra_id") val raId: Long? = null)
 
 /** What one user keeps about a ROM. */
 @Serializable

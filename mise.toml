@@ -114,6 +114,12 @@ tools = { "cargo:bindgen-cli" = "0.73.2" }
 dir = "session"
 run = "bindgen vendor/libretro/libretro.h --rust-edition 2024 --rust-target 1.85 --use-core --allowlist-item 'retro_.*|RETRO_.*' --ignore-functions --no-layout-tests --no-doc-comments --no-prepend-enum-name --with-derive-default --sort-semantically -o src/ffi/generated.rs"
 
+[tasks."session:rcheevos-bindings"]
+description = "Regenerate the session's rcheevos bindings from the vendored headers"
+tools = { "cargo:bindgen-cli" = "0.73.2" }
+dir = "session"
+run = "bindgen src/achievements/rcheevos.h --rust-edition 2024 --rust-target 1.85 --use-core --allowlist-item 'rc_.*|RC_.*' --blocklist-item 'retro_.*|time_t|__darwin_.*' --raw-line 'use crate::ffi::retro_memory_map;' --raw-line 'type time_t = core::ffi::c_long;' --no-layout-tests --no-doc-comments --no-prepend-enum-name --with-derive-default --sort-semantically -o src/achievements/ffi.rs -- -Ivendor/rcheevos/include -Ivendor/rcheevos/src -Ivendor/libretro -DRC_CLIENT_SUPPORTS_HASH"
+
 [tasks."session:fixtures"]
 description = "Build and download the cores and content the session's tests run"
 run = "session/fixtures.sh"

@@ -57,6 +57,25 @@ control keeping AAudio's queue at about a burst. Other cores, and sessions with
 no window, run on a timer at the core's rate. The session logs its frame timing,
 audio latency and underruns to logcat each minute and when it pauses.
 
+## Achievements
+
+With `achievements` in its options and an `AchievementsHttp` from the app, a
+session takes part in RetroAchievements through
+[rcheevos](https://github.com/RetroAchievements/rcheevos)' `rc_client`, which
+`vendor/rcheevos/` pins and `build.rs` compiles. It signs in with the player's
+token, never their password, hashes the content as RetroAchievements does for
+the console the app names (the extracted file, for a zipped game), loads the
+game's achievements and checks them against the core's memory after every frame,
+laid out from the core's memory map when it gives one. Its requests go to the
+app's `AchievementsHttp` on the events thread, and the app hands each response
+back with `achievements_response`; the session takes them between frames, and
+once a second while paused. Unlocks reach the listener's `achievement_event`,
+and `achievements()` lists the game's achievements. In hardcore, while the game
+has achievements or may still, the session refuses to load states and to fast
+forward. A loaded state starts every achievement's progress over, as its memory
+jumped. `mise run session:rcheevos-bindings` regenerates
+`src/achievements/ffi.rs` from the headers.
+
 ## On a device
 
 Debug builds of the Android app have a screen that runs a core:

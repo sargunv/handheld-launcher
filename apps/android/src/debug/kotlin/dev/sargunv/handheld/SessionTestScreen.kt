@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import dev.sargunv.handheld.session.AchievementEvent
 import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.SessionException
@@ -68,6 +69,8 @@ internal fun SessionTestScreen(
         Log.i(TAG, "the core quit")
         status = Status.Failed("The core quit, so the session closed.")
       }
+
+      override fun achievementEvent(event: AchievementEvent) {}
     }
   }
   LaunchedEffect(core, content) {

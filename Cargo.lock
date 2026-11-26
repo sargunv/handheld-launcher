@@ -1006,6 +1006,7 @@ version = "0.1.0"
 dependencies = [
  "android_logger",
  "ash",
+ "cc",
  "clap",
  "cpal",
  "env_logger",

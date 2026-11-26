@@ -112,6 +112,9 @@ pub(crate) struct Host {
     pub(crate) controller_ports: Option<usize>,
     /// The `RETRO_SERIALIZATION_QUIRK_*` flags the core declared.
     serialization_quirks: u64,
+    /// The memory map the core declared with `SET_MEMORY_MAPS`, copied, for
+    /// achievements to read the console's memory by its addresses.
+    pub(crate) memory_map: Option<Vec<ffi::retro_memory_descriptor>>,
     unhandled: HashSet<c_uint>,
 }
 
@@ -154,6 +157,7 @@ impl Host {
             shutdown_requested: false,
             controller_ports: None,
             serialization_quirks: 0,
+            memory_map: None,
             unhandled: HashSet::new(),
         }
     }
@@ -646,10 +650,26 @@ impl Host {
                     self.controller_ports = Some(ports);
                     true
                 }
+                ffi::RETRO_ENVIRONMENT_SET_MEMORY_MAPS => {
+                    let Some(map) = data.cast::<ffi::retro_memory_map>().as_ref() else {
+                        return false;
+                    };
+                    let descriptors = if map.descriptors.is_null() {
+                        Vec::new()
+                    } else {
+                        // The descriptors point into the core's memory, which
+                        // lives while the game is loaded; the array itself
+                        // may not.
+                        std::slice::from_raw_parts(map.descriptors, map.num_descriptors as usize)
+                            .to_vec()
+                    };
+                    log::debug!("core memory map: {} descriptors", descriptors.len());
+                    self.memory_map = Some(descriptors);
+                    true
+                }
                 // Information the session doesn't use yet, accepted so cores
                 // don't take a fallback path.
                 ffi::RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO
-                | ffi::RETRO_ENVIRONMENT_SET_MEMORY_MAPS
                 | ffi::RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS
                 | ffi::RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK => true,
                 _ => {

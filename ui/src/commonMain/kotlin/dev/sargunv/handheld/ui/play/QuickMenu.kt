@@ -47,8 +47,10 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.saves.ago
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** A save-state slot: its number, and when its state was saved, with a picture of the game then. */
@@ -75,6 +77,16 @@ interface QuickMenuSession {
 
   /** Runs the game fast, or at its own speed, once it resumes. */
   fun setFastForward(on: Boolean)
+
+  /** Where the game's achievements stand, with the list of them once they've loaded. */
+  suspend fun achievements(): GameAchievements = GameAchievements.Off
+
+  /**
+   * Whether the game plays in RetroAchievements' hardcore mode, which doesn't allow loading states
+   * or fast forward while the game has achievements, or may have them once they've loaded.
+   */
+  val hardcore: Boolean
+    get() = false
 
   /** Closes the menu and runs the game again. */
   fun resume()
@@ -122,12 +134,49 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
   var busy by mutableStateOf(false)
     private set
 
+  /** The game's achievements, as of the last opening of the menu or of their list. */
+  var achievements by mutableStateOf<GameAchievements>(GameAchievements.Off)
+    private set
+
+  /** Whether the menu lists the game's achievements. */
+  var showsAchievements by mutableStateOf(false)
+    private set
+
+  /** Whether hardcore mode keeps the game from loading states and fast forwarding now. */
+  val hardcoreRestricts: Boolean
+    get() =
+      session.hardcore &&
+        (achievements == GameAchievements.Loading || achievements is GameAchievements.Ready)
+
   /** Starts an opening of the menu on its main list, and reads the slots again. */
   fun open() {
     picking = null
     focusedSlot = null
     message = null
+    showsAchievements = false
+    // Until they're read, hardcore assumes the game has achievements.
+    if (session.hardcore) achievements = GameAchievements.Loading
     scope.launch { slots = session.slots() }
+    readAchievements()
+  }
+
+  /** Lists the game's achievements, read again. */
+  fun showAchievements() {
+    showsAchievements = true
+    message = null
+    readAchievements()
+  }
+
+  /** Reads the game's achievements, and again while the session is still loading them. */
+  private fun readAchievements() {
+    scope.launch {
+      while (true) {
+        val read = session.achievements()
+        achievements = read
+        if (read != GameAchievements.Loading) break
+        delay(ACHIEVEMENTS_POLL)
+      }
+    }
   }
 
   /** Lists the slots, for [action]. */
@@ -142,7 +191,9 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
    */
   fun back() {
     if (busy) return
-    if (picking != null) {
+    if (showsAchievements) {
+      showsAchievements = false
+    } else if (picking != null) {
       picking = null
       focusedSlot = null
     } else {
@@ -158,6 +209,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
     val action = picking ?: return
     if (busy) return
     if (action == SlotAction.Load && slots.find { it.number == slot }?.isEmpty != false) return
+    if (action == SlotAction.Load && hardcoreRestricts) return
     busy = true
     scope.launch {
       try {
@@ -191,6 +243,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
   }
 
   fun toggleFastForward() {
+    if (!fastForward && hardcoreRestricts) return
     fastForward = !fastForward
     session.setFastForward(fastForward)
   }
@@ -218,6 +271,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
     ) {
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when (val action = state.picking) {
+          null if state.showsAchievements -> FocusScope { AchievementList(state.achievements) }
           null -> MainList(state)
           else ->
             // A scope of its own, so the main list gets its focus back on returning.
@@ -237,6 +291,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
     }
     HintBar(
       when (state.picking) {
+        null if state.showsAchievements -> listOf(Hint(Action.Back, "Back"))
         null ->
           listOf(
             Hint(Action.Confirm, "Select"),
@@ -262,12 +317,29 @@ private fun MainList(state: QuickMenuState) {
     )
     MenuItem("quick:resume", "Resume", onConfirm = state::resume)
     MenuItem("quick:save", "Save state") { state.pick(SlotAction.Save) }
-    MenuItem("quick:load", "Load state") { state.pick(SlotAction.Load) }
+    val restricted = state.hardcoreRestricts
+    MenuItem(
+      "quick:load",
+      "Load state",
+      value = if (restricted) "Not in hardcore" else null,
+      onConfirm = if (restricted) null else ({ state.pick(SlotAction.Load) }),
+    )
     MenuItem(
       "quick:fast-forward",
       "Fast forward",
-      value = if (state.fastForward) "On" else "Off",
-      onConfirm = state::toggleFastForward,
+      value =
+        when {
+          restricted && !state.fastForward -> "Not in hardcore"
+          state.fastForward -> "On"
+          else -> "Off"
+        },
+      onConfirm = if (restricted && !state.fastForward) null else state::toggleFastForward,
+    )
+    MenuItem(
+      "quick:achievements",
+      "Achievements",
+      value = state.achievements.summary(),
+      onConfirm = state::showAchievements,
     )
     MenuItem("quick:quit", "Quit", onConfirm = state::quit)
   }
@@ -411,3 +483,5 @@ private fun SlotTile(
     Text("${slot.number}$saved", color = Placeholder.text, fontSize = 16.sp)
   }
 }
+
+private val ACHIEVEMENTS_POLL = 500.milliseconds

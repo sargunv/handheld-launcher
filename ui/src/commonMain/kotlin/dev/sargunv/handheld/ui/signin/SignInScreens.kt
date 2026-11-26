@@ -323,13 +323,7 @@ private fun ScreenColumn(content: @Composable () -> Unit) {
   Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) { content() }
 }
 
-/**
- * A text field for a controller: an item that focus moves over like any other, and that opens the
- * system keyboard on [Action.Confirm] or a tap. [Action.Back], [Action.Confirm] or moving focus
- * away stops editing; the keyboard's action key also calls [onSubmit].
- *
- * @param secure hides what's typed, for secrets.
- */
+/** A [TextEntry] on a sign-in screen, whose lower screen shows [help] while it has focus. */
 @Composable
 private fun TextEntry(
   state: SignInState,
@@ -341,6 +335,39 @@ private fun TextEntry(
   onSubmit: () -> Unit,
   modifier: Modifier = Modifier,
   secure: Boolean = false,
+) =
+  TextEntry(
+    key = key,
+    field = field,
+    placeholder = placeholder,
+    label = help.title,
+    keyboardOptions = keyboardOptions,
+    onSubmit = onSubmit,
+    modifier = modifier,
+    secure = secure,
+    onFocused = { state.help = help },
+  )
+
+/**
+ * A text field for a controller: an item that focus moves over like any other, and that opens the
+ * system keyboard on [Action.Confirm] or a tap. [Action.Back], [Action.Confirm] or moving focus
+ * away stops editing; the keyboard's action key also calls [onSubmit].
+ *
+ * @param label names the field to accessibility services.
+ * @param secure hides what's typed, for secrets.
+ * @param onFocused called when the field takes focus.
+ */
+@Composable
+internal fun TextEntry(
+  key: String,
+  field: TextFieldState,
+  placeholder: String,
+  label: String,
+  keyboardOptions: KeyboardOptions,
+  onSubmit: () -> Unit,
+  modifier: Modifier = Modifier,
+  secure: Boolean = false,
+  onFocused: () -> Unit = {},
 ) {
   var editing by remember { mutableStateOf(false) }
   val itemRequester = remember { FocusRequester() }
@@ -360,12 +387,12 @@ private fun TextEntry(
     }
   Box(
     modifier
-      .onFocusChanged { if (it.hasFocus) state.help = help }
+      .onFocusChanged { if (it.hasFocus) onFocused() }
       .focusRequester(itemRequester)
       .focusItem(
         key,
         onConfirm = { if (editing) stopEditing() else editing = true },
-        description = if (editing) null else "${help.title}: $value",
+        description = if (editing) null else "$label: $value",
         onAction = { action ->
           if (action == Action.Back && editing) {
             stopEditing()

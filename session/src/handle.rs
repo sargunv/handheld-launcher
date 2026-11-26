@@ -16,6 +16,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::achievements::{
+    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest, HttpClient,
+};
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, FrameStats, Vsync};
@@ -59,6 +62,11 @@ pub struct SessionOptions {
     /// frame's whole width.
     #[uniffi(default = None)]
     pub lower_screen_width_share: Option<f32>,
+    /// How the session takes part in RetroAchievements, or `None` for not at
+    /// all. Its requests go to the `http` that [`GameSession::start`] takes,
+    /// so without one, the session doesn't take part either.
+    #[uniffi(default = None)]
+    pub achievements: Option<AchievementOptions>,
 }
 
 /// Where a session's frames go.
@@ -133,12 +141,31 @@ pub trait SessionListener: Send + Sync {
     /// stopped, writing save memory as it does when stopped, and unloaded the
     /// core, so the app should close it.
     fn core_quit(&self);
+
+    /// Something happened to the game's achievements, such as an unlock.
+    fn achievement_event(&self, event: AchievementEvent);
+}
+
+/// Sends a session's requests to RetroAchievements, which the app does with
+/// its own HTTP client. The session calls it on a thread of its own, one call
+/// at a time, and it should return at once: the app sends the request in the
+/// background, then hands its response to
+/// [`GameSession::achievements_response`] with the request's `id`.
+///
+/// RetroAchievements asks clients to name themselves in the User-Agent, as
+/// `HandheldLauncher/<version> rcheevos/<version>`, which
+/// [`crate::rcheevos_user_agent_clause`] ends.
+#[uniffi::export(with_foreign)]
+pub trait AchievementsHttp: Send + Sync {
+    fn request(&self, id: u64, request: AchievementsRequest);
 }
 
 /// What the session thread tells the listener.
 enum Event {
     InfoChanged(SessionInfo),
     CoreQuit,
+    Achievement(AchievementEvent),
+    Request(u64, AchievementsRequest),
 }
 
 /// Sends events to the listener, if the app gave one, on a thread of their
@@ -147,18 +174,28 @@ enum Event {
 struct Events(Option<Sender<Event>>);
 
 impl Events {
-    fn new(listener: Option<Arc<dyn SessionListener>>) -> std::io::Result<Self> {
-        let Some(listener) = listener else {
+    fn new(
+        listener: Option<Arc<dyn SessionListener>>,
+        http: Option<Arc<dyn AchievementsHttp>>,
+    ) -> std::io::Result<Self> {
+        if listener.is_none() && http.is_none() {
             return Ok(Self(None));
-        };
+        }
         let (events, receiver) = mpsc::channel();
         std::thread::Builder::new()
             .name("session-events".into())
             .spawn(move || {
                 for event in receiver {
-                    match event {
-                        Event::InfoChanged(info) => listener.info_changed(info),
-                        Event::CoreQuit => listener.core_quit(),
+                    match (event, &listener, &http) {
+                        (Event::InfoChanged(info), Some(listener), _) => {
+                            listener.info_changed(info)
+                        }
+                        (Event::CoreQuit, Some(listener), _) => listener.core_quit(),
+                        (Event::Achievement(event), Some(listener), _) => {
+                            listener.achievement_event(event)
+                        }
+                        (Event::Request(id, request), _, Some(http)) => http.request(id, request),
+                        _ => {}
                     }
                 }
             })?;
@@ -208,6 +245,8 @@ enum Command {
     SaveState(PathBuf, Reply<()>),
     LoadState(PathBuf, Reply<()>),
     CaptureFrame(Reply<Option<CapturedFrame>>),
+    AchievementStatus(Reply<AchievementStatus>),
+    AchievementsResponse(u64, Option<u16>, Vec<u8>),
     Stop(Reply<()>),
 }
 
@@ -215,18 +254,23 @@ enum Command {
 impl GameSession {
     /// Loads the core and its content on a new thread, and returns once
     /// they're ready to run, paused. The session tells `listener` when the
-    /// core changes its video mode or quits.
+    /// core changes its video mode or quits, or something happens to the
+    /// game's achievements, and sends RetroAchievements requests to `http`.
     ///
     /// The core is native code that runs in this process: only start cores
     /// the user chose to trust.
-    #[uniffi::constructor(default(listener = None))]
+    #[uniffi::constructor(default(listener = None, http = None))]
     pub fn start(
-        options: SessionOptions,
+        mut options: SessionOptions,
         listener: Option<Arc<dyn SessionListener>>,
+        http: Option<Arc<dyn AchievementsHttp>>,
     ) -> Result<Arc<Self>, SessionError> {
         crate::platform::init_logging();
+        if http.is_none() {
+            options.achievements = None;
+        }
         let input = Arc::new(InputState::new());
-        let events = Events::new(listener)?;
+        let events = Events::new(listener, http)?;
         let (commands, receiver) = mpsc::channel();
         let (started, start_result) = mpsc::channel();
         let thread_input = input.clone();
@@ -420,6 +464,21 @@ impl GameSession {
         self.request(Command::CaptureFrame)
     }
 
+    /// Where the game's achievements stand, with the list of them once
+    /// they've loaded.
+    pub fn achievements(&self) -> Result<AchievementStatus, SessionError> {
+        self.request(Command::AchievementStatus)
+    }
+
+    /// Hands the session the response to the RetroAchievements request `id`:
+    /// its HTTP `status` and `body`, or a `status` of `None` when the server
+    /// couldn't be reached.
+    pub fn achievements_response(&self, id: u64, status: Option<u16>, body: Vec<u8>) {
+        let _ = self
+            .commands
+            .send(Command::AchievementsResponse(id, status, body));
+    }
+
     /// Writes save memory to its file, unloads the core and ends the
     /// session's thread. Stopping a stopped session does nothing.
     pub fn stop(&self) -> Result<(), SessionError> {
@@ -513,7 +572,7 @@ fn run(
 ) {
     let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
     let presents_to_window = options.video == VideoMode::Window;
-    let mut session = match start_session(options, input) {
+    let mut session = match start_session(options, input, &events) {
         Ok(session) => session,
         Err(e) => {
             let _ = started.send(Err(e));
@@ -585,7 +644,21 @@ fn run(
     }
 }
 
-fn start_session(options: SessionOptions, input: Arc<InputState>) -> Result<Session, SessionError> {
+/// Sends the session's RetroAchievements requests to the app's
+/// [`AchievementsHttp`], through the events thread.
+struct EventsHttp(Events);
+
+impl HttpClient for EventsHttp {
+    fn request(&self, id: u64, request: AchievementsRequest) {
+        self.0.send(Event::Request(id, request));
+    }
+}
+
+fn start_session(
+    options: SessionOptions,
+    input: Arc<InputState>,
+    events: &Events,
+) -> Result<Session, SessionError> {
     let video = match options.video {
         VideoMode::Window => VideoOutput::Window {
             window: None,
@@ -607,6 +680,10 @@ fn start_session(options: SessionOptions, input: Arc<InputState>) -> Result<Sess
         audio: audio_sink(),
         input,
         options: options.core_options,
+        achievements: options.achievements.map(|achievements| {
+            let http: Box<dyn HttpClient> = Box::new(EventsHttp(events.clone()));
+            (achievements, http)
+        }),
     };
     // SAFETY: `GameSession::start` documents that the core runs as native
     // code; choosing it is the app's call.
@@ -684,15 +761,33 @@ const STATS_INTERVAL: Duration = Duration::from_secs(60);
 enum Next {
     Command(Command),
     Frame,
+    /// Time for achievements' periodic work while paused.
+    Idle,
     Exit,
 }
 
+/// How often a paused session lets achievements retry and ping the server.
+const ACHIEVEMENTS_IDLE_INTERVAL: Duration = Duration::from_secs(1);
+
 /// Waits for the next command, or, while running, until the next frame is
 /// due. Commands queued when a frame is due come first, so a core slower than
-/// its frame rate still takes them.
-fn next(commands: &Receiver<Command>, paused: bool, next_frame: Instant) -> Next {
+/// its frame rate still takes them. While paused, it waits until `idle`, if
+/// given, for achievements' periodic work.
+fn next(
+    commands: &Receiver<Command>,
+    paused: bool,
+    next_frame: Instant,
+    idle: Option<Instant>,
+) -> Next {
     if paused {
-        return commands.recv().map_or(Next::Exit, Next::Command);
+        let Some(idle) = idle else {
+            return commands.recv().map_or(Next::Exit, Next::Command);
+        };
+        return match commands.recv_timeout(idle.saturating_duration_since(Instant::now())) {
+            Ok(command) => Next::Command(command),
+            Err(RecvTimeoutError::Timeout) => Next::Idle,
+            Err(RecvTimeoutError::Disconnected) => Next::Exit,
+        };
     }
     let wait = next_frame.saturating_duration_since(Instant::now());
     if wait.is_zero() {
@@ -714,15 +809,24 @@ impl Runner {
     /// returns whether the core quit. The session is dropped when this
     /// returns.
     fn run(mut self, commands: &Receiver<Command>) -> bool {
+        let mut next_idle = Instant::now() + ACHIEVEMENTS_IDLE_INTERVAL;
         let quit = loop {
-            match next(commands, self.paused, self.next_frame) {
+            let idle = self.session.has_achievements().then_some(next_idle);
+            match next(commands, self.paused, self.next_frame, idle) {
                 Next::Command(Command::Stop(reply)) => {
                     let _ = reply.send(self.stop());
                     return false;
                 }
                 Next::Command(command) => self.handle(command),
                 Next::Frame => self.run_frame(),
+                Next::Idle => {
+                    self.session.achievements_idle();
+                    next_idle = Instant::now() + ACHIEVEMENTS_IDLE_INTERVAL;
+                }
                 Next::Exit => break false,
+            }
+            for event in self.session.take_achievement_events() {
+                self.events.send(Event::Achievement(event));
             }
             self.report_av();
             if self.session.shutdown_requested() {
@@ -844,7 +948,12 @@ impl Runner {
             }
             Command::Resume => self.set_paused(false),
             Command::FastForward(speed) => {
-                self.speed = speed.max(1);
+                // Hardcore doesn't allow fast forward.
+                self.speed = if self.session.hardcore_restricts() {
+                    1
+                } else {
+                    speed.max(1)
+                };
                 // Audio at the core's rate can't keep up with more frames.
                 self.session.set_audio_muted(self.speed > 1);
             }
@@ -870,6 +979,12 @@ impl Runner {
             }
             Command::CaptureFrame(reply) => {
                 let _ = reply.send(Ok(self.session.capture_frame()));
+            }
+            Command::AchievementStatus(reply) => {
+                let _ = reply.send(Ok(self.session.achievement_status()));
+            }
+            Command::AchievementsResponse(id, status, body) => {
+                self.session.achievements_response(id, status, &body);
             }
             Command::Stop(_) => unreachable!("handled by the loop"),
         }
@@ -980,33 +1095,50 @@ mod tests {
     fn takes_commands_when_a_frame_is_overdue() {
         let (commands, receiver) = mpsc::channel();
         let overdue = Instant::now() - Duration::from_secs(1);
-        assert!(matches!(next(&receiver, false, overdue), Next::Frame));
+        assert!(matches!(next(&receiver, false, overdue, None), Next::Frame));
         commands.send(Command::Resume).unwrap();
         assert!(matches!(
-            next(&receiver, false, overdue),
+            next(&receiver, false, overdue, None),
             Next::Command(Command::Resume)
         ));
-        assert!(matches!(next(&receiver, false, overdue), Next::Frame));
+        assert!(matches!(next(&receiver, false, overdue, None), Next::Frame));
         drop(commands);
-        assert!(matches!(next(&receiver, false, overdue), Next::Exit));
+        assert!(matches!(next(&receiver, false, overdue, None), Next::Exit));
     }
 
     #[test]
     fn waits_for_the_next_frame_or_a_command() {
         let (commands, receiver) = mpsc::channel();
         let soon = Instant::now() + Duration::from_millis(20);
-        assert!(matches!(next(&receiver, false, soon), Next::Frame));
+        assert!(matches!(next(&receiver, false, soon, None), Next::Frame));
         assert!(Instant::now() >= soon);
         commands.send(Command::Resume).unwrap();
         let later = Instant::now() + Duration::from_secs(60);
         assert!(matches!(
-            next(&receiver, false, later),
+            next(&receiver, false, later, None),
             Next::Command(Command::Resume)
         ));
         commands.send(Command::Reset).unwrap();
         assert!(matches!(
-            next(&receiver, true, Instant::now()),
+            next(&receiver, true, Instant::now(), None),
             Next::Command(Command::Reset)
+        ));
+    }
+
+    #[test]
+    fn a_paused_session_wakes_for_achievements() {
+        let (commands, receiver) = mpsc::channel();
+        let idle = Instant::now() + Duration::from_millis(20);
+        let later = Instant::now() + Duration::from_secs(60);
+        assert!(matches!(
+            next(&receiver, true, later, Some(idle)),
+            Next::Idle
+        ));
+        assert!(Instant::now() >= idle);
+        commands.send(Command::Resume).unwrap();
+        assert!(matches!(
+            next(&receiver, true, later, Some(later)),
+            Next::Command(Command::Resume)
         ));
     }
 }

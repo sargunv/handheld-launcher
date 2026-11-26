@@ -9,7 +9,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use handheld_session::{
-    AudioSink, Frame, InputState, Session, SessionConfig, SessionError, VideoOutput, VideoSink,
+    AchievementOptions, AchievementsHttpClient, AudioSink, Frame, InputState, Session,
+    SessionConfig, SessionError, VideoOutput, VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -165,6 +166,17 @@ impl Harness {
         content: Option<&str>,
         options: HashMap<String, String>,
     ) -> Result<Self, SessionError> {
+        Self::start_config(core, content, options, None)
+    }
+
+    /// Starts `core` with `content`, taking part in RetroAchievements as
+    /// `achievements` says.
+    pub fn start_config(
+        core: &str,
+        content: Option<&str>,
+        options: HashMap<String, String>,
+        achievements: Option<(AchievementOptions, Box<dyn AchievementsHttpClient>)>,
+    ) -> Result<Self, SessionError> {
         let frames = Frames::default();
         let audio = Audio::default();
         let input = Arc::new(InputState::new());
@@ -186,6 +198,7 @@ impl Harness {
             audio: Box::new(audio.clone()),
             input: input.clone(),
             options,
+            achievements,
         };
         // SAFETY: the fixtures are libretro cores.
         let session = unsafe { Session::new(config)? };

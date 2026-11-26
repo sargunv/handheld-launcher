@@ -54,6 +54,13 @@ jobs:
       - run:
           cargo clippy -p handheld-session --features runner --all-targets -- -D
           warnings
-      - run:
-          cargo clippy -p handheld-session --target aarch64-linux-android
-          --all-targets -- -D warnings
+      # The session's build script compiles rcheevos, so the Android check needs
+      # the NDK's compiler, as Gradle's Android build sets it.
+      - run: |
+          ndk="$ANDROID_HOME/ndk/$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)"
+          min_sdk="$(sed -n 's/^android-minSdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)"
+          bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          CC_aarch64_linux_android="$bin/aarch64-linux-android$min_sdk-clang" \
+            AR_aarch64_linux_android="$bin/llvm-ar" \
+            cargo clippy -p handheld-session --target aarch64-linux-android \
+            --all-targets -- -D warnings

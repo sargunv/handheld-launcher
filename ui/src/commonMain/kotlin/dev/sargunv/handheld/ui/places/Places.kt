@@ -51,6 +51,9 @@ import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsPanel
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
+import dev.sargunv.handheld.ui.achievements.summary
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.downloads.DownloadsPlace
@@ -131,6 +134,8 @@ class AppState(
   val apps: AppCatalog,
   val credentials: CredentialStore,
   val httpEngine: () -> HttpClientEngine,
+  /** The RetroAchievements account, on platforms whose games can earn achievements. */
+  val retroAchievements: RetroAchievementsState? = null,
 ) {
   var settings: Settings by mutableStateOf(settings)
   val navigator = Navigator<Screen>(Screen.Places)
@@ -492,7 +497,24 @@ private fun QuickMenu(
   onDismissRequest: () -> Unit,
   onTurnOnCloseEmulators: () -> Unit,
 ) {
-  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+  var page by rememberSaveable { mutableStateOf(QuickMenuPage.Main) }
+  Dialog(
+    onDismissRequest = {
+      if (page == QuickMenuPage.Main) onDismissRequest() else page = QuickMenuPage.Main
+    },
+    modifier = Modifier.background(Placeholder.dialog).padding(24.dp),
+    initialFocus = if (page == QuickMenuPage.Main) null else "quick:retroachievements",
+  ) {
+    val achievements = state.retroAchievements
+    if (page == QuickMenuPage.RetroAchievements && achievements != null) {
+      // A scope of its own, so the main page gets its focus back on returning.
+      FocusScope {
+        RetroAchievementsPanel(achievements, state.settings.achievements) {
+          state.settings = state.settings.copy(achievements = it)
+        }
+      }
+      return@Dialog
+    }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text("Quick menu", color = Placeholder.text, modifier = Modifier.semantics { heading() })
       val confirm =
@@ -515,6 +537,15 @@ private fun QuickMenu(
         MenuButton("quick:closeEmulators", "Close emulators: ${if (on) "On" else "Off"}") {
           if (on) state.settings = state.settings.copy(closeEmulators = false)
           else onTurnOnCloseEmulators()
+        }
+      }
+      if (achievements != null) {
+        val account = achievements.summary()
+        MenuButton(
+          "quick:retroachievements",
+          if (account.isEmpty()) "RetroAchievements" else "RetroAchievements: $account",
+        ) {
+          page = QuickMenuPage.RetroAchievements
         }
       }
     }
@@ -546,6 +577,12 @@ private fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> U
       MenuButton("closeEmulators:cancel", "Cancel", onConfirm = onDismissRequest)
     }
   }
+}
+
+/** The quick menu's pages. */
+private enum class QuickMenuPage {
+  Main,
+  RetroAchievements,
 }
 
 /**

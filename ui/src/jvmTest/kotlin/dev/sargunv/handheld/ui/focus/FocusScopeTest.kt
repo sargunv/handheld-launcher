@@ -24,6 +24,7 @@ import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class FocusScopeTest {
@@ -100,5 +101,27 @@ class FocusScopeTest {
     onRoot().performKeyInput { pressKey(Key.ButtonB) }
     waitForIdle()
     onNodeWithTag("screen").assertIsFocused()
+  }
+
+  @Test
+  fun aScopeInsideADialogStillCountsAsADialog() = runComposeUiTest {
+    var scopes: FocusScopes? = null
+    setContent {
+      TestActionInputRoot {
+        FocusRoot {
+          scopes = LocalFocusScopes.current
+          Box {
+            FocusScope { Box(Modifier.size(40.dp).testTag("screen").focusItem("screen")) }
+            Dialog(onDismissRequest = {}) {
+              // A page inside the dialog, as the RetroAchievements page is.
+              FocusScope { Box(Modifier.size(40.dp).testTag("page").focusItem("page")) }
+            }
+          }
+        }
+      }
+    }
+    waitForIdle()
+    onNodeWithTag("page").assertIsFocused()
+    assertTrue(scopes!!.isDialogOpen)
   }
 }

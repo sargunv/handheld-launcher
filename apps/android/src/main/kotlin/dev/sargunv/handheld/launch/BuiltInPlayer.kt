@@ -9,6 +9,7 @@ import dev.sargunv.handheld.data.cores.CoreChoices
 import dev.sargunv.handheld.data.cores.InstalledCores
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.builtInGameSave
+import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import dev.sargunv.handheld.settingsFile
@@ -87,6 +88,8 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         aButtonPosition = settings.input.aButtonPosition,
         stackedScreensOptions = chosen.stackedScreensOptions,
         lowerScreenWidthShare = chosen.lowerScreenWidthShare,
+        achievementsConsole = retroAchievementsConsole(request.platform),
+        hardcore = settings.achievements.hardcore,
       )
     // A failure an earlier session left unreported isn't this one's.
     SessionActivity.takeUnreportedSaveError()
