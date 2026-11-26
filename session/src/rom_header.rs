@@ -1,6 +1,6 @@
-//! What a game's own header says about the copy on the device, for the app to
-//! show: [`rom_header_fields`] reads it with `rom-headers` and gives its
-//! fields as labels and values, so the app's screens stay generic.
+//! What a game's own header says about the copy on the device, read with
+//! `rom-headers`: [`rom_header_fields`] gives its fields as labels and values,
+//! for the app to show, and [`rom_game_id`] the id its saves are filed under.
 
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use rom_headers::{Header, Platform};
 
 /// A platform whose games carry a header the session reads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum HeaderPlatform {
+#[uniffi::remote(Enum)]
+pub enum Platform {
     Nes,
     Snes,
     N64,
@@ -34,30 +34,6 @@ pub enum HeaderPlatform {
     Xbox,
 }
 
-impl From<HeaderPlatform> for Platform {
-    fn from(p: HeaderPlatform) -> Self {
-        match p {
-            HeaderPlatform::Nes => Self::Nes,
-            HeaderPlatform::Snes => Self::Snes,
-            HeaderPlatform::N64 => Self::N64,
-            HeaderPlatform::GameBoy => Self::GameBoy,
-            HeaderPlatform::GameBoyAdvance => Self::GameBoyAdvance,
-            HeaderPlatform::NintendoDs => Self::NintendoDs,
-            HeaderPlatform::Nintendo3ds => Self::Nintendo3ds,
-            HeaderPlatform::GameCube => Self::GameCube,
-            HeaderPlatform::MasterSystem => Self::MasterSystem,
-            HeaderPlatform::MegaDrive => Self::MegaDrive,
-            HeaderPlatform::MegaCd => Self::MegaCd,
-            HeaderPlatform::Saturn => Self::Saturn,
-            HeaderPlatform::Dreamcast => Self::Dreamcast,
-            HeaderPlatform::PlayStation => Self::PlayStation,
-            HeaderPlatform::PlayStation2 => Self::PlayStation2,
-            HeaderPlatform::Psp => Self::Psp,
-            HeaderPlatform::Xbox => Self::Xbox,
-        }
-    }
-}
-
 /// One of a header's fields, in words.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct HeaderField {
@@ -70,20 +46,36 @@ pub struct HeaderField {
 /// naming one. Empty when there's no header to read. It reads only what the
 /// header needs, so it suits a background thread, not the main one.
 #[uniffi::export]
-pub fn rom_header_fields(platform: HeaderPlatform, path: String) -> Vec<HeaderField> {
+pub fn rom_header_fields(platform: Platform, path: String) -> Vec<HeaderField> {
     read(platform, Path::new(&path))
         .map(|header| describe(&header))
         .unwrap_or_default()
 }
 
-fn read(platform: HeaderPlatform, path: &Path) -> Option<Header> {
+/// The id the saves of the game for `platform` at `path` are filed under, from
+/// its header, read as [`rom_header_fields`] reads it: a PlayStation or
+/// PlayStation 2 disc's serial, such as `SLUS-20152`, a PSP game's disc id,
+/// such as `ULUS10064`, a 3DS title's program id in 16 hex digits, or a
+/// GameCube or Wii disc's game code, such as `GZLE`. Null when it has none.
+#[uniffi::export]
+pub fn rom_game_id(platform: Platform, path: String) -> Option<String> {
+    match read(platform, Path::new(&path))? {
+        Header::SystemCnf(cnf) => cnf.serial(),
+        Header::ParamSfo(sfo) => sfo.disc_id().map(str::to_owned),
+        Header::Nintendo3ds(h) => Some(format!("{:016X}", h.program_id)),
+        Header::GameCube(h) => Some(h.game_id.chars().take(4).collect()),
+        _ => None,
+    }
+}
+
+fn read(platform: Platform, path: &Path) -> Option<Header> {
     let path = data_file(path, 0)?;
     let file = BufReader::new(File::open(&path).ok()?);
     if extension(&path) == "zip" {
         let entry = ZipEntry::open(file, platform).ok()?;
-        return rom_headers::identify(platform.into(), entry).ok();
+        return rom_headers::identify(platform, entry).ok();
     }
-    rom_headers::identify(platform.into(), file).ok()
+    rom_headers::identify(platform, file).ok()
 }
 
 fn extension(path: &Path) -> String {
@@ -179,28 +171,28 @@ struct ZipEntry<R> {
 /// Whether a file named `name` can be a game of `platform`, by its extension:
 /// what a zip's game is chosen among, so a readme, manual or picture packed
 /// beside it never is.
-fn is_game(platform: HeaderPlatform, name: &str) -> bool {
+fn is_game(platform: Platform, name: &str) -> bool {
     let extension = name
         .rsplit_once('.')
         .map_or("", |(_, e)| e)
         .to_ascii_lowercase();
     let extensions: &[&str] = match platform {
-        HeaderPlatform::Nes => &["nes", "unf", "unif"],
-        HeaderPlatform::Snes => &["sfc", "smc", "swc", "fig", "bs", "st"],
-        HeaderPlatform::N64 => &["z64", "n64", "v64"],
-        HeaderPlatform::GameBoy => &["gb", "gbc", "sgb", "cgb", "dmg"],
-        HeaderPlatform::GameBoyAdvance => &["gba", "agb", "mb"],
-        HeaderPlatform::NintendoDs => &["nds", "dsi", "ids", "srl"],
-        HeaderPlatform::Nintendo3ds => &["3ds", "cci", "zcci", "cxi", "z3ds"],
-        HeaderPlatform::GameCube => &["iso", "gcm", "rvz", "wia", "wbfs", "ciso", "gcz"],
-        HeaderPlatform::MasterSystem => &["sms", "gg", "sg"],
-        HeaderPlatform::MegaDrive => &["md", "gen", "smd", "bin", "32x", "68k", "sgd"],
-        HeaderPlatform::MegaCd | HeaderPlatform::Saturn => &["iso", "bin", "img", "chd"],
-        HeaderPlatform::Dreamcast => &["iso", "bin", "img", "chd", "cdi"],
-        HeaderPlatform::PlayStation => &["iso", "bin", "img", "chd", "pbp"],
-        HeaderPlatform::PlayStation2 => &["iso", "bin", "img", "chd", "cso", "zso"],
-        HeaderPlatform::Psp => &["iso", "cso", "chd", "pbp"],
-        HeaderPlatform::Xbox => &["iso", "xiso", "xbe", "chd"],
+        Platform::Nes => &["nes", "unf", "unif"],
+        Platform::Snes => &["sfc", "smc", "swc", "fig", "bs", "st"],
+        Platform::N64 => &["z64", "n64", "v64"],
+        Platform::GameBoy => &["gb", "gbc", "sgb", "cgb", "dmg"],
+        Platform::GameBoyAdvance => &["gba", "agb", "mb"],
+        Platform::NintendoDs => &["nds", "dsi", "ids", "srl"],
+        Platform::Nintendo3ds => &["3ds", "cci", "zcci", "cxi", "z3ds"],
+        Platform::GameCube => &["iso", "gcm", "rvz", "wia", "wbfs", "ciso", "gcz"],
+        Platform::MasterSystem => &["sms", "gg", "sg"],
+        Platform::MegaDrive => &["md", "gen", "smd", "bin", "32x", "68k", "sgd"],
+        Platform::MegaCd | Platform::Saturn => &["iso", "bin", "img", "chd"],
+        Platform::Dreamcast => &["iso", "bin", "img", "chd", "cdi"],
+        Platform::PlayStation => &["iso", "bin", "img", "chd", "pbp"],
+        Platform::PlayStation2 => &["iso", "bin", "img", "chd", "cso", "zso"],
+        Platform::Psp => &["iso", "cso", "chd", "pbp"],
+        Platform::Xbox => &["iso", "xiso", "xbe", "chd"],
     };
     extensions.contains(&extension.as_str())
 }
@@ -209,7 +201,7 @@ fn is_game(platform: HeaderPlatform, name: &str) -> bool {
 const ZIP_LIMIT: u64 = 64 << 20;
 
 impl<R: Read + Seek> ZipEntry<R> {
-    fn open(reader: R, platform: HeaderPlatform) -> zip::result::ZipResult<Self> {
+    fn open(reader: R, platform: Platform) -> zip::result::ZipResult<Self> {
         let mut zip = zip::ZipArchive::new(reader)?;
         let mut largest = None;
         for i in 0..zip.len() {
@@ -537,10 +529,7 @@ mod tests {
             ("Header checksum", "Valid"),
         ];
         let read = |path: &Path| {
-            rom_header_fields(
-                HeaderPlatform::GameBoyAdvance,
-                path.to_str().unwrap().to_owned(),
-            )
+            rom_header_fields(Platform::GameBoyAdvance, path.to_str().unwrap().to_owned())
         };
         assert_eq!(fields(&read(&rom)), want);
 
@@ -559,17 +548,42 @@ mod tests {
 
         assert!(read(&dir.path().join("missing.gba")).is_empty());
         assert!(
-            rom_header_fields(HeaderPlatform::Nes, rom.to_str().unwrap().to_owned()).is_empty(),
+            rom_header_fields(Platform::Nes, rom.to_str().unwrap().to_owned()).is_empty(),
             "Not an NES ROM"
         );
     }
 
     #[test]
+    fn reads_the_ids_saves_are_filed_under() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = |platform, name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            rom_game_id(platform, path.to_str().unwrap().to_owned())
+        };
+        let mut ncch = vec![0u8; 0x200];
+        ncch[0x100..0x104].copy_from_slice(b"NCCH");
+        ncch[0x118..0x120].copy_from_slice(&0x0004_0000_0003_3500u64.to_le_bytes());
+        assert_eq!(
+            id(Platform::Nintendo3ds, "game.cxi", &ncch).as_deref(),
+            Some("0004000000033500")
+        );
+        let mut disc = vec![0u8; 0x60];
+        disc[..6].copy_from_slice(b"GZLE01");
+        disc[0x1C..0x20].copy_from_slice(&0xC233_9F3Du32.to_be_bytes());
+        assert_eq!(
+            id(Platform::GameCube, "game.iso", &disc).as_deref(),
+            Some("GZLE")
+        );
+        assert_eq!(id(Platform::GameBoyAdvance, "game.gba", &gba()), None);
+    }
+
+    #[test]
     fn takes_only_the_platforms_files_from_a_zip() {
-        assert!(is_game(HeaderPlatform::MegaDrive, "Sonic.md"));
-        assert!(is_game(HeaderPlatform::GameBoyAdvance, "GAME.GBA"));
-        assert!(!is_game(HeaderPlatform::GameBoyAdvance, "manual.pdf"));
-        assert!(!is_game(HeaderPlatform::GameBoyAdvance, "Sonic.md"));
+        assert!(is_game(Platform::MegaDrive, "Sonic.md"));
+        assert!(is_game(Platform::GameBoyAdvance, "GAME.GBA"));
+        assert!(!is_game(Platform::GameBoyAdvance, "manual.pdf"));
+        assert!(!is_game(Platform::GameBoyAdvance, "Sonic.md"));
     }
 
     #[test]

@@ -16,8 +16,7 @@ import dev.sargunv.handheld.domain.saves.SaveFolders
 import dev.sargunv.handheld.domain.saves.SaveLayout
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
-import dev.sargunv.handheld.session.chdDiscRead
-import dev.sargunv.handheld.session.zstdPrefix
+import dev.sargunv.handheld.session.romGameId
 import java.io.File
 import java.security.MessageDigest
 
@@ -81,13 +80,9 @@ fun gameSaveFor(
         else -> SaveLookup.NotSupported
       }
   val id =
-    GameIds.read(
-      File(romPath),
-      kind,
-      switchKeys(storage, target.packageName),
-      zstd = { file, offset, length -> zstdPrefix(file.path, offset.toULong(), length.toUInt()) },
-      chd = { file, offset, length -> chdDiscRead(file.path, offset.toULong(), length.toUInt()) },
-    ) ?: return SaveLookup.NoGameId
+    GameIds.read(File(romPath), kind, switchKeys(storage, target.packageName)) { file ->
+      SessionRomHeaders.headerPlatform(platform)?.let { romGameId(it, file.path) }
+    } ?: return SaveLookup.NoGameId
   val saveRoots = (folders ?: SaveFiles.folders(location.paths, roots)).map(::File)
   val layout = location.layout
   if (layout is SaveLayout.Ps2MemoryCards) {

@@ -1101,7 +1101,6 @@ dependencies = [
  "rom-headers",
  "rtrb",
  "rubato",
- "ruzstd",
  "sha2",
  "softbuffer",
  "tempfile",
