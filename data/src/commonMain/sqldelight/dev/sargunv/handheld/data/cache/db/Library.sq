@@ -152,6 +152,9 @@ SELECT count(*) FROM rom;
 romIds:
 SELECT id FROM rom;
 
+romPlatforms:
+SELECT id, platform_id FROM rom;
+
 upsertRom:
 INSERT INTO rom VALUES ?
 ON CONFLICT (id) DO UPDATE SET
