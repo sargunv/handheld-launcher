@@ -6,6 +6,7 @@ import android.os.storage.StorageManager
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.saves.GameIds
 import dev.sargunv.handheld.data.saves.GameSave
+import dev.sargunv.handheld.data.saves.Ps2CardRoots
 import dev.sargunv.handheld.data.saves.SaveFolderRoots
 import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.domain.launch.LaunchTarget
@@ -15,6 +16,7 @@ import dev.sargunv.handheld.domain.saves.SaveFolders
 import dev.sargunv.handheld.domain.saves.SaveLayout
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
+import dev.sargunv.handheld.session.chdDiscRead
 import dev.sargunv.handheld.session.zstdPrefix
 import java.io.File
 import java.security.MessageDigest
@@ -26,7 +28,7 @@ sealed interface SaveLookup {
   /** The emulator isn't known, its save folder isn't, or the launcher can't sync its layout yet. */
   data object NotSupported : SaveLookup
 
-  /** The emulator keeps every game's saves on shared memory cards, which don't sync yet. */
+  /** The emulator keeps every game's saves on a shared memory card the launcher can't read. */
   data object SharedCards : SaveLookup
 
   /** The emulator files saves by the game's id, which the launcher couldn't read from its file. */
@@ -75,18 +77,26 @@ fun gameSaveFor(
     SaveFolders.idKind(location, platform)
       ?: return when (location.layout) {
         is SaveLayout.SharedMemoryCard,
-        SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
+        is SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
         else -> SaveLookup.NotSupported
       }
   val id =
-    GameIds.read(File(romPath), kind, switchKeys(storage, target.packageName)) {
-      file,
-      offset,
-      length ->
-      zstdPrefix(file.path, offset.toULong(), length.toUInt())
-    } ?: return SaveLookup.NoGameId
-  val save = SaveFolders.forGame(location, platform, id) ?: return SaveLookup.NoGameId
+    GameIds.read(
+      File(romPath),
+      kind,
+      switchKeys(storage, target.packageName),
+      zstd = { file, offset, length -> zstdPrefix(file.path, offset.toULong(), length.toUInt()) },
+      chd = { file, offset, length -> chdDiscRead(file.path, offset.toULong(), length.toUInt()) },
+    ) ?: return SaveLookup.NoGameId
   val saveRoots = (folders ?: SaveFiles.folders(location.paths, roots)).map(::File)
+  val layout = location.layout
+  if (layout is SaveLayout.Ps2MemoryCards) {
+    // Named after the game's file, as Argosy names the card it syncs.
+    val name = File(romPath).nameWithoutExtension + ".ps2"
+    val cards = Ps2CardRoots(saveRoots, id, name, folderCards = layout.folderCards)
+    return SaveLookup.Found(GameSave(romId, emulator.id.value, emptyList(), cards = cards))
+  }
+  val save = SaveFolders.forGame(location, platform, id) ?: return SaveLookup.NoGameId
   return SaveLookup.Found(
     GameSave(romId, emulator.id.value, emptyList(), folders = SaveFolderRoots(saveRoots, save)),
   )

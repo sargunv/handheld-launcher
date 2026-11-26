@@ -629,6 +629,15 @@ object EmulatorRegistry {
         packagePatterns = listOf("come.nanodata.armsx2.*"),
         downloadUrl = "https://github.com/ARMSX2/ARMSX2/releases",
       ),
+      // A native port of the Jak and Daxter games, which keeps their saves on a PS2 folder card.
+      KnownEmulator(
+        id = EmulatorId("pocketgoal"),
+        displayName = "PocketGOAL",
+        packageName = "dev.sargunv.pocketgoal",
+        platforms = setOf(PS2),
+        recipe = LaunchRecipe.ViewRom,
+        ranked = false,
+      ),
       KnownEmulator(
         id = EmulatorId("psx2"),
         displayName = "PSX2",

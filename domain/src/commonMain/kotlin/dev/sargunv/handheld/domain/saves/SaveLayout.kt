@@ -32,9 +32,12 @@ sealed interface SaveLayout {
    * PCSX2-family PlayStation 2 memory cards: `.ps2` cards in the folder, each either a file image
    * or, in folder mode, a directory holding a subfolder per save, named after the game's serial
    * behind a region prefix (`BA`, `BE` or `BI`). The emulator's `PCSX2-Android.ini` names the
-   * folder and slot 1's card.
+   * folder and slot 1's card. Every game shares the cards, so a game's save is its folders on them.
+   *
+   * [folderCards] makes a card the launcher creates a folder card, for an app that reads only
+   * those, such as PocketGOAL; otherwise it's an 8 MB file card, as PCSX2 formats one.
    */
-  data object Ps2MemoryCards : SaveLayout
+  data class Ps2MemoryCards(val folderCards: Boolean = false) : SaveLayout
 
   /**
    * GameCube saves as GCI files: `<region>/Card A/<maker>-<game id>-<name>.gci`, where the region

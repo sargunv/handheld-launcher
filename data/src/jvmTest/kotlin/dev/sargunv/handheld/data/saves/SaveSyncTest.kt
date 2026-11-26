@@ -1119,6 +1119,70 @@ class SaveSyncTest {
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
     assertEquals(mapOf("01-GZLE-gczelda.gci" to "zelda"), entries(server.uploads.single().bytes))
   }
+
+  // PS2
+
+  @Test
+  fun aPs2GameSyncsAsOneCardBetweenAFileCardAndAFolderCard() = runTest {
+    val server = FakeRomm()
+    // This device keeps a file card, holding Ace Combat's saves and another game's.
+    val fileCards = File(root, "armsx2/memcards").apply { mkdirs() }
+    val fileCard = File(fileCards, "mcd001.ps2")
+    fileCard(
+      fileCard,
+      packed("BASLUS-20152AC04"),
+      packed("BESLES-12345OTHER"),
+      packed("BASLUS-20152SYS"),
+    )
+    val name = "Ace Combat 04.ps2"
+    val here =
+      GameSave(7, "armsx2", emptyList(), cards = Ps2CardRoots(listOf(fileCards), ACE_COMBAT, name))
+    // Another device keeps a folder card, holding other games' saves.
+    val folderCards = File(root, "other/memcards").apply { mkdirs() }
+    val folderCard = File(folderCards, "Mcd001.ps2")
+    val others = folderCardFiles.filterKeys { !it.startsWith("BASLUS-20152") }
+    writeTree(folderCard, others)
+    val there = here.copy(cards = Ps2CardRoots(listOf(folderCards), ACE_COMBAT, name))
+    val thereSync =
+      SaveSync(
+        server.client,
+        File(root, "there/records"),
+        File(root, "there/history"),
+        File(root, "there/staging"),
+        clock,
+      )
+    val sync = sync(server)
+
+    assertIs<SaveSyncResult.Pushed>(sync.sync(here))
+    val upload = server.uploads.single()
+    assertEquals(name, upload.fileName)
+    assertTrue(sigilUnit(ACE_COMBAT).contentEquals(upload.bytes), "The unit sigil would send")
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(here))
+
+    now = Instant.parse("2025-03-02T00:00:00Z")
+    val pulled = assertIs<SaveSyncResult.Pulled>(thereSync.sync(there))
+    assertNull(pulled.previous, "The other device had none of the game's saves")
+    val tree = readTree(folderCard)
+    val game = folderCardFiles.filterKeys { it.startsWith("BASLUS-20152") }
+    for ((path, data) in game.filterKeys { !it.endsWith("_pcsx2_index") }) {
+      assertTrue(data.contentEquals(tree[path]), path)
+    }
+    for ((path, data) in others) assertTrue(data.contentEquals(tree[path]), "$path is as it was")
+    assertIs<SaveSyncResult.UpToDate>(thereSync.sync(there))
+
+    // The other device plays, and this one pulls what it saved, keeping its own copy.
+    File(folderCard, "BASLUS-20152AC04/AC04.DAT").writeText("played there")
+    now = Instant.parse("2025-03-03T00:00:00Z")
+    assertIs<SaveSyncResult.Pushed>(thereSync.sync(there))
+    val back = assertIs<SaveSyncResult.Pulled>(sync.sync(here))
+    assertTrue(sigilUnit(ACE_COMBAT).contentEquals(assertNotNull(back.previous).readBytes()))
+    val card = Ps2Card.load(fileCard.readBytes())
+    assertTrue(card.holds(packed("BESLES-12345OTHER")), "Another game's save is as it was")
+    val ace = card.list().entries.single { it.name == "BASLUS-20152AC04" }
+    val data = card.extract(ace.firstCluster).files.single { entryName(it.entry) == "AC04.DAT" }
+    assertEquals("played there", data.data.decodeToString())
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(here))
+  }
 }
 
 /** An upload the fake server received. */

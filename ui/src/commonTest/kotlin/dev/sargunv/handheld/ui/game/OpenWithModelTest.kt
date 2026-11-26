@@ -82,7 +82,7 @@ class OpenWithModelTest {
     val withoutPocketGoal = apps.filter { it.packageName != "dev.sargunv.pocketgoal" }
     assertEquals(
       listOf(
-        ChainLine("Game: dev.sargunv.pocketgoal · not installed, skipped"),
+        ChainLine("Game: PocketGOAL · not installed, skipped"),
         ChainLine("Collection: none"),
         ChainLine("Platform PS2: ARMSX2 · opens here", wins = true),
       ),

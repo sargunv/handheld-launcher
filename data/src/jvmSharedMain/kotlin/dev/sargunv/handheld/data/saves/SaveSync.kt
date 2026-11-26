@@ -30,6 +30,8 @@ const val SAVE_SLOT = "autosave"
  *   history. It's the emulator, unless several of the server's emulators share one file.
  * @param folders where the save is instead, when the emulator keeps it as folders or as several
  *   files: then it syncs as one zip, and [candidates] aren't used.
+ * @param cards where the save is instead, when it's folders on the emulator's shared PS2 memory
+ *   cards: then it syncs as one per-game card, and neither [candidates] nor [folders] is used.
  */
 data class GameSave(
   val romId: Long,
@@ -37,6 +39,7 @@ data class GameSave(
   val candidates: List<File>,
   val owner: String = emulator,
   val folders: SaveFolderRoots? = null,
+  val cards: Ps2CardRoots? = null,
 ) {
   internal val key: String
     get() = "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"

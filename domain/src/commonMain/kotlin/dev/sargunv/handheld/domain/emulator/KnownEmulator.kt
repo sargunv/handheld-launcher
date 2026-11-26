@@ -19,7 +19,8 @@ value class EmulatorId(val value: String) {
  * `*` stands for any run of characters. A build matched only by pattern launches with [forkRecipe]
  * when it's set, since a fork can rename the activities [recipe] names. [drawsBothScreens] marks
  * apps that draw their own second screen: their game opens on the default display, and the app
- * takes the other one.
+ * takes the other one. An app that plays only some of its platform's games, such as a port of one
+ * game, isn't [ranked]: nothing picks or suggests it unless a rule names it.
  */
 data class KnownEmulator(
   val id: EmulatorId,
@@ -32,6 +33,7 @@ data class KnownEmulator(
   val drawsBothScreens: Boolean = false,
   val downloadUrl: String? = null,
   val releases: ReleaseSource? = null,
+  val ranked: Boolean = true,
 ) {
   /** Whether [packageName] is this app: its own package, or a build its patterns match. */
   fun matches(packageName: String): Boolean =

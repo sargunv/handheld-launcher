@@ -56,7 +56,8 @@ private class PendingConflict(
  * [biosDir], when given, takes the firmware instead of the emulator's own folder. [saves], when
  * given, turns on save sync. The screen shows every note on what happened, including the details
  * the Game screen leaves out. With [findSaveOnly], it only shows where the game's save is, and
- * neither syncs nor launches.
+ * neither syncs nor launches. With [syncOnly], it syncs the save as before a launch, and doesn't
+ * launch.
  */
 @Composable
 internal fun LaunchTestScreen(
@@ -67,6 +68,7 @@ internal fun LaunchTestScreen(
   biosDir: String?,
   saves: SaveSyncOptions?,
   findSaveOnly: Boolean = false,
+  syncOnly: Boolean = false,
 ) {
   var status by remember { mutableStateOf("Launching") }
   var pending by remember { mutableStateOf<PendingConflict?>(null) }
@@ -95,16 +97,17 @@ internal fun LaunchTestScreen(
       status = player.findSave(request).joinToString("\n") { it.text }
       return@LaunchedEffect
     }
-    val notes =
-      player.play(request) { conflict ->
-        val shown = PendingConflict(conflict)
-        pending = shown
-        try {
-          shown.choice.await()
-        } finally {
-          pending = null
-        }
+    val choose: suspend (SaveConflict) -> SaveCopy? = { conflict ->
+      val shown = PendingConflict(conflict)
+      pending = shown
+      try {
+        shown.choice.await()
+      } finally {
+        pending = null
       }
+    }
+    val notes =
+      if (syncOnly) player.syncOnly(request, choose) else player.play(request) { choose(it) }
     status = notes.joinToString("\n") { it.text }
   }
 

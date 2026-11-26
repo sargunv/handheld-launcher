@@ -59,7 +59,8 @@ internal sealed interface SaveUnit {
   fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit)
 }
 
-internal fun GameSave.unit(): SaveUnit = folders?.let(::FolderUnit) ?: FileUnit(candidates)
+internal fun GameSave.unit(): SaveUnit =
+  cards?.let(::Ps2CardUnit) ?: folders?.let(::FolderUnit) ?: FileUnit(candidates)
 
 /** A save that's one file. */
 private class FileUnit(private val candidates: List<File>) : SaveUnit {
@@ -416,7 +417,7 @@ private fun combinedHash(hashes: List<Pair<String, String>>): String =
   )
 
 // Python sorts names by code point, which UTF-16 order differs from past the BMP.
-private val CODE_POINTS =
+internal val CODE_POINTS =
   Comparator<String> { a, b ->
     val x = a.codePoints().toArray()
     val y = b.codePoints().toArray()

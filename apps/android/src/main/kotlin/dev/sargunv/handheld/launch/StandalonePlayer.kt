@@ -309,7 +309,15 @@ class StandalonePlayer(
         gameSaveFor(activity, target, request.platform, romId, request.romPath, request.saveFolders)
       }
     when (lookup) {
-      is SaveLookup.Found ->
+      is SaveLookup.Found -> {
+        lookup.save.cards?.let { cards ->
+          val root = cards.roots.firstOrNull { it.isDirectory } ?: cards.roots.first()
+          note(
+            "The save syncs as ${cards.name}, the ${cards.serial} saves on the memory cards in " +
+              root.path,
+            true,
+          )
+        }
         lookup.save.folders?.let { folders ->
           val root = folders.roots.firstOrNull { it.isDirectory } ?: folders.roots.first()
           note(
@@ -318,11 +326,12 @@ class StandalonePlayer(
             true,
           )
         }
+      }
       SaveLookup.NotSupported -> note("${appName(target)}'s saves don't sync yet", true)
       SaveLookup.SharedCards ->
         note(
-          "${appName(target)} keeps every game's saves on shared memory cards, which don't sync " +
-            "yet",
+          "${appName(target)} keeps every game's saves on a shared memory card, which doesn't " +
+            "sync yet",
           true,
         )
       SaveLookup.NoGameId ->
@@ -356,6 +365,36 @@ class StandalonePlayer(
       is LaunchResolution.BuiltIn -> note("Opens in the built-in player", true)
       is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution), false)
     }
+    return notes
+  }
+
+  /**
+   * Syncs [request]'s save as the launch would before starting the game, without launching
+   * anything: for testing.
+   */
+  suspend fun syncOnly(
+    request: PlayRequest,
+    chooseSave: suspend (SaveConflict) -> SaveCopy?,
+  ): List<PlayNote> {
+    val notes = mutableListOf<PlayNote>()
+    fun note(text: String, quiet: Boolean) {
+      notes += PlayNote(text, quiet)
+      Log.i(TAG, text)
+    }
+    val resolution =
+      resolve(LaunchSubject(request.gameId, request.platform, request.collections), request.rules)
+        as? LaunchResolution.Resolved
+        ?: return notes.apply { note("The game doesn't open in another app", false) }
+    val target = resolution.target
+    val game = lookUpSave(request, target, ::note) ?: return notes
+    val probe = emulators.probe(useRoot = false)
+    saves.beforeLaunch(
+      request,
+      game,
+      chooseSave,
+      ::note,
+      emulator = emulators.state(target.packageName, probe),
+    )
     return notes
   }
 

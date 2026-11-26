@@ -12,6 +12,7 @@ mod achievements;
 mod audio;
 mod content;
 mod core;
+mod disc;
 mod ffi;
 mod gl;
 mod handle;
@@ -32,6 +33,7 @@ pub use crate::achievements::{
 };
 pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
+pub use crate::disc::chd_disc_read;
 pub use crate::gl::{GlError, NativeWindow};
 pub use crate::handle::{
     AchievementsHttp, GameSession, SessionInfo, SessionListener, SessionOptions, VideoMode,
