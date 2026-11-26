@@ -74,6 +74,17 @@ command ends, even when it fails. It also takes the older
 holder that was killed outright leaves it behind, so remove it once nobody is
 using the device.
 
+## Licences
+
+About lists what each app ships with its licence texts, collected when it
+builds. AboutLibraries' Gradle plugin lists the Kotlin dependencies, offline,
+and takes their licence texts from `licences/licenses/`: a dependency under a
+licence with no text there fails the build, so add its SPDX text. The Android
+app adds the Rust crates the session links, which cargo-about finds with
+`session/about.toml`, and the vendored C code in `session/licences/`, with
+licence texts from the vendored files. `licences/libraries/` holds the code
+ported from elsewhere.
+
 ## Secrets
 
 Development secrets, such as a read-only token for a RomM server, are encrypted
