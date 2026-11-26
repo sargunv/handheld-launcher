@@ -70,7 +70,7 @@ sealed interface LaunchResolution {
 
   /**
    * The game runs in the built-in session. [core] is the libretro core the rule named, by library
-   * name, or null for the platform's chosen core.
+   * name, or null for the platform's recommended core.
    */
   data class BuiltIn(
     val rule: LaunchRule,

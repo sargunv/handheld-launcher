@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import dev.sargunv.handheld.data.cores.CoreChoices
 import dev.sargunv.handheld.data.cores.InstalledCores
 import dev.sargunv.handheld.data.saves.BuiltInSaveFolders
 import dev.sargunv.handheld.data.saves.SaveCopy
@@ -39,8 +38,8 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
   private val saves = saveFolders.saves
 
   /**
-   * Plays [request]'s game in [core], a libretro core's library name, or the platform's chosen core
-   * when it's null, and returns once the player is back from the game, telling [note] what the
+   * Plays [request]'s game in [core], a libretro core's library name, or the platform's recommended
+   * core when it's null, and returns once the player is back from the game, telling [note] what the
    * player should know. [onProgress] hears how a download of the core is going, and [chooseSave]
    * which copy of the save to keep when both changed; null cancels the launch.
    */
@@ -53,7 +52,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
   ) {
     val chosen =
       core?.let(LibretroCores::byLibrary)
-        ?: CoreChoices(Path(coresDir, "choices.json")).coreFor(request.platform)
+        ?: LibretroCores.recommendedFor(request.platform)
         ?: return note("No libretro core runs this game's platform.")
     val coreFile =
       try {

@@ -3,8 +3,8 @@ package dev.sargunv.handheld
 import android.app.Activity
 import android.os.Build
 import androidx.compose.runtime.Composable
-import dev.sargunv.handheld.data.cores.CoreChoices
 import dev.sargunv.handheld.data.cores.InstalledCores
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import java.io.File
 import java.io.IOException
@@ -56,12 +56,10 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
 
 /** The installed core for [platform], installed or updated first when needed, under [dir]. */
 private suspend fun installedCoreFor(dir: File, platform: PlatformSlug): File {
-  val root = Path(dir.path)
   val core =
-    CoreChoices(Path(root, "choices.json")).coreFor(platform)
-      ?: throw IOException("No libretro core runs $platform")
+    LibretroCores.recommendedFor(platform) ?: throw IOException("No libretro core runs $platform")
   // The app's native libraries are built for the device's first ABI.
-  return InstalledCores(root, Build.SUPPORTED_ABIS.first()).use { cores ->
+  return InstalledCores(Path(dir.path), Build.SUPPORTED_ABIS.first()).use { cores ->
     if (cores.hasUpdate(core)) cores.install(core)
     File(cores.fileOf(core).toString())
   }
