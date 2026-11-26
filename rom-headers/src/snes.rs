@@ -191,7 +191,10 @@ fn plausible(h: &Header, file_size: u64) -> bool {
     if !(0x20..=0x3F).contains(&h.map_mode.0) && !contra_iii(h) {
         return false;
     }
-    if h.title.chars().filter(|c| (' '..='~').contains(c)).count() < 2 {
+    // Printable JIS X 0201: ASCII, or the half-width katakana of a Japanese
+    // title.
+    let printable = |c: &char| (' '..='~').contains(c) || ('\u{FF61}'..='\u{FF9F}').contains(c);
+    if h.title.chars().filter(printable).count() < 2 {
         return false;
     }
     // Some headers overstate the size, but not past twice the file.
@@ -248,6 +251,14 @@ mod tests {
         assert_eq!(extended.maker_code, "01");
         assert_eq!(extended.game_code, "ABCE");
         assert_eq!(extended.expansion_ram_size, 8 * 1024);
+    }
+
+    #[test]
+    fn reads_a_title_all_in_katakana() {
+        let mut file = rom(0x8000, 0x7FC0, 0x20);
+        file[0x7FC0..0x7FC0 + 21].copy_from_slice(&[0xB1; 21]);
+        let h = read(&mut Cursor::new(file)).unwrap();
+        assert_eq!(h.title, "\u{FF71}".repeat(21));
     }
 
     #[test]
