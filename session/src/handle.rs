@@ -17,11 +17,12 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::achievements::{
-    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest, HttpClient,
+    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
+    SendAchievementsRequest,
 };
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
-use crate::pacing::{self, FrameStats, Vsync};
+use crate::pacing::{self, Vsync};
 use crate::save::SaveRam;
 use crate::session::{AvInfo, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, Region, VideoSink};
@@ -612,7 +613,6 @@ fn run(
         next_frame: Instant::now(),
         vsync,
         vsyncs: None,
-        stats: FrameStats::new(Instant::now()),
     };
     let quit = runner.run(&commands);
     // The session is gone, and so are its commands, so the listener may
@@ -620,16 +620,6 @@ fn run(
     drop(commands);
     if quit {
         events.send(Event::CoreQuit);
-    }
-}
-
-/// Sends the session's RetroAchievements requests to the app's
-/// [`AchievementsHttp`], through the events thread.
-struct EventsHttp(Events);
-
-impl HttpClient for EventsHttp {
-    fn request(&self, id: u64, request: AchievementsRequest) {
-        self.0.send(Event::Request(id, request));
     }
 }
 
@@ -658,8 +648,10 @@ fn start_session(
         input,
         options: options.core_options,
         achievements: options.achievements.map(|achievements| {
-            let http: Box<dyn HttpClient> = Box::new(EventsHttp(events.clone()));
-            (achievements, http)
+            let events = events.clone();
+            let send: SendAchievementsRequest =
+                Box::new(move |id, request| events.send(Event::Request(id, request)));
+            (achievements, send)
         }),
     };
     // SAFETY: `GameSession::start` documents that the core runs as native
@@ -729,12 +721,7 @@ struct Runner {
     vsync: Option<VsyncClock>,
     /// How many vsyncs frames are paced to, or `None` for a timer.
     vsyncs: Option<u32>,
-    /// Frame timing since the session last resumed or logged it.
-    stats: FrameStats,
 }
-
-/// How often a running session logs its frame timing.
-const STATS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// What the session thread does next.
 enum Next {
@@ -855,10 +842,6 @@ impl Runner {
         let now = Instant::now();
         let fps = self.session.av_info().fps;
         let vsync = self.vsync();
-        self.stats.record(now, fps, vsync);
-        if self.stats.elapsed(now) >= STATS_INTERVAL {
-            self.log_stats(now);
-        }
         if let Some(save_ram) = &mut self.save_ram {
             save_ram.write_if_due(&self.session);
         }
@@ -881,13 +864,6 @@ impl Runner {
     fn vsync(&self) -> Option<Vsync> {
         self.window.as_ref()?;
         self.vsync.as_ref()?.vsync()
-    }
-
-    fn log_stats(&mut self, now: Instant) {
-        if let Some(report) = self.stats.report(now) {
-            log::info!("{report}");
-        }
-        self.stats = FrameStats::new(now);
     }
 
     fn handle(&mut self, command: Command) {
@@ -979,12 +955,8 @@ impl Runner {
         if let Some(vsync) = &mut self.vsync {
             vsync.set_running(!paused);
         }
-        let now = Instant::now();
-        if paused {
-            self.log_stats(now);
-        } else {
-            self.next_frame = now;
-            self.stats = FrameStats::new(now);
+        if !paused {
+            self.next_frame = Instant::now();
         }
     }
 

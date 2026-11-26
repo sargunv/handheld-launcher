@@ -3,9 +3,9 @@
 //! [`Achievements`] signs in with the player's token, identifies the game by
 //! hashing its content the way RetroAchievements does for its console, loads
 //! the game's achievements and checks them against the core's memory after
-//! every frame. The server calls go out through an [`HttpClient`], and their
-//! responses come back through [`Achievements::respond`], all on the session's
-//! thread, which is the only one that touches the client.
+//! every frame. The server calls go out through a [`SendAchievementsRequest`],
+//! and their responses come back through [`Achievements::respond`], all on the
+//! session's thread, which is the only one that touches the client.
 //!
 //! `vendor/rcheevos` holds the pinned library, which `build.rs` compiles, and
 //! `ffi.rs` the bindings that `mise run session:rcheevos-bindings` generates.
@@ -113,11 +113,8 @@ impl std::fmt::Debug for AchievementsRequest {
 }
 
 /// Sends the session's requests to RetroAchievements. Each request has an id,
-/// and the app hands its response to `GameSession::achievements_response`
-/// with that id once it has one.
-pub trait HttpClient {
-    fn request(&self, id: u64, request: AchievementsRequest);
-}
+/// and its response goes to `Session::achievements_response` with that id.
+pub type SendAchievementsRequest = Box<dyn Fn(u64, AchievementsRequest)>;
 
 /// The text of a client callback's error, or of its result code.
 ///
@@ -153,7 +150,7 @@ struct Pending {
 
 /// What the client's callbacks reach, through its userdata.
 struct State {
-    http: Box<dyn HttpClient>,
+    send: SendAchievementsRequest,
     pending: RefCell<HashMap<u64, Pending>>,
     next_id: Cell<u64>,
     load: RefCell<Load>,
@@ -227,10 +224,10 @@ impl Achievements {
     pub(crate) fn start(
         options: &AchievementOptions,
         content: &Path,
-        http: Box<dyn HttpClient>,
+        send: SendAchievementsRequest,
     ) -> Option<Self> {
         let state = Box::new(State {
-            http,
+            send,
             pending: RefCell::new(HashMap::new()),
             next_id: Cell::new(1),
             load: RefCell::new(Load::Loading),
@@ -514,7 +511,7 @@ unsafe extern "C" fn server_call(
             content_type: opt_string(request.content_type),
         }
     };
-    state.http.request(id, request);
+    (state.send)(id, request);
 }
 
 unsafe extern "C" fn signed_in(
@@ -537,7 +534,7 @@ unsafe extern "C" fn signed_in(
     log::warn!("can't sign in to RetroAchievements: {detail}");
     let reason = match result {
         ffi::RC_INVALID_CREDENTIALS | ffi::RC_EXPIRED_TOKEN => {
-            "Sign in to RetroAchievements again from the launcher's quick menu.".to_owned()
+            "Sign in to RetroAchievements again in Settings.".to_owned()
         }
         _ => format!("Couldn't sign in to RetroAchievements: {detail}"),
     };

@@ -17,7 +17,7 @@ const SAVE_RAM_SIZE: usize = 128 * 1024;
 #[test]
 fn plays_the_title_screen_with_sound() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, Some(GAME)).unwrap();
+    let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     h.run(600);
     let frame = h.frames.last();
     frame.dump("ucity-title");
@@ -46,7 +46,7 @@ fn plays_the_game_from_a_zip() {
         .unwrap();
     zip.finish().unwrap();
 
-    let mut h = Harness::start(CORE, Some(archive.to_str().unwrap())).unwrap();
+    let mut h = Harness::start(CORE, Some(archive.to_str().unwrap()), &[], None).unwrap();
     let extracted = h.dirs.path().join("content/ucity.gbc");
     assert!(extracted.exists());
     h.run(600);
@@ -61,7 +61,7 @@ fn plays_the_game_from_a_zip() {
 fn needs_content() {
     let _lock = lock();
     assert!(matches!(
-        Harness::start(CORE, None),
+        Harness::start(CORE, None, &[], None),
         Err(SessionError::ContentRequired)
     ));
 }
@@ -74,7 +74,7 @@ fn save_ram_round_trips_through_its_file() {
     let path = dir.path().join("ucity.srm");
     std::fs::write(&path, &pattern).unwrap();
 
-    let mut h = Harness::start(CORE, Some(GAME)).unwrap();
+    let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     let blank = h.session.save_ram().unwrap().to_vec();
     // A state of the game with blank save memory, which a state includes.
     let state = h.session.serialize_state().unwrap();
@@ -89,7 +89,7 @@ fn save_ram_round_trips_through_its_file() {
 #[test]
 fn restoring_a_state_replays_identically() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, Some(GAME)).unwrap();
+    let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     h.run(200);
     let state = h.session.serialize_state().unwrap();
 

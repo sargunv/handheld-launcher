@@ -9,8 +9,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use handheld_session::{
-    AchievementOptions, AchievementsHttpClient, AudioSink, Frame, InputState, Session,
-    SessionConfig, SessionError, VideoOutput, VideoSink,
+    AchievementOptions, AudioSink, Frame, InputState, SendAchievementsRequest, Session,
+    SessionConfig, SessionError, SessionOptions, VideoMode, VideoOutput, VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -41,6 +41,52 @@ pub fn fixture(name: &str) -> PathBuf {
 pub fn lock() -> MutexGuard<'static, ()> {
     static LOCK: Mutex<()> = Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Options for a [`handheld_session::GameSession`] that runs the fixture
+/// `core` with the fixture `content`, offscreen, with its directories in
+/// `dir`.
+pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions {
+    SessionOptions {
+        core_path: fixture(core).to_string_lossy().into_owned(),
+        content_path: content.map(|c| fixture(c).to_string_lossy().into_owned()),
+        content_cache_dir: None,
+        system_dir: dir.join("system").to_string_lossy().into_owned(),
+        save_dir: dir.join("saves").to_string_lossy().into_owned(),
+        save_ram_path: None,
+        core_options: HashMap::new(),
+        video: VideoMode::Offscreen,
+        lower_screen_width_share: None,
+        achievements: None,
+    }
+}
+
+/// Whether two colors are the same but for rounding.
+pub fn near(a: [u8; 4], b: [u8; 4]) -> bool {
+    a.iter().zip(b).all(|(&a, b)| a.abs_diff(b) <= 1)
+}
+
+/// Runs a hardware-rendering `core` for `frames` frames and returns the
+/// last, or `None` when `unavailable` says the machine lacks its graphics
+/// API, unless the environment variable `require` is set.
+pub fn render(
+    core: &str,
+    frames: usize,
+    require: &str,
+    unavailable: fn(&SessionError) -> bool,
+) -> Option<OwnedFrame> {
+    let _lock = lock();
+    let mut h = match Harness::start(core, None, &[], None) {
+        Ok(h) => h,
+        Err(e) if unavailable(&e) && std::env::var_os(require).is_none() => {
+            eprintln!("skipping: {}", std::error::Error::source(&e).unwrap_or(&e));
+            return None;
+        }
+        Err(e) => panic!("{e}: {:?}", std::error::Error::source(&e)),
+    };
+    h.run(frames);
+    assert_eq!(h.frames.count(), frames);
+    Some(h.frames.last())
 }
 
 /// A frame the session produced.
@@ -157,25 +203,13 @@ pub struct Harness {
 }
 
 impl Harness {
-    pub fn start(core: &str, content: Option<&str>) -> Result<Self, SessionError> {
-        Self::start_with(core, content, HashMap::new())
-    }
-
-    pub fn start_with(
+    /// Starts `core` with `content` and the core option values `options`,
+    /// taking part in RetroAchievements as `achievements` says.
+    pub fn start(
         core: &str,
         content: Option<&str>,
-        options: HashMap<String, String>,
-    ) -> Result<Self, SessionError> {
-        Self::start_config(core, content, options, None)
-    }
-
-    /// Starts `core` with `content`, taking part in RetroAchievements as
-    /// `achievements` says.
-    pub fn start_config(
-        core: &str,
-        content: Option<&str>,
-        options: HashMap<String, String>,
-        achievements: Option<(AchievementOptions, Box<dyn AchievementsHttpClient>)>,
+        options: &[(&str, &str)],
+        achievements: Option<(AchievementOptions, SendAchievementsRequest)>,
     ) -> Result<Self, SessionError> {
         let frames = Frames::default();
         let audio = Audio::default();
@@ -197,7 +231,10 @@ impl Harness {
             video: VideoOutput::Sink(Box::new(frames.clone())),
             audio: Box::new(audio.clone()),
             input: input.clone(),
-            options,
+            options: options
+                .iter()
+                .map(|&(key, value)| (key.to_owned(), value.to_owned()))
+                .collect(),
             achievements,
         };
         // SAFETY: the fixtures are libretro cores.

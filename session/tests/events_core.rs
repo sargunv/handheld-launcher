@@ -5,15 +5,13 @@
 
 mod common;
 
-use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::{Harness, fixture, lock};
+use common::{Harness, lock, options};
 use handheld_session::{
     AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionInfo, SessionListener,
-    SessionOptions, VideoMode,
 };
 
 const CORE: &str = "events_libretro.so";
@@ -32,7 +30,7 @@ fn stripes(h: &Harness) -> Vec<[u8; 4]> {
 #[test]
 fn every_port_reaches_the_core() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.run(1);
     // The core declares three ports, so the session sets a RetroPad on those.
     assert_eq!(stripes(&h), [GRAY, GRAY, GRAY, BLACK]);
@@ -52,7 +50,7 @@ fn every_port_reaches_the_core() {
 #[test]
 fn takes_a_new_video_and_audio_mode_mid_game() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.run(1);
     assert_eq!(h.session.av_info().sample_rate, 44_100.0);
 
@@ -110,18 +108,7 @@ impl SessionListener for Forward {
 fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
     let (heard, receiver) = mpsc::channel();
     let session = GameSession::start(
-        SessionOptions {
-            core_path: fixture(CORE).to_string_lossy().into_owned(),
-            content_path: None,
-            content_cache_dir: None,
-            system_dir: dir.join("system").to_string_lossy().into_owned(),
-            save_dir: dir.join("saves").to_string_lossy().into_owned(),
-            save_ram_path: None,
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: None,
-        },
+        options(dir, CORE, None),
         Some(Arc::new(Forward(Mutex::new(heard)))),
         None,
     )
@@ -190,18 +177,7 @@ fn the_listener_may_stop_the_session() {
     let (stopped, receiver) = mpsc::channel();
     let listener = Arc::new(StopOnQuit(Mutex::new(None), Mutex::new(stopped)));
     let session = GameSession::start(
-        SessionOptions {
-            core_path: fixture(CORE).to_string_lossy().into_owned(),
-            content_path: None,
-            content_cache_dir: None,
-            system_dir: dir.path().join("system").to_string_lossy().into_owned(),
-            save_dir: dir.path().join("saves").to_string_lossy().into_owned(),
-            save_ram_path: None,
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: None,
-        },
+        options(dir.path(), CORE, None),
         Some(listener.clone()),
         None,
     )

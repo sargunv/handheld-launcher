@@ -11,7 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::achievements::{
-    AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory, HttpClient,
+    AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory,
+    SendAchievementsRequest,
 };
 use crate::audio::AudioSink;
 use crate::content;
@@ -74,7 +75,7 @@ pub struct SessionConfig {
     pub options: HashMap<String, String>,
     /// How the session takes part in RetroAchievements, if it does, and what
     /// sends its requests to the server.
-    pub achievements: Option<(AchievementOptions, Box<dyn HttpClient>)>,
+    pub achievements: Option<(AchievementOptions, SendAchievementsRequest)>,
 }
 
 /// What a core says about itself.
@@ -286,8 +287,8 @@ impl Session {
             .transpose()?;
         session.load_content(content.as_deref())?;
         session.game_loaded = true;
-        if let (Some((options, http)), Some(content)) = (config.achievements, content.as_deref()) {
-            session.achievements = Achievements::start(&options, content, http);
+        if let (Some((options, send)), Some(content)) = (config.achievements, content.as_deref()) {
+            session.achievements = Achievements::start(&options, content, send);
             session.set_achievement_memory();
         }
 
