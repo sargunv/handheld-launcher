@@ -55,6 +55,7 @@ import dev.sargunv.handheld.ui.downloads.DownloadsPlace
 import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.isDialogOpen
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.GameScreen
@@ -363,6 +364,7 @@ private fun PlaceTabs(
     verticalAlignment = Alignment.CenterVertically,
   ) {
     // The buttons that switch places are decoration beside the tabs: a screen reader skips them.
+    val canSelect = !isDialogOpen()
     Text(
       buttonFor(Action.PreviousShelf),
       color = Placeholder.mutedText,
@@ -384,9 +386,11 @@ private fun PlaceTabs(
               role = Role.Tab
               selected = place == current
               // The shoulder buttons switch places; a screen reader picks a tab instead.
-              onClick {
-                onSelect(place)
-                true
+              if (canSelect) {
+                onClick {
+                  onSelect(place)
+                  true
+                }
               }
               if (queued) contentDescription = "${place.title}, $downloads in the queue"
             },

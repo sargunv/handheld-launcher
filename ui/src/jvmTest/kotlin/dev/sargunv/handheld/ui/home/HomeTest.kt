@@ -174,6 +174,7 @@ class HomeTest {
     awaitTag("quick:confirm")
     onNodeWithTag("quick:confirm").assertHasClickAction()
     onNodeWithTag("continue:2").assertHasNoClickAction()
+    onNodeWithTag("place:Downloads").assertHasNoClickAction()
   }
 
   @Test
