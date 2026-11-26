@@ -82,7 +82,7 @@ private class OpenWithContext(
   /** The app that wins under [launch], by name, or null when none can open the games. */
   fun opensIn(launch: LaunchSettings): String? {
     val winner = chain(launch).firstOrNull { it.status == RuleStatus.Wins } ?: return null
-    return winner.packageName?.let { name(it, winner.core) }
+    return winner.choice?.let { name(it.packageName, it.core) }
   }
 
   fun name(packageName: String, core: String?) = appName(packageName, core, apps, platform)
@@ -145,10 +145,10 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
   val launch = state.settings.launch
   // A local game whose file became a server game while the screen was open is that game now, and
   // its choice is the game's.
-  val level =
-    screen.scope.level.let { level ->
-      val local = (level as? RuleLevel.Game)?.game as? GameKey.Local
-      local?.let { state.onDevice[it.path] }?.let { RuleLevel.Game(GameKey.Romm(it)) } ?: level
+  val scope =
+    screen.scope.let { scope ->
+      val local = (scope as? OpenWithScope.Game)?.game as? GameKey.Local
+      local?.let { state.onDevice[it.path] }?.let { OpenWithScope.Game(GameKey.Romm(it)) } ?: scope
     }
   Column(Modifier.fillMaxSize()) {
     Text(
@@ -168,7 +168,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
     if (context == null) {
       Spacer(Modifier.weight(1f))
     } else {
-      val current = launch.choiceAt(level)
+      val current = launch.choiceAt(scope)
       // The app the platform's defaults pick, which opens the games when no choice applies.
       val default =
         context
@@ -176,11 +176,12 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           .firstOrNull {
             (it.rule == LaunchRule.BuiltInDefault || it.rule == LaunchRule.FirstInstalled) &&
               it.status != RuleStatus.NoCore &&
-              it.packageName != null
+              it.choice != null
           }
+          ?.choice
           ?.packageName
       fun choose(choice: SavedChoice?) {
-        state.settings = state.settings.copy(launch = launch.withChoice(level, choice))
+        state.settings = state.settings.copy(launch = launch.withChoice(scope, choice))
         state.navigator.back()
       }
       Row(
@@ -236,7 +237,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             )
           }
           if (current != null) {
-            val after = context.opensIn(launch.withChoice(level, null))
+            val after = context.opensIn(launch.withChoice(scope, null))
             Text(
               after?.let { "Clearing it opens ${if (context.forGame) "it" else "them"} in $it." }
                 ?: "Clearing it leaves no app on this device that can open it.",

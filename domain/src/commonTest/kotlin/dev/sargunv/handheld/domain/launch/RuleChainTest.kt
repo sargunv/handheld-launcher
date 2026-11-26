@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.domain.launch
 
 import dev.sargunv.handheld.domain.GameKey
-import dev.sargunv.handheld.domain.launch.LaunchChoice.Companion.BUILT_IN
 import dev.sargunv.handheld.domain.launch.LaunchRule.BuiltInDefault
 import dev.sargunv.handheld.domain.launch.LaunchRule.CollectionOverride
 import dev.sargunv.handheld.domain.launch.LaunchRule.FirstInstalled
@@ -32,10 +31,10 @@ class RuleChainTest {
     assertEquals(
       listOf(
         RuleStep(GameOverride, Unset),
-        RuleStep(CollectionOverride(jak), Wins, pocketGoal),
+        RuleStep(CollectionOverride(jak), Wins, LaunchChoice(pocketGoal)),
         RuleStep(PlatformDefault, Unset),
-        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
-        RuleStep(FirstInstalled, Outranked, armsx2),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
+        RuleStep(FirstInstalled, Outranked, LaunchChoice(armsx2)),
       ),
       RuleChain.explain(jak1, rules, setOf(armsx2, pocketGoal)),
     )
@@ -51,10 +50,10 @@ class RuleChainTest {
     val steps = RuleChain.explain(jak1, rules, setOf(armsx2))
     assertEquals(
       listOf(
-        RuleStep(GameOverride, NotInstalled, pocketGoal),
-        RuleStep(PlatformDefault, Wins, armsx2),
-        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
-        RuleStep(FirstInstalled, Outranked, armsx2),
+        RuleStep(GameOverride, NotInstalled, LaunchChoice(pocketGoal)),
+        RuleStep(PlatformDefault, Wins, LaunchChoice(armsx2)),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
+        RuleStep(FirstInstalled, Outranked, LaunchChoice(armsx2)),
       ),
       steps,
     )
@@ -75,11 +74,11 @@ class RuleChainTest {
     assertEquals(
       listOf(
         RuleStep(GameOverride, Unset),
-        RuleStep(CollectionOverride(favorites), Wins, armsx2),
-        RuleStep(CollectionOverride(jak), Outranked, pocketGoal),
+        RuleStep(CollectionOverride(favorites), Wins, LaunchChoice(armsx2)),
+        RuleStep(CollectionOverride(jak), Outranked, LaunchChoice(pocketGoal)),
         RuleStep(PlatformDefault, Unset),
-        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
-        RuleStep(FirstInstalled, Outranked, armsx2),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
+        RuleStep(FirstInstalled, Outranked, LaunchChoice(armsx2)),
       ),
       RuleChain.explain(jak1, rules, setOf(armsx2, pocketGoal)),
     )
@@ -88,7 +87,7 @@ class RuleChainTest {
   @Test
   fun withNoRulesTheBestInstalledEmulatorWins() {
     assertEquals(
-      RuleStep(FirstInstalled, Wins, armsx2),
+      RuleStep(FirstInstalled, Wins, LaunchChoice(armsx2)),
       RuleChain.explain(jak1, LaunchRules(), setOf(armsx2)).last(),
     )
     assertEquals(
@@ -105,14 +104,14 @@ class RuleChainTest {
       listOf(
         RuleStep(GameOverride, Unset),
         RuleStep(PlatformDefault, Unset),
-        RuleStep(BuiltInDefault, Wins, BUILT_IN),
+        RuleStep(BuiltInDefault, Wins, LaunchChoice.BuiltIn),
       ),
       RuleChain.explain(gaia, LaunchRules(), installed),
     )
     // A choice of app outranks it.
     val rules = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice("com.retroarch")))
     assertEquals(
-      RuleStep(BuiltInDefault, Outranked, BUILT_IN),
+      RuleStep(BuiltInDefault, Outranked, LaunchChoice.BuiltIn),
       RuleChain.explain(gaia, rules, installed).last(),
     )
   }
@@ -121,11 +120,11 @@ class RuleChainTest {
   fun anInstalledEmulatorIsTheDefaultWhereItPlaysBetter() {
     val game = LaunchSubject(game = GameKey.Romm(3), platform = GAMECUBE)
     assertEquals(
-      RuleStep(FirstInstalled, Wins, "org.dolphinemu.dolphinemu"),
+      RuleStep(FirstInstalled, Wins, LaunchChoice("org.dolphinemu.dolphinemu")),
       RuleChain.explain(game, LaunchRules(), setOf("org.dolphinemu.dolphinemu")).last(),
     )
     assertEquals(
-      RuleStep(BuiltInDefault, Wins, BUILT_IN),
+      RuleStep(BuiltInDefault, Wins, LaunchChoice.BuiltIn),
       RuleChain.explain(game, LaunchRules(), emptySet()).last(),
     )
   }
@@ -139,15 +138,15 @@ class RuleChainTest {
       )
     val gaia = LaunchSubject(game = GameKey.Romm(2), platform = GBA)
     assertEquals(
-      RuleStep(GameOverride, Wins, BUILT_IN),
+      RuleStep(GameOverride, Wins, LaunchChoice.BuiltIn),
       RuleChain.explain(gaia, rules, emptySet()).first(),
     )
     assertEquals(
       listOf(
-        RuleStep(GameOverride, NoCore, BUILT_IN),
+        RuleStep(GameOverride, NoCore, LaunchChoice.BuiltIn),
         RuleStep(PlatformDefault, Unset),
-        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
-        RuleStep(FirstInstalled, Wins, armsx2),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
+        RuleStep(FirstInstalled, Wins, LaunchChoice(armsx2)),
       ),
       RuleChain.explain(jak1.copy(collections = emptySet()), rules, setOf(armsx2)),
     )

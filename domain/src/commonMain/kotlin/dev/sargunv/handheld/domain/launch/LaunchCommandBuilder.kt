@@ -42,9 +42,6 @@ object LaunchCommandBuilder {
   private val placeholder = Regex("""\{(\w+)\}""")
   private val buildNumber = Regex("""^\d+\.\d+-(\d+)""")
 
-  /** The placeholders [ExtraValue.Text] understands. */
-  val placeholders: Set<String> = setOf("package", "storage", "core")
-
   /** The command that launches [input] in [packageName] the way [recipe] describes. */
   fun build(recipe: LaunchRecipe, packageName: String, input: LaunchInput): LaunchBuild {
     val rom = LaunchUri.ProviderFile(input.romPath)
@@ -121,7 +118,7 @@ object LaunchCommandBuilder {
   }
 
   /** The build number in a version name such as `0.1-10234`, or null when it has none. */
-  fun buildNumberOf(versionName: String): Int? =
+  private fun buildNumberOf(versionName: String): Int? =
     buildNumber.find(versionName)?.groupValues?.get(1)?.toIntOrNull()
 
   /**

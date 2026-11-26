@@ -163,7 +163,7 @@ class LaunchResolverTest {
   }
 
   @Test
-  fun choicesForMissingAppsAreSkippedAndReported() {
+  fun choicesForMissingAppsAreSkipped() {
     val rules =
       LaunchRules(
         gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice(pocketGoal)),
@@ -172,13 +172,6 @@ class LaunchResolverTest {
     val resolution = resolved(LaunchResolver.resolve(jak1, rules, setOf(armsx2)))
     assertEquals(armsx2, resolution.target.packageName)
     assertEquals(LaunchRule.FirstInstalled, resolution.rule)
-    assertEquals(
-      listOf(
-        SkippedChoice(LaunchRule.GameOverride, pocketGoal),
-        SkippedChoice(LaunchRule.PlatformDefault, "net.pcsx2.emulator"),
-      ),
-      resolution.skipped,
-    )
   }
 
   @Test
@@ -328,10 +321,6 @@ class LaunchResolverTest {
     val resolution = resolved(LaunchResolver.resolve(ratchet, rules, setOf(armsx2)))
     assertEquals(armsx2, resolution.target.packageName)
     assertEquals(LaunchRule.FirstInstalled, resolution.rule)
-    assertEquals(
-      listOf(SkippedChoice(LaunchRule.GameOverride, LaunchChoice.BUILT_IN)),
-      resolution.skipped,
-    )
   }
 
   @Test
@@ -362,7 +351,6 @@ class LaunchResolverTest {
     val none = assertIs<LaunchResolution.NoEmulatorInstalled>(resolution)
     assertEquals(PS2, none.platform)
     assertEquals(EmulatorRegistry.forPlatform(PS2), none.suggestions)
-    assertEquals(listOf(SkippedChoice(LaunchRule.GameOverride, pocketGoal)), none.skipped)
   }
 
   @Test

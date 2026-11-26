@@ -24,16 +24,6 @@ data class SavedCollectionRule(
   val choice: SavedChoice,
 )
 
-/** How far a choice of app reaches. */
-sealed interface RuleLevel {
-  data class Game(val game: GameKey) : RuleLevel
-
-  /** The collection's games on [platform], since the app picked for one platform's games. */
-  data class InCollection(val collection: CollectionId, val platform: PlatformSlug) : RuleLevel
-
-  data class Platform(val platform: PlatformSlug) : RuleLevel
-}
-
 /**
  * The apps the user picked to open games in, on the Open with screen: for single games by their
  * [GameKey], for collections, and for platforms by slug. A local game's choice goes to its ROM once
@@ -61,23 +51,23 @@ data class LaunchSettings(
         platforms.entries.associate { PlatformSlug(it.key) to it.value.toChoice() },
     )
 
-  /** The app picked at [level], or null when there's none. */
-  fun choiceAt(level: RuleLevel): SavedChoice? =
-    when (level) {
-      is RuleLevel.Game -> games[level.game]
-      is RuleLevel.InCollection -> collections.firstOrNull { it.matches(level) }?.choice
-      is RuleLevel.Platform -> platforms[level.platform.value]
+  /** The app picked for [scope], or null when there's none. */
+  fun choiceAt(scope: OpenWithScope): SavedChoice? =
+    when (scope) {
+      is OpenWithScope.Game -> games[scope.game]
+      is OpenWithScope.Collection -> collections.firstOrNull { it.matches(scope) }?.choice
+      is OpenWithScope.Platform -> platforms[scope.platform.value]
     }
 
-  /** These settings with [choice] picked at [level], or with its choice cleared when null. */
-  fun withChoice(level: RuleLevel, choice: SavedChoice?): LaunchSettings =
-    when (level) {
-      is RuleLevel.Game ->
-        copy(games = if (choice == null) games - level.game else games + (level.game to choice))
-      is RuleLevel.InCollection -> {
-        val index = collections.indexOfFirst { it.matches(level) }
+  /** These settings with [choice] picked for [scope], or with its choice cleared when null. */
+  fun withChoice(scope: OpenWithScope, choice: SavedChoice?): LaunchSettings =
+    when (scope) {
+      is OpenWithScope.Game ->
+        copy(games = if (choice == null) games - scope.game else games + (scope.game to choice))
+      is OpenWithScope.Collection -> {
+        val index = collections.indexOfFirst { it.matches(scope) }
         val rule = choice?.let {
-          SavedCollectionRule(level.collection.value, level.platform.value, it)
+          SavedCollectionRule(scope.collection.value, scope.platform.value, it)
         }
         copy(
           collections =
@@ -88,14 +78,14 @@ data class LaunchSettings(
             },
         )
       }
-      is RuleLevel.Platform -> {
-        val key = level.platform.value
+      is OpenWithScope.Platform -> {
+        val key = scope.platform.value
         copy(platforms = if (choice == null) platforms - key else platforms + (key to choice))
       }
     }
 
-  private fun SavedCollectionRule.matches(level: RuleLevel.InCollection) =
-    collection == level.collection.value && platform == level.platform.value
+  private fun SavedCollectionRule.matches(scope: OpenWithScope.Collection) =
+    collection == scope.collection.value && platform == scope.platform.value
 }
 
 /** The collection's id, as launch rules name it: its kind and id, as each kind has its own ids. */
