@@ -24,6 +24,7 @@ mod save;
 mod session;
 mod video;
 mod vulkan;
+mod zstd;
 
 pub use crate::achievements::{
     Achievement, AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
@@ -44,6 +45,7 @@ pub use crate::session::{
 };
 pub use crate::video::{CapturedFrame, Frame, PixelFormat, VideoSink, convert_frame};
 pub use crate::vulkan::VulkanError;
+pub use crate::zstd::zstd_prefix;
 
 uniffi::setup_scaffolding!();
 

@@ -40,7 +40,12 @@ object SaveFiles {
     return folders.flatMap { folder -> extensions.map { "$folder/$name.$it" } }
   }
 
-  private fun folders(paths: List<String>, roots: SaveRoots): List<String> {
+  /**
+   * [paths], written with [SavePaths] placeholders, filled in from [roots]. A path that needs the
+   * RetroArch core's folder is left out when [SaveRoots.core] isn't a known core, and one on any
+   * storage volume becomes one path per volume.
+   */
+  fun folders(paths: List<String>, roots: SaveRoots): List<String> {
     val coreFolder = roots.core?.let { LibretroCores.byLibrary(it)?.retroArchFolder }
     return paths.flatMap { path ->
       if (SavePaths.CORE in path && coreFolder == null) return@flatMap emptyList()

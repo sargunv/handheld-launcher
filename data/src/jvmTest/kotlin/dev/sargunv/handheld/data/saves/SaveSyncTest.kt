@@ -4,6 +4,10 @@ import dev.sargunv.handheld.data.romm.MockServer
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
+import dev.sargunv.handheld.domain.emulator.EmulatorId
+import dev.sargunv.handheld.domain.platform.PlatformCatalog
+import dev.sargunv.handheld.domain.saves.SaveFolders
+import dev.sargunv.handheld.domain.saves.SaveLocations
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
@@ -51,7 +55,7 @@ class SaveSyncTest {
     val slot: String?,
     val emulator: String?,
     val updatedAt: Instant,
-    val hash: String? = md5(bytes),
+    val hash: String? = contentHash(bytes),
   )
 
   /**
@@ -110,7 +114,7 @@ class SaveSyncTest {
       name: String,
       bytes: ByteArray,
       at: Instant,
-      hash: String? = md5(bytes),
+      hash: String? = contentHash(bytes),
       emulator: String = "melonds",
     ): Stored {
       val save = Stored(nextId++, name, bytes, SAVE_SLOT, emulator, at, hash)
@@ -801,6 +805,319 @@ class SaveSyncTest {
     assertEquals(BeforeLaunch.Canceled, prompts.run(sync, game, holdsThisGame, true))
     assertTrue(prompts.asked.isEmpty())
     assertContentEquals(mine, saveFile.readBytes())
+  }
+
+  // Saves kept as folders
+
+  private val ppsspp =
+    SaveFolders.forGame(
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("ppsspp"), PlatformCatalog.PSP)),
+      PlatformCatalog.PSP,
+      "ULUS10064",
+    )!!
+  private val savedata = File(root, "memstick/PSP/SAVEDATA").apply { mkdirs() }
+  private val psp =
+    GameSave(7, "ppsspp", emptyList(), folders = SaveFolderRoots(listOf(savedata), ppsspp))
+
+  /** A PSP PARAM.SFO: a save's carries the savedata keys, installed game data's doesn't. */
+  private fun sfo(save: Boolean) =
+    ("\u0000PSF" + if (save) "SAVEDATA_FILE_LIST SAVEDATA_PARAMS" else "DISC_ID TITLE")
+      .encodeToByteArray()
+
+  private fun File.put(path: String, text: String) =
+    File(this, path).apply {
+      parentFile.mkdirs()
+      writeText(text)
+    }
+
+  private fun zip(vararg entries: Pair<String, String?>): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    java.util.zip.ZipOutputStream(out).use { zip ->
+      for ((name, text) in entries) {
+        zip.putNextEntry(java.util.zip.ZipEntry(name))
+        text?.let { zip.write(it.encodeToByteArray()) }
+        zip.closeEntry()
+      }
+    }
+    return out.toByteArray()
+  }
+
+  private fun entries(bytes: ByteArray): Map<String, String> {
+    val found = linkedMapOf<String, String>()
+    java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
+      while (true) {
+        val entry = zip.nextEntry ?: break
+        found[entry.name] = zip.readBytes().decodeToString()
+      }
+    }
+    return found
+  }
+
+  /** Every file under [dir], by relative path, with its text. */
+  private fun tree(dir: File): Map<String, String> =
+    dir
+      .walkTopDown()
+      .filter { it.isFile }
+      .associate {
+        it.relativeTo(dir).invariantSeparatorsPath to it.readText()
+      }
+
+  /** A PSP game's two save folders, beside its installed data and another game's save. */
+  private fun pspFolders() {
+    File(savedata, "ULUS10064DATA00/PARAM.SFO").apply { parentFile.mkdirs() }.writeBytes(sfo(true))
+    savedata.put("ULUS10064DATA00/DATA.BIN", "progress")
+    File(savedata, "ULUS10064SETTINGS/PARAM.SFO")
+      .apply { parentFile.mkdirs() }
+      .writeBytes(sfo(true))
+    File(savedata, "ULUS10064GAMEDATA/PARAM.SFO")
+      .apply { parentFile.mkdirs() }
+      .writeBytes(sfo(false))
+    savedata.put("ULUS10064GAMEDATA/INSTALL.DAT", "installed")
+    savedata.put("ULUS99999DATA00/DATA.BIN", "another game")
+  }
+
+  @Test
+  fun aGamesSaveFoldersSyncAsOneZip() = runTest {
+    pspFolders()
+    val server = FakeRomm()
+    val sync = sync(server)
+
+    assertIs<SaveSyncResult.Pushed>(sync.sync(psp))
+    val upload = server.uploads.single()
+    assertEquals("ULUS10064.zip", upload.fileName)
+    assertEquals(
+      listOf(
+        "ULUS10064DATA00/DATA.BIN",
+        "ULUS10064DATA00/PARAM.SFO",
+        "ULUS10064SETTINGS/PARAM.SFO",
+      ),
+      entries(upload.bytes).keys.toList(),
+      "Only the game's saves go, not its installed data or another game's",
+    )
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(psp), "RomM's hash of the zip matches the record")
+
+    // A file's time alone isn't a change.
+    File(savedata, "ULUS10064DATA00/DATA.BIN").setLastModified(0)
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(psp))
+    savedata.put("ULUS10064DATA00/DATA.BIN", "more progress")
+    assertIs<SaveSyncResult.Pushed>(sync.sync(psp))
+    assertEquals("more progress", entries(server.uploads.last().bytes)["ULUS10064DATA00/DATA.BIN"])
+  }
+
+  @Test
+  fun aPulledZipReplacesTheGamesFoldersAndKeepsTheOldOnesInHistory() = runTest {
+    pspFolders()
+    val server = FakeRomm()
+    val sync = sync(server)
+    assertIs<SaveSyncResult.Pushed>(sync.sync(psp))
+    val before = tree(savedata)
+    server.push(
+      "ULUS10064.zip",
+      zip("ULUS10064DATA00/" to null, "ULUS10064DATA00/DATA.BIN" to "from another device"),
+      Instant.parse("2025-04-01T00:00:00Z"),
+      emulator = "ppsspp",
+    )
+
+    val result = assertIs<SaveSyncResult.Pulled>(sync.sync(psp))
+    assertEquals(
+      mapOf(
+        "ULUS10064DATA00/DATA.BIN" to "from another device",
+        "ULUS10064GAMEDATA/INSTALL.DAT" to "installed",
+        "ULUS99999DATA00/DATA.BIN" to "another game",
+      ),
+      tree(savedata) - "ULUS10064GAMEDATA/PARAM.SFO",
+      "The game's folders are RomM's, and nothing else changed",
+    )
+    val kept = assertNotNull(result.previous)
+    assertEquals(
+      before.filterKeys { it.startsWith("ULUS10064DATA00") || it.startsWith("ULUS10064SETTINGS") },
+      entries(kept.readBytes()),
+      "The history has the folders the pull replaced",
+    )
+    assertTrue(savedata.list()!!.none { it.startsWith(".handheld") }, "No temp folders are left")
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(psp))
+  }
+
+  @Test
+  fun aFolderSaveConflictKeepsTheDevicesCopy() = runTest {
+    pspFolders()
+    val server = FakeRomm()
+    val sync = sync(server)
+    assertIs<SaveSyncResult.Pushed>(sync.sync(psp))
+    savedata.put("ULUS10064DATA00/DATA.BIN", "played here")
+    server.push(
+      "ULUS10064.zip",
+      zip("ULUS10064DATA00/DATA.BIN" to "played there"),
+      Instant.parse("2025-04-01T00:00:00Z"),
+      emulator = "ppsspp",
+    )
+
+    val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(psp))
+    assertEquals("played here", File(savedata, "ULUS10064DATA00/DATA.BIN").readText())
+    val resolved = sync.resolve(psp, conflict, SaveCopy.Server)
+    assertEquals("played there", File(savedata, "ULUS10064DATA00/DATA.BIN").readText())
+    assertEquals("played here", entries(resolved.history.readBytes())["ULUS10064DATA00/DATA.BIN"])
+    val upload = server.uploads.last()
+    assertTrue(upload.fileName.startsWith("ULUS10064 (conflict "), upload.fileName)
+    assertEquals("played here", entries(upload.bytes)["ULUS10064DATA00/DATA.BIN"])
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(psp))
+  }
+
+  @Test
+  fun aPullKeepsWhatTheEmulatorWroteAfterTheHistoryCopy() {
+    pspFolders()
+    val unit = psp.unit()
+    val snapshot = assertNotNull(unit.read())
+    // The emulator writes after the history copy was taken, before the swap.
+    savedata.put("ULUS10064DATA00/DATA.BIN", "written in the gap")
+    val kept = mutableListOf<LocalCopy>()
+    unit.write(snapshot.file, zip("ULUS10064DATA00/DATA.BIN" to "from RomM"), snapshot.hash) {
+      kept += it
+    }
+    assertEquals("from RomM", File(savedata, "ULUS10064DATA00/DATA.BIN").readText())
+    assertEquals("written in the gap", entries(kept.single().bytes)["ULUS10064DATA00/DATA.BIN"])
+
+    // Nothing to keep when the history already has what was replaced.
+    val now = assertNotNull(unit.read())
+    kept.clear()
+    unit.write(now.file, zip("ULUS10064DATA00/DATA.BIN" to "again"), now.hash) { kept += it }
+    assertTrue(kept.isEmpty())
+  }
+
+  @Test
+  fun refusesAZipThatReachesPastTheGamesSave() = runTest {
+    for (name in listOf("ULUS99999DATA00/DATA.BIN", "../outside.bin", "ULUS10064GAMEDATA/X")) {
+      root.resolve("records").deleteRecursively()
+      savedata.deleteRecursively()
+      pspFolders()
+      val before = tree(savedata)
+      val server = FakeRomm()
+      server.push(
+        "ULUS10064.zip",
+        zip(name to "bad"),
+        Instant.parse("2025-04-01T00:00:00Z"),
+        emulator = "ppsspp",
+      )
+      val sync = sync(server)
+      // Both copies are new to each other, so keep the server's.
+      val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(psp))
+      assertFailsWith<IOException>(name) { sync.resolve(psp, conflict, SaveCopy.Server) }
+      assertEquals(before, tree(savedata), "Nothing changed for $name")
+      assertTrue(savedata.list()!!.none { it.startsWith(".handheld") })
+    }
+  }
+
+  @Test
+  fun pullsA3dsSaveIntoFoldersTheEmulatorHasntMadeYet() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("azahar"), PlatformCatalog.N3DS))
+    val sdmc = File(root, "azahar/sdmc/Nintendo 3DS").apply { mkdirs() }
+    val save = SaveFolders.forGame(location, PlatformCatalog.N3DS, "0004000000033500")!!
+    val game = GameSave(7, "azahar", emptyList(), folders = SaveFolderRoots(listOf(sdmc), save))
+    val server = FakeRomm()
+    server.push(
+      "0004000000033500.zip",
+      zip(
+        "00040000/00033500/data/00000001/main" to "picross",
+      ),
+      Instant.parse("2025-04-01T00:00:00Z"),
+      emulator = "azahar",
+    )
+
+    assertIs<SaveSyncResult.Pulled>(sync(server).sync(game))
+    val ids = "00000000000000000000000000000000/00000000000000000000000000000000"
+    assertEquals(
+      mapOf(
+        "$ids/title/00040000/00033500/data/00000001/main" to "picross",
+      ),
+      tree(sdmc),
+    )
+  }
+
+  @Test
+  fun aSwitchSaveIsTheProfilesAndTheDevicesButNotTheSizeFile() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("eden"), PlatformCatalog.SWITCH))
+    val nand = File(root, "eden/nand/user/save").apply { mkdirs() }
+    val title = "0100ABCD12345000"
+    val profile = "0000000000000000/125D2DBAEBDEB11000296E1E1ECBF401"
+    nand.put("$profile/$title/.yuzu_save_size", "size")
+    nand.put("$profile/$title/main", "account save")
+    nand.put("$profile/0100000000010000/main", "another game")
+    nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
+    val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
+    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val server = FakeRomm()
+    val sync = sync(server)
+
+    assertIs<SaveSyncResult.Pushed>(sync.sync(game))
+    assertEquals(
+      mapOf("$title/main" to "account save", "device/$title/shared" to "device save"),
+      entries(server.uploads.single().bytes),
+    )
+
+    server.push(
+      "$title.zip",
+      zip("$title/main" to "newer", "device/$title/shared" to "newer too"),
+      Instant.parse("2025-04-01T00:00:00Z"),
+      emulator = "eden",
+    )
+    assertIs<SaveSyncResult.Pulled>(sync.sync(game))
+    assertEquals("newer", File(nand, "$profile/$title/main").readText())
+    assertEquals("size", File(nand, "$profile/$title/.yuzu_save_size").readText())
+    assertEquals("another game", File(nand, "$profile/0100000000010000/main").readText())
+  }
+
+  @Test
+  fun aProfileWithOnlyTheSizeFileDoesntHoldTheSwitchSave() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("eden"), PlatformCatalog.SWITCH))
+    val nand = File(root, "eden/nand/user/save").apply { mkdirs() }
+    val title = "0100ABCD12345000"
+    nand.put("0000000000000000/125D2DBAEBDEB11000296E1E1ECBF401/$title/main", "account save")
+    nand.put("0000000000000000/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/$title/.yuzu_save_size", "size")
+    val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
+    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val server = FakeRomm()
+
+    assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
+    assertEquals(
+      mapOf("$title/main" to "account save"),
+      entries(server.uploads.single().bytes),
+    )
+  }
+
+  @Test
+  fun aSwitchDeviceSaveSyncsWithoutAnAccountProfile() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("eden"), PlatformCatalog.SWITCH))
+    val nand = File(root, "eden/nand/user/save").apply { mkdirs() }
+    val title = "0100ABCD12345000"
+    nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
+    val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
+    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val server = FakeRomm()
+
+    assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
+    assertEquals(
+      mapOf("device/$title/shared" to "device save"),
+      entries(server.uploads.single().bytes),
+    )
+  }
+
+  @Test
+  fun aGameCubeSaveIsTheGamesGciFiles() = runTest {
+    val location =
+      assertNotNull(SaveLocations.forEmulator(EmulatorId("dolphin"), PlatformCatalog.GAMECUBE))
+    val gc = File(root, "dolphin/GC").apply { mkdirs() }
+    gc.put("USA/Card A/01-GZLE-gczelda.gci", "zelda")
+    gc.put("USA/Card A/8P-GSNE-sonic.gci", "sonic")
+    val save = SaveFolders.forGame(location, PlatformCatalog.GAMECUBE, "GZLE")!!
+    val game = GameSave(7, "dolphin", emptyList(), folders = SaveFolderRoots(listOf(gc), save))
+    val server = FakeRomm()
+
+    assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
+    assertEquals(mapOf("01-GZLE-gczelda.gci" to "zelda"), entries(server.uploads.single().bytes))
   }
 }
 
