@@ -45,7 +45,7 @@ jobs:
           path: ~/.cache/handheld/session-fixtures
           key:
             session-fixtures-${{ hashFiles('session/fixtures.sh',
-            'session/fixture-sources.sh') }}
+            'session/fixture-sources.sh', 'session/tests/cores/events.c') }}
       - run: mise run build
       - run: mise run test
         env:

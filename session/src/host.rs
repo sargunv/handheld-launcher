@@ -103,6 +103,9 @@ pub(crate) struct Host {
     pub(crate) support_no_game: bool,
     pub(crate) frame_time: Option<ffi::retro_frame_time_callback>,
     pub(crate) shutdown_requested: bool,
+    /// How many controller ports the core declared with
+    /// `SET_CONTROLLER_INFO`, if it did.
+    pub(crate) controller_ports: Option<usize>,
     /// The `RETRO_SERIALIZATION_QUIRK_*` flags the core declared.
     serialization_quirks: u64,
     unhandled: HashSet<c_uint>,
@@ -144,6 +147,7 @@ impl Host {
             support_no_game: false,
             frame_time: None,
             shutdown_requested: false,
+            controller_ports: None,
             serialization_quirks: 0,
             unhandled: HashSet::new(),
         }
@@ -620,10 +624,20 @@ impl Host {
                 ffi::RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT => {
                     write::<c_int>(data, ffi::RETRO_SAVESTATE_CONTEXT_NORMAL as c_int)
                 }
+                ffi::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO => {
+                    let mut info = data.cast::<ffi::retro_controller_info>().cast_const();
+                    let mut ports = 0;
+                    while !info.is_null() && !(*info).types.is_null() {
+                        ports += 1;
+                        info = info.add(1);
+                    }
+                    log::debug!("core controller ports: {ports}");
+                    self.controller_ports = Some(ports);
+                    true
+                }
                 // Information the session doesn't use yet, accepted so cores
                 // don't take a fallback path.
-                ffi::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO
-                | ffi::RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO
+                ffi::RETRO_ENVIRONMENT_SET_SUBSYSTEM_INFO
                 | ffi::RETRO_ENVIRONMENT_SET_MEMORY_MAPS
                 | ffi::RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS
                 | ffi::RETRO_ENVIRONMENT_SET_PROC_ADDRESS_CALLBACK => true,
@@ -922,6 +936,30 @@ mod tests {
             ffi::RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE,
             std::ptr::null_mut(),
         ));
+    }
+
+    #[test]
+    fn counts_the_controller_ports_the_core_declares() {
+        let mut host = host();
+        assert_eq!(host.controller_ports, None);
+        let pad = ffi::retro_controller_description {
+            desc: c"RetroPad".as_ptr(),
+            id: ffi::RETRO_DEVICE_JOYPAD,
+        };
+        let port = ffi::retro_controller_info {
+            types: &pad,
+            num_types: 1,
+        };
+        let end = ffi::retro_controller_info {
+            types: std::ptr::null(),
+            num_types: 0,
+        };
+        let mut ports = [port, port, end];
+        assert!(host.environment(
+            ffi::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO,
+            ports.as_mut_ptr().cast(),
+        ));
+        assert_eq!(host.controller_ports, Some(2));
     }
 
     #[test]

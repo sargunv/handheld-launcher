@@ -31,11 +31,16 @@ the core at its frame rate between the app's commands. It starts paused. On
 Android it presents to an `ANativeWindow` through an OpenGL ES context, or a
 Vulkan device for Vulkan cores, that outlives the windows, plays audio through
 AAudio, and `GameSessionView` shows it in a `SurfaceView`, feeding it the
-gamepad and pausing it while the surface is gone or the window loses focus. Save
-memory is written to its file within a few seconds of changing and whenever the
-session pauses or stops, on a thread of its own, replacing the file atomically.
-A save file whose size differs from the core's save memory is copied to a backup
-beside it before it's replaced.
+gamepads and pausing it while the surface is gone or the window loses focus.
+Each gamepad plays on the lowest free controller port as it connects, so a
+handheld's own controls are port 0; the session sets a RetroPad on each of the
+four ports, or on as many as the core declares. A `SessionListener` hears, on a
+thread of its own, when the core changes its frame size, aspect ratio or frame
+rate, which the session already follows, and when the core quits, after the
+session has stopped. Save memory is written to its file within a few seconds of
+changing and whenever the session pauses or stops, on a thread of its own,
+replacing the file atomically. A save file whose size differs from the core's
+save memory is copied to a backup beside it before it's replaced.
 
 On Android, frames start on the display's vsync, which a Choreographer thread
 follows, when the core's rate is within 2% of a whole fraction of the display's:
@@ -67,12 +72,13 @@ and F4 loads it. `--esa core_options key=value,...` sets core options, such as
 ## Tests
 
 The integration tests run real cores: libretro-samples' software, GL and Vulkan
-test cores, and Gambatte with µCity, a Game Boy Color game under the
-GPL-3.0-or-later with CC BY-SA 4.0 graphics and music. `fixtures.sh`, which
-`mise run session:fixtures` runs, builds the cores from pinned commits and
-downloads the game into `~/.cache/handheld/session-fixtures`, or
-`$HANDHELD_SESSION_FIXTURES`. `mise run test` runs it first, so the first run on
-a cold cache builds and downloads them; the tests themselves stay offline. CI
+test cores, `tests/cores/events.c`, which quits, switches video modes and shows
+which ports are pressed on request, and Gambatte with µCity, a Game Boy Color
+game under the GPL-3.0-or-later with CC BY-SA 4.0 graphics and music.
+`fixtures.sh`, which `mise run session:fixtures` runs, builds the cores from
+pinned commits and downloads the game into `~/.cache/handheld/session-fixtures`,
+or `$HANDHELD_SESSION_FIXTURES`. `mise run test` runs it first, so the first run
+on a cold cache builds and downloads them; the tests themselves stay offline. CI
 caches them by the files that pin them. Building them needs a C and C++
 toolchain and the OpenGL and OpenGL ES development libraries
 (`mesa-libGL-devel mesa-libGLES-devel` on Fedora, `libgl-dev libgles-dev` on

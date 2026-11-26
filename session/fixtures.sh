@@ -15,6 +15,8 @@
 # - testgl_{gl,gles,core}_libretro.so: libretro-samples' GL test core, built for
 #   OpenGL 2 (compatibility), OpenGL ES 2 and OpenGL 3.1 core (MIT).
 # - testvulkan_libretro.so: libretro-samples' Vulkan test core (MIT).
+# - events_libretro.so: tests/cores/events.c, a core that quits, changes its
+#   video and audio modes, and shows which ports are pressed, on request.
 # - gambatte_libretro.so: the Gambatte Game Boy core (GPL-2.0).
 # - ucity.gbc: µCity, a Game Boy Color city builder by Antonio Niño Díaz (code
 #   GPL-3.0-or-later, graphics and music CC BY-SA 4.0).
@@ -25,7 +27,8 @@ here="$(dirname "${BASH_SOURCE[0]}")"
 source "$here/fixture-sources.sh"
 
 dest="${HANDHELD_SESSION_FIXTURES:-${XDG_CACHE_HOME:-$HOME/.cache}/handheld/session-fixtures}"
-stamp="$(cat "${BASH_SOURCE[0]}" "$here/fixture-sources.sh" | sha256sum | cut -d' ' -f1)"
+stamp="$(cat "${BASH_SOURCE[0]}" "$here/fixture-sources.sh" "$here/tests/cores/events.c" |
+  sha256sum | cut -d' ' -f1)"
 if [[ -f "$dest/.stamp" && "$(cat "$dest/.stamp")" == "$stamp" ]]; then
   echo "Session fixtures are up to date in $dest"
   exit 0
@@ -62,6 +65,10 @@ if [[ "$gpu" == true ]]; then
   make -s -C "$work/samples/video/vulkan/vk_rendering" -j"$jobs"
   cp "$work/samples/video/vulkan/vk_rendering/testvulkan_libretro.so" "$out/"
 fi
+
+echo "Building the events test core"
+cc -shared -fPIC -O2 -std=c99 -I"$here/vendor/libretro" "$here/tests/cores/events.c" \
+  -o "$out/events_libretro.so"
 
 echo "Building Gambatte"
 fetch_gambatte "$work/gambatte"

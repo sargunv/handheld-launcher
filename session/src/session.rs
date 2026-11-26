@@ -293,7 +293,10 @@ impl Session {
         host.reset_audio();
 
         session.set_up_video()?;
-        for port in 0..MAX_PORTS as u32 {
+        // A RetroPad on every port, or on every port the core has, as it
+        // may not expect calls for ports past its last.
+        let ports = session.host().controller_ports.unwrap_or(MAX_PORTS);
+        for port in 0..ports.min(MAX_PORTS) as u32 {
             // SAFETY: the game is loaded.
             unsafe { (session.core.set_controller_port_device)(port, ffi::RETRO_DEVICE_JOYPAD) };
         }

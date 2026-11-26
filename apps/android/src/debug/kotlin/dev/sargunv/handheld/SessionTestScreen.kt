@@ -1,5 +1,6 @@
 package dev.sargunv.handheld
 
+import android.util.Log
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.SessionException
+import dev.sargunv.handheld.session.SessionInfo
+import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
 import java.io.File
@@ -40,7 +43,8 @@ private sealed interface Status {
 /**
  * Runs the core [core] gives with [content] and [coreOptions] in a game session, for trying the
  * session on a device. F2 saves a state and F4 loads it. Saves and states go in [dir]. The game
- * pauses while the window lacks focus only with [pauseWhenUnfocused].
+ * pauses while the window lacks focus only with [pauseWhenUnfocused]. When the core changes its
+ * video mode, the label shows it, and when the core quits, the screen closes the session.
  */
 @Composable
 internal fun SessionTestScreen(
@@ -52,6 +56,20 @@ internal fun SessionTestScreen(
 ) {
   var status by remember { mutableStateOf<Status>(Status.Loading) }
   var message by remember { mutableStateOf("") }
+  var changedInfo by remember { mutableStateOf<SessionInfo?>(null) }
+  val listener = remember {
+    object : SessionListener {
+      override fun infoChanged(info: SessionInfo) {
+        Log.i(TAG, "the core changed its video mode: $info")
+        changedInfo = info
+      }
+
+      override fun coreQuit() {
+        Log.i(TAG, "the core quit")
+        status = Status.Failed("The core quit, so the session closed.")
+      }
+    }
+  }
   LaunchedEffect(core, content) {
     val core =
       try {
@@ -72,7 +90,9 @@ internal fun SessionTestScreen(
         withContext(Dispatchers.IO + NonCancellable) {
           try {
             Status.Running(
-              GameSession.start(options(dir, core, content, coreOptions)).also { unclaimed = it },
+              GameSession.start(options(dir, core, content, coreOptions), listener).also {
+                unclaimed = it
+              },
             )
           } catch (e: SessionException) {
             Status.Failed("Can't start ${core.name}: ${e.message}")
@@ -106,10 +126,10 @@ internal fun SessionTestScreen(
             s.session.close()
           },
         )
-        val info = remember(s.session) { s.session.info() }
+        val info = changedInfo ?: remember(s.session) { s.session.info() }
         Label(
-          "${info.libraryName} ${info.libraryVersion}, ${"%.2f".format(info.fps)} fps. " +
-            "F2 saves a state, F4 loads it. $message",
+          "${info.libraryName} ${info.libraryVersion}, ${info.baseWidth}x${info.baseHeight}, " +
+            "${"%.2f".format(info.fps)} fps. F2 saves a state, F4 loads it. $message",
           Modifier.align(Alignment.BottomStart),
         )
       }
@@ -142,6 +162,8 @@ private fun handleHotkey(session: GameSession, dir: File, event: KeyEvent): Stri
     e.message ?: e.toString()
   }
 }
+
+private const val TAG = "SessionTestScreen"
 
 @Composable
 private fun Label(text: String, modifier: Modifier = Modifier) {

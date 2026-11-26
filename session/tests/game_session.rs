@@ -14,17 +14,20 @@ use handheld_session::{GameSession, SessionOptions, VideoMode};
 const SAVE_RAM_SIZE: usize = 128 * 1024;
 
 fn start(dir: &Path) -> std::sync::Arc<GameSession> {
-    GameSession::start(SessionOptions {
-        core_path: fixture("gambatte_libretro.so")
-            .to_string_lossy()
-            .into_owned(),
-        content_path: Some(fixture("ucity.gbc").to_string_lossy().into_owned()),
-        system_dir: dir.join("system").to_string_lossy().into_owned(),
-        save_dir: dir.join("saves").to_string_lossy().into_owned(),
-        save_ram_path: Some(dir.join("saves/game.srm").to_string_lossy().into_owned()),
-        core_options: HashMap::new(),
-        video: VideoMode::Offscreen,
-    })
+    GameSession::start(
+        SessionOptions {
+            core_path: fixture("gambatte_libretro.so")
+                .to_string_lossy()
+                .into_owned(),
+            content_path: Some(fixture("ucity.gbc").to_string_lossy().into_owned()),
+            system_dir: dir.join("system").to_string_lossy().into_owned(),
+            save_dir: dir.join("saves").to_string_lossy().into_owned(),
+            save_ram_path: Some(dir.join("saves/game.srm").to_string_lossy().into_owned()),
+            core_options: HashMap::new(),
+            video: VideoMode::Offscreen,
+        },
+        None,
+    )
     .unwrap()
 }
 

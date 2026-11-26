@@ -5,7 +5,8 @@
 //! starts a thread that loads the core, runs it at the core's frame rate, or
 //! on the display's vsync as [`crate::pacing`] describes, and takes commands
 //! from the app between frames. Input skips the queue: the app
-//! writes it straight to the shared [`InputState`].
+//! writes it straight to the shared [`InputState`]. What the session has to
+//! tell the app goes to its [`SessionListener`], on a thread of its own.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -18,7 +19,7 @@ use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, FrameStats, Vsync};
 use crate::save::SaveWriter;
-use crate::session::{SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
+use crate::session::{AvInfo, SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, VideoSink};
 
 /// What [`GameSession::start`] needs.
@@ -67,7 +68,7 @@ pub enum WindowHandle {
     Android { window: u64 },
 }
 
-/// What a running session's core says about itself, as it started.
+/// What a running session's core says about itself.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct SessionInfo {
     pub library_name: String,
@@ -83,6 +84,70 @@ pub struct SessionInfo {
     pub hardware_rendered: bool,
 }
 
+impl SessionInfo {
+    fn with_av(&self, av: AvInfo) -> Self {
+        Self {
+            fps: av.fps,
+            base_width: av.base_width,
+            base_height: av.base_height,
+            aspect_ratio: av.aspect_ratio,
+            ..self.clone()
+        }
+    }
+}
+
+/// What a session tells the app as it runs. The session calls it on a thread
+/// of its own, one call at a time, so it may call the session back.
+#[uniffi::export(with_foreign)]
+pub trait SessionListener: Send + Sync {
+    /// The core changed its frame size, aspect ratio or frame rate mid-game,
+    /// as `info` now gives them. The session already presents and paces
+    /// frames to match; the app may lay out its view again.
+    fn info_changed(&self, info: SessionInfo);
+
+    /// The core asked to quit, as when a game offers an exit. The session has
+    /// stopped, with save memory on disk and the core unloaded, so the app
+    /// should close it.
+    fn core_quit(&self);
+}
+
+/// What the session thread tells the listener.
+enum Event {
+    InfoChanged(SessionInfo),
+    CoreQuit,
+}
+
+/// Sends events to the listener, if the app gave one, on a thread of their
+/// own, so a listener that calls the session back can't block it.
+#[derive(Clone)]
+struct Events(Option<Sender<Event>>);
+
+impl Events {
+    fn new(listener: Option<Arc<dyn SessionListener>>) -> std::io::Result<Self> {
+        let Some(listener) = listener else {
+            return Ok(Self(None));
+        };
+        let (events, receiver) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("session-events".into())
+            .spawn(move || {
+                for event in receiver {
+                    match event {
+                        Event::InfoChanged(info) => listener.info_changed(info),
+                        Event::CoreQuit => listener.core_quit(),
+                    }
+                }
+            })?;
+        Ok(Self(Some(events)))
+    }
+
+    fn send(&self, event: Event) {
+        if let Some(events) = &self.0 {
+            let _ = events.send(event);
+        }
+    }
+}
+
 /// A core running content on a thread of its own.
 ///
 /// A session starts paused, so the app can attach a window first. Every
@@ -94,7 +159,7 @@ pub struct SessionInfo {
 pub struct GameSession {
     commands: Sender<Command>,
     input: Arc<InputState>,
-    info: SessionInfo,
+    info: Arc<Mutex<SessionInfo>>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -117,20 +182,25 @@ enum Command {
 #[uniffi::export]
 impl GameSession {
     /// Loads the core and its content on a new thread, and returns once
-    /// they're ready to run, paused.
+    /// they're ready to run, paused. The session tells `listener` when the
+    /// core changes its video mode or quits.
     ///
     /// The core is native code that runs in this process: only start cores
     /// the user chose to trust.
-    #[uniffi::constructor]
-    pub fn start(options: SessionOptions) -> Result<Arc<Self>, SessionError> {
+    #[uniffi::constructor(default(listener = None))]
+    pub fn start(
+        options: SessionOptions,
+        listener: Option<Arc<dyn SessionListener>>,
+    ) -> Result<Arc<Self>, SessionError> {
         crate::platform::init_logging();
         let input = Arc::new(InputState::new());
+        let events = Events::new(listener)?;
         let (commands, receiver) = mpsc::channel();
         let (started, start_result) = mpsc::channel();
         let thread_input = input.clone();
         let thread = std::thread::Builder::new()
             .name("session".into())
-            .spawn(move || run(options, thread_input, receiver, started))?;
+            .spawn(move || run(options, thread_input, events, receiver, started))?;
         match start_result.recv() {
             Ok(Ok(info)) => Ok(Arc::new(Self {
                 commands,
@@ -149,9 +219,10 @@ impl GameSession {
         }
     }
 
-    /// What the core said about itself when the session started.
+    /// What the core says about itself: as it started, with the frame size,
+    /// aspect ratio and frame rate it changed to since.
     pub fn info(&self) -> SessionInfo {
-        self.info.clone()
+        self.info.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Presents to `window` from now on, instead of any window before it, and
@@ -331,8 +402,9 @@ impl VideoSink for DiscardFrames {
 fn run(
     options: SessionOptions,
     input: Arc<InputState>,
+    events: Events,
     commands: Receiver<Command>,
-    started: Sender<Result<SessionInfo, SessionError>>,
+    started: Sender<Result<Arc<Mutex<SessionInfo>>, SessionError>>,
 ) {
     let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
     let presents_to_window = options.video == VideoMode::Window;
@@ -380,10 +452,14 @@ fn run(
     };
     session.set_audio_paused(true);
     let vsync = presents_to_window.then(vsync_clock).flatten();
-    if started.send(Ok(info)).is_err() {
+    let info = Arc::new(Mutex::new(info));
+    if started.send(Ok(info.clone())).is_err() {
         return;
     }
     let runner = Runner {
+        reported_av: session.av_info(),
+        info,
+        events: events.clone(),
         session,
         window: None,
         save_ram,
@@ -393,7 +469,13 @@ fn run(
         vsyncs: None,
         stats: FrameStats::new(Instant::now()),
     };
-    runner.run(&commands);
+    let quit = runner.run(&commands);
+    // The session is gone, and so are its commands, so the listener may
+    // stop it or start another.
+    drop(commands);
+    if quit {
+        events.send(Event::CoreQuit);
+    }
 }
 
 fn start_session(options: SessionOptions, input: Arc<InputState>) -> Result<Session, SessionError> {
@@ -464,6 +546,12 @@ fn vsync_clock() -> Option<VsyncClock> {
 /// The session thread's state.
 struct Runner {
     session: Session,
+    /// The info the app sees, which the session updates as the core changes
+    /// its video mode.
+    info: Arc<Mutex<SessionInfo>>,
+    /// The timing and geometry `info` last reported.
+    reported_av: AvInfo,
+    events: Events,
     window: Option<PlatformWindow>,
     save_ram: SaveRam,
     paused: bool,
@@ -509,27 +597,56 @@ fn next(commands: &Receiver<Command>, paused: bool, next_frame: Instant) -> Next
 }
 
 impl Runner {
-    fn run(mut self, commands: &Receiver<Command>) {
-        loop {
+    /// Runs the session until it's told to stop or the core quits, and
+    /// returns whether the core quit. The session is dropped when this
+    /// returns.
+    fn run(mut self, commands: &Receiver<Command>) -> bool {
+        let quit = loop {
             match next(commands, self.paused, self.next_frame) {
                 Next::Command(Command::Stop(reply)) => {
                     let _ = reply.send(self.stop());
-                    return;
+                    return false;
                 }
                 Next::Command(command) => self.handle(command),
-                Next::Frame => {
-                    self.run_frame();
-                    if self.session.shutdown_requested() {
-                        log::info!("the core asked to quit");
-                        break;
-                    }
-                }
-                Next::Exit => break,
+                Next::Frame => self.run_frame(),
+                Next::Exit => break false,
             }
-        }
+            self.report_av();
+            if self.session.shutdown_requested() {
+                log::info!("the core asked to quit");
+                break true;
+            }
+        };
         if let Err(e) = self.stop() {
             log::error!("can't write save memory: {e}");
         }
+        quit
+    }
+
+    /// Tells the app about a frame size, aspect ratio or frame rate the core
+    /// changed to.
+    fn report_av(&mut self) {
+        let av = self.session.av_info();
+        if av == self.reported_av {
+            return;
+        }
+        self.reported_av = av;
+        let info = {
+            let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = info.with_av(av);
+            if changed == *info {
+                return;
+            }
+            *info = changed.clone();
+            changed
+        };
+        log::info!(
+            "the core changed to {}x{} at {:.2} fps",
+            info.base_width,
+            info.base_height,
+            info.fps
+        );
+        self.events.send(Event::InfoChanged(info));
     }
 
     fn run_frame(&mut self) {
@@ -597,6 +714,9 @@ impl Runner {
             Command::Advance(frames, reply) => {
                 if self.paused {
                     for _ in 0..frames {
+                        if self.session.shutdown_requested() {
+                            break;
+                        }
                         self.session.run_frame();
                     }
                 }
