@@ -6,6 +6,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
 import androidx.compose.ui.test.assert
@@ -34,13 +35,43 @@ import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
 import dev.sargunv.handheld.ui.rememberTestDownloads
 import dev.sargunv.handheld.ui.testCoverDir
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.respondError
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
+import io.ktor.http.headersOf
+import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.io.IOException
 
 @OptIn(ExperimentalTestApi::class)
 class SignInTest {
+  /** The bodies of the requests to start a device sign-in. */
+  private val pairings = Collections.synchronizedList(mutableListOf<String>())
+
+  /** A server that hands out a code, and never approves it. */
+  private val server = {
+    MockEngine { request ->
+      if (request.url.encodedPath != "/api/auth/device/init") {
+        return@MockEngine respondError(HttpStatusCode.NotFound)
+      }
+      pairings += (request.body as TextContent).text
+      respond(
+        """{"device_code": "secret", "user_code": "ABCD2345", "verification_path": "/pair/device",
+        "verification_path_complete": "/pair/device?user_code=ABCD2345", "expires_in": 600,
+        "interval": 5}""",
+        HttpStatusCode.Created,
+        headersOf(HttpHeaders.ContentType, "application/json"),
+      )
+    }
+  }
+
   private fun androidx.compose.ui.test.ComposeUiTest.launch(store: CredentialStore) {
     setContent {
       val heldKeys = remember { HeldKeys() }
@@ -54,9 +85,46 @@ class SignInTest {
         rememberTestDownloads(library, store),
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
+        httpEngine = server,
       )
     }
     waitForIdle()
+  }
+
+  /** Enters an address, and asks it for a code, with uploads allowed when [allowUploads]. */
+  private fun androidx.compose.ui.test.ComposeUiTest.pair(allowUploads: Boolean): String {
+    launch(InMemoryCredentialStore())
+    onNodeWithTag("allowUploads")
+      .assert(expectValue(SemanticsProperties.ToggleableState, ToggleableState.Off))
+      .assert(expectValue(SemanticsProperties.Role, Role.Switch))
+    onRoot().performKeyInput { pressKey(Key.ButtonA) }
+    waitForIdle()
+    onNode(hasSetTextAction()).performTextReplacement("romm.example.com")
+    if (allowUploads) {
+      onNodeWithTag("allowUploads").performSemanticsAction(SemanticsActions.OnClick)
+      waitForIdle()
+      onNodeWithTag("allowUploads")
+        .assert(expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
+    }
+    onNodeWithTag("continue").performSemanticsAction(SemanticsActions.OnClick)
+    waitUntil(timeoutMillis = 5_000) { pairings.isNotEmpty() }
+    return pairings.single()
+  }
+
+  @Test
+  fun asksForTheUsualPermissionsByDefault() = runComposeUiTest {
+    val scopes = pair(allowUploads = false)
+    assertTrue("\"roms.read\"" in scopes)
+    assertFalse("roms.write" in scopes)
+    assertFalse("tasks.run" in scopes)
+  }
+
+  @Test
+  fun asksForPermissionToUploadWhenAllowed() = runComposeUiTest {
+    val scopes = pair(allowUploads = true)
+    assertTrue("\"roms.read\"" in scopes)
+    assertTrue("\"roms.write\"" in scopes)
+    assertTrue("\"tasks.run\"" in scopes)
   }
 
   @Test
@@ -93,6 +161,9 @@ class SignInTest {
   @Test
   fun asksForAnAddressBeforeGoingOn() = runComposeUiTest {
     launch(InMemoryCredentialStore())
+    onRoot().performKeyInput { pressKey(Key.DirectionDown) }
+    waitForIdle()
+    onNodeWithTag("allowUploads").assertIsFocused()
     onRoot().performKeyInput { pressKey(Key.DirectionDown) }
     waitForIdle()
     onNodeWithTag("continue").assertIsFocused()

@@ -210,6 +210,10 @@ class AppState(
   var signedOutOf: String? by mutableStateOf(null)
     private set
 
+  /** Whether the sign-in after the last sign-out starts out asking for permission to upload. */
+  var signInAllowsUploads: Boolean by mutableStateOf(false)
+    private set
+
   /**
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
    */
@@ -286,17 +290,22 @@ class AppState(
 
   /**
    * Signs out of the server and goes to the sign-in, which offers the same server again. The games
-   * on the device, their saves and the library cache stay, but the downloads not yet done leave the
-   * queue, since they're games of this server. The next sign-in opens on Home.
+   * on the device, their saves and the library cache stay. The downloads not yet done leave the
+   * queue, since they're games of this server, unless [keepQueue], for signing in again to the same
+   * one: they wait for the sign-in, and a sign-in to another server drops them then. The next
+   * sign-in opens on Home. It asks for permission to upload games when [allowUploads].
    *
    * Once begun, it finishes even if the screen that asked goes away.
    */
-  suspend fun signOut() =
+  suspend fun signOut(allowUploads: Boolean = false, keepQueue: Boolean = false) =
     withContext(NonCancellable) {
-      signedOutOf = credentials.load()?.baseUrl
+      val previous = credentials.load()
+      signedOutOf = previous?.baseUrl
+      signInAllowsUploads = allowUploads
       // Before the credentials go, so the server hears of the canceled installs it asked for.
-      for (download in downloads.queue.value) downloads.cancel(download.romId)
+      if (!keepQueue) for (download in downloads.queue.value) downloads.cancel(download.romId)
       romm.signOut()
+      downloads.signedIn(null)
       navigator.backToStart()
       place = Place.Home
       focused = null
@@ -305,6 +314,14 @@ class AppState(
       signOuts++
       signedIn = false
     }
+
+  /**
+   * After a sign-in: the downloads a sign-out kept wait for it, and leave the queue if they're
+   * another server's games.
+   */
+  suspend fun afterSignIn() {
+    downloads.signedIn(credentials.load()?.baseUrl)
+  }
 
   /**
    * Shows [target], on top of the places, as if the player had gone there. A game or platform that

@@ -38,6 +38,7 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RommAchievementProgress
 import dev.sargunv.handheld.data.achievements.achievementProgress
+import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.Removal
 import dev.sargunv.handheld.data.downloads.RomStatus
@@ -71,6 +72,9 @@ import dev.sargunv.handheld.ui.saves.StillRunning
 import dev.sargunv.handheld.ui.saves.StillRunningDialog
 import dev.sargunv.handheld.ui.saves.ago
 import dev.sargunv.handheld.ui.saves.size
+import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlin.time.Clock
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -170,6 +174,12 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   var upload by remember { mutableStateOf<Job?>(null) }
   // Whether the server has the whole file, so the upload can't stop any more.
   var uploadFinishing by remember { mutableStateOf(false) }
+  // What the sign-in may do about uploads, as of the last Upload to RomM.
+  var uploadAccess by remember { mutableStateOf<UploadAccess?>(null) }
+  // Whether Upload to RomM is asking what the sign-in may do, while the menu waits for it.
+  var checkingUpload by remember { mutableStateOf(false) }
+  // Why signing in again, with uploads allowed, is offered, while the offer shows.
+  var allowUploadsReason by remember { mutableStateOf<String?>(null) }
   // What the launch is doing before the game starts, such as getting its core.
   var playProgress by remember { mutableStateOf<String?>(null) }
   // What the player should know about the last thing they did here, such as how a play went.
@@ -258,6 +268,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         state.syncNow()
       } catch (e: RommException) {
         notes = listOf(uploadError(e))
+        // A sign-in whose permissions aren't known, or don't include uploading, may be why.
+        if (e is RommException.Forbidden && uploadAccess != UploadAccess.Allowed) {
+          allowUploadsReason = uploadRefusal(e)
+        }
       } catch (e: IOException) {
         notes = listOf("Couldn't read the game's file: ${e.message}")
       } finally {
@@ -302,7 +316,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   val primary =
     uploading?.let { PrimaryAction.Waiting(it) }
       ?: current?.let { primaryAction(it, status, playing, playProgress) }
-  val hasMenu = current != null && status != null && !playing && uploading == null
+  val hasMenu =
+    current != null && status != null && !playing && uploading == null && !checkingUpload
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
       when {
@@ -423,7 +438,26 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           if (current is LocalGame) {
             MenuButton("menu:upload", "Upload to RomM") {
               close()
-              confirmUpload = true
+              notes = emptyList()
+              checkingUpload = true
+              scope.launch {
+                val access =
+                  try {
+                    state.romm.uploadAccess()
+                  } finally {
+                    checkingUpload = false
+                  }
+                uploadAccess = access
+                // A game that started meanwhile comes first.
+                if (playing) return@launch
+                when (access) {
+                  null -> notes = listOf("Sign in to RomM to upload the game.")
+                  UploadAccess.NotRequested -> allowUploadsReason = UPLOADS_NOT_REQUESTED
+                  UploadAccess.AccountMayNot -> notes = listOf(UPLOADS_NOT_FOR_ACCOUNT)
+                  UploadAccess.Allowed,
+                  UploadAccess.Unknown -> confirmUpload = true
+                }
+              }
             }
           }
           MenuButton("menu:open-with", "Open with") {
@@ -516,6 +550,17 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         }
       }
     }
+    allowUploadsReason?.let { reason ->
+      val close = { allowUploadsReason = null }
+      AllowUploadsDialog(
+        reason,
+        onSignInAgain = {
+          close()
+          scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+        },
+        onDismissRequest = close,
+      )
+    }
     if (confirmStopUpload && uploading != null) {
       val keep = { confirmStopUpload = false }
       Dialog(
@@ -589,6 +634,11 @@ private fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit) 
     }
   }
 }
+
+/** Why signing in again is offered after RomM refused an upload [e] for its permissions. */
+internal fun uploadRefusal(e: RommException.Forbidden): String =
+  "RomM didn't allow the upload${e.detail?.let { ": $it" } ?: ""}. This device's sign-in may " +
+    "not have permission to upload games."
 
 /** What the player reads when RomM refuses an upload, or can't be reached. */
 internal fun uploadError(e: RommException): String =

@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.data.auth
 
 import dev.sargunv.handheld.data.Fixtures
+import dev.sargunv.handheld.data.romm.DefaultDeviceScopes
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.TEST_SERVER
@@ -29,11 +30,21 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class RommSignInTest {
   private val store = InMemoryCredentialStore()
   private val requests = mutableListOf<HttpRequestData>()
   private var polls = 0
+
+  /** The scopes the server grants a device it pairs with. */
+  private var grantedScopes = """["roms.read"]"""
+
+  /** The scopes the signed-in account's role grants. */
+  private var accountScopes = """["me.read", "roms.read"]"""
 
   private val signIn =
     RommSignIn(store) {
@@ -55,11 +66,12 @@ class RommSignInTest {
             json("""{"detail":"authorization_pending"}""", HttpStatusCode.BadRequest)
           path == "/api/auth/device/token" ->
             json(
-              """{"access_token": "rmm_issued", "device_id": "d1", "scopes": ["roms.read"],
+              """{"access_token": "rmm_issued", "device_id": "d1", "scopes": $grantedScopes,
                   "expires_at": "2026-01-01T00:00:00+00:00"}""",
             )
           path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
-          path == "/api/users/me" && token == "Bearer rmm_good" -> json(Fixtures.me)
+          path == "/api/users/me" && token in setOf("Bearer rmm_good", "Bearer rmm_issued") ->
+            json(Fixtures.me.replace("""["me.read", "roms.read"]""", accountScopes))
           path == "/api/users/me" ->
             json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
           else -> respondError(HttpStatusCode.NotFound)
@@ -93,6 +105,51 @@ class RommSignInTest {
     assertEquals("/api/devices/d1", update.url.encodedPath)
     assertEquals("Bearer rmm_issued", update.headers[HttpHeaders.Authorization])
     assertEquals("""{"capabilities":{"remote_install":true}}""", (update.body as TextContent).text)
+  }
+
+  /** The scopes the device asked for when it started pairing. */
+  private fun requestedScopes(): List<String> {
+    val init = requests.single { it.url.encodedPath == "/api/auth/device/init" }
+    val body = Json.parseToJsonElement((init.body as TextContent).text).jsonObject
+    return body.getValue("requested_scopes").jsonArray.map { it.jsonPrimitive.content }
+  }
+
+  @Test
+  fun asksForTheUsualScopesUnlessUploadsAreAllowed() = runTest {
+    signIn.withDeviceCode(TEST_SERVER, device) {}
+    assertEquals(DefaultDeviceScopes, requestedScopes())
+    assertFalse("roms.write" in requestedScopes())
+
+    requests.clear()
+    polls = 0
+    signIn.withDeviceCode(TEST_SERVER, device, allowUploads = true) {}
+    assertEquals(DefaultDeviceScopes + listOf("roms.write", "tasks.run"), requestedScopes())
+  }
+
+  @Test
+  fun tellsWhetherTheTokenMayUpload() = runTest {
+    assertNull(signIn.uploadAccess())
+
+    // A sign-in that didn't ask, for an account that may upload.
+    accountScopes = """["me.read", "roms.read", "roms.write"]"""
+    signIn.withDeviceCode(TEST_SERVER, device) {}
+    assertEquals(UploadAccess.NotRequested, signIn.uploadAccess())
+
+    // The account may not, so signing in again wouldn't help.
+    accountScopes = """["me.read", "roms.read"]"""
+    assertEquals(UploadAccess.AccountMayNot, signIn.uploadAccess())
+
+    polls = 0
+    grantedScopes = """["roms.read", "roms.write", "tasks.run"]"""
+    signIn.withDeviceCode(TEST_SERVER, device, allowUploads = true) {}
+    assertEquals(UploadAccess.Allowed, signIn.uploadAccess())
+
+    // RomM doesn't say what a pasted token may do.
+    accountScopes = """["me.read", "roms.read", "roms.write"]"""
+    signIn.withToken(TEST_SERVER, "rmm_good")
+    assertEquals(UploadAccess.Unknown, signIn.uploadAccess())
+    accountScopes = """["me.read", "roms.read"]"""
+    assertEquals(UploadAccess.AccountMayNot, signIn.uploadAccess())
   }
 
   @Test

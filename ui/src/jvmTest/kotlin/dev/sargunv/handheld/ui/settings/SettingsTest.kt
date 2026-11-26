@@ -4,8 +4,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextContains
@@ -61,6 +66,9 @@ class SettingsTest {
   private val credentials = InMemoryCredentialStore(RommCredentials(Server, "rmm_token"))
   private val saved = mutableListOf<Settings>()
 
+  /** The signed-in account, as the server reports it. */
+  @Volatile private var user = User
+
   /** How many syncs reached the server. */
   private val syncs = AtomicInteger()
 
@@ -81,7 +89,7 @@ class SettingsTest {
           "roms/identifiers" -> "[1]"
           "collections",
           "collections/smart" -> "[]"
-          "users/me" -> User
+          "users/me" -> user
           else -> return@MockEngine respondError(HttpStatusCode.NotFound)
         }
       respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
@@ -137,6 +145,15 @@ class SettingsTest {
   private fun ComposeUiTest.awaitFocused(tag: String) {
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
+    }
+  }
+
+  /** Waits for Open with's list to take the focus, which comes a frame after its text. */
+  private fun ComposeUiTest.awaitFocusedApp() {
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(isFocused()).fetchSemanticsNodes().any {
+        it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("app:") == true
+      }
     }
   }
 
@@ -242,6 +259,65 @@ class SettingsTest {
   }
 
   @Test
+  fun showsWhetherUploadsAreAllowed() = runComposeUiTest {
+    // RomM doesn't say what a pasted token may do.
+    launch(OpenTarget.Settings(SettingsSection.RomM))
+    awaitFocused("settings:RomM")
+    awaitText("Up to your API token")
+    onNodeWithTag("settings:romm:uploads").assertTextEquals("Uploads", "Up to your API token")
+    onNodeWithTag("settings:romm:allowUploads").assertDoesNotExist()
+  }
+
+  @Test
+  fun showsThatADeviceSignInMayUpload() = runComposeUiTest {
+    runBlocking {
+      credentials.save(
+        RommCredentials(Server, "rmm_token", "d1", listOf("roms.read", "roms.write")),
+      )
+    }
+    launch(OpenTarget.Settings(SettingsSection.RomM))
+    awaitText("Allowed")
+    onNodeWithTag("settings:romm:uploads").assertTextEquals("Uploads", "Allowed")
+    onNodeWithTag("settings:romm:allowUploads").assertDoesNotExist()
+  }
+
+  @Test
+  fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
+    user =
+      User.replace("\"role\": \"user\"", "\"role\": \"user\", \"oauth_scopes\": [\"roms.write\"]")
+    runBlocking {
+      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.read")))
+    }
+    var downloads: DownloadManager? = null
+    var library: LibraryCache? = null
+    launch(OpenTarget.Settings(SettingsSection.RomM)) { l, d ->
+      library = l
+      downloads = d
+    }
+    awaitFocused("settings:RomM")
+    awaitText("Not allowed by this sign-in")
+    // A download waiting for the same server's sign-in stays in the queue.
+    waitUntil(timeoutMillis = 5_000) { runBlocking { library!!.rom(1) } != null }
+    runBlocking { downloads!!.enqueue(assertNotNull(library!!.rom(1))) }
+    press(Key.DirectionRight)
+    focusDownTo("settings:romm:allowUploads")
+    // It asks first, as signing out does.
+    press(Key.ButtonA)
+    awaitFocused("allowUploads:cancel")
+    press(Key.ButtonA)
+    awaitFocused("settings:romm:allowUploads")
+    assertNotNull(runBlocking { credentials.load() })
+
+    press(listOf(Key.ButtonA, Key.DirectionRight, Key.ButtonA))
+    awaitFocused("address")
+    assertNull(runBlocking { credentials.load() })
+    onNodeWithTag("address").assertContentDescriptionEquals("Server address: $Server")
+    onNodeWithTag("allowUploads")
+      .assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
+    assertEquals(1, downloads!!.queue.value.size)
+  }
+
+  @Test
   fun syncNowSyncsAgain() = runComposeUiTest {
     launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitFocused("settings:RomM")
@@ -274,6 +350,7 @@ class SettingsTest {
     // A game's own choice doesn't apply to the platform, so the chain starts at the platform.
     onNodeWithText("Platform Game Boy: Built-in (default) · opens here").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Nothing chosen")
+    awaitFocusedApp()
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
 
     awaitFocused("settings:emulators:gb")
@@ -284,6 +361,7 @@ class SettingsTest {
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
     awaitText("Clearing it opens them in Built-in · Gambatte.")
+    awaitFocusedApp()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Built-in · Gambatte")

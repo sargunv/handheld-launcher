@@ -176,10 +176,12 @@ fun App(
         device,
         onSignedIn = { state.signedIn = true },
         address = state.signedOutOf.orEmpty(),
+        allowUploads = state.signInAllowsUploads,
       )
     }
   LaunchedEffect(signedIn, state, state.syncRequests) {
     if (signedIn != true) return@LaunchedEffect
+    state.afterSignIn()
     state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
     state.sync =
       try {

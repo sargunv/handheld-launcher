@@ -33,10 +33,13 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -76,6 +79,7 @@ sealed interface SignInScreen {
  * State the sign-in's two screens share.
  *
  * @param address the server's address to start with, such as the one the device signed out of.
+ * @param allowUploads whether the sign-in starts out asking for permission to upload games.
  */
 @Stable
 class SignInState(
@@ -83,9 +87,13 @@ class SignInState(
   internal val device: DeviceDescription,
   internal val onSignedIn: () -> Unit,
   address: String = "",
+  allowUploads: Boolean = false,
 ) {
   val navigator = Navigator<SignInScreen>(SignInScreen.Address)
   internal val address = TextFieldState(address)
+
+  /** Whether a sign-in with a code asks for permission to upload games to the server too. */
+  internal var allowUploads: Boolean by mutableStateOf(allowUploads)
   internal var help: Help? by mutableStateOf(null)
 }
 
@@ -153,6 +161,19 @@ private fun AddressScreen(state: SignInState) {
     )
     UnencryptedNote(serverUrl(state.address.text.toString()))
     error?.let { Text(it, color = Placeholder.text, modifier = Modifier.announced()) }
+    SignInToggle(
+      state,
+      "allowUploads",
+      "Allow uploading games to your server",
+      checked = state.allowUploads,
+      Help(
+        "Allow uploading games",
+        "Lets this device send games that aren't on your server to it, from the game's page. " +
+          "RomM asks you to approve it with the code. You can allow it later by signing in again.",
+      ),
+    ) {
+      state.allowUploads = !state.allowUploads
+    }
     SignInButton(
       state,
       "continue",
@@ -174,7 +195,7 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
     code = null
     error = null
     try {
-      state.signIn.withDeviceCode(baseUrl, state.device) { code = it }
+      state.signIn.withDeviceCode(baseUrl, state.device, state.allowUploads) { code = it }
       state.onSignedIn()
     } catch (e: CancellationException) {
       throw e
@@ -492,6 +513,29 @@ private fun SignInButton(
       .padding(horizontal = 24.dp, vertical = 12.dp),
   ) {
     Text(label, color = Placeholder.text)
+  }
+}
+
+/** A choice on a sign-in screen, which [onToggle] turns on or off. */
+@Composable
+private fun SignInToggle(
+  state: SignInState,
+  key: String,
+  label: String,
+  checked: Boolean,
+  help: Help,
+  onToggle: () -> Unit,
+) {
+  Row(
+    Modifier.onFocusChanged { if (it.isFocused) state.help = help }
+      .semantics { toggleableState = ToggleableState(checked) }
+      .focusItem(key, onConfirm = onToggle, role = Role.Switch)
+      .background(Placeholder.tile)
+      .padding(horizontal = 24.dp, vertical = 12.dp),
+    horizontalArrangement = Arrangement.spacedBy(24.dp),
+  ) {
+    Text(label, color = Placeholder.text)
+    Text(if (checked) "On" else "Off", color = Placeholder.mutedText)
   }
 }
 

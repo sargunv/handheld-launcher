@@ -90,6 +90,11 @@ data class Download(
   val fileIds: List<Long> = emptyList(),
   /** The server's request to install the game, when it was sent from RomM's web page. */
   val installRequestId: String? = null,
+  /**
+   * The address of the server the game is from, as signed in to when it was queued. Null in a queue
+   * from before the manager kept it, which counts as the server signed in to.
+   */
+  val server: String? = null,
   /** How much has arrived, while it downloads. */
   @Transient val bytesDownloaded: Long = 0,
   /** The size of the files being downloaded, once the download knows it. */
@@ -202,15 +207,29 @@ class DownloadManager(
    */
   val localScan: StateFlow<LocalScan> = scanned.asStateFlow()
 
+  /** Counts the sign-ins and sign-outs, so the queue waits for the sign-in its games need. */
+  private val signIns = MutableStateFlow(0)
+
+  /** The next queued game of [server], the one signed in to, or null when there's none. */
+  private fun nextFor(server: String?, list: List<Download>): Download? =
+    if (server == null) null
+    else list.firstOrNull { it.state == DownloadState.Queued && (it.server ?: server) == server }
+
   init {
     scope.launch {
       while (true) {
-        entries.first { list -> list.any { it.state == DownloadState.Queued } }
+        val seen = entries.value to signIns.value
+        // A game waits while signed out, or signed in to another server than its own.
+        if (nextFor(credentials.load()?.baseUrl, seen.first) == null) {
+          combine(entries, signIns, ::Pair).first { it != seen }
+          continue
+        }
         canWrite.first { it }
+        val server = credentials.load()?.baseUrl
         // Pick under the lock, so a game canceled meanwhile isn't started.
         val job =
           mutex.withLock {
-            val download = entries.value.firstOrNull { it.state == DownloadState.Queued }
+            val download = nextFor(server, entries.value)
             download?.let { scope.launch { run(it) }.also { job -> running = it.romId to job } }
           } ?: continue
         job.join()
@@ -337,6 +356,7 @@ class DownloadManager(
     installRequestId: String?,
   ): Boolean {
     if (withContext(Dispatchers.IO) { locate(rom, platformFolder) } != null) return false
+    val server = credentials.load()?.baseUrl
     return edit { list ->
       if (list.any { it.romId == rom.id }) return@edit list
       list +
@@ -350,8 +370,23 @@ class DownloadManager(
             else rom.files.filter { it.id in fileIds }.sumOf { it.sizeBytes },
           fileIds = fileIds,
           installRequestId = installRequestId,
+          server = server,
         )
     }
+  }
+
+  /**
+   * Tells the queue the device signed in or out. After a sign-in to [server], the games another
+   * server queued leave the queue, without telling either server, since their ids are that
+   * server's; the rest download again.
+   */
+  suspend fun signedIn(server: String?) {
+    if (server != null) {
+      for (download in entries.value) {
+        if ((download.server ?: server) != server) cancel(download.romId, report = false)
+      }
+    }
+    signIns.value++
   }
 
   /** Queues a failed download again, where it was in the queue. */
@@ -365,8 +400,11 @@ class DownloadManager(
     }
   }
 
-  /** Stops a download and takes it out of the queue, deleting what it downloaded. */
-  suspend fun cancel(romId: Long) =
+  /**
+   * Stops a download and takes it out of the queue, deleting what it downloaded. With [report], the
+   * server that asked for the game, if one did, hears that it was canceled.
+   */
+  suspend fun cancel(romId: Long, report: Boolean = true) =
     // Once begun, a cancel finishes even if the screen that asked goes away.
     withContext(NonCancellable) {
       val job = mutex.withLock { running?.takeIf { it.first == romId }?.second }
@@ -375,7 +413,7 @@ class DownloadManager(
       val download = entries.value.find { it.romId == romId } ?: return@withContext
       withContext(Dispatchers.IO) { download.path?.let { deleteRecursively(Path("$it.part")) } }
       edit { list -> list.filterNot { it.romId == romId } }
-      report(download, RommInstallStatus.Cancelled)
+      if (report) report(download, RommInstallStatus.Cancelled)
     }
 
   /** Whether [rom] is on the device, or how far its download has got. */

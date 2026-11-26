@@ -31,6 +31,10 @@ through RomM's device sign-in. A pasted API token is the fallback. The app
 doesn't discover servers on the local network, because RomM doesn't advertise
 itself there.
 
+Beside the address, **Allow uploading games to your server** is off by default.
+On, the code also asks RomM for permission to upload games and to scan them into
+the library. Signing in again to allow uploads starts with it on.
+
 ## Home
 
 Opens with the game you were last playing focused, and A plays it; X opens its
@@ -74,12 +78,16 @@ decides it.
 A local game always has Play. Its menu holds Open with, for its file, Remove
 from device, which deletes the file after asking, and Upload to RomM, which
 sends the file to its platform's folder on the server after asking, and only
-then. Its progress shows on the primary action, and Back stops it. RomM's
-refusal, such as an account that may not upload, shows in its words. Once
-uploaded, RomM is asked to scan the platform and the library syncs. Its saves
-don't sync, since RomM files saves by its own games, and the lower screen says
-they stay on the device until the game is on your server. Once a scan matches
-the file to a game of the server, the page becomes that game's.
+then. A sign-in that didn't ask for permission to upload says so first, and
+offers to sign in again with it, to the same server, keeping the device's games,
+saves and settings. An account that may not upload is told so instead. Its
+progress shows on the primary action, and Back stops it. RomM's refusal shows in
+its words, and when the sign-in's permissions aren't known, as for a pasted
+token, it offers the same sign-in again. Once uploaded, RomM is asked to scan
+the platform and the library syncs. Its saves don't sync, since RomM files saves
+by its own games, and the lower screen says they stay on the device until the
+game is on your server. Once a scan matches the file to a game of the server,
+the page becomes that game's.
 
 ## Open with
 
@@ -100,8 +108,10 @@ Sections in a list on the left, the focused section's settings on the right:
 
 - **Controls:** which button confirms, and the A button's position for built-in
   games.
-- **RomM:** the server and account, Sync now, and Sign out. When the server
-  refuses the sign-in, it says so here, with Sign in again.
+- **RomM:** the server and account, whether uploads are allowed, Sync now, and
+  Sign out. When the server refuses the sign-in, it says so here, with Sign in
+  again. When the sign-in didn't ask for permission to upload, Allow uploads
+  signs in again with it, after asking.
 - **RetroAchievements:** the account and hardcore mode.
 - **Emulators:** every platform's default app, each opening Open with for that
   platform, and Close emulators where the device allows it.

@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.Fixtures
+import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
@@ -229,11 +230,13 @@ class DownloadManagerTest {
     canWrite: Flow<Boolean> = flowOf(true),
     targets: List<StorageTarget> = listOf(StorageTarget(storage.path, "Test storage")),
     storageSettings: StorageSettings = StorageSettings(),
+    credentials: CredentialStore =
+      InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", deviceId)),
   ) =
     DownloadManager(
       queueFile = queueFile,
       library = library,
-      credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", deviceId)),
+      credentials = credentials,
       storage = { targets },
       scope = scope,
       engine = engine,
@@ -295,6 +298,49 @@ class DownloadManagerTest {
       downloads.queue.first { list -> list.firstOrNull()?.bytesDownloaded == sent.size.toLong() }
     }
     scope.coroutineContext[kotlinx.coroutines.Job]!!.cancelAndJoin()
+  }
+
+  // Signing in again to the same server keeps the queue, which waits for the sign-in.
+  @Test
+  fun aQueuedGameWaitsForItsServersSignIn() = runTest {
+    fillLibrary()
+    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    val writable = MutableStateFlow(false)
+    val downloads =
+      manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    assertTrue(downloads.enqueue(gameRom))
+    credentials.clear()
+    downloads.signedIn(null)
+    writable.value = true
+    waitFor { delay(300) }
+    assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
+    assertEquals(emptyList(), contentRequests())
+
+    credentials.save(RommCredentials(TEST_SERVER, "rmm_new"))
+    downloads.signedIn(TEST_SERVER)
+    downloads.awaitEmpty()
+    assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
+  }
+
+  // The ids are the first server's, so another server's sign-in drops the games, even after a
+  // restart in between.
+  @Test
+  fun aSignInToAnotherServerDropsTheQueue() = runTest {
+    fillLibrary()
+    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    val writable = MutableStateFlow(false)
+    val first = manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    assertTrue(first.enqueue(gameRom))
+    credentials.clear()
+    first.signedIn(null)
+
+    val restarted =
+      manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    credentials.save(RommCredentials("https://other.test", "rmm_other"))
+    writable.value = true
+    restarted.signedIn("https://other.test")
+    assertEquals(emptyList(), restarted.queue.value)
+    assertEquals(emptyList(), contentRequests())
   }
 
   @Test
