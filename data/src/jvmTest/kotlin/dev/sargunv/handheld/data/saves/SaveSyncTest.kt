@@ -514,10 +514,26 @@ class SaveSyncTest {
     val resolved = sync.resolve(builtIn, conflict, SaveCopy.Server)
     assertContentEquals(v2, saveRam.readBytes())
     assertContentEquals(mine, resolved.history.readBytes(), "The losing copy is in the history")
-    assertEquals(
-      listOf("builtin-mgba_libretro"),
-      keptSaves(File(root, "history"), romId = 7).map { it.emulator },
-    )
+    assertEquals(listOf("builtin"), keptSaves(File(root, "history"), romId = 7).map { it.emulator })
+  }
+
+  @Test
+  fun builtInSwitchingCoresNeverPushesOverAnotherCoresSave() = runTest {
+    val (server, sync) = builtInSynced()
+    val gpsp = builtInGameSave(romId = 7, "gpsp_libretro", saveRam)
+
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(gpsp), "The other core's save isn't sent as is")
+    assertTrue(server.uploads.isEmpty())
+
+    saveRam.writeBytes(mine)
+    assertIs<SaveSyncResult.Pushed>(sync.sync(gpsp))
+    assertEquals("builtin-gpsp_libretro", server.uploads.single().query["emulator"])
+
+    // Back on the first core, its save on the server comes back, and the other core's is kept.
+    val back = assertIs<SaveSyncResult.Pulled>(sync.sync(builtIn))
+    assertContentEquals(v1, saveRam.readBytes())
+    assertContentEquals(mine, assertNotNull(back.previous).readBytes())
+    assertEquals(1, server.uploads.size, "Nothing went to the first core's saves")
   }
 
   @Test

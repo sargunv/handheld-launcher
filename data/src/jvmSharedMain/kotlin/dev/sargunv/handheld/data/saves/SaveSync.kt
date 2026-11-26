@@ -29,19 +29,34 @@ const val SAVE_SLOT = "autosave"
  *
  * @param emulator the emulator, as the server files the game's saves under it.
  * @param candidates where the save file can be, most likely first.
+ * @param owner what keeps the save file on this device, which names the game's sync record and
+ *   history. It's the emulator, unless several of the server's emulators share one file.
  */
-data class GameSave(val romId: Long, val emulator: String, val candidates: List<File>) {
+data class GameSave(
+  val romId: Long,
+  val emulator: String,
+  val candidates: List<File>,
+  val owner: String = emulator,
+) {
   internal val key: String
-    get() = "$romId-${emulator.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
+    get() = "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
 }
 
 /**
  * The save memory at [saveRam] of the ROM [romId], as the built-in session keeps it when the core
  * [coreLibrary] runs the game. Only that file syncs: the save states beside it stay on this device,
  * and so do the backups the session and its quick menu keep there as `<name>.<time>.bak`.
+ *
+ * The server keeps each core's saves apart, but every core uses the game's one file, so the file
+ * has one sync record and one history, whichever core ran last. After a switch of cores, the file
+ * only goes to the new core's saves once that core changes it, and a switch back pulls the old
+ * core's save only after copying the file into the history.
  */
 fun builtInGameSave(romId: Long, coreLibrary: String, saveRam: File): GameSave =
-  GameSave(romId, BuiltInSaves.emulatorOf(coreLibrary), listOf(saveRam))
+  GameSave(romId, BuiltInSaves.emulatorOf(coreLibrary), listOf(saveRam), owner = BUILT_IN_OWNER)
+
+/** What keeps the built-in session's saves on this device, for [GameSave.owner]. */
+private const val BUILT_IN_OWNER = "builtin"
 
 /** The save file on this device, as it was when the conflict was found. */
 data class DeviceSave(val file: File, val sizeBytes: Long, val modifiedAt: Instant)

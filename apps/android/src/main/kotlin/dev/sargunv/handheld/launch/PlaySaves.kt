@@ -78,8 +78,17 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
     return true
   }
 
-  /** Syncs [game]'s save after the game, which sends what it saved. */
-  suspend fun afterPlay(request: PlayRequest, game: GameSave, note: (String, Boolean) -> Unit) {
+  /**
+   * Syncs [game]'s save after the game, which sends what it saved. With [pull] false, a newer save
+   * on RomM waits for the next launch rather than replacing the device's, for when the game may
+   * still be writing its save.
+   */
+  suspend fun afterPlay(
+    request: PlayRequest,
+    game: GameSave,
+    note: (String, Boolean) -> Unit,
+    pull: Boolean = true,
+  ) {
     val (client, account) =
       client(request)
         ?: run {
@@ -88,7 +97,8 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         }
     client.use {
       try {
-        when (val result = lock.withLock { saveSync(context, it, account).sync(game) }) {
+        val sync = saveSync(context, it, account)
+        when (val result = lock.withLock { if (pull) sync.sync(game) else sync.push(game) }) {
           // The conflict screen comes before a launch, so the choice waits for the next one.
           is SaveSyncResult.Conflict ->
             note(

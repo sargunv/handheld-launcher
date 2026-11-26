@@ -95,9 +95,11 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     }
     if (saveError != null) note("The game's save couldn't be written: $saveError")
     else note("Back from the game in ${chosen.library}", quiet = true)
-    // The session wrote its save memory before it closed, so this sends the latest. When a write
-    // failed, the file still holds the last save that was written whole, which is safe to send.
-    if (game != null) playSaves.afterPlay(request, game, ::note)
+    // The session writes its save memory as it stops, but one that ends without stopping, such as
+    // when the launcher comes to the front over it, writes as it's destroyed, which can come after
+    // this. So this only sends: a newer save on RomM waits for the next launch, where a change on
+    // both sides is a conflict. When a write failed, the file still holds the last whole save.
+    if (game != null) playSaves.afterPlay(request, game, ::note, pull = false)
     return notes
   }
 
