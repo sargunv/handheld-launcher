@@ -283,8 +283,11 @@ class DownloadManager(
     try {
       val outcome = withContext(Dispatchers.IO) { fetch(download) }
       // A request from the server may have joined the download while it ran.
-      val current = entries.value.find { it.romId == download.romId } ?: download
-      edit { list -> list.filterNot { it.romId == download.romId } }
+      var current = download
+      edit { list ->
+        list.find { it.romId == download.romId }?.let { current = it }
+        list.filterNot { it.romId == download.romId }
+      }
       report(current, outcome)
     } catch (e: CancellationException) {
       throw e
@@ -440,8 +443,10 @@ class DownloadManager(
     val after = change(before)
     if (after == before) return@withLock false
     // Once stored, the change shows, even when the caller is cancelled meanwhile.
-    withContext(Dispatchers.IO + NonCancellable) { file.write(after) }
-    entries.value = after
+    withContext(NonCancellable) {
+      withContext(Dispatchers.IO) { file.write(after) }
+      entries.value = after
+    }
     true
   }
 }

@@ -38,7 +38,12 @@ object GameLayout {
     val descriptors = files.filter { it.extension() in DiscDescriptors }
     val discs = descriptors.ifEmpty { files.filter { it.extension() in DiscImages } }
     if (discs.size < 2) return null
-    return discs.sortedWith(compareBy({ discNumber(it) ?: Int.MAX_VALUE }, { it }))
+    return discs.sortedWith(
+      compareBy(
+        { discNumber(it.substringAfterLast('/')) ?: discNumber(it) ?: Int.MAX_VALUE },
+        { it },
+      ),
+    )
   }
 
   /** The platforms whose emulators switch discs through a playlist. */
