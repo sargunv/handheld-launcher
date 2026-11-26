@@ -62,7 +62,9 @@ holds **Open with** for all of its games.
 One primary action, focused first: Play when the game is on the device, Download
 with its size when it isn't. Everything else is in the menu on X: Open with,
 Remove from device, Cancel download. The lower screen shows the save history
-across devices and where the game opens, with the rule that decides it.
+across devices, what the copy on the device says about itself in its header,
+such as its serial and region, and where the game opens, with the rule that
+decides it.
 
 ## Open with
 

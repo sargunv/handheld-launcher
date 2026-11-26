@@ -64,6 +64,7 @@ import dev.sargunv.handheld.ui.game.GameSecondary
 import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.OpenWithScreen
 import dev.sargunv.handheld.ui.game.OpenWithSecondary
+import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.home.HomePlace
 import dev.sargunv.handheld.ui.input.AButtonPosition
 import dev.sargunv.handheld.ui.input.Action
@@ -157,6 +158,8 @@ class AppState(
   val retroAchievements: RetroAchievementsState? = null,
   /** What About says about this build. */
   val appInfo: AppInfo = AppInfo.Unknown,
+  /** Reads what a game's file says about itself. */
+  val romHeaders: RomHeaders = RomHeaders.None,
 ) {
   var settings: Settings by mutableStateOf(settings)
   val navigator = Navigator<Screen>(Screen.Places)

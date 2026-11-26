@@ -19,6 +19,10 @@ accepted = [
 ignore-dev-dependencies = true
 ignore-build-dependencies = true
 
-# The session itself, which the app's own licence covers.
+# The session itself, and the workspace's crates it links, which the app's own
+# licence covers.
 [handheld-session]
+accepted = ["GPL-3.0-or-later"]
+
+[rom-headers]
 accepted = ["GPL-3.0-or-later"]

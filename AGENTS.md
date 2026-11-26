@@ -16,6 +16,9 @@ It sets the scope and the priorities. Before you build a screen, read
 - `data/`: the RomM client, the local cache and downloads.
 - `session/`: the Rust game session that hosts libretro cores, used from Kotlin
   through UniFFI.
+- `rom-headers/`: a Rust crate that reads each platform's own ROM and disc
+  headers, which the session uses. It depends on nothing in the app, so it can
+  be published on its own.
 - `docs/`: the vision and other high-level docs.
 
 ## Dev tool commands

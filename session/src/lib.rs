@@ -21,6 +21,7 @@ mod input;
 mod options;
 mod pacing;
 mod platform;
+mod rom_header;
 mod save;
 mod session;
 mod video;
@@ -41,6 +42,7 @@ pub use crate::handle::{
 };
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
 pub use crate::options::{CoreOption, OptionValue};
+pub use crate::rom_header::{HeaderField, HeaderPlatform, rom_header_fields};
 pub use crate::session::{
     AvInfo, InputDescriptor, SaveRamLoad, Session, SessionConfig, SessionError, SystemInfo,
     VideoOutput,

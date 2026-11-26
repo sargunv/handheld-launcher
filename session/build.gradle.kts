@@ -91,6 +91,8 @@ val rustSources =
     fileTree("src") { include("**/*.rs", "**/*.h") },
     fileTree("vendor"),
     fileTree("bindgen") { include("Cargo.toml", "src/**") },
+    // The workspace's crates the session links.
+    fileTree(workspaceDir.dir("rom-headers")) { include("Cargo.toml", "src/**") },
     "build.rs",
     "Cargo.toml",
     "uniffi.toml",
