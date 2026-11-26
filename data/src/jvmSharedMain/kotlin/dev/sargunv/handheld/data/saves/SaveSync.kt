@@ -7,11 +7,8 @@ import dev.sargunv.handheld.data.romm.RommSave
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import java.io.File
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -31,12 +28,15 @@ const val SAVE_SLOT = "autosave"
  * @param candidates where the save file can be, most likely first.
  * @param owner what keeps the save file on this device, which names the game's sync record and
  *   history. It's the emulator, unless several of the server's emulators share one file.
+ * @param folders where the save is instead, when the emulator keeps it as folders or as several
+ *   files: then it syncs as one zip, and [candidates] aren't used.
  */
 data class GameSave(
   val romId: Long,
   val emulator: String,
   val candidates: List<File>,
   val owner: String = emulator,
+  val folders: SaveFolderRoots? = null,
 ) {
   internal val key: String
     get() = "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
@@ -127,12 +127,12 @@ sealed interface SaveSyncResult {
 }
 
 /**
- * Syncs games' saves with a RomM server, one file per game.
+ * Syncs games' saves with a RomM server: one file per game, or a game's save folders as one zip.
  *
  * It keeps a record per game of what it last synced, in [records], so it can tell which copies
  * changed since: a save on the device changed when its hash differs from the record's, and the
- * server's when its newest save in [SAVE_SLOT] isn't the one recorded. It never replaces a save
- * file on the device without first copying it into [history], and it never deletes one.
+ * server's when its newest save in [SAVE_SLOT] isn't the one recorded. It never replaces a save on
+ * the device without first copying it into [history], and it never deletes one.
  *
  * Calls run one at a time.
  *
@@ -176,10 +176,10 @@ class SaveSync(
   private suspend fun sync(game: GameSave, pull: Boolean, emulatorMayRun: Boolean): SaveSyncResult =
     mutex.withLock {
       withContext(Dispatchers.IO) {
+        val unit = game.unit()
         val record = recordFile(game).read()
-        val local = game.candidates.firstOrNull { it.isFile }
-        val localBytes = local?.readBytes()
-        val localHash = localBytes?.let(::md5)
+        val local = unit.read()
+        val localHash = local?.hash
         val server = latestOnServer(game)
         val localChanged = localHash != null && localHash != record?.localHash
         val serverChanged = server != null && !record.matches(server)
@@ -187,26 +187,26 @@ class SaveSync(
           local == null && server == null -> SaveSyncResult.NoSave
           // A missing save comes back from the server, since there's nothing to overwrite.
           local == null && !pull -> SaveSyncResult.ServerNewer(server!!)
-          local == null -> pull(game, server!!, null, emulatorMayRun)
-          !localChanged && !serverChanged -> SaveSyncResult.UpToDate(local)
+          local == null -> pull(game, unit, server!!, null, emulatorMayRun)
+          !localChanged && !serverChanged -> SaveSyncResult.UpToDate(local.file)
           !localChanged && !pull -> SaveSyncResult.ServerNewer(server!!)
-          !localChanged -> pull(game, server!!, local, emulatorMayRun)
+          !localChanged -> pull(game, unit, server!!, local, emulatorMayRun)
           // The copy a pull replaced came back: the emulator wrote its old save over the pulled
           // one.
           server != null && localHash == record?.replacedHash ->
-            SaveSyncResult.Conflict(deviceSave(local!!, localBytes!!), server, reverted = true)
-          !serverChanged -> push(game, local!!, localBytes!!)
+            SaveSyncResult.Conflict(deviceSave(local), server, reverted = true)
+          !serverChanged -> push(game, local)
           localHash == server!!.contentHash -> {
-            record(game, local!!, localHash!!, server)
-            SaveSyncResult.UpToDate(local)
+            record(game, local.file, local.hash, server)
+            SaveSyncResult.UpToDate(local.file)
           }
-          else -> SaveSyncResult.Conflict(deviceSave(local!!, localBytes!!), server)
+          else -> SaveSyncResult.Conflict(deviceSave(local), server)
         }
       }
     }
 
-  private fun deviceSave(file: File, bytes: ByteArray) =
-    DeviceSave(file, bytes.size.toLong(), Instant.fromEpochMilliseconds(file.lastModified()))
+  private fun deviceSave(local: LocalCopy) =
+    DeviceSave(local.file, local.bytes.size.toLong(), local.modifiedAt)
 
   /**
    * Settles [conflict] by keeping the [keep] copy. The other copy goes to the history first, and to
@@ -223,38 +223,40 @@ class SaveSync(
     emulatorMayRun: Boolean = false,
   ): SaveSyncResult.Resolved = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val file = conflict.device.file
+      val unit = game.unit()
+      val local = unit.read() ?: throw IOException("The save on this device is gone")
+      val file = local.file
       when (keep) {
         SaveCopy.Device -> {
           val serverBytes = download(conflict.server)
           val kept = keepInHistory(game, SaveCopy.Server, conflict.server.fileName, serverBytes)
-          val bytes = file.readBytes()
-          val pushed = upload(game, file.name, bytes, SAVE_SLOT)
-          record(game, file, md5(bytes), pushed)
+          val pushed = upload(game, local.name, local.bytes, SAVE_SLOT)
+          record(game, file, local.hash, pushed)
           SaveSyncResult.Resolved(keep, file, pushed, kept, conflict.server)
         }
         SaveCopy.Server -> {
-          val bytes = file.readBytes()
-          val kept = keepInHistory(game, SaveCopy.Device, file.name, bytes)
+          val kept = keepInHistory(game, SaveCopy.Device, local.name, local.bytes)
           // A name of its own, so the upload doesn't replace an earlier one.
           val stamp = clock.now().toString().replace(':', '-')
-          val name = "${file.nameWithoutExtension} (conflict $stamp).${file.extension}"
+          val base = local.name.substringBeforeLast('.')
+          val extension = local.name.substringAfterLast('.', "")
+          val name = "$base (conflict $stamp).$extension"
           var uploadError: String? = null
           val uploaded =
             try {
-              upload(game, name, bytes, slot = null)
+              upload(game, name, local.bytes, slot = null)
             } catch (e: RommException) {
               uploadError = e.message
               null
             }
           val serverBytes = download(conflict.server)
-          val replaced = replace(game, file, serverBytes, keptAs = kept)
+          val replaced = replace(game, unit, file, serverBytes, keptAs = kept)
           record(
             game,
             file,
-            md5(serverBytes),
+            unit.read()?.hash ?: contentHash(serverBytes),
             conflict.server,
-            if (emulatorMayRun) replaced?.let { md5(it.readBytes()) } else null,
+            if (emulatorMayRun) replaced?.hash else null,
           )
           SaveSyncResult.Resolved(keep, file, conflict.server, kept, uploaded, uploadError)
         }
@@ -271,41 +273,28 @@ class SaveSync(
 
   private suspend fun pull(
     game: GameSave,
+    unit: SaveUnit,
     server: RommSave,
-    local: File?,
+    local: LocalCopy?,
     emulatorMayRun: Boolean,
   ): SaveSyncResult {
-    val target = local ?: pullTarget(game, server) ?: return noFolder(game)
+    // When the device has no save, the pull goes where the emulator would keep it, in a folder
+    // that exists and can be written.
+    val target =
+      local?.file ?: unit.target(server.fileName) ?: return SaveSyncResult.NoFolder(unit.folders())
     val bytes = download(server)
-    val previous = replace(game, target, bytes)
+    val replaced = replace(game, unit, target, bytes)
+    val written = unit.read()
     // The copy the history kept is the one the emulator may write back.
-    val replacedHash = if (emulatorMayRun) previous?.let { md5(it.readBytes()) } else null
-    record(game, target, md5(bytes), server, replacedHash)
-    return SaveSyncResult.Pulled(target, server, previous)
+    val replacedHash = if (emulatorMayRun) replaced?.hash else null
+    record(game, written?.file ?: target, written?.hash ?: contentHash(bytes), server, replacedHash)
+    return SaveSyncResult.Pulled(written?.file ?: target, server, replaced?.history)
   }
 
-  private fun noFolder(game: GameSave) =
-    SaveSyncResult.NoFolder(game.candidates.mapNotNull { it.parent }.distinct())
-
-  /**
-   * Where a pulled save goes when the device has none: the first candidate in a folder that exists
-   * and can be written, preferring the server file's extension. Folders aren't created, because
-   * they may belong to the emulator, which has to own them.
-   */
-  private fun pullTarget(game: GameSave, server: RommSave): File? {
-    val usable =
-      game.candidates.filter {
-        it.parentFile?.let { dir -> dir.isDirectory && dir.canWrite() } == true
-      }
-    val extension = server.fileName.substringAfterLast('.', "")
-    return usable.firstOrNull { it.extension.equals(extension, ignoreCase = true) }
-      ?: usable.firstOrNull()
-  }
-
-  private suspend fun push(game: GameSave, local: File, bytes: ByteArray): SaveSyncResult {
-    val save = upload(game, local.name, bytes, SAVE_SLOT)
-    record(game, local, md5(bytes), save)
-    return SaveSyncResult.Pushed(local, save)
+  private suspend fun push(game: GameSave, local: LocalCopy): SaveSyncResult {
+    val save = upload(game, local.name, local.bytes, SAVE_SLOT)
+    record(game, local.file, local.hash, save)
+    return SaveSyncResult.Pushed(local.file, save)
   }
 
   // A slot upload always becomes the slot's newest save of this emulator, so the record matches the
@@ -321,7 +310,11 @@ class SaveSync(
       client.downloadSave(save.id, Path(staged.path))
       val bytes = staged.readBytes()
       val expected = save.contentHash
-      if (expected != null && !md5(bytes).equals(expected, ignoreCase = true)) {
+      if (
+        expected != null &&
+          !md5(bytes).equals(expected, ignoreCase = true) &&
+          !contentHash(bytes).equals(expected, ignoreCase = true)
+      ) {
         throw IOException("The downloaded save doesn't match the server's hash")
       }
       return bytes
@@ -330,33 +323,34 @@ class SaveSync(
     }
   }
 
+  /** The device's save a pull replaced: its [hash], and the [history] copy that holds it. */
+  private class Replaced(val hash: String, val history: File)
+
   /**
-   * Writes [bytes] to [target]. A file already there is copied into the history first, unless
-   * [keptAs] already holds it, and the history copy is returned.
+   * Writes [bytes] in place of [unit]'s save, at [target]. A save already there is copied into the
+   * history first, unless [keptAs] already holds it.
    */
-  private fun replace(game: GameSave, target: File, bytes: ByteArray, keptAs: File? = null): File? {
-    val previous =
+  private fun replace(
+    game: GameSave,
+    unit: SaveUnit,
+    target: File,
+    bytes: ByteArray,
+    keptAs: File? = null,
+  ): Replaced? {
+    val current = unit.read()
+    val replaced =
       when {
-        !target.exists() -> null
-        keptAs != null && keptAs.readBytes().contentEquals(target.readBytes()) -> keptAs
-        else -> keepInHistory(game, SaveCopy.Device, target.name, target.readBytes())
+        current == null -> null
+        keptAs != null && contentHash(keptAs.readBytes()) == current.hash ->
+          Replaced(current.hash, keptAs)
+        else ->
+          Replaced(
+            current.hash,
+            keepInHistory(game, SaveCopy.Device, current.name, current.bytes),
+          )
       }
-    // Write a sibling and move it over the target, so the emulator never sees half a save.
-    val temp = File(target.parentFile, ".${target.name}.handheld-part")
-    temp.writeBytes(bytes)
-    try {
-      Files.move(
-        temp.toPath(),
-        target.toPath(),
-        StandardCopyOption.REPLACE_EXISTING,
-        StandardCopyOption.ATOMIC_MOVE,
-      )
-    } catch (e: AtomicMoveNotSupportedException) {
-      Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    } finally {
-      temp.delete()
-    }
-    return previous
+    unit.write(current?.file ?: target, bytes)
+    return replaced
   }
 
   /**
@@ -458,6 +452,3 @@ private fun SyncRecord?.matches(server: RommSave): Boolean =
   this != null &&
     serverSaveId == server.id &&
     serverUpdatedAt == server.updatedAt.toEpochMilliseconds()
-
-private fun md5(bytes: ByteArray): String =
-  MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }

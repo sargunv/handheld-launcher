@@ -220,13 +220,7 @@ class StandalonePlayer(
         }
         is LaunchBuild.Ready -> build.command
       }
-    val game =
-      request.romId?.let {
-        gameSaveFor(activity, target, request.platform, it, request.romPath, request.saveFolders)
-      }
-    if (request.romId != null && game == null) {
-      note("${appName(target)}'s saves don't sync yet", quiet = true)
-    }
+    val game = lookUpSave(request, target, ::note)
     val packageName = target.packageName
     val canClose = request.closeEmulators && emulators.canClose
     val probe = emulators.probe(useRoot = canClose)
@@ -300,6 +294,68 @@ class StandalonePlayer(
       is EmulatorState.NotRunning -> note("${appName(target)} isn't running", quiet = true)
     }
     if (game != null) saves.afterPlay(request, game, ::note)
+    return notes
+  }
+
+  /** [request]'s save as [target] keeps it, noting where it is, or why it doesn't sync. */
+  private suspend fun lookUpSave(
+    request: PlayRequest,
+    target: LaunchTarget,
+    note: (String, Boolean) -> Unit,
+  ): GameSave? {
+    val romId = request.romId ?: return null
+    val lookup =
+      withContext(Dispatchers.IO) {
+        gameSaveFor(activity, target, request.platform, romId, request.romPath, request.saveFolders)
+      }
+    when (lookup) {
+      is SaveLookup.Found ->
+        lookup.save.folders?.let { folders ->
+          val root = folders.roots.firstOrNull { it.isDirectory } ?: folders.roots.first()
+          note(
+            "The save syncs as ${folders.save.name}, from " +
+              folders.save.areas.joinToString { File(root, it.folder).path },
+            true,
+          )
+        }
+      SaveLookup.NotSupported -> note("${appName(target)}'s saves don't sync yet", true)
+      SaveLookup.SharedCards ->
+        note(
+          "${appName(target)} keeps every game's saves on shared memory cards, which don't sync " +
+            "yet",
+          true,
+        )
+      SaveLookup.NoGameId ->
+        note(
+          "Couldn't read the game's id from its file, which ${appName(target)} files its saves " +
+            "under, so the save doesn't sync. It stays on this device as it is.",
+          false,
+        )
+    }
+    return (lookup as? SaveLookup.Found)?.save
+  }
+
+  /**
+   * Where [request]'s save is, as the launch would find it, without syncing or launching anything:
+   * for testing.
+   */
+  suspend fun findSave(request: PlayRequest): List<PlayNote> {
+    val notes = mutableListOf<PlayNote>()
+    fun note(text: String, quiet: Boolean) {
+      notes += PlayNote(text, quiet)
+      Log.i(TAG, text)
+    }
+    when (
+      val resolution =
+        resolve(LaunchSubject(request.gameId, request.platform, request.collections), request.rules)
+    ) {
+      is LaunchResolution.Resolved -> {
+        note("Opens in ${appName(resolution.target)}", true)
+        lookUpSave(request, resolution.target, ::note)
+      }
+      is LaunchResolution.BuiltIn -> note("Opens in the built-in player", true)
+      is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution), false)
+    }
     return notes
   }
 

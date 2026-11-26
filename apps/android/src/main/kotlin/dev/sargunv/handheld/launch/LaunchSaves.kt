@@ -4,20 +4,38 @@ import android.content.Context
 import android.os.Environment
 import android.os.storage.StorageManager
 import dev.sargunv.handheld.data.romm.RommClient
+import dev.sargunv.handheld.data.saves.GameIds
 import dev.sargunv.handheld.data.saves.GameSave
+import dev.sargunv.handheld.data.saves.SaveFolderRoots
 import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.saves.SaveFiles
+import dev.sargunv.handheld.domain.saves.SaveFolders
+import dev.sargunv.handheld.domain.saves.SaveLayout
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
+import dev.sargunv.handheld.session.zstdPrefix
 import java.io.File
 import java.security.MessageDigest
 
+/** Where a game's save is on this device, or why it doesn't sync. */
+sealed interface SaveLookup {
+  data class Found(val save: GameSave) : SaveLookup
+
+  /** The emulator isn't known, its save folder isn't, or the launcher can't sync its layout yet. */
+  data object NotSupported : SaveLookup
+
+  /** The emulator keeps every game's saves on shared memory cards, which don't sync yet. */
+  data object SharedCards : SaveLookup
+
+  /** The emulator files saves by the game's id, which the launcher couldn't read from its file. */
+  data object NoGameId : SaveLookup
+}
+
 /**
- * The save of the game at [romPath], the RomM ROM [romId], as [target] keeps it for [platform].
- * Null when the emulator isn't known, its save folder isn't, or its saves aren't one file per game,
- * which is all the launcher syncs so far.
+ * The save of the game at [romPath], the RomM ROM [romId], as [target] keeps it for [platform]: a
+ * file per game, or folders filed under an id the game's file carries, which reading it finds.
  *
  * [folders] stands in for the emulator's own save folders, for testing.
  */
@@ -28,9 +46,9 @@ fun gameSaveFor(
   romId: Long,
   romPath: String,
   folders: List<String>? = null,
-): GameSave? {
-  val emulator = target.emulator ?: return null
-  val location = SaveLocations.forEmulator(emulator.id, platform) ?: return null
+): SaveLookup {
+  val emulator = target.emulator ?: return SaveLookup.NotSupported
+  val location = SaveLocations.forEmulator(emulator.id, platform) ?: return SaveLookup.NotSupported
   val storage = Environment.getExternalStorageDirectory().path
   val volumes =
     context.getSystemService(StorageManager::class.java).storageVolumes.mapNotNull {
@@ -43,16 +61,42 @@ fun gameSaveFor(
       packageName = target.packageName,
       core = target.coreFor(platform),
     )
-  val paths = SaveFiles.candidates(location, romPath, roots) ?: return null
-  val files =
-    if (folders == null) {
-      paths.map(::File)
-    } else {
-      val names = paths.map { it.substringAfterLast('/') }.distinct()
-      folders.flatMap { folder -> names.map { File(folder, it) } }
-    }
-  return GameSave(romId, emulator.id.value, files)
+  SaveFiles.candidates(location, romPath, roots)?.let { paths ->
+    val files =
+      if (folders == null) {
+        paths.map(::File)
+      } else {
+        val names = paths.map { it.substringAfterLast('/') }.distinct()
+        folders.flatMap { folder -> names.map { File(folder, it) } }
+      }
+    return SaveLookup.Found(GameSave(romId, emulator.id.value, files))
+  }
+  val kind =
+    SaveFolders.idKind(location, platform)
+      ?: return when (location.layout) {
+        is SaveLayout.SharedMemoryCard,
+        SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
+        else -> SaveLookup.NotSupported
+      }
+  val id =
+    GameIds.read(File(romPath), kind, switchKeys(storage, target.packageName)) {
+      file,
+      offset,
+      length ->
+      zstdPrefix(file.path, offset.toULong(), length.toUInt())
+    } ?: return SaveLookup.NoGameId
+  val save = SaveFolders.forGame(location, platform, id) ?: return SaveLookup.NoGameId
+  val saveRoots = (folders ?: SaveFiles.folders(location.paths, roots)).map(::File)
+  return SaveLookup.Found(
+    GameSave(romId, emulator.id.value, emptyList(), folders = SaveFolderRoots(saveRoots, save)),
+  )
 }
+
+/** The Switch emulator's keys, as the yuzu forks and Ryujinx keep them, if it has them. */
+private fun switchKeys(storage: String, packageName: String): File? =
+  listOf("keys/prod.keys", "system/prod.keys")
+    .map { File(storage, "Android/data/$packageName/files/$it") }
+    .firstOrNull { it.isFile }
 
 /**
  * The launcher's [SaveSync] for [client], keeping its records and history in the app's files. The

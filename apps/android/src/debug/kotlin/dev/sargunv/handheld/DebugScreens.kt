@@ -27,7 +27,9 @@ import kotlinx.io.files.Path
  *   `rom_id` extra, the game's RomM id, the game's save syncs with the server before the launch and
  *   again when the launcher is back in front. The optional `save_dir` extra, an absolute path,
  *   stands in for the emulator's save folders, and the optional `romm_url` extra names a server to
- *   sync with, without a token, instead of the signed-in one.
+ *   sync with, without a token, instead of the signed-in one. With the `find_save` boolean extra,
+ *   the screen only shows where the game's save is, as the launch would find it, and neither syncs
+ *   nor launches.
  * - `sign_in`: the sign-in screens, for a test server. What they sign in to stays in memory, so the
  *   app stays signed in to its own server.
  *
@@ -78,7 +80,18 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
         intent.getStringExtra("rom_id")?.toLongOrNull()?.let {
           SaveSyncOptions(it, intent.getStringExtra("save_dir"), intent.getStringExtra("romm_url"))
         }
-      ({ LaunchTestScreen(activity as ComponentActivity, rom, platform, app, biosDir, saves) })
+      val findSave = intent.getBooleanExtra("find_save", false)
+      ({
+        LaunchTestScreen(
+          activity as ComponentActivity,
+          rom,
+          platform,
+          app,
+          biosDir,
+          saves,
+          findSave,
+        )
+      })
     }
     "sign_in" -> ({ SignInTestScreen() })
     else -> null
