@@ -16,6 +16,9 @@ sealed interface LaunchRule {
   /** The default for the game's platform. */
   data object PlatformDefault : LaunchRule
 
+  /** Nothing named an app, and a libretro core runs the platform, so the built-in session does. */
+  data object BuiltInDefault : LaunchRule
+
   /** Nothing named an app, so the best installed known emulator for the platform runs it. */
   data object FirstInstalled : LaunchRule
 }
@@ -66,6 +69,16 @@ sealed interface LaunchResolution {
   ) : LaunchResolution
 
   /**
+   * The game runs in the built-in session. [core] is the libretro core the rule named, by library
+   * name, or null for the platform's chosen core.
+   */
+  data class BuiltIn(
+    val rule: LaunchRule,
+    val core: String? = null,
+    override val skipped: List<SkippedChoice> = emptyList(),
+  ) : LaunchResolution
+
+  /**
    * No rule named an installed app, and no known emulator for [platform] is installed.
    * [suggestions] are the known emulators that would run it, best first.
    */
@@ -78,8 +91,10 @@ sealed interface LaunchResolution {
 
 /**
  * Picks the app a game launches in: the game's override, then the first of its collections' rules
- * that applies, then its platform's default, then the best installed known emulator. A rule may
- * name any app, and one whose app isn't installed is skipped and reported.
+ * that applies, then its platform's default, then the built-in session when a libretro core runs
+ * the platform, then the best installed known emulator. A rule may name any app or the built-in
+ * session. One whose app isn't installed is skipped and reported, as is the built-in session for a
+ * platform no libretro core runs.
  */
 object LaunchResolver {
   fun resolve(
@@ -95,13 +110,19 @@ object LaunchResolver {
       rules.platformDefaults[subject.platform]?.let { add(LaunchRule.PlatformDefault to it) }
     }
 
+    val runsBuiltIn = LibretroCores.recommendedFor(subject.platform) != null
     val skipped = mutableListOf<SkippedChoice>()
     for ((rule, choice) in candidates) {
-      if (choice.packageName in installedPackages) {
+      if (choice.isBuiltIn && runsBuiltIn) {
+        return LaunchResolution.BuiltIn(rule, choice.core, skipped.toList())
+      }
+      if (!choice.isBuiltIn && choice.packageName in installedPackages) {
         return LaunchResolution.Resolved(targetFor(choice), rule, skipped.toList())
       }
       skipped += SkippedChoice(rule, choice.packageName)
     }
+    if (runsBuiltIn)
+      return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
 
     val known = EmulatorRegistry.forPlatform(subject.platform)
     for (emulator in known) {

@@ -68,13 +68,15 @@ data class PlayRequest(
 /**
  * Plays games in standalone emulators. The resolver picks the app by the user's rules, the game's
  * save syncs with RomM, the emulator's firmware goes in place, and the dispatcher starts it. When
- * the launcher is back in front, the save syncs again, which sends what the game saved.
+ * the launcher is back in front, the save syncs again, which sends what the game saved. Games the
+ * resolver gives the built-in session go to [BuiltInPlayer] instead.
  */
 class StandalonePlayer(
   private val activity: ComponentActivity,
   private val credentials: CredentialStore,
 ) : GameLauncher {
   private val dispatcher = LaunchDispatcher(activity)
+  private val builtIn = BuiltInPlayer(activity)
 
   // The companion's sync and the one after the game share the save's records, so one waits for
   // the other.
@@ -90,6 +92,7 @@ class StandalonePlayer(
         resolve(LaunchSubject(rom.id, PlatformSlug(rom.platformSlug), collections), rules)
     ) {
       is LaunchResolution.Resolved -> "Opens in ${appName(resolution.target)}"
+      is LaunchResolution.BuiltIn -> "Opens in the built-in player"
       is LaunchResolution.NoEmulatorInstalled -> noEmulator(resolution)
     }
 
@@ -98,6 +101,7 @@ class StandalonePlayer(
     path: String,
     rules: LaunchRules,
     collections: Set<CollectionId>,
+    onProgress: (String) -> Unit,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
     val file =
@@ -113,7 +117,7 @@ class StandalonePlayer(
         rules,
         collections,
       )
-    return play(request, chooseSave).filterNot { it.quiet }.map { it.text }
+    return play(request, onProgress, chooseSave).filterNot { it.quiet }.map { it.text }
   }
 
   override suspend fun keptSaves(rom: Rom): List<KeptSave> =
@@ -123,11 +127,13 @@ class StandalonePlayer(
    * Plays [request]'s game and returns once the launcher is back in front, or once it's clear the
    * game didn't start, with notes on what happened.
    *
+   * @param onProgress hears what the launch is doing before the game starts, in a few words.
    * @param chooseSave asks which copy of the save to keep when both changed. Null cancels the
    *   launch.
    */
   suspend fun play(
     request: PlayRequest,
+    onProgress: (String) -> Unit = {},
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<PlayNote> {
     val notes = mutableListOf<PlayNote>()
@@ -148,6 +154,8 @@ class StandalonePlayer(
           note(noEmulator(resolution))
           return notes
         }
+        is LaunchResolution.BuiltIn ->
+          return builtIn.play(request, resolution.core, onProgress).onEach { Log.i(TAG, it.text) }
         is LaunchResolution.Resolved -> resolution
       }
     val target = resolution.target

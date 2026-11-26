@@ -17,17 +17,33 @@ data class LaunchSubject(
 )
 
 /**
- * An app picked to launch games: any installed app, known emulator or not.
+ * An app picked to launch games: any installed app, known emulator or not, or [BuiltIn], the
+ * launcher's own session.
  *
  * [recipe] says how to hand it a game; null uses the known emulator's recipe for [packageName], or
  * [LaunchRecipe.ViewRom] for an app the registry doesn't know. [core] is the libretro core's
- * library name for apps that load one.
+ * library name for apps that load one, and for the built-in session.
  */
 data class LaunchChoice(
   val packageName: String,
   val recipe: LaunchRecipe? = null,
   val core: String? = null,
-)
+) {
+  /** Whether this picks the built-in session rather than an app. */
+  val isBuiltIn: Boolean
+    get() = packageName == BUILT_IN
+
+  companion object {
+    /**
+     * The package name that stands for the built-in session. An Android package name always has a
+     * dot, so no app can have it.
+     */
+    const val BUILT_IN = "builtin"
+
+    /** The built-in session, with the platform's core. */
+    val BuiltIn = LaunchChoice(BUILT_IN)
+  }
+}
 
 /**
  * A collection's choice of app. [platform] limits it to the collection's games on that platform,

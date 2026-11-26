@@ -47,6 +47,14 @@
       android:exported="false"
       android:taskAffinity="${applicationId}.companion" />
 
+    <!-- A game in the built-in session. Like the launcher, it handles configuration changes
+         itself, so connecting a gamepad doesn't restart the game. -->
+    <activity
+      android:name=".launch.SessionActivity"
+      android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|density|uiMode"
+      android:exported="false"
+      android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+
     <service
       android:name=".DownloadService"
       android:exported="false"

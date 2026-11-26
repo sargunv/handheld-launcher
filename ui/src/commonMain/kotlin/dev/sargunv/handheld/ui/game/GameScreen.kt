@@ -74,6 +74,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   var confirmRemove by rememberSaveable { mutableStateOf(false) }
   var playing by remember { mutableStateOf(false) }
+  // What the launch is doing before the game starts, such as getting its core.
+  var playProgress by remember { mutableStateOf<String?>(null) }
   // What the player should know about the last thing they did here, such as how a play went.
   var notes by remember { mutableStateOf(emptyList<String>()) }
   var pending by remember { mutableStateOf<PendingChoice?>(null) }
@@ -87,7 +89,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         val collections = state.library.collectionsOf(rom.id).mapTo(mutableSetOf()) { it.launchId }
         val rules = state.settings.launch.toRules()
         notes =
-          state.launcher.play(rom, path, rules, collections) { conflict ->
+          state.launcher.play(rom, path, rules, collections, onProgress = { playProgress = it }) {
+            conflict ->
             val choice = PendingChoice(conflict)
             pending = choice
             try {
@@ -98,6 +101,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           }
       } finally {
         playing = false
+        playProgress = null
         // The game's saves may have synced.
         state.savesChanged++
       }
@@ -105,7 +109,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   }
 
   val current = rom
-  val primary = current?.let { primaryAction(it, status, playing) }
+  val primary = current?.let { primaryAction(it, status, playing, playProgress) }
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
       if (action == Action.Menu && current != null && status != null && pending == null) {
@@ -270,7 +274,13 @@ internal sealed interface PrimaryAction {
   }
 }
 
-internal fun primaryAction(rom: Rom, status: RomStatus?, playing: Boolean): PrimaryAction? =
+/** The primary action for [rom], with [progress] saying what a launch underway is doing. */
+internal fun primaryAction(
+  rom: Rom,
+  status: RomStatus?,
+  playing: Boolean,
+  progress: String? = null,
+): PrimaryAction? =
   when (status) {
     null -> null
     RomStatus.NotOnDevice -> PrimaryAction.Download(rom.sizeBytes)
@@ -282,7 +292,7 @@ internal fun primaryAction(rom: Rom, status: RomStatus?, playing: Boolean): Prim
     }
     is RomStatus.Failed -> PrimaryAction.Retry
     is RomStatus.OnDevice ->
-      if (playing) PrimaryAction.Waiting("Playing") else PrimaryAction.Play(status.path)
+      if (playing) PrimaryAction.Waiting(progress ?: "Playing") else PrimaryAction.Play(status.path)
   }
 
 /** The lines under the primary action that say how a download is going. */

@@ -155,6 +155,29 @@ class InstalledCores(
     }
   }
 
+  /**
+   * Installs [core] if it isn't installed, or updates it when its source has a newer build, and
+   * returns its file. An installed core stays as it is when the check or the update fails, as when
+   * the device is offline. [onProgress] hears about a download, if there is one.
+   *
+   * @throws IOException when [core] isn't installed and can't be downloaded.
+   */
+  suspend fun ensure(
+    core: LibretroCore,
+    onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit = { _, _ -> },
+  ): Path {
+    if (get(core) == null) {
+      install(core, onProgress)
+    } else {
+      try {
+        if (hasUpdate(core)) install(core, onProgress)
+      } catch (_: IOException) {
+        // The installed build still runs the game.
+      }
+    }
+    return fileOf(core)
+  }
+
   /** Removes [core], if it's installed. */
   suspend fun remove(core: LibretroCore) =
     withContext(Dispatchers.IO) {

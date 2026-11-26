@@ -69,6 +69,7 @@ class GameTest {
       path: String,
       rules: LaunchRules,
       collections: Set<CollectionId>,
+      onProgress: (String) -> Unit,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> {
       if (conflict != null) {

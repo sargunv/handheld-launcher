@@ -110,6 +110,49 @@ class InstalledCoresTest {
   }
 
   @Test
+  fun ensureInstallsAMissingCore() = runTest {
+    val progress = mutableListOf<Long>()
+    val zip = zipOf("gambatte_libretro_android.so", build1)
+    val cores = cores { zip(zip) }
+
+    val file = cores.ensure(gambatte) { downloaded, _ -> progress += downloaded }
+
+    assertEquals(cores.fileOf(gambatte), file)
+    assertContentEquals(build1, installedFile("gambatte_libretro").readBytes())
+    assertEquals(zip.size.toLong(), progress.last())
+  }
+
+  @Test
+  fun ensureUpdatesAnInstalledCoreWithANewerBuild() = runTest {
+    var build = build1
+    val cores = cores { request ->
+      if (request.method == HttpMethod.Head) respond("", HttpStatusCode.OK)
+      else zip(zipOf("gambatte_libretro_android.so", build), etag = "\"${build.size}\"")
+    }
+    cores.install(gambatte)
+    build = build2
+
+    cores.ensure(gambatte)
+
+    assertContentEquals(build2, installedFile("gambatte_libretro").readBytes())
+  }
+
+  @Test
+  fun ensureKeepsTheInstalledCoreWhenItCantCheckForUpdates() = runTest {
+    var online = true
+    val cores = cores {
+      if (!online) throw java.io.IOException("offline")
+      zip(zipOf("gambatte_libretro_android.so", build1))
+    }
+    cores.install(gambatte)
+    online = false
+
+    assertEquals(cores.fileOf(gambatte), cores.ensure(gambatte))
+    assertContentEquals(build1, installedFile("gambatte_libretro").readBytes())
+    assertFailsWith<java.io.IOException> { cores.ensure(mupen) }
+  }
+
+  @Test
   fun usesTheAndroidLibraryName() = runTest {
     cores { zip(zipOf("mupen64plus_next_gles3_libretro_android.so", build1)) }.install(mupen)
 
