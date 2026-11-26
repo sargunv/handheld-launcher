@@ -32,7 +32,7 @@ log = "0.4.35"
 rom-headers = { path = "../rom-headers" }
 rubato = { version = "5.1.0", default-features = false }
 thiserror = "2.0.21"
-uniffi = "0.32.2"
+uniffi.workspace = true
 zip = { version = "9.8.2", default-features = false, features = [
   "deflate-flate2-zlib-rs",
 ] }
