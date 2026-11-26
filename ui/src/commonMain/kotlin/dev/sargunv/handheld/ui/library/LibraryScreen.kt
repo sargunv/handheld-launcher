@@ -318,7 +318,7 @@ private fun ShelfList(
         if (shelves != null && shelves.isEmpty()) {
           Text(
             if (tab == LibraryTab.Collections) {
-              librarySyncText(state.sync, synced = "Your server has no collections with games.")
+              librarySyncText(state.sync, synced = "Your server has no collections.")
             } else {
               librarySyncText(state.sync)
             },
@@ -465,7 +465,11 @@ private fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: ()
       }
     }
   Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    // It scrolls with focus, so a collection of many platforms still reaches the last.
+    Column(
+      Modifier.verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
       Text(shelf.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
       if (choices != null && choices.isEmpty()) {
         Text("None of its games are in your library.", color = Placeholder.mutedText)

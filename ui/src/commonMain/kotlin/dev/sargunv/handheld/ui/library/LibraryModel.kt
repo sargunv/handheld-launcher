@@ -87,9 +87,13 @@ fun collectionShelfKey(kind: CollectionKind, id: Long) = "collection:${kind.name
 fun platformShelves(platforms: List<Platform>): List<LibraryShelf> =
   platforms.filter { it.romCount > 0 }.map { LibraryShelf.OfPlatform(it) }
 
-/** The collections the Collections tab lists: those with games, in the order given. */
-fun collectionShelves(collections: List<Collection>): List<LibraryShelf> =
-  collections.filter { it.romCount > 0 }.map { LibraryShelf.OfCollection(it) }
+/**
+ * The collections the Collections tab lists: all of them, in the order given, as Home lists them,
+ * so each one Home opens is there.
+ */
+fun collectionShelves(collections: List<Collection>): List<LibraryShelf> = collections.map {
+  LibraryShelf.OfCollection(it)
+}
 
 /** The shelf with [key], or the first shelf when none has it. */
 fun List<LibraryShelf>.shelfAt(key: String?): LibraryShelf? =

@@ -161,11 +161,14 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     if (currentStatus is RomStatus.OnDevice) play(current, currentStatus.path)
   }
   LaunchedEffect(playing) { if (!playing) confirmLeave = false }
-  // The system back gesture asks too, as Back does.
+  // The system back gesture asks too, as Back does, or cancels a save choice, as Back does there.
   if (playing && LocalNavigationEventDispatcherOwner.current != null) {
     NavigationBackHandler(
       state = rememberNavigationEventState(NavigationEventInfo.None),
-      onBackCompleted = { confirmLeave = true },
+      onBackCompleted = {
+        val choice = pending
+        if (choice != null) choice.choice.complete(null) else confirmLeave = true
+      },
     )
   }
   val primary = current?.let { primaryAction(it, status, playing, playProgress) }
@@ -346,13 +349,13 @@ private fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit) 
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(
-        "Stop $title?",
+        "Leave $title?",
         color = Placeholder.text,
         modifier = Modifier.semantics { heading() },
       )
       Text(
-        "It's starting, or you're playing it. Leaving now stops it, and its save won't sync " +
-          "with RomM when you quit.",
+        "A game that hasn't started yet won't start. One already playing in another app keeps " +
+          "running, but its save won't sync with RomM when you quit it.",
         color = Placeholder.mutedText,
       )
       Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

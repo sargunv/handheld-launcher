@@ -42,13 +42,14 @@ class LibraryModelTest {
     Collection(CollectionKind.Smart, 1, "Nothing", "", 0, isFavorite = false)
 
   @Test
-  fun listsThePlatformsAndCollectionsWithGames() {
+  fun listsThePlatformsWithGamesAndEveryCollection() {
     assertEquals(
       listOf("platform:1", "platform:2"),
       platformShelves(listOf(gb, nes, empty)).map { it.key },
     )
+    // Home lists every collection, so the tab has each one Home opens.
     assertEquals(
-      listOf("collection:Regular:1"),
+      listOf("collection:Regular:1", "collection:Smart:1"),
       collectionShelves(listOf(couch, emptyCollection)).map { it.key },
     )
   }

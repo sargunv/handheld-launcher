@@ -52,7 +52,7 @@ class LibraryTest {
   /**
    * A server with two platforms of games and an empty third. On the Game Boy: Alpha, Bravo and
    * Zulu, with Zulu added first and Bravo last. On the NES: Contra and Metroid. With [collections],
-   * two collections: Couch holds Bravo and Contra, and Solo holds Alpha.
+   * three collections: Couch holds Bravo and Contra, Solo holds Alpha, and Zero holds nothing.
    */
   private fun server(collections: Boolean = true) = {
     MockEngine { request ->
@@ -76,7 +76,8 @@ class LibraryTest {
           "roms/identifiers" -> "[1, 2, 3, 4, 5]"
           "collections" ->
             if (collections)
-              "[${collection(1, "Couch", listOf(2, 4))}, ${collection(2, "Solo", listOf(1))}]"
+              "[${collection(1, "Couch", listOf(2, 4))}, ${collection(2, "Solo", listOf(1))}, " +
+                "${collection(3, "Zero", emptyList())}]"
             else "[]"
           "collections/smart" -> "[]"
           else -> return@MockEngine respondError(HttpStatusCode.NotFound)
@@ -328,12 +329,16 @@ class LibraryTest {
     press(Key.ButtonR1)
     awaitTag("shelf:collection:Regular:2")
     assertFocused("game:1")
+    // An empty collection is there too, as on Home, and opens to say so.
+    press(Key.ButtonR1)
+    awaitTag("shelf:collection:Regular:3")
+    awaitText("No games here yet.")
     // At the last collection, R stays.
     press(Key.ButtonR1)
-    assertFocused("game:1")
+    onNodeWithTag("shelf:collection:Regular:3").assertExists()
     // Back returns to the tab, on the collection it was in.
     press(Key.ButtonB)
-    assertFocused("library:collection:Regular:2")
+    assertFocused("library:collection:Regular:3")
     onNodeWithTag("library:tab:Collections").assertIsSelected()
   }
 
@@ -378,7 +383,7 @@ class LibraryTest {
     assertFocused("library:platform:1")
     onNodeWithTag("hint:Menu").assertExists()
     press(Key.ButtonR1)
-    awaitText("Your server has no collections with games.")
+    awaitText("Your server has no collections.")
     onNodeWithTag("hint:Menu").assertDoesNotExist()
     onNodeWithTag("hint:Confirm").assertDoesNotExist()
     press(Key.ButtonX)
