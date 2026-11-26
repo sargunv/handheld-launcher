@@ -36,6 +36,7 @@ import dev.sargunv.handheld.launch.StandalonePlayer
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
+import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -54,6 +55,11 @@ class MainActivity : ComponentActivity() {
   /** A screen to show, from the launch intent, for development tools. */
   private var openRequest by mutableStateOf<OpenRequest?>(null)
 
+  /** The latest press of HOME while the launcher was in front. */
+  private var homePress by mutableStateOf<HomePress?>(null)
+
+  private var player: StandalonePlayer? = null
+
   private var showsDebugScreen = false
 
   private val credentials by lazy { credentialStore(this) }
@@ -69,8 +75,24 @@ class MainActivity : ComponentActivity() {
     )
   }
 
+  /** Whether this activity handed its launch to the launcher in the home task, and closed. */
+  private var redirected = false
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    // The system keeps the home app's launcher in a home task of its own, apart from the task an
+    // explicit launch starts, so one launcher could run in each. The one in the home task stays.
+    if (isHomeIntent(intent.action, intent.categories)) {
+      // One that ran before the app became the home app closes.
+      for (other in running.toList()) other.finishAndRemoveTask()
+    } else if (isDefaultHome()) {
+      // A launch from another launcher or a tool goes to the one in the home task.
+      startActivity(launcherIntent().putExtras(intent))
+      redirected = true
+      finishAndRemoveTask()
+      return
+    }
+    running += this
     val debugScreen = debugScreen(this)
     if (debugScreen != null) {
       // A debug screen takes the controller's input as it comes, without the launcher's mapping.
@@ -86,7 +108,7 @@ class MainActivity : ComponentActivity() {
     val settings = settingsFile.read()
     val downloads = downloadManager(this)
     keepDownloadsRunning()
-    val launcher = StandalonePlayer(this, credentials)
+    val launcher = StandalonePlayer(this, credentials).also { player = it }
     // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
     setContent {
@@ -121,12 +143,14 @@ class MainActivity : ComponentActivity() {
           }
         },
         openRequest = openRequest,
+        homePress = homePress,
       )
     }
   }
 
   override fun onDestroy() {
-    if (!showsDebugScreen) {
+    running -= this
+    if (!showsDebugScreen && !redirected) {
       getSystemService(InputManager::class.java).unregisterInputDeviceListener(gamepadMotion)
     }
     super.onDestroy()
@@ -139,15 +163,32 @@ class MainActivity : ComponentActivity() {
   }
 
   override fun onNewIntent(intent: Intent) {
+    // Read before anything else: focus says whether the launcher was in front when the intent came.
+    val wasInFront = hasWindowFocus()
     super.onNewIntent(intent)
     setIntent(intent)
     // The activity picks a debug screen when it's created, so a launch that opens, leaves or
     // changes one recreates it. That also closes a game session the old screen was running.
     if (showsDebugScreen || debugScreen(this) != null) {
       recreate()
-    } else {
-      forcedLayout = forcedLayout(intent)
-      openRequest(intent)?.let { openRequest = it }
+      return
+    }
+    val home = isHomeIntent(intent.action, intent.categories)
+    // HOME keeps the layout a development launch forced, unless it carries one from such a launch.
+    if (!home || intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
+    when (
+      val response =
+        respondTo(
+          // The second display's home hands the focus back with HOME's intent, which isn't a press.
+          home = home && !intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false),
+          open = openRequest(intent),
+          wasInFront = wasInFront,
+          playing = player?.isPlaying == true,
+        )
+    ) {
+      is IntentResponse.Open -> openRequest = response.request
+      IntentResponse.PressHome -> homePress = HomePress()
+      IntentResponse.Show -> Unit
     }
   }
 
@@ -231,6 +272,14 @@ class MainActivity : ComponentActivity() {
  * `uiautomator dump`, so tools can tell the elements apart. Each window's content needs its own.
  */
 internal fun Modifier.exposeTestTags(): Modifier = semantics { testTagsAsResourceId = true }
+
+/** The launchers this process shows, at most one but for a moment as the home app takes over. */
+private val running = mutableSetOf<MainActivity>()
+
+/** Whether a launcher is resumed, which makes it what the first display shows. */
+internal fun isLauncherResumed(): Boolean = running.any {
+  it.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+}
 
 private var openLibrary: LibraryCache? = null
 

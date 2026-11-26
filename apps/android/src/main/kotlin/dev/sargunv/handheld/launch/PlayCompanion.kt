@@ -15,8 +15,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
-import dev.sargunv.handheld.MainActivity
 import dev.sargunv.handheld.exposeTestTags
+import dev.sargunv.handheld.launcherIntent
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.ui.play.PlayCompanionScreen
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -90,7 +90,7 @@ class PlayCompanionActivity : ComponentActivity() {
    */
   private fun backToLibrary() {
     startActivity(
-      Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+      launcherIntent(),
       ActivityOptions.makeBasic().setLaunchDisplayId(Display.DEFAULT_DISPLAY).toBundle(),
     )
   }

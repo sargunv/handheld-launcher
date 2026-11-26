@@ -40,3 +40,10 @@ sealed interface OpenTarget {
  * twice, even after the player moved away in between.
  */
 class OpenRequest(val target: OpenTarget)
+
+/**
+ * A press of the system's HOME while the app is already in front, as the home app. It closes the
+ * open dialogs when there are any, and otherwise starts over on Home, the way launchers do. Each
+ * press is its own, like an [OpenRequest].
+ */
+class HomePress

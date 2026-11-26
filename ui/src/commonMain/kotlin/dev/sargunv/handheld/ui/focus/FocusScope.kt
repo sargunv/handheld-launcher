@@ -57,7 +57,11 @@ internal val LocalFocusScopes = staticCompositionLocalOf<FocusScopes?> { null }
  * Whether a dialog holds focus, so what's behind it shouldn't act, even for a screen reader, which
  * can reach it.
  */
-@Composable internal fun isDialogOpen(): Boolean = LocalFocusScopes.current?.active?.isModal == true
+@Composable internal fun isDialogOpen(): Boolean = LocalFocusScopes.current?.isDialogOpen == true
+
+/** Whether a dialog holds focus. Reading this observes it. */
+internal val FocusScopes.isDialogOpen: Boolean
+  get() = active?.isModal == true
 
 internal val LocalFocusScope = staticCompositionLocalOf<FocusScopeState?> { null }
 

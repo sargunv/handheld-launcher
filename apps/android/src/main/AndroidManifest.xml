@@ -40,6 +40,28 @@
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
+      <!-- Offers the app as a home app, which the user picks in the system's settings. HOME then
+           brings the launcher to the front, even from a game in another app. -->
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.HOME" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity>
+
+    <!-- The second display's home screen while the app is the home app. Android starts one on the
+         display for each home app, so it can't be singleTask, and its own task affinity keeps it
+         out of the launcher's task. -->
+    <activity
+      android:name=".SecondaryHomeActivity"
+      android:excludeFromRecents="true"
+      android:exported="true"
+      android:taskAffinity="${applicationId}.secondaryhome">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.SECONDARY_HOME" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
     </activity>
 
     <!-- The companion on the second display while a game plays in another app. Its own task

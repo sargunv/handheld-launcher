@@ -1,6 +1,9 @@
 package dev.sargunv.handheld.ui.home
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
@@ -20,6 +23,7 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -37,6 +41,7 @@ import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
@@ -53,6 +58,9 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class HomeTest {
+  /** The latest press of the system's HOME, which [pressHome] makes. */
+  private var homePress by mutableStateOf<HomePress?>(null)
+
   /**
    * A server with three games on one platform. The user played game 2 last and game 1 before it,
    * and game 3 was added most recently. One collection holds games 1 and 2.
@@ -83,6 +91,8 @@ class HomeTest {
     saveSettings: suspend (Settings) -> Unit = {},
     open: OpenRequest? = null,
   ) {
+    // Made once: a new engine would make a new app state when HOME recomposes the content.
+    val engine = server(fail, played)
     setContent {
       val heldKeys = remember { HeldKeys() }
       val library = remember { LibraryCache.open(path = null) }
@@ -100,9 +110,21 @@ class HomeTest {
         Modifier.trackHeldKeys(heldKeys),
         initialSettings = settings,
         saveSettings = saveSettings,
-        httpEngine = server(fail, played),
+        httpEngine = engine,
         openRequest = open,
+        homePress = homePress,
       )
+    }
+  }
+
+  private fun ComposeUiTest.pressHome() {
+    homePress = HomePress()
+    waitForIdle()
+  }
+
+  private fun ComposeUiTest.awaitFocused(tag: String) {
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
     }
   }
 
@@ -253,6 +275,69 @@ class HomeTest {
     onNode(hasTestTag("primary") and hasText("Download (1.0 KB)")).assertExists()
     press(Key.ButtonB)
     assertFocused("continue:2")
+  }
+
+  @Test
+  fun homeStartsOverOnHomeWithFocusOnItsFirstItem() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
+    assertFocused("RecentlyAdded:2")
+    press(Key.ButtonR1)
+    awaitTag("library:platform:1")
+    pressHome()
+    onNodeWithTag("place:Home").assertIsSelected()
+    awaitFocused("continue:2")
+  }
+
+  @Test
+  fun homeOnHomeGoesBackToItsFirstItem() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
+    assertFocused("RecentlyAdded:2")
+    pressHome()
+    awaitFocused("continue:2")
+  }
+
+  @Test
+  fun homeLeavesAGameForHome() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    awaitTag("primary")
+    pressHome()
+    awaitFocused("continue:2")
+    onNodeWithTag("primary").assertDoesNotExist()
+  }
+
+  @Test
+  fun homeClosesAnOpenDialogFirst() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(Key.ButtonR1)
+    awaitTag("library:platform:1")
+    press(Key.ButtonStart)
+    awaitTag("quick:confirm")
+    pressHome()
+    onNodeWithTag("quick:confirm").assertDoesNotExist()
+    onNodeWithTag("place:Library").assertIsSelected()
+    assertFocused("library:platform:1")
+    // The next press goes Home.
+    pressHome()
+    onNodeWithTag("place:Home").assertIsSelected()
+    awaitFocused("continue:2")
+  }
+
+  @Test
+  fun aDialogOpenedAfterHomeStaysOpen() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    pressHome()
+    press(Key.ButtonStart)
+    awaitTag("quick:confirm")
+    waitForIdle()
+    onNodeWithTag("quick:confirm").assertExists()
   }
 
   private fun ComposeUiTest.awaitText(text: String) {

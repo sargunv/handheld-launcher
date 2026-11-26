@@ -62,10 +62,10 @@ import kotlinx.coroutines.withContext
 /**
  * A game in the built-in session, full screen. Start pauses it and opens the quick menu over it,
  * with the save-state slots on the second screen. It closes when the core quits on its own, on Quit
- * in the quick menu, or on the system's back gesture while the menu is closed, and the session's
- * save memory is written as it closes. A session that can't start closes it with the reason as its
- * result's [EXTRA_ERROR], and one whose save memory couldn't be written closes with the reason as
- * [EXTRA_SAVE_ERROR].
+ * in the quick menu, on the system's back gesture while the menu is closed, or on HOME, which
+ * brings the launcher back, and the session's save memory is written as it closes. A session that
+ * can't start closes it with the reason as its result's [EXTRA_ERROR], and one whose save memory
+ * couldn't be written closes with the reason as [EXTRA_SAVE_ERROR].
  *
  * The view fills the screen and the session fits the core's frame inside it at the core's aspect
  * ratio, following any change to it mid-game, so the view needs no new layout when that changes.
@@ -256,18 +256,33 @@ class SessionActivity : ComponentActivity() {
    */
   private fun stopAndFinish() {
     if (isFinishing) return
-    val stopping = session
+    stopSession()?.let { setResult(RESULT_OK, Intent().putExtra(EXTRA_SAVE_ERROR, it)) }
+    finish()
+  }
+
+  /** Stops the session, which writes its save memory. Returns why the save couldn't be written. */
+  private fun stopSession(): String? {
+    val stopping = session ?: return null
     session = null
     view.session = null
     lowerView?.session = null
-    try {
-      stopping?.stop()
+    return try {
+      stopping.stop()
+      null
     } catch (e: SessionException) {
       Log.e(TAG, "couldn't write the save memory", e)
-      setResult(RESULT_OK, Intent().putExtra(EXTRA_SAVE_ERROR, e.message ?: e.toString()))
+      e.message ?: e.toString()
+    } finally {
+      stopping.close()
     }
-    stopping?.close()
-    finish()
+  }
+
+  override fun onPause() {
+    super.onPause()
+    // Something else closed the session, such as HOME, which clears the launcher's task to bring
+    // it to the front. The save memory is written now, before the launcher resumes and reads it.
+    // The result of an activity closed that way says nothing, so a failure waits for the launcher.
+    if (isFinishing) stopSession()?.let { unreportedSaveError = it }
   }
 
   private suspend fun start(options: SessionOptions) {
@@ -384,6 +399,14 @@ class SessionActivity : ComponentActivity() {
 
     /** Why the game's save memory couldn't be written as the session closed. */
     const val EXTRA_SAVE_ERROR = "save_error"
+
+    @Volatile private var unreportedSaveError: String? = null
+
+    /**
+     * Why the save memory of a session that something else closed couldn't be written, once, or
+     * null. Such a session's result has no [EXTRA_SAVE_ERROR].
+     */
+    fun takeUnreportedSaveError(): String? = unreportedSaveError.also { unreportedSaveError = null }
 
     /**
      * The intent that runs [core] with [content], with [systemDir] for its system files, its own

@@ -74,6 +74,15 @@ class StandalonePlayer(
   private val saves = PlaySaves(activity, credentials)
   private val builtIn = BuiltInPlayer(activity, saves)
 
+  private var plays = 0
+
+  /**
+   * Whether a play is under way, from the sync before the game to the one after it, in this app's
+   * session or another app.
+   */
+  val isPlaying: Boolean
+    get() = plays > 0
+
   override suspend fun opensIn(
     rom: Rom,
     rules: LaunchRules,
@@ -127,6 +136,19 @@ class StandalonePlayer(
   suspend fun play(
     request: PlayRequest,
     onProgress: (String) -> Unit = {},
+    chooseSave: suspend (SaveConflict) -> SaveCopy?,
+  ): List<PlayNote> {
+    plays++
+    try {
+      return playOnce(request, onProgress, chooseSave)
+    } finally {
+      plays--
+    }
+  }
+
+  private suspend fun playOnce(
+    request: PlayRequest,
+    onProgress: (String) -> Unit,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<PlayNote> {
     val notes = mutableListOf<PlayNote>()
