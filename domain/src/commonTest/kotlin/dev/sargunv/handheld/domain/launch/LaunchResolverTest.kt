@@ -195,6 +195,15 @@ class LaunchResolverTest {
   }
 
   @Test
+  fun aTargetWithoutACoreRunsThePlatformsRecommendedOne() {
+    val game = LaunchSubject(gameId = 1, platform = SNES)
+    val resolution =
+      resolved(LaunchResolver.resolve(game, LaunchRules(), setOf("com.retroarch.aarch64")))
+    assertNull(resolution.target.core)
+    assertEquals("snes9x_libretro", resolution.target.coreFor(SNES))
+  }
+
+  @Test
   fun twinsFallBackToTheirPlatformsEmulators() {
     val game = LaunchSubject(gameId = 1, platform = SUPER_FAMICOM)
     val resolution =
