@@ -78,6 +78,9 @@ class LibraryCacheTest {
       listOf("Disc Game (Disc 1).chd", "Disc Game (Disc 2).chd", "readme.txt"),
       shelf[1].files.map { it.fileName },
     )
+    val all = cache.allRoms().first()
+    assertEquals(listOf("The Alpha", "Disc Game", "Other", "Zeta"), all.map { it.title })
+    assertEquals(shelf[1], all[1])
     assertEquals(roms[1].copy(files = discs.sortedBy { it.fileName }), cache.rom(2))
     assertEquals(roms[0], cache.rom(1))
     assertNull(cache.rom(99))

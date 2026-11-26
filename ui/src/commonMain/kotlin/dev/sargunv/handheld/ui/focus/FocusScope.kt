@@ -94,6 +94,11 @@ internal class FocusMemory(
     if (isRecording()) saved.value = key
   }
 
+  /** Makes [key] the remembered item, whether or not it's composed. */
+  fun select(key: String) {
+    saved.value = key
+  }
+
   /** Focuses the item that had focus last, if it's still composed. */
   fun focusRemembered(): Boolean =
     saved.value?.let(items::get)?.requestFocus(FocusDirection.Enter) ?: false
@@ -143,6 +148,16 @@ internal constructor(
   fun restore(): Boolean {
     restorePending = false
     return memory.focusRemembered() || group.requestFocus(FocusDirection.Enter)
+  }
+
+  /**
+   * Moves focus to the item with [key], such as the target of a jump, and remembers it as the item
+   * to restore. Returns false if that item isn't composed.
+   */
+  fun focus(key: String): Boolean {
+    memory.select(key)
+    restorePending = false
+    return memory.focusRemembered()
   }
 }
 

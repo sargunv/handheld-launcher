@@ -115,6 +115,9 @@ DELETE FROM platform;
 rom:
 SELECT * FROM rom WHERE id = ?;
 
+allRoms:
+SELECT * FROM rom ORDER BY sort_key COLLATE NOCASE, id;
+
 romsOnPlatform:
 SELECT * FROM rom WHERE platform_id = ? ORDER BY sort_key COLLATE NOCASE, id;
 
@@ -179,6 +182,9 @@ SELECT * FROM rom_file WHERE rom_id = ? ORDER BY file_name, id;
 
 filesOfRoms:
 SELECT * FROM rom_file WHERE rom_id IN ? ORDER BY file_name, id;
+
+allFiles:
+SELECT * FROM rom_file ORDER BY file_name, id;
 
 filesOnPlatform:
 SELECT rom_file.* FROM rom_file

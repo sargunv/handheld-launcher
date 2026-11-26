@@ -46,6 +46,10 @@ import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
+import dev.sargunv.handheld.ui.library.DeviceState
+import dev.sargunv.handheld.ui.library.LibraryPlace
+import dev.sargunv.handheld.ui.library.LibrarySecondary
+import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 
@@ -91,6 +95,12 @@ class AppState(settings: Settings, val library: LibraryCache) {
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
   var sync: SyncStatus by mutableStateOf(SyncStatus.NotStarted)
+  val libraryView = LibraryState()
+
+  /**
+   * The games on the device or on their way, by ROM id. A game missing here is only on the server.
+   */
+  var deviceStates: Map<Long, DeviceState> by mutableStateOf(emptyMap())
 
   val inputSettings: InputSettings
     get() = settings.input
@@ -131,22 +141,26 @@ fun MainSecondary(state: AppState) {
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    when (val focused = state.focused) {
-      is Focused.OnGame -> GameDescription(state.library, focused.rom)
-      is Focused.OnCollection -> {
+    val focused = state.focused
+    when {
+      state.place == Place.Library && state.navigator.current == Screen.Places ->
+        LibrarySecondary(state)
+      focused is Focused.OnGame -> GameDescription(state, focused.rom)
+      focused is Focused.OnCollection -> {
         Text(focused.collection.name, color = Placeholder.text, fontSize = 24.sp)
         Text(gameCount(focused.collection.romCount), color = Placeholder.mutedText)
         if (focused.collection.description.isNotBlank()) {
           Text(focused.collection.description, color = Placeholder.mutedText)
         }
       }
-      null -> Unit
     }
   }
 }
 
+/** The lower screen's description of a game. */
 @Composable
-private fun GameDescription(library: LibraryCache, rom: Rom) {
+internal fun GameDescription(state: AppState, rom: Rom) {
+  val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(rom.coverLargeUrl ?: rom.coverSmallUrl, rom.title, Modifier.size(180.dp, 240.dp))
@@ -156,6 +170,13 @@ private fun GameDescription(library: LibraryCache, rom: Rom) {
         platforms.find { it.id == rom.platformId }?.name ?: rom.platformSlug,
         color = Placeholder.mutedText,
       )
+      val onDevice =
+        when (state.deviceStates[rom.id]) {
+          DeviceState.OnDevice -> "On this device"
+          is DeviceState.Downloading -> "Downloading"
+          null -> "Not on this device"
+        }
+      Text(onDevice, color = Placeholder.mutedText)
     }
   }
 }
@@ -178,14 +199,20 @@ private fun PlacesScreen(state: AppState) {
     },
   ) {
     Column(Modifier.fillMaxSize()) {
-      PlaceTabs(state.place, state.sync, state.inputSettings)
+      // Inside Library, L and R step between its shelves first, so the tabs don't name them.
+      PlaceTabs(
+        state.place,
+        state.sync,
+        state.inputSettings,
+        showButtons = state.place != Place.Library,
+      )
       Box(Modifier.fillMaxWidth().weight(1f)) {
         // Each place is a focus scope, which keeps its focus and scroll position while another
         // place shows.
         places.SaveableStateProvider(state.place.name) {
           when (state.place) {
             Place.Home -> HomePlace(state)
-            Place.Library -> EmptyPlace("The library is coming soon.")
+            Place.Library -> LibraryPlace(state)
             Place.Downloads -> EmptyPlace("Downloads are coming soon.")
           }
         }
@@ -196,9 +223,17 @@ private fun PlacesScreen(state: AppState) {
 }
 
 @Composable
-private fun PlaceTabs(current: Place, sync: SyncStatus, settings: InputSettings) {
+private fun PlaceTabs(
+  current: Place,
+  sync: SyncStatus,
+  settings: InputSettings,
+  showButtons: Boolean,
+) {
   fun buttonFor(action: Action) =
-    PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
+    if (showButtons) {
+      PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
+    } else ""
+
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 16.dp),
     horizontalArrangement = Arrangement.spacedBy(24.dp),

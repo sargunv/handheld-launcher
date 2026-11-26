@@ -74,6 +74,12 @@ private constructor(
       transaction { query.awaitAsList().map { it.toDomain() } }
     }
 
+  /** Every ROM in the library, in title order. */
+  fun allRoms(): Flow<List<Rom>> =
+    queries.allRoms().asFlow().map { query ->
+      transaction { withFiles(query.awaitAsList(), queries.allFiles().awaitAsList()) }
+    }
+
   /** The ROMs on a platform, in title order. */
   fun romsOnPlatform(platformId: Long): Flow<List<Rom>> =
     queries.romsOnPlatform(platformId).asFlow().map { query ->
