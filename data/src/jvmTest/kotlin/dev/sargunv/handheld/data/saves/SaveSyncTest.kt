@@ -1141,6 +1141,33 @@ class SaveSyncTest {
     assertTrue(cards.list()!!.isEmpty(), "Nothing was written to the cards")
   }
 
+  // ARMSX2's save of Jak comes down for PocketGOAL, and PocketGOAL's goes up under its own name.
+  @Test
+  fun aPs2SavePullsFromAnotherCardEmulator() = runTest {
+    val server = FakeRomm()
+    server.push(
+      "Jak.ps2",
+      sigilUnit(JAK),
+      Instant.parse("2025-04-01T00:00:00Z"),
+      emulator = "armsx2",
+    )
+    val cards = File(root, "pocketgoal/memcards").apply { mkdirs() }
+    val jak =
+      GameSave(
+        7,
+        "pocketgoal",
+        emptyList(),
+        cards = Ps2CardRoots(listOf(cards), JAK, "Jak.ps2", folderCards = true),
+        sharesWith = setOf("armsx2"),
+      )
+    val sync = sync(server)
+
+    assertIs<SaveSyncResult.Pulled>(sync.sync(jak))
+    assertTrue(File(cards, "Mcd001.ps2").list()!!.any { it.startsWith("BASCUS-97124") })
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(jak))
+    assertTrue(server.uploads.isEmpty(), "Nothing went up")
+  }
+
   @Test
   fun aPs2GameSyncsAsOneCardBetweenAFileCardAndAFolderCard() = runTest {
     val server = FakeRomm()

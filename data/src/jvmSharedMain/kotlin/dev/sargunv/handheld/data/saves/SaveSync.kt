@@ -32,6 +32,8 @@ const val SAVE_SLOT = "autosave"
  *   files: then it syncs as one zip, and [candidates] aren't used.
  * @param cards where the save is instead, when it's folders on the emulator's shared PS2 memory
  *   cards: then it syncs as one per-game card, and neither [candidates] nor [folders] is used.
+ * @param sharesWith the other emulators whose saves of the game are the same as this one's, so a
+ *   pull takes the newest of any of them. Pushes still go under [emulator].
  */
 data class GameSave(
   val romId: Long,
@@ -40,6 +42,7 @@ data class GameSave(
   val owner: String = emulator,
   val folders: SaveFolderRoots? = null,
   val cards: Ps2CardRoots? = null,
+  val sharesWith: Set<String> = emptySet(),
 ) {
   internal val key: String
     get() = "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
@@ -268,11 +271,13 @@ class SaveSync(
     }
   }
 
-  /** The newest save in [SAVE_SLOT] the server has from [game]'s emulator. */
+  /** The newest save in [SAVE_SLOT] the server has from [game]'s emulator or one it shares with. */
   private suspend fun latestOnServer(game: GameSave): RommSave? =
     client
       .saves(romId = game.romId)
-      .filter { it.slot == SAVE_SLOT && it.emulator == game.emulator }
+      .filter {
+        it.slot == SAVE_SLOT && (it.emulator == game.emulator || it.emulator in game.sharesWith)
+      }
       .maxWithOrNull(compareBy({ it.updatedAt }, { it.id }))
 
   private suspend fun pull(
