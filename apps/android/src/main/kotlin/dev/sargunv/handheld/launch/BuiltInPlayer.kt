@@ -87,9 +87,13 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         aButtonPosition = settings.input.aButtonPosition,
         stackedScreensOptions = chosen.stackedScreensOptions,
       )
+    // A failure an earlier session left unreported isn't this one's.
+    SessionActivity.takeUnreportedSaveError()
     val result = awaitResult(intent)
     val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)
-    val saveError = result.data?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
+    val saveError =
+      result.data?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
+        ?: SessionActivity.takeUnreportedSaveError()
     if (error != null) {
       note("Couldn't start the game: $error")
       return notes

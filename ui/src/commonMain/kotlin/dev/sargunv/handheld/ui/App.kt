@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,15 +23,20 @@ import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.ui.cover.coverImageLoader
+import dev.sargunv.handheld.ui.dialog.Dialogs
+import dev.sargunv.handheld.ui.dialog.LocalDialogs
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
+import dev.sargunv.handheld.ui.focus.LocalFocusScopes
+import dev.sargunv.handheld.ui.focus.isDialogOpen
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.library.deviceStates
 import dev.sargunv.handheld.ui.places.AppState
+import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
 import dev.sargunv.handheld.ui.places.OpenRequest
@@ -68,6 +74,8 @@ import kotlinx.io.files.Path
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
  * @param openRequest a screen to show once signed in, for development tools.
+ * @param homePress the system's HOME, pressed while the app is in front as the home app. It closes
+ *   the open dialogs, or when there are none, starts over on Home.
  */
 @Composable
 fun App(
@@ -86,6 +94,7 @@ fun App(
   apps: AppCatalog = AppCatalog.None,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
   openRequest: OpenRequest? = null,
+  homePress: HomePress? = null,
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
   // Null until the stored credentials have been read.
@@ -147,8 +156,21 @@ fun App(
       true -> MainSecondary(state)
     }
   }
-  ActionInputRoot(state.inputSettings, heldKeys, modifier) {
-    FocusRoot { DualScreen(layout = layout, primary = primary, secondary = secondary) }
+  val dialogs = remember { Dialogs() }
+  CompositionLocalProvider(LocalDialogs provides dialogs) {
+    ActionInputRoot(state.inputSettings, heldKeys, modifier) {
+      FocusRoot {
+        val scopes = LocalFocusScopes.current
+        LaunchedEffect(homePress) {
+          if (homePress == null) return@LaunchedEffect
+          when {
+            scopes?.isDialogOpen == true -> dialogs.closeAll()
+            signedIn == true -> state.goHome()
+          }
+        }
+        DualScreen(layout = layout, primary = primary, secondary = secondary)
+      }
+    }
+    if (layout == DualScreenLayout.Separate) secondaryDisplay(secondary)
   }
-  if (layout == DualScreenLayout.Separate) secondaryDisplay(secondary)
 }

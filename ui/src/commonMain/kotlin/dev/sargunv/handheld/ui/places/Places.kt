@@ -15,6 +15,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -142,6 +143,10 @@ class AppState(
    */
   var deviceStates: Map<Long, DeviceState> by mutableStateOf(emptyMap())
 
+  /** Counts the times Home started over, so its focus and scroll positions start over too. */
+  var homeResets: Int by mutableIntStateOf(0)
+    private set
+
   /** Counts the plays that may have synced saves, so the save history loads again after each. */
   var savesChanged: Int by mutableIntStateOf(0)
 
@@ -158,6 +163,16 @@ class AppState(
     if (next == place) return
     place = next
     focused = null
+  }
+
+  /**
+   * Starts over on Home, as the system's HOME does for a launcher: the screens over the places
+   * close, and Home shows from its top with focus on its first item.
+   */
+  fun goHome() {
+    while (navigator.back()) Unit
+    showPlace(Place.Home)
+    homeResets++
   }
 
   /**
@@ -343,7 +358,8 @@ private fun PlacesScreen(state: AppState) {
         // place shows.
         places.SaveableStateProvider(state.place.name) {
           when (state.place) {
-            Place.Home -> HomePlace(state)
+            // A new key starts Home's state over, focus and scroll positions included.
+            Place.Home -> key(state.homeResets) { HomePlace(state) }
             Place.Library -> LibraryPlace(state)
             Place.Downloads -> DownloadsPlace(state.downloads)
           }

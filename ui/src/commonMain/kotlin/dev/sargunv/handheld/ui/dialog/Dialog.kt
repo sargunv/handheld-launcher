@@ -6,8 +6,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
@@ -22,6 +29,25 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.onAction
+import kotlinx.coroutines.flow.first
+
+/**
+ * Closes every [Dialog] open below where it's provided as [LocalDialogs] at once, as the system's
+ * HOME does.
+ */
+@Stable
+class Dialogs {
+  internal var closes by mutableIntStateOf(0)
+    private set
+
+  /** Asks each open dialog to close, as if the player had dismissed it. */
+  fun closeAll() {
+    closes++
+  }
+}
+
+/** The [Dialogs] that can close the dialogs below, or null where nothing closes them at once. */
+val LocalDialogs = staticCompositionLocalOf<Dialogs?> { null }
 
 /**
  * A dialog over the screen. Place it last in a box that fills the screen, so it covers what came
@@ -30,7 +56,7 @@ import dev.sargunv.handheld.ui.input.onAction
  * While open it holds focus: directions can't leave it, the content behind it can't be tapped or
  * act on the actions the dialog doesn't handle, and [Action.Back], the system back gesture or a tap
  * outside the panel calls [onDismissRequest]. When it closes, the screen's [FocusScope] puts focus
- * back where it was.
+ * back where it was. [Dialogs.closeAll] closes it too.
  *
  * @param initialFocus the key of the item to focus first; the first item by default.
  * @param modifier applies to the panel.
@@ -43,6 +69,15 @@ fun Dialog(
   content: @Composable BoxScope.() -> Unit,
 ) {
   val dismiss by rememberUpdatedState(onDismissRequest)
+  val dialogs = LocalDialogs.current
+  if (dialogs != null) {
+    // Only a request made while it's open closes it.
+    val closesAtOpen = remember(dialogs) { dialogs.closes }
+    LaunchedEffect(dialogs) {
+      snapshotFlow { dialogs.closes }.first { it != closesAtOpen }
+      dismiss()
+    }
+  }
   if (LocalNavigationEventDispatcherOwner.current != null) {
     NavigationBackHandler(
       state = rememberNavigationEventState(NavigationEventInfo.None),
