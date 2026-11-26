@@ -14,6 +14,7 @@ import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
@@ -32,7 +33,7 @@ import kotlinx.coroutines.CompletableDeferred
 private class FakeSession(
   private val saveFailure: String? = null,
   private val loading: CompletableDeferred<Unit>? = null,
-  private val achievements: GameAchievements = GameAchievements.Off,
+  var achievements: GameAchievements = GameAchievements.Off,
   override val hardcore: Boolean = false,
 ) : QuickMenuSession {
   override suspend fun achievements() = achievements
@@ -250,6 +251,17 @@ class QuickMenuTest {
     press(listOf(Key.ButtonB))
     onNodeWithTag("quick:achievements").assertIsFocused()
     assertEquals(emptyList(), session.calls)
+  }
+
+  @Test
+  fun readsAchievementsAgainUntilTheyLoad() = runComposeUiTest {
+    val session = FakeSession(achievements = GameAchievements.Loading)
+    showMenu(session)
+    session.achievements = GameAchievements.NoSet
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodesWithText("None", substring = true).fetchSemanticsNodes().isNotEmpty()
+    }
+    onNodeWithTag("quick:achievements").assertTextEquals("Achievements", "None")
   }
 
   @Test

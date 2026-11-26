@@ -47,8 +47,10 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.saves.ago
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** A save-state slot: its number, and when its state was saved, with a picture of the game then. */
@@ -155,14 +157,26 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
     // Until they're read, hardcore assumes the game has achievements.
     if (session.hardcore) achievements = GameAchievements.Loading
     scope.launch { slots = session.slots() }
-    scope.launch { achievements = session.achievements() }
+    readAchievements()
   }
 
   /** Lists the game's achievements, read again. */
   fun showAchievements() {
     showsAchievements = true
     message = null
-    scope.launch { achievements = session.achievements() }
+    readAchievements()
+  }
+
+  /** Reads the game's achievements, and again while the session is still loading them. */
+  private fun readAchievements() {
+    scope.launch {
+      while (true) {
+        val read = session.achievements()
+        achievements = read
+        if (read != GameAchievements.Loading) break
+        delay(ACHIEVEMENTS_POLL)
+      }
+    }
   }
 
   /** Lists the slots, for [action]. */
@@ -469,3 +483,5 @@ private fun SlotTile(
     Text("${slot.number}$saved", color = Placeholder.text, fontSize = 16.sp)
   }
 }
+
+private val ACHIEVEMENTS_POLL = 500.milliseconds

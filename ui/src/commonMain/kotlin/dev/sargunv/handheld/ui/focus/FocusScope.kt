@@ -59,9 +59,9 @@ internal val LocalFocusScopes = staticCompositionLocalOf<FocusScopes?> { null }
  */
 @Composable internal fun isDialogOpen(): Boolean = LocalFocusScopes.current?.isDialogOpen == true
 
-/** Whether a dialog holds focus. Reading this observes it. */
+/** Whether a dialog holds focus, or a scope inside one does. Reading this observes it. */
 internal val FocusScopes.isDialogOpen: Boolean
-  get() = active?.isModal == true
+  get() = generateSequence(active) { it.parent }.any { it.isModal }
 
 internal val LocalFocusScope = staticCompositionLocalOf<FocusScopeState?> { null }
 
@@ -122,7 +122,7 @@ class FocusScopeState
 internal constructor(
   saved: MutableState<String?>,
   private val scopes: FocusScopes?,
-  private val parent: FocusScopeState? = null,
+  internal val parent: FocusScopeState? = null,
   internal val isModal: Boolean = false,
 ) {
   internal val memory = FocusMemory(saved) { isRecording }
