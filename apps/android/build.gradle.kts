@@ -61,14 +61,13 @@ abstract class SessionLicences @Inject constructor(private val exec: ExecOperati
     licence("libretro.h", "MIT", "MIT License", statement.trim() + "\n")
 
     // Offline, so the crates' licence texts come from their packaged sources, which the fetch
-    // downloads once.
+    // downloads once. It fetches every platform's crates, since cargo-about reads the metadata of
+    // the whole graph before it narrows it to the targets.
     val json = temporaryDir.resolve("crates.json")
     val root = workspace.get().asFile
     exec.exec {
       workingDir = root
-      commandLine(
-        listOf("cargo", "fetch", "--locked") + targets.get().flatMap { listOf("--target", it) },
-      )
+      commandLine("cargo", "fetch", "--locked")
     }
     exec.exec {
       workingDir = root
