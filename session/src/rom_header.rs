@@ -95,12 +95,14 @@ fn extension(path: &Path) -> String {
 
 /// The file that holds a game's data: the file itself, or the one a playlist
 /// names first, a cue sheet's first data track's, or a GD-ROM sheet's
-/// high-density data track's.
+/// high-density data track's. It follows at most three, so a sheet that names
+/// itself ends.
 fn data_file(path: &Path, depth: u8) -> Option<PathBuf> {
     let sheet = || std::fs::read_to_string(path).ok();
     let folder = path.parent().unwrap_or(Path::new(""));
     let named = match extension(path).as_str() {
-        "m3u" if depth < 2 => sheet()?
+        "m3u" | "cue" | "gdi" if depth >= 3 => return None,
+        "m3u" => sheet()?
             .lines()
             .map(str::trim)
             .find(|l| !l.is_empty() && !l.starts_with('#'))?
@@ -405,10 +407,10 @@ fn describe(header: &Header) -> Vec<HeaderField> {
                 .add("Disc", &h.device_info);
         }
         Header::SystemCnf(cnf) => {
-            f.add(
-                "Serial",
-                cnf.serial().unwrap_or_else(|| cnf.executable.clone()),
-            )
+            match cnf.serial() {
+                Some(serial) => f.add("Serial", serial),
+                None => f.add("Executable", &cnf.executable),
+            }
             .some("Version", cnf.version.as_ref())
             .some("Video", cnf.video_mode.as_ref());
         }
@@ -552,6 +554,14 @@ mod tests {
         );
         let gdi = "3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n3 45000 4 2352 \"track 03.bin\" 0\n";
         assert_eq!(gdi_data_file(gdi).as_deref(), Some("track 03.bin"));
+
+        let looping = dir.path().join("loop.cue");
+        std::fs::write(
+            &looping,
+            "FILE \"loop.cue\" BINARY\n  TRACK 01 MODE1/2352\n",
+        )
+        .unwrap();
+        assert_eq!(data_file(&looping, 0), None);
     }
 
     #[test]

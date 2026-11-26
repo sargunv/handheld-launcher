@@ -526,8 +526,11 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
           SaveRow(from, listOf(save.emulator, ago(save.keptAt, now), size(save.sizeBytes)))
         }
       }
+      if (header.isNotEmpty()) {
+        Spacer(Modifier.size(8.dp))
+        ThisCopy(header)
+      }
     }
-    if (header.isNotEmpty()) ThisCopy(header)
     opensIn?.let { Text(it, color = Placeholder.mutedText) }
   }
 }
