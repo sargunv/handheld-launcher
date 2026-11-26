@@ -486,6 +486,151 @@ class DownloadManagerTest {
   }
 
   @Test
+  fun aDiscSetCopiedInLooseIsOneLocalGame() = runTest {
+    fillLibrary()
+    val psx = file("ROMs/psx").apply { mkdirs() }
+    val cue =
+      File(psx, "Demo.cue").apply {
+        writeText("FILE \"Demo (Track 1).bin\" BINARY\nFILE \"demo (track 2).bin\" BINARY\n")
+      }
+    val tracks =
+      listOf(File(psx, "Demo (Track 1).bin"), File(psx, "Demo (Track 2).bin")).onEach {
+        it.writeBytes(disc1)
+      }
+    // A playlist's discs, and the tracks their cue sheets list, are its set.
+    val m3u =
+      File(psx, "Trilogy.m3u").apply { writeText("Trilogy (Disc 1).cue\nTrilogy (Disc 2).cue\n") }
+    val discs =
+      (1..2).flatMap { n ->
+        listOf(
+          File(psx, "Trilogy (Disc $n).cue").apply {
+            writeText("FILE \"Trilogy (Disc $n).bin\" BINARY\n")
+          },
+          File(psx, "Trilogy (Disc $n).bin").apply { writeBytes(disc2) },
+        )
+      }
+    // A file no descriptor lists is a game of its own.
+    val stray = File(psx, "Stray.bin").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+
+    val local = waitFor { downloads.localGames().first { it.isNotEmpty() } }.sortedBy { it.path }
+    assertEquals(listOf(cue.path, stray.path, m3u.path), local.map { it.path })
+    assertEquals(tracks.map { it.path }, local[0].otherFiles)
+    assertEquals(cue.length() + 2 * disc1.size, local[0].sizeBytes)
+    assertEquals("Demo", local[0].title)
+    assertEquals(discs.map { it.path }.sorted(), local[2].otherFiles.sorted())
+    // The tracks of a set aren't read, however big they are.
+    val cached = File(dir, "local-content.json").readText()
+    assertTrue(stray.path in cached)
+    for (part in tracks + discs.filter { it.extension == "bin" }) {
+      assertFalse(part.path in cached, part.name)
+    }
+  }
+
+  @Test
+  fun aSetWithAFileThatsAGameOfTheLibraryIsItsFilesEachOnItsOwn() = runTest {
+    fillLibrary()
+    val file = gameRom.files.single()
+    val rom =
+      gameRom.copy(
+        files =
+          listOf(
+            file.copy(crcHash = CRC32().apply { update(game) }.value.toString(16).padStart(8, '0')),
+          ),
+      )
+    library.upsertRoms(listOf(rom))
+    val gba = file("ROMs/gba").apply { mkdirs() }
+    val playlist = File(gba, "Pack.m3u").apply { writeText("copy.gba\nother.gba\n") }
+    // Of a game's size, so the scan reads it.
+    val copy = File(gba, "copy.gba").apply { writeBytes(game) }
+    val other = File(gba, "other.gba").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+
+    waitFor { downloads.status(rom).first { it == RomStatus.OnDevice(copy.path) } }
+    val local = waitFor { downloads.localGames().first { it.size == 2 } }.sortedBy { it.path }
+    assertEquals(listOf(playlist.path, other.path), local.map { it.path })
+    assertEquals(emptyList(), local[0].otherFiles)
+  }
+
+  @Test
+  fun removingADiscSetDeletesEveryFileItListsUnlessOneChanged() = runTest {
+    fillLibrary()
+    val psx = file("ROMs/psx").apply { mkdirs() }
+    val cue = File(psx, "Demo.cue").apply { writeText("FILE \"Demo.bin\" BINARY\n") }
+    val track = File(psx, "Demo.bin").apply { writeBytes(disc1) }
+    val other = File(psx, "Other.bin").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+    val local = waitFor {
+      downloads.localGames().first { games -> games.any { it.path == cue.path } }
+    }
+      .single { it.path == cue.path }
+
+    // A track that changed since the scan isn't the one it found.
+    track.writeBytes(disc2)
+    assertEquals(Removal.NotOnDevice, downloads.remove(local))
+    assertTrue(cue.exists() && track.exists())
+    track.writeBytes(disc1)
+    assertEquals(Removal.Removed, downloads.remove(local))
+    assertFalse(cue.exists())
+    assertFalse(track.exists())
+    assertTrue(other.exists())
+  }
+
+  @Test
+  fun deletesStagedDownloadsNothingResumesOfTheLibrarysGamesOnly() = runTest {
+    fillLibrary()
+    library.upsertRoms(listOf(gameRom, sagaRom))
+    val orphan =
+      file("ROMs/gba/Game (USA).gba.part").apply {
+        parentFile.mkdirs()
+        writeBytes(game.copyOf(1000))
+      }
+    val orphanFolder = file("ROMs/psx/Saga (USA).part").apply { mkdirs() }
+    File(orphanFolder, "Saga (USA) (Disc 1).chd").writeBytes(disc1)
+    // Files of other names, or of other apps, stay.
+    val kept =
+      listOf(
+          file("ROMs/gba/Unknown.gba.part"),
+          file("ROMs/gba/Game (USA).gba.tmp"),
+          file("ROMs/gba/Game (USA).gba"),
+          file("ROMs/ps2/3f2a9c1e-5b7d-4e0a-9d1c-2b6e8f4a7c3d.tmp"),
+          // A game's name in another platform's folder isn't that game's.
+          file("ROMs/psx/Game (USA).gba.part"),
+        )
+        .onEach {
+          it.parentFile.mkdirs()
+          it.writeBytes(disc1)
+        }
+    val downloads = manager(backgroundScope, server())
+    waitFor { downloads.sweep.join() }
+
+    assertFalse(orphan.exists())
+    assertFalse(orphanFolder.exists())
+    for (file in kept) assertTrue(file.exists(), file.path)
+  }
+
+  @Test
+  fun keepsTheStagedDownloadOfAGameInTheQueue() = runTest {
+    fillLibrary()
+    library.upsertRoms(listOf(gameRom))
+    stopMidDownload(game.copyOf(131_072))
+    val staged = file("ROMs/gba/Game (USA).gba.part")
+    requests.clear()
+
+    // The app starts again, and resumes from what's staged while it sweeps.
+    val stalling =
+      server(content = { request, bytes -> serveFrom(request, bytes) { ByteChannel() } })
+    val downloads = manager(backgroundScope, stalling)
+    waitFor { downloads.sweep.join() }
+    val resumed = waitFor {
+      while (requests.none { "files/content" in it.apiPath }) delay(10)
+      requests.first { "files/content" in it.apiPath }
+    }
+    assertEquals("bytes=131072-", resumed.headers[HttpHeaders.Range])
+    assertEquals(131_072, staged.length())
+  }
+
+  @Test
   fun onlyFilesThatMayBeGamesAreLocalGames() {
     for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f", "Sonic.md")) {
       assertTrue(isGameFile("/ROMs/gba/$name"), name)

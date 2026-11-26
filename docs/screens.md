@@ -66,6 +66,13 @@ platform or collection, a shortcut that stops at the ends. B goes back to the
 tab, with the one you were in focused. X on a platform or collection opens its
 menu, which holds **Open with** for all of its games.
 
+A disc set copied in loose, a playlist (`.m3u`), cue sheet (`.cue`) or GDI with
+the files it lists beside it, is one local game, which opens the playlist or
+sheet. Once a scan matches a local game's file to a game of the server, what was
+kept for the file goes to that game: its Open with choice, unless the server's
+game has its own, and its built-in saves. When the server's game has saves of
+its own, those stay, and the local game's go to its save history.
+
 ## Game
 
 One primary action, focused first: Play when the game is on the device, Download

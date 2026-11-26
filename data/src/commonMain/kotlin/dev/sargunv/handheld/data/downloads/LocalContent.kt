@@ -4,6 +4,7 @@ import dev.sargunv.handheld.data.cores.JsonFile
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.storage.DiscSets
 import dev.sargunv.handheld.domain.storage.GameLayout
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -18,15 +19,29 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 
-/** A file in a platform's folder that no game of the library is named for or matched by content. */
+/**
+ * A file in a platform's folder that no game of the library is named for or matched by content. A
+ * disc set copied in loose is one: its playlist or descriptor, with the files it lists as
+ * [otherFiles].
+ */
 data class LocalFile(
   val path: String,
   /** The platform whose folder holds the file. */
   val platformId: Long,
+  /** The size of the file itself. */
   val sizeBytes: Long,
   /** When the file last changed, in milliseconds since the epoch. */
   val modifiedMillis: Long = 0,
-)
+  /** The other files of a disc set, which the file lists. */
+  val otherFiles: List<LocalPart> = emptyList(),
+) {
+  /** The size of the file and its [otherFiles]. */
+  val totalBytes: Long
+    get() = sizeBytes + otherFiles.sumOf { it.sizeBytes }
+}
+
+/** One of the other files of a disc set, as a scan found it. */
+data class LocalPart(val path: String, val sizeBytes: Long)
 
 /**
  * What the latest scan of the platforms' folders found besides the games named as RomM names them.
@@ -88,7 +103,8 @@ internal class ContentScanner(
 
   /**
    * Scans each platform's folder on each of the [targets] for files that aren't [roms] by name, and
-   * matches them to [roms] by content. A ROM on the device by name isn't matched again.
+   * matches them to [roms] by content. A ROM on the device by name isn't matched again. A disc set
+   * copied in loose is one file, its playlist or descriptor, and the files it lists aren't read.
    */
   suspend fun scan(
     targets: List<StorageTarget>,
@@ -109,9 +125,22 @@ internal class ContentScanner(
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
       // Each target's files in name order, the targets in the order they fill.
-      val files = entries.filterNot { it.name in names || skipped(it.name) }
+      val loose = entries.filterNot { it.name in names || skipped(it.name) }
       val candidates = folderRoms.filter { it.files.size == 1 && romName(it) !in present }
       val sizes = candidates.mapTo(mutableSetOf()) { it.files.single().sizeBytes }
+      // A set's files are read only where that's quick, or where one could be a game by its size.
+      // A set with a file that's a game of the library is its files, each on its own.
+      val sets =
+        discSets(loose).filterValues { parts ->
+          parts.none { part ->
+            // What it read stays in the cache.
+            seen += part.toString()
+            val content = quickContentOf(part, sizes, cache)
+            content != null && candidates.any { content.matches(it.files.single()) }
+          }
+        }
+      val listed = sets.values.flatten().toSet()
+      val files = loose.filterNot { it in listed }
       for (path in files) {
         currentCoroutineContext().ensureActive()
         val metadata = SystemFileSystem.metadataOrNull(path)
@@ -126,8 +155,20 @@ internal class ContentScanner(
         seen += path.toString()
         val found = content?.let { c -> candidates.filter { c.matches(it.files.single()) } }
         if (found.isNullOrEmpty()) {
+          val others =
+            sets[path].orEmpty().mapNotNull { part ->
+              SystemFileSystem.metadataOrNull(part)
+                ?.takeIf { it.isRegularFile }
+                ?.let { LocalPart(part.toString(), it.size) }
+            }
           unmatched +=
-            LocalFile(path.toString(), sharing.first().id, metadata.size, lastModified(path))
+            LocalFile(
+              path.toString(),
+              sharing.first().id,
+              metadata.size,
+              lastModified(path),
+              others,
+            )
         } else {
           for (rom in found) matched.getOrPut(rom.id) { path.toString() }
         }
@@ -163,16 +204,35 @@ internal class ContentScanner(
   }
 
   /**
-   * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
-   * game.
+   * What the file at [path] holds, as far as it's quick to read: a zip's directory, a CHD's header,
+   * or another file of one of the [sizes]. Null when it can't be read so.
    */
-  /** With [fresh], it reads the file even if the cache has it. */
+  private fun quickContentOf(
+    path: Path,
+    sizes: Set<Long>,
+    cache: MutableMap<String, CachedContent>,
+  ): FileContent? {
+    val metadata = SystemFileSystem.metadataOrNull(path)
+    if (metadata == null || !metadata.isRegularFile) return null
+    return try {
+      contentOf(path, metadata.size, sizes, cache, wholeFileLimit = -1)
+    } catch (e: IOException) {
+      null
+    }
+  }
+
+  /**
+   * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
+   * game: a file bigger than [wholeFileLimit] is read whole only when it's one of the [sizes]. With
+   * [fresh], it reads the file even if the cache has it.
+   */
   private fun contentOf(
     path: Path,
     size: Long,
     sizes: Set<Long>,
     cache: MutableMap<String, CachedContent>,
     fresh: Boolean = false,
+    wholeFileLimit: Long = this.wholeFileLimit,
   ): FileContent? {
     val modified = lastModified(path)
     cache[path.toString()]
@@ -254,6 +314,53 @@ private fun ByteArray.toHex(): String =
   joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
 private fun romName(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
+
+/**
+ * The disc sets copied in loose among [files], the entries of platforms' folders: each playlist or
+ * descriptor that no other lists, with the files beside it that it lists, and for a playlist, the
+ * files its discs' descriptors list too.
+ */
+private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
+  for (folder in files.groupBy { it.parent }.values) {
+    val byName = folder.associateBy { it.name }
+    val listed =
+      folder
+        .filter { DiscSets.isDescriptor(it.name) }
+        .mapNotNull { descriptor ->
+          val text = descriptorText(descriptor) ?: return@mapNotNull null
+          val names = DiscSets.listedFiles(descriptor.name, text) ?: return@mapNotNull null
+          descriptor.name to DiscSets.siblings(names, byName.keys).filter { it != descriptor.name }
+        }
+        .toMap()
+    fun membersOf(name: String, seen: MutableSet<String>): List<String> =
+      listed[name].orEmpty().flatMap {
+        listOf(it) + if (seen.add(it)) membersOf(it, seen) else emptyList()
+      }
+    val members = listed.values.flatten().toSet()
+    for (name in listed.keys - members) {
+      val all = membersOf(name, mutableSetOf(name)).distinct().filter { it != name }
+      put(byName.getValue(name), all.map { byName.getValue(it) })
+    }
+  }
+}
+
+/**
+ * The text of the playlist or descriptor at [path], or null when it's too big to be one or can't be
+ * read. It's UTF-8, else Latin-1, as cue sheets made on Windows often are.
+ */
+private fun descriptorText(path: Path): String? {
+  val metadata = SystemFileSystem.metadataOrNull(path) ?: return null
+  if (!metadata.isRegularFile || metadata.size > DiscSets.DESCRIPTOR_LIMIT) return null
+  val bytes =
+    try {
+      SystemFileSystem.source(path).buffered().use { it.readByteArray() }
+    } catch (e: IOException) {
+      return null
+    }
+  val text = bytes.decodeToString()
+  return if ('\uFFFD' in text) bytes.map { (it.toInt() and 0xff).toChar() }.joinToString("")
+  else text
+}
 
 /** Files a scan never takes for a game: hidden ones, and downloads under way. */
 private fun skipped(name: String) = name.startsWith('.') || name.endsWith(".part")

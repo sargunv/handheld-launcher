@@ -224,7 +224,8 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           if ((screen.scope as? OpenWithScope.Game)?.game is GameKey.Local) {
             Text(
               "A game that isn't on your server keeps this choice for its file, while the file " +
-                "keeps its name and folder.",
+                "keeps its name and folder. Once the file is a game on your server, the choice " +
+                "is that game's, unless it has one of its own.",
               color = Placeholder.mutedText,
             )
           }

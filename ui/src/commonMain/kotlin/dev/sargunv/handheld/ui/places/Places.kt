@@ -49,6 +49,7 @@ import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
+import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.Settings
@@ -176,8 +177,29 @@ class AppState(
   val appInfo: AppInfo = AppInfo.Unknown,
   /** Reads what a game's file says about itself. */
   val romHeaders: RomHeaders = RomHeaders.None,
+  /**
+   * What the platform keeps per game besides the settings, such as the built-in session's saves.
+   */
+  platformState: PerGameState = PerGameState.None,
 ) {
   var settings: Settings by mutableStateOf(settings)
+
+  /**
+   * Everything kept per game: the settings, and what the platform keeps. Its [PerGameState.adopt]
+   * is the one step that hands a local game's state to the ROM its file becomes, which the app runs
+   * for every game on the device by its file each time the device's games change.
+   */
+  val gameState: PerGameState =
+    PerGameState.of(
+      PerGameState { this.settings = this.settings.adopted(it) },
+      platformState,
+    )
+
+  /**
+   * The game a launch from its page is playing, whose state stays where it is until the game is
+   * over.
+   */
+  var playing: GameKey? by mutableStateOf(null)
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
@@ -221,6 +243,9 @@ class AppState(
 
   /** The local games: files on the device that match none of the server's games. */
   var localGames: List<LocalGame> by mutableStateOf(emptyList())
+
+  /** The library's games on the device, by the path of their file or folder: their ROM ids. */
+  var onDevice: Map<String, Long> by mutableStateOf(emptyMap())
 
   /** Counts the times Home started over, so its focus and scroll positions start over too. */
   var homeResets: Int by mutableIntStateOf(0)
