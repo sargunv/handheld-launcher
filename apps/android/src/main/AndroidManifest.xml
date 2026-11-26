@@ -10,6 +10,12 @@
     android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
     tools:ignore="ScopedStorage" />
 
+  <!-- Downloads go on in the background in a foreground service, which shows their progress in a
+       notification. -->
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
   <!-- Any installed app can run a game, so the launcher sees every app with a launcher icon. -->
   <queries>
     <intent>
@@ -32,6 +38,11 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
+
+    <service
+      android:name=".DownloadService"
+      android:exported="false"
+      android:foregroundServiceType="dataSync" />
 
     <provider
       android:name="androidx.core.content.FileProvider"

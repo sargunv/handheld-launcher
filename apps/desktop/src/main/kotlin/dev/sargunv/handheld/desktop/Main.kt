@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.desktop
 
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -9,6 +10,8 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.FileCredentialStore
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
@@ -21,9 +24,10 @@ import kotlinx.io.files.SystemFileSystem
  * Runs the app in one window. By default the window shows both of the Thor's screens in a frame;
  * `--folded` shows the single-screen layout instead.
  *
- * It keeps the signed-in server's credentials, unencrypted, and the library cache under
- * `$XDG_DATA_HOME/handheld` (`~/.local/share/handheld` by default), and covers under
- * `$XDG_CACHE_HOME/handheld/covers` (`~/.cache/handheld/covers` by default).
+ * It keeps the signed-in server's credentials, unencrypted, the library cache, the download queue
+ * and downloaded games (in `ROMs`) under `$XDG_DATA_HOME/handheld` (`~/.local/share/handheld` by
+ * default), and covers under `$XDG_CACHE_HOME/handheld/covers` (`~/.cache/handheld/covers` by
+ * default).
  *
  * Input comes from the keyboard for now. A gamepad source (SDL, through the session crate) can feed
  * the same pipeline by dispatching key events that carry Compose's `Key.Button*` codes to the
@@ -45,6 +49,16 @@ fun main(args: Array<String>) {
     val library = remember {
       SystemFileSystem.createDirectories(dataDir)
       LibraryCache.open(Path(dataDir, "library.db").toString())
+    }
+    val scope = rememberCoroutineScope()
+    val downloads = remember {
+      DownloadManager(
+        queueFile = Path(dataDir, "downloads.json"),
+        library = library,
+        credentials = credentials,
+        storage = { listOf(StorageTarget(dataDir.toString(), "Data folder")) },
+        scope = scope,
+      )
     }
     val device = remember {
       val os = System.getProperty("os.name")
@@ -71,6 +85,7 @@ fun main(args: Array<String>) {
         credentials = credentials,
         device = device,
         library = library,
+        downloads = downloads,
         coverCacheDir = cacheDir(),
         initialSettings = settings,
         saveSettings = settingsFile::write,

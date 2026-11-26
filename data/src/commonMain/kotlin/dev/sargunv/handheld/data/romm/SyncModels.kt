@@ -152,3 +152,32 @@ enum class SyncAction {
   @SerialName("no_op") NoOp,
   @SerialName("delete") Delete,
 }
+
+/** A request, made on the server's web page, to install a ROM on a device. */
+@Serializable
+data class RommInstallRequest(
+  val id: String,
+  @SerialName("device_id") val deviceId: String,
+  @SerialName("rom_id") val romId: Long,
+  /** The ROM's files to install, or all of them when empty. */
+  @SerialName("file_ids") val fileIds: List<Long> = emptyList(),
+  val status: RommInstallStatus,
+  val reason: String? = null,
+)
+
+/** Where an install request stands. A device takes pending ones, then reports how they ended. */
+@Serializable
+enum class RommInstallStatus {
+  @SerialName("pending") Pending,
+  @SerialName("taken") Taken,
+  @SerialName("done") Done,
+  @SerialName("already_installed") AlreadyInstalled,
+  @SerialName("failed") Failed,
+  @SerialName("cancelled") Cancelled,
+}
+
+@Serializable
+internal data class RommInstallUpdate(
+  val status: RommInstallStatus,
+  val reason: String? = null,
+)

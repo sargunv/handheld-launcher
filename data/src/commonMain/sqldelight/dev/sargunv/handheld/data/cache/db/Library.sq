@@ -104,6 +104,9 @@ CREATE TABLE sync_state (
 platforms:
 SELECT * FROM platform ORDER BY name COLLATE NOCASE;
 
+platform:
+SELECT * FROM platform WHERE id = ?;
+
 insertPlatform:
 INSERT INTO platform VALUES ?;
 

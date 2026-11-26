@@ -186,6 +186,40 @@ class RommClient(
 
   suspend fun device(id: String): RommDevice = get(RommDevice.serializer(), "devices", id)
 
+  /** The install requests for a device that are pending or that it has taken, oldest first. */
+  suspend fun installRequests(deviceId: String): List<RommInstallRequest> =
+    get(ListSerializer(RommInstallRequest.serializer()), "devices", deviceId, "installs")
+
+  /**
+   * Takes every pending install request for a device, and returns all the requests it has taken,
+   * oldest first. The device then reports how each ended with [updateInstallRequest].
+   */
+  suspend fun claimInstallRequests(deviceId: String): List<RommInstallRequest> =
+    send(
+      ListSerializer(RommInstallRequest.serializer()),
+      HttpMethod.Post,
+      listOf("devices", deviceId, "installs", "claim"),
+    )
+
+  /** Reports how an install request the device took ended, which ends it on the server. */
+  suspend fun updateInstallRequest(
+    deviceId: String,
+    requestId: String,
+    status: RommInstallStatus,
+    reason: String? = null,
+  ): RommInstallRequest =
+    send(
+      RommInstallRequest.serializer(),
+      HttpMethod.Put,
+      listOf("devices", deviceId, "installs", requestId),
+      body =
+        RommJson.encodeToString(
+          RommInstallUpdate.serializer(),
+          // The server keeps at most 500 characters of the reason.
+          RommInstallUpdate(status, reason?.take(500)),
+        ),
+    )
+
   suspend fun syncSessions(
     deviceId: String? = null,
     limit: Int = 50,
@@ -221,6 +255,21 @@ class RommClient(
       endpoint(HttpMethod.Get, listOf("roms", romId.toString(), "content", fileName)) {
         if (fileIds.isNotEmpty()) append("file_ids", fileIds.joinToString(","))
       }
+    }
+
+  /**
+   * Downloads one file of a ROM to [target], resuming from what [target] already holds. RomM lists
+   * each file's hashes, for checking the result: a resume doesn't detect a file that changed on the
+   * server in between.
+   */
+  suspend fun downloadRomFile(
+    fileId: Long,
+    fileName: String,
+    target: Path,
+    onProgress: (DownloadProgress) -> Unit = {},
+  ): DownloadResult =
+    http.download(target, onProgress) {
+      endpoint(HttpMethod.Get, listOf("roms", fileId.toString(), "files", "content", fileName))
     }
 
   /** Downloads a firmware file to [target], resuming from what [target] already holds. */
