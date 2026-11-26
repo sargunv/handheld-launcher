@@ -177,6 +177,7 @@ struct ZipEntry<R> {
 }
 
 /// Whether a file in a zip is something packed beside the game, not the game.
+/// Not `.md`, which is a Mega Drive ROM as often as a document.
 fn is_extra(name: &str) -> bool {
     let extension = name
         .rsplit_once('.')
@@ -187,7 +188,6 @@ fn is_extra(name: &str) -> bool {
         "txt"
             | "nfo"
             | "diz"
-            | "md"
             | "pdf"
             | "htm"
             | "html"
@@ -559,6 +559,12 @@ mod tests {
             rom_header_fields(HeaderPlatform::Nes, rom.to_str().unwrap().to_owned()).is_empty(),
             "Not an NES ROM"
         );
+    }
+
+    #[test]
+    fn keeps_mega_drive_roms_among_a_zips_files() {
+        assert!(!is_extra("Sonic.md"));
+        assert!(is_extra("manual.PDF"));
     }
 
     #[test]
