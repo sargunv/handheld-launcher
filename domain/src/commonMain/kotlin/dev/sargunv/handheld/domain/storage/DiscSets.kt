@@ -15,7 +15,8 @@ object DiscSets {
   /**
    * The files the playlist or descriptor named [fileName], whose content is [text], lists, as it
    * names them: a playlist's discs, a cue sheet's `FILE`s, or a GDI's tracks, in order. Null when
-   * [fileName] isn't a playlist or descriptor.
+   * [fileName] isn't a playlist or descriptor. Where the session's `data_file` picks the one file
+   * that holds a game's header, this lists every file of the set.
    */
   fun listedFiles(fileName: String, text: String): List<String>? {
     val lines = text.removePrefix("﻿").lines().map { it.trim() }.filter { it.isNotEmpty() }
