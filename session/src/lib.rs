@@ -21,6 +21,7 @@ mod platform;
 mod save;
 mod session;
 mod video;
+mod vulkan;
 
 pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
@@ -33,6 +34,7 @@ pub use crate::session::{
     VideoOutput,
 };
 pub use crate::video::{CapturedFrame, Frame, PixelFormat, VideoSink, convert_frame};
+pub use crate::vulkan::VulkanError;
 
 uniffi::setup_scaffolding!();
 

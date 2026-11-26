@@ -49,6 +49,11 @@ fetch_samples "$work/samples"
     libretro_gl_test.c glsym/rglgen.c glsym/glsym_es2.c -Wl,--version-script=link.T -lGLESv2 \
     -o "$out/testgl_gles_libretro_android.so"
 )
+(
+  cd "$work/samples/video/vulkan/vk_rendering"
+  "$cc" -shared -fPIC -O2 -std=gnu99 -I. -Iinclude -w libretro-test.c vulkan_symbol_wrapper.c \
+    -Wl,--version-script=link.T -lm -o "$out/testvulkan_libretro_android.so"
+)
 
 echo "Building Gambatte for $abi"
 fetch_gambatte "$work/gambatte"

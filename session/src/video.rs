@@ -150,6 +150,35 @@ fn expand6(v: u16) -> u8 {
     ((v << 2) | (v >> 4)) as u8
 }
 
+/// The largest rectangle with `aspect` that fits the window, centered, as
+/// (x, y, width, height). A non-positive `aspect` uses the frame's own.
+pub(crate) fn fit(
+    width: u32,
+    height: u32,
+    aspect: f32,
+    win_w: u32,
+    win_h: u32,
+) -> (i32, i32, i32, i32) {
+    let aspect = if aspect > 0.0 {
+        f64::from(aspect)
+    } else {
+        f64::from(width) / f64::from(height.max(1))
+    };
+    let (win_w, win_h) = (f64::from(win_w), f64::from(win_h));
+    let (w, h) = if win_w / win_h.max(1.0) > aspect {
+        (win_h * aspect, win_h)
+    } else {
+        (win_w, win_w / aspect)
+    };
+    let (w, h) = (w.round(), h.round());
+    (
+        ((win_w - w) / 2.0).round() as i32,
+        ((win_h - h) / 2.0).round() as i32,
+        w as i32,
+        h as i32,
+    )
+}
+
 /// Flips tightly packed RGBA8 rows in place, top to bottom.
 pub(crate) fn flip_rows(pixels: &mut [u8], width: usize, height: usize) {
     let row = width * 4;
@@ -228,5 +257,12 @@ mod tests {
         flip_rows(&mut px, 2, 3);
         let rows: Vec<u8> = px.chunks(8).map(|r| r[0]).collect();
         assert_eq!(rows, [2, 1, 0]);
+    }
+
+    #[test]
+    fn fit_letterboxes_and_pillarboxes() {
+        assert_eq!(fit(320, 240, 4.0 / 3.0, 1920, 1080), (240, 0, 1440, 1080));
+        assert_eq!(fit(320, 240, 4.0 / 3.0, 800, 1000), (0, 200, 800, 600));
+        assert_eq!(fit(256, 224, 0.0, 256, 224), (0, 0, 256, 224));
     }
 }

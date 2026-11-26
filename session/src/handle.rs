@@ -49,7 +49,8 @@ pub struct SessionOptions {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum VideoMode {
     /// To the window attached with [`GameSession::attach_window`], through an
-    /// OpenGL ES context the session keeps while windows come and go.
+    /// OpenGL ES context, or a Vulkan device for Vulkan cores, that the
+    /// session keeps while windows come and go.
     Window,
     /// Nowhere: the session only keeps the last frame, for
     /// [`GameSession::capture_frame`].
@@ -78,7 +79,7 @@ pub struct SessionInfo {
     pub base_height: u32,
     /// The intended display aspect ratio, or 0 for the frame's own.
     pub aspect_ratio: f32,
-    /// Whether the core renders with OpenGL.
+    /// Whether the core renders with OpenGL or Vulkan.
     pub hardware_rendered: bool,
 }
 
