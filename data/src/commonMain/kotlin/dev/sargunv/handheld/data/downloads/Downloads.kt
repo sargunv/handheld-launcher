@@ -300,21 +300,27 @@ class DownloadManager(
   /**
    * Deletes [rom]'s own files from the device: its file, or for a ROM of several files, its folder.
    * A folder that holds anything besides the files the server lists for the game and the playlist
-   * its download wrote, such as a save an emulator keeps beside the game, stays as it is.
+   * its download wrote, such as a save an emulator keeps beside the game, stays as it is. So does
+   * one that holds more files of a name than the game has.
    */
   suspend fun remove(rom: Rom): Removal =
     // Once begun, a removal finishes even if the screen that asked goes away.
     withContext(NonCancellable + Dispatchers.IO) {
       val folder = library.platform(rom.platformId)?.fsSlug
       val path = folder?.let { locate(rom, it) } ?: return@withContext Removal.NotOnDevice
-      if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
-        val names = rom.files.mapTo(mutableSetOf()) { it.fileName } + playlistName(path.name)
-        val others = filesIn(path).map { it.name }.filterNot { it in names }
-        if (others.isNotEmpty()) return@withContext Removal.HoldsOtherFiles(others.sorted())
-      }
       try {
-        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) deleteRecursively(path)
-        else SystemFileSystem.delete(path)
+        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+          // A file is the game's while no more files have its name than the game has, so a stray
+          // file that shares a name with one of the game's isn't taken for it.
+          val expected =
+            (rom.files.map { it.fileName } + playlistName(path.name)).groupingBy { it }.eachCount()
+          val found = filesIn(path).groupingBy { it.name }.eachCount()
+          val others = found.filter { (name, count) -> count > (expected[name] ?: 0) }.keys
+          if (others.isNotEmpty()) return@withContext Removal.HoldsOtherFiles(others.sorted())
+          deleteRecursively(path)
+        } else {
+          SystemFileSystem.delete(path)
+        }
         Removal.Removed
       } catch (e: IOException) {
         Removal.Failed(e.message ?: "The game's files couldn't be deleted")

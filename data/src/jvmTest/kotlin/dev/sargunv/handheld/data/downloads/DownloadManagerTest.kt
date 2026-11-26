@@ -420,6 +420,12 @@ class DownloadManagerTest {
     assertEquals(Removal.HoldsOtherFiles(listOf(discSave.name)), downloads.remove(sagaRom))
     assertEquals(4, folder.walk().count { it.isFile })
     discSave.delete()
+    // So does one with a file that only shares a name with one of the game's.
+    val stray = File(folder, "extras/Saga (USA) (Disc 1).chd").apply { parentFile.mkdirs() }
+    stray.writeText("not the game")
+    assertEquals(Removal.HoldsOtherFiles(listOf(stray.name)), downloads.remove(sagaRom))
+    assertTrue(stray.exists())
+    stray.delete()
     assertEquals(Removal.Removed, downloads.remove(sagaRom))
     assertFalse(folder.exists())
     assertEquals(emptyMap(), waitFor { downloads.statuses().first { it.isEmpty() } })
