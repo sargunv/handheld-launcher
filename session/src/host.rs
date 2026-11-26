@@ -17,7 +17,7 @@ use crate::gl::{self, Framebuffer, GlApi, GlContext, NativeWindow};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
 use crate::options::{Options, opt_string};
 use crate::session::SessionError;
-use crate::video::{self, CapturedFrame, Frame, PixelFormat, VideoSink};
+use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region, VideoSink};
 use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
 use crate::{AvInfo, GlError, InputDescriptor};
 
@@ -33,6 +33,8 @@ pub(crate) enum VideoTarget {
         width: u32,
         height: u32,
         vsync: bool,
+        /// What a lower window shows of each frame.
+        lower: Region,
     },
 }
 
@@ -314,7 +316,7 @@ impl Host {
                 height,
                 pixels: &self.frame,
             }),
-            VideoTarget::Window { .. } => {
+            &mut VideoTarget::Window { lower, .. } => {
                 let Some(gpu) = &mut self.gpu else { return };
                 let gl = &gpu.context.gl;
                 if gpu.upload.is_none() {
@@ -335,6 +337,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     true,
+                    lower,
                 );
             }
         }
@@ -352,8 +355,8 @@ impl Host {
                         });
                     }
                 }
-                VideoTarget::Window { .. } => {
-                    vulkan.present(width, height, self.av_info.aspect_ratio);
+                &mut VideoTarget::Window { lower, .. } => {
+                    vulkan.present(width, height, self.av_info.aspect_ratio, lower);
                 }
             }
             return;
@@ -378,7 +381,7 @@ impl Host {
                     pixels: &gpu.readback,
                 });
             }
-            VideoTarget::Window { .. } => {
+            &mut VideoTarget::Window { lower, .. } => {
                 gl::present(
                     &gpu.context,
                     fb,
@@ -386,6 +389,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     !bottom_left_origin,
+                    lower,
                 );
             }
         }

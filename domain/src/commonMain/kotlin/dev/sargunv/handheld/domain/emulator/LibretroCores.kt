@@ -46,7 +46,9 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  * [stackedScreensOptions] are the core options that make a two-screen system's core draw its
  * screens stacked in one frame, top above bottom, each in its own half of the frame, with no gap,
  * so the built-in session can show each half on a screen of its own. They're empty for cores that
- * draw one screen.
+ * draw one screen. [lowerScreenWidthShare] is the bottom screen's share of that frame's width, when
+ * the core draws it narrower than the top screen and centred under it, so the session shows only
+ * its columns; null means the bottom screen spans the frame's width.
  */
 data class LibretroCore(
   val library: String,
@@ -54,6 +56,7 @@ data class LibretroCore(
   val retroArchFolder: String,
   val source: CoreSource = CoreSource.Buildbot,
   val stackedScreensOptions: Map<String, String> = emptyMap(),
+  val lowerScreenWidthShare: Float? = null,
 )
 
 /** Where a core's Android builds come from, as a zip holding the core's library. */
@@ -111,6 +114,7 @@ object LibretroCores {
           "citra_swap_screen" to "Top",
           "citra_render_3d" to "off",
         ),
+      lowerScreenWidthShare = 320f / 400f,
     )
   private val dolphin = LibretroCore("dolphin_libretro", retroArchFolder = "dolphin-emu")
   private val beetlePsxHw =

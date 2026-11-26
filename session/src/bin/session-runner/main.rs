@@ -257,6 +257,7 @@ impl App {
                 // The runner handles window events on the session's thread,
                 // and paces frames itself.
                 vsync: false,
+                lower_screen_width_share: None,
             },
             Present::Cpu => {
                 let context =

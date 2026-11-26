@@ -117,6 +117,7 @@ fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
             save_ram_path: None,
             core_options: HashMap::new(),
             video: VideoMode::Offscreen,
+            lower_screen_width_share: None,
         },
         Some(Arc::new(Forward(Mutex::new(heard)))),
     )
@@ -192,6 +193,7 @@ fn the_listener_may_stop_the_session() {
             save_ram_path: None,
             core_options: HashMap::new(),
             video: VideoMode::Offscreen,
+            lower_screen_width_share: None,
         },
         Some(listener.clone()),
     )

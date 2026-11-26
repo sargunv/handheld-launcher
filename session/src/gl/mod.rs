@@ -11,7 +11,7 @@ use glow::HasContext;
 
 use egl::*;
 
-use crate::video::{Region, fit};
+use crate::video::Region;
 
 pub(crate) use egl::Egl;
 
@@ -838,7 +838,8 @@ impl Framebuffer {
 /// Draws the `width` by `height` region at `source`'s origin to the window,
 /// scaled to fit at `aspect` (width over height) and centered on black, then
 /// presents it. With a lower window, the main window shows the region's top
-/// half and the lower window its bottom half, both from the one frame.
+/// half and the lower window its bottom half, `lower`, both from the one
+/// frame.
 /// Without a window, it does nothing. `top_row_first` says the region's first
 /// row (GL's lowest) is the image's top, as with uploaded frames and cores
 /// that render with a top-left origin.
@@ -849,6 +850,7 @@ pub(crate) fn present(
     height: u32,
     aspect: f32,
     top_row_first: bool,
+    lower: Region,
 ) {
     let h = &context.handles;
     let draw = |region: Region, surface: EGLSurface| {
@@ -870,7 +872,7 @@ pub(crate) fn present(
         // The lower window first: it doesn't wait for vsync, so both show the
         // frame by the main window's next refresh.
         if h.make_current_on(h.lower_surface).is_ok() {
-            draw(Region::Bottom, h.lower_surface);
+            draw(lower, h.lower_surface);
         }
         if let Err(e) = h.make_current() {
             log::warn!("can't go back to the main window: {e}");
@@ -900,13 +902,8 @@ fn blit(
     (win_w, win_h): (u32, u32),
 ) {
     let (first, rows) = region.rows(height);
-    let (x, y, w, h) = fit(
-        width,
-        rows,
-        region.aspect(width, height, aspect),
-        win_w,
-        win_h,
-    );
+    let (first_column, columns) = region.columns(width);
+    let (x, y, w, h) = region.fit(width, height, aspect, win_w, win_h);
     // GL counts rows from the bottom of the framebuffer.
     let (src_y0, src_y1, dst_y0, dst_y1) = if top_row_first {
         (first, first + rows, y + h, y)
@@ -924,9 +921,9 @@ fn blit(
         gl.clear(glow::COLOR_BUFFER_BIT);
         gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(source.fbo));
         gl.blit_framebuffer(
-            0,
+            first_column as i32,
             src_y0 as i32,
-            width as i32,
+            (first_column + columns) as i32,
             src_y1 as i32,
             x,
             dst_y0,

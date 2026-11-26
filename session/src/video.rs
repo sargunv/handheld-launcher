@@ -182,18 +182,29 @@ pub(crate) fn fit(
 /// The part of the core's frame a window shows. A two-screen system's core
 /// draws its screens stacked, top above bottom, with no gap, so a session with
 /// a lower window shows the frame's top half on the main window and its bottom
-/// half on the lower one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// half on the lower one. The bottom screen may be narrower than the top, as
+/// the 3DS's is, centred under it, so the lower window shows only its share of
+/// the frame's width.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Region {
     /// The whole frame.
     Whole,
     /// The upper half.
     Top,
-    /// The lower half, with the odd row if there is one.
-    Bottom,
+    /// The lower half, with the odd row if there is one, and of it, the
+    /// centred `share` of the frame's width, from 0 to 1.
+    Bottom { share: f32 },
 }
 
 impl Region {
+    /// The lower half of a frame whose bottom screen spans `share` of its
+    /// width, centred, or the whole width when it's `None`, not positive or
+    /// over 1.
+    pub(crate) fn bottom(share: Option<f32>) -> Self {
+        let share = share.filter(|s| *s > 0.0 && *s <= 1.0).unwrap_or(1.0);
+        Self::Bottom { share }
+    }
+
     /// The region's rows of a frame `height` rows tall, as the first row,
     /// counted from the top, and how many.
     pub(crate) fn rows(self, height: u32) -> (u32, u32) {
@@ -201,7 +212,20 @@ impl Region {
         match self {
             Self::Whole => (0, height),
             Self::Top => (0, half),
-            Self::Bottom => (half, height - half),
+            Self::Bottom { .. } => (half, height - half),
+        }
+    }
+
+    /// The region's columns of a frame `width` pixels wide, as the first
+    /// column, counted from the left, and how many.
+    pub(crate) fn columns(self, width: u32) -> (u32, u32) {
+        match self {
+            Self::Whole | Self::Top => (0, width),
+            Self::Bottom { share } => {
+                let columns = (f64::from(width) * f64::from(share)).round() as u32;
+                let columns = columns.clamp(width.min(1), width);
+                ((width - columns) / 2, columns)
+            }
         }
     }
 
@@ -214,7 +238,29 @@ impl Region {
             f64::from(width) / f64::from(height.max(1))
         };
         let (_, rows) = self.rows(height);
-        (frame * f64::from(height) / f64::from(rows.max(1))) as f32
+        let (_, columns) = self.columns(width);
+        (frame * f64::from(height) / f64::from(rows.max(1)) * f64::from(columns)
+            / f64::from(width.max(1))) as f32
+    }
+
+    /// Where the region of a `width` by `height` frame shown at `aspect` goes
+    /// on a `win_w` by `win_h` window: scaled to fit and centred, as
+    /// (x, y, width, height).
+    pub(crate) fn fit(
+        self,
+        width: u32,
+        height: u32,
+        aspect: f32,
+        win_w: u32,
+        win_h: u32,
+    ) -> (i32, i32, i32, i32) {
+        fit(
+            self.columns(width).1,
+            self.rows(height).1,
+            self.aspect(width, height, aspect),
+            win_w,
+            win_h,
+        )
     }
 }
 
@@ -222,7 +268,7 @@ impl Region {
 /// `region` of a `width` by `height` frame at `aspect` lands, as libretro's
 /// pointer reads it: each axis from -32767 to 32767 across the whole frame,
 /// whichever region the window shows. A touch on the window's black bars,
-/// outside the frame, lands nowhere.
+/// outside the region, lands nowhere.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pointer_position(
     region: Region,
@@ -237,22 +283,18 @@ pub(crate) fn pointer_position(
     if width == 0 || height == 0 {
         return None;
     }
-    let (left, top, w, h) = fit(
-        width,
-        region.rows(height).1,
-        region.aspect(width, height, aspect),
-        win_w,
-        win_h,
-    );
+    let (left, top, w, h) = region.fit(width, height, aspect, win_w, win_h);
     let across = (f64::from(x) - f64::from(left)) / f64::from(w.max(1));
     let down = (f64::from(y) - f64::from(top)) / f64::from(h.max(1));
     if !(0.0..=1.0).contains(&across) || !(0.0..=1.0).contains(&down) {
         return None;
     }
-    let (first, rows) = region.rows(height);
-    let frame_down = (f64::from(first) + down * f64::from(rows)) / f64::from(height);
+    let (first_column, columns) = region.columns(width);
+    let (first_row, rows) = region.rows(height);
+    let frame_across = (f64::from(first_column) + across * f64::from(columns)) / f64::from(width);
+    let frame_down = (f64::from(first_row) + down * f64::from(rows)) / f64::from(height);
     let scale = |n: f64| ((n * 2.0 - 1.0) * f64::from(i16::MAX)).round() as i16;
-    Some((scale(across), scale(frame_down)))
+    Some((scale(frame_across), scale(frame_down)))
 }
 
 /// Flips tightly packed RGBA8 rows in place, top to bottom.
@@ -346,14 +388,14 @@ mod tests {
     fn splits_a_frame_into_halves() {
         assert_eq!(Region::Whole.rows(384), (0, 384));
         assert_eq!(Region::Top.rows(384), (0, 192));
-        assert_eq!(Region::Bottom.rows(384), (192, 192));
-        assert_eq!(Region::Bottom.rows(5), (2, 3));
+        assert_eq!(Region::bottom(None).rows(384), (192, 192));
+        assert_eq!(Region::bottom(None).rows(5), (2, 3));
     }
 
     #[test]
     fn each_half_of_a_ds_frame_is_four_by_three() {
         // melonDS DS draws its screens stacked at 256x384, shown at 2:3.
-        for region in [Region::Top, Region::Bottom] {
+        for region in [Region::Top, Region::bottom(None)] {
             let aspect = region.aspect(256, 384, 2.0 / 3.0);
             assert!((aspect - 4.0 / 3.0).abs() < 1e-6, "{region:?}: {aspect}");
             assert!((region.aspect(256, 384, 0.0) - 4.0 / 3.0).abs() < 1e-6);
@@ -361,17 +403,68 @@ mod tests {
         // On the Thor's screens.
         let (w, h) = (256, 192);
         let top = Region::Top.aspect(256, 384, 2.0 / 3.0);
-        let bottom = Region::Bottom.aspect(256, 384, 2.0 / 3.0);
+        let bottom = Region::bottom(None).aspect(256, 384, 2.0 / 3.0);
         assert_eq!(fit(w, h, top, 1920, 1080), (240, 0, 1440, 1080));
         assert_eq!(fit(w, h, bottom, 1240, 1080), (0, 75, 1240, 930));
     }
 
     #[test]
     fn touches_on_the_lower_window_land_on_the_frames_bottom_half() {
-        let at = |x, y| pointer_position(Region::Bottom, 256, 384, 2.0 / 3.0, 1240, 1080, x, y);
+        let at =
+            |x, y| pointer_position(Region::bottom(None), 256, 384, 2.0 / 3.0, 1240, 1080, x, y);
         // The bottom half shows at (0, 75), 1240x930.
         assert_eq!(at(0.0, 75.0), Some((-32767, 0)));
         assert_eq!(at(1240.0, 1005.0), Some((32767, 32767)));
+        assert_eq!(at(620.0, 540.0), Some((0, 16384)));
+        // The black bars above and below.
+        assert_eq!(at(620.0, 40.0), None);
+        assert_eq!(at(620.0, 1040.0), None);
+    }
+
+    #[test]
+    fn crops_a_narrower_bottom_screen_to_its_columns() {
+        // Azahar draws the 3DS's 400x240 top screen above its 320x240 bottom
+        // one, centred, at 400x480, shown at 5:6.
+        let bottom = Region::bottom(Some(0.8));
+        assert_eq!(bottom.rows(480), (240, 240));
+        assert_eq!(bottom.columns(400), (40, 320));
+        assert!((bottom.aspect(400, 480, 400.0 / 480.0) - 4.0 / 3.0).abs() < 1e-6);
+        // It fills the Thor's lower screen's width.
+        assert_eq!(
+            bottom.fit(400, 480, 400.0 / 480.0, 1240, 1080),
+            (0, 75, 1240, 930)
+        );
+        // The top screen keeps the whole width.
+        assert_eq!(Region::Top.columns(400), (0, 400));
+    }
+
+    #[test]
+    fn a_missing_or_impossible_share_keeps_the_whole_width() {
+        for share in [None, Some(0.0), Some(-1.0), Some(1.5), Some(f32::NAN)] {
+            assert_eq!(Region::bottom(share).columns(256), (0, 256), "{share:?}");
+        }
+        assert_eq!(Region::bottom(Some(0.001)).columns(256), (127, 1));
+        assert_eq!(Region::bottom(Some(0.5)).columns(0), (0, 0));
+    }
+
+    #[test]
+    fn touches_on_a_cropped_lower_window_land_on_the_bottom_screen() {
+        let at = |x, y| {
+            pointer_position(
+                Region::bottom(Some(0.8)),
+                400,
+                480,
+                400.0 / 480.0,
+                1240,
+                1080,
+                x,
+                y,
+            )
+        };
+        // The window's left and right edges are the bottom screen's, at
+        // columns 40 and 360 of 400: a tenth of the way in from each side.
+        assert_eq!(at(0.0, 75.0), Some((-26214, 0)));
+        assert_eq!(at(1240.0, 1005.0), Some((26214, 32767)));
         assert_eq!(at(620.0, 540.0), Some((0, 16384)));
         // The black bars above and below.
         assert_eq!(at(620.0, 40.0), None);

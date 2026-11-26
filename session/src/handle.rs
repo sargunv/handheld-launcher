@@ -51,6 +51,14 @@ pub struct SessionOptions {
     /// Core option values to use instead of the core's defaults, by key.
     pub core_options: HashMap<String, String>,
     pub video: VideoMode,
+    /// The bottom screen's share of the frame's width, from 0 to 1, when a
+    /// two-screen system's core draws it narrower than the top screen and
+    /// centred under it, as Azahar draws the 3DS's 320-pixel-wide bottom
+    /// screen under its 400-pixel-wide top one: 0.8. A lower window shows
+    /// only those columns, and its touches land on them. `None` shows the
+    /// frame's whole width.
+    #[uniffi(default = None)]
+    pub lower_screen_width_share: Option<f32>,
 }
 
 /// Where a session's frames go.
@@ -179,6 +187,8 @@ pub struct GameSession {
     /// Whether a lower window is attached, so the main window shows only the
     /// frame's top half.
     split: AtomicBool,
+    /// What the lower window shows of each frame.
+    lower: Region,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -220,6 +230,7 @@ impl GameSession {
         let (commands, receiver) = mpsc::channel();
         let (started, start_result) = mpsc::channel();
         let thread_input = input.clone();
+        let lower = Region::bottom(options.lower_screen_width_share);
         let thread = std::thread::Builder::new()
             .name("session".into())
             .spawn(move || run(options, thread_input, events, receiver, started))?;
@@ -229,6 +240,7 @@ impl GameSession {
                 input,
                 info,
                 split: AtomicBool::new(false),
+                lower,
                 thread: Mutex::new(Some(thread)),
             })),
             Ok(Err(e)) => {
@@ -275,7 +287,9 @@ impl GameSession {
 
     /// Presents the bottom half of each frame to `window` from now on, and
     /// the top half to the main window, as for a two-screen system whose core
-    /// draws its screens stacked, top above bottom, with no gap. It replaces
+    /// draws its screens stacked, top above bottom, with no gap. Of the bottom
+    /// half, it shows the share of the width that
+    /// [`SessionOptions::lower_screen_width_share`] gives. It replaces
     /// any lower window before it and shows the last frame on it at once.
     /// Only sessions in [`VideoMode::Window`] present to a lower window.
     pub fn attach_lower_window(
@@ -306,7 +320,7 @@ impl GameSession {
     /// lifted before the next frame still reaches the core.
     pub fn touch(&self, screen: Screen, x: f32, y: f32, width: u32, height: u32, pressed: bool) {
         let region = match screen {
-            Screen::Lower => Region::Bottom,
+            Screen::Lower => self.lower,
             Screen::Main if self.split.load(Ordering::Relaxed) => Region::Top,
             Screen::Main => Region::Whole,
         };
@@ -579,6 +593,7 @@ fn start_session(options: SessionOptions, input: Arc<InputState>) -> Result<Sess
             height: 0,
             // The session paces frames itself.
             vsync: false,
+            lower_screen_width_share: options.lower_screen_width_share,
         },
         VideoMode::Offscreen => VideoOutput::Sink(Box::new(DiscardFrames)),
     };

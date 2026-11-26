@@ -30,7 +30,7 @@ use interface::{Handles, QueueLock, RenderInterface, RetroVulkanContext, RetroVu
 pub(crate) use interface::{NEGOTIATION_VERSION, Negotiation};
 
 use crate::gl::{NativeWindow, Target, WindowRef};
-use crate::video::{Region, fit};
+use crate::video::Region;
 
 /// Why the session couldn't set up or use Vulkan.
 #[derive(Debug, thiserror::Error)]
@@ -264,10 +264,11 @@ struct Draw {
 /// Where a region of the core's image goes on a swapchain image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Blit {
-    /// The region's first row, counted from the image's top, and how many,
-    /// all `width` pixels wide.
+    /// The region's first row, counted from the image's top, and how many.
     rows: (u32, u32),
-    width: u32,
+    /// The region's first column, counted from the image's left, and how
+    /// many.
+    columns: (u32, u32),
     /// Where it goes: x, y, width and height.
     rect: (i32, i32, i32, i32),
 }
@@ -277,15 +278,11 @@ impl Blit {
     /// origin, scaled to fit an `extent` image at the region's share of
     /// `aspect` and centered.
     fn new(width: u32, height: u32, aspect: f32, region: Region, extent: vk::Extent2D) -> Self {
-        let rows = region.rows(height);
-        let rect = fit(
-            width,
-            rows.1,
-            region.aspect(width, height, aspect),
-            extent.width,
-            extent.height,
-        );
-        Self { rows, width, rect }
+        Self {
+            rows: region.rows(height),
+            columns: region.columns(width),
+            rect: region.fit(width, height, aspect, extent.width, extent.height),
+        }
     }
 }
 
@@ -681,9 +678,10 @@ impl VulkanContext {
     /// Draws the `width` by `height` region at the core image's origin to the
     /// window, scaled to fit at `aspect` (width over height) and centered on
     /// black, and presents it. With a lower window, the main window shows the
-    /// region's top half and the lower window its bottom half, both from the
-    /// one image. Without a window, it only runs the core's pending work.
-    pub(crate) fn present(&mut self, width: u32, height: u32, aspect: f32) {
+    /// region's top half and the lower window its bottom half, `lower`, both
+    /// from the one image. Without a window, it only runs the core's pending
+    /// work.
+    pub(crate) fn present(&mut self, width: u32, height: u32, aspect: f32, lower: Region) {
         let image = self.shared.frame().image;
         let Some(image) = image.filter(|_| width > 0 && height > 0) else {
             self.flush();
@@ -692,7 +690,7 @@ impl VulkanContext {
         // The lower window first, as in GL: it doesn't wait for vsync, so
         // both show the frame by the main window's next refresh.
         let outputs: &[(Output, Region)] = if self.lower_window.is_some() {
-            &[(Output::Lower, Region::Bottom), (Output::Main, Region::Top)]
+            &[(Output::Lower, lower), (Output::Main, Region::Top)]
         } else {
             &[(Output::Main, Region::Whole)]
         };
@@ -1318,6 +1316,7 @@ unsafe fn record_blit(
     blit: Blit,
 ) {
     let (first, rows) = blit.rows;
+    let (first_column, columns) = blit.columns;
     let (x, y, w, h) = blit.rect;
     let to_dst = barrier(
         target,
@@ -1365,12 +1364,12 @@ unsafe fn record_blit(
                     src_subresource: image.layers(),
                     src_offsets: [
                         vk::Offset3D {
-                            x: 0,
+                            x: first_column as i32,
                             y: first as i32,
                             z: 0,
                         },
                         vk::Offset3D {
-                            x: blit.width as i32,
+                            x: (first_column + columns) as i32,
                             y: (first + rows) as i32,
                             z: 1,
                         },
@@ -1518,11 +1517,18 @@ mod tests {
         };
         let top = blit(Region::Top, 1920, 1080);
         assert_eq!(top.rows, (0, 240));
-        assert_eq!(top.width, 400);
+        assert_eq!(top.columns, (0, 400));
         assert_eq!(top.rect, (60, 0, 1800, 1080));
-        let bottom = blit(Region::Bottom, 1240, 1080);
+        // The 320-wide bottom screen, centred under the top, fills the lower
+        // screen's width at 4:3.
+        let bottom = blit(Region::bottom(Some(0.8)), 1240, 1080);
         assert_eq!(bottom.rows, (240, 240));
-        assert_eq!(bottom.rect, (0, 168, 1240, 744));
+        assert_eq!(bottom.columns, (40, 320));
+        assert_eq!(bottom.rect, (0, 75, 1240, 930));
+        // Without the bottom screen's width, the lower half shows whole.
+        let uncropped = blit(Region::bottom(None), 1240, 1080);
+        assert_eq!(uncropped.columns, (0, 400));
+        assert_eq!(uncropped.rect, (0, 168, 1240, 744));
         // One screen shows the whole frame.
         let whole = blit(Region::Whole, 1920, 1080);
         assert_eq!(whole.rows, (0, 480));
