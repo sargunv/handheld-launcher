@@ -37,4 +37,9 @@ class BuiltInSavesTest {
       BuiltInSaves.thumbnailOf(states.first()),
     )
   }
+
+  @Test
+  fun savesAreFiledUnderTheCoreApartFromStandaloneEmulators() {
+    assertEquals("builtin-mgba_libretro", BuiltInSaves.emulatorOf("mgba_libretro"))
+  }
 }
