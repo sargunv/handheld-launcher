@@ -117,7 +117,7 @@ impl AudioSink for CpalSink {
         let queued = self.queue.lock().unwrap_or_else(|e| e.into_inner()).len() / 2;
         Some(BufferStatus {
             queued,
-            capacity: self.capacity,
+            target: self.capacity / 2,
         })
     }
 }

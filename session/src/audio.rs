@@ -4,6 +4,8 @@
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Adjustable, Async, FixedAsync, PolynomialDegree, Resampler};
 
+use crate::pacing::MAX_SPEED_CHANGE;
+
 /// Plays the audio a session produces.
 ///
 /// A session calls the sink on the thread that runs it, after each frame.
@@ -17,9 +19,9 @@ pub trait AudioSink {
     fn write(&mut self, samples: &[f32]);
 
     /// How full the sink's queue is. When the sink reports it, the session
-    /// nudges the resampling ratio to keep the queue half full, so that audio
-    /// neither underruns nor drifts behind video. Without it, the session
-    /// resamples at the nominal ratio.
+    /// nudges the resampling ratio to keep the queue at its target, so that
+    /// audio neither underruns nor drifts behind video. Without it, the
+    /// session resamples at the nominal ratio.
     fn buffer_status(&self) -> Option<BufferStatus> {
         None
     }
@@ -34,8 +36,10 @@ pub trait AudioSink {
 pub struct BufferStatus {
     /// Frames queued and not yet played.
     pub queued: usize,
-    /// Frames the queue holds when full.
-    pub capacity: usize,
+    /// Frames the sink wants queued when the session is about to queue a
+    /// frame's audio: the least it needs to play without a gap until the
+    /// next frame's.
+    pub target: usize,
 }
 
 /// A sink that drops everything, for sessions without audio output.
@@ -54,8 +58,9 @@ impl AudioSink for NullAudioSink {
 /// Half a percent of pitch is inaudible.
 const MAX_RATE_DEVIATION: f64 = 0.005;
 
-/// Input frames per resampler call. Small enough to add little latency.
-const CHUNK_FRAMES: usize = 256;
+/// Input frames per resampler call. Small, since what's left over waits for
+/// the next frame, which makes the sink's queue jitter by up to this much.
+const CHUNK_FRAMES: usize = 64;
 
 /// Converts the core's 16-bit audio at its rate into float audio at the
 /// sink's rate.
@@ -76,7 +81,7 @@ impl AudioPipeline {
         let ratio = f64::from(output_rate) / input_rate;
         let resampler = Async::<f32>::new_poly(
             ratio,
-            1.0 + 2.0 * MAX_RATE_DEVIATION,
+            (1.0 + MAX_SPEED_CHANGE) * (1.0 + 2.0 * MAX_RATE_DEVIATION),
             PolynomialDegree::Cubic,
             CHUNK_FRAMES,
             2,
@@ -99,13 +104,16 @@ impl AudioPipeline {
     }
 
     /// Resamples every whole chunk queued so far into `sink`, and keeps the
-    /// remainder for the next call.
-    pub(crate) fn flush(&mut self, sink: &mut dyn AudioSink) {
-        if let Some(status) = sink.buffer_status() {
-            let relative = rate_adjustment(status);
-            if let Err(e) = self.resampler.set_resample_ratio_relative(relative, true) {
-                log::warn!("can't adjust the resampling ratio: {e}");
-            }
+    /// remainder for the next call. The core runs at `speed` times its own
+    /// rate, so its audio plays that much slower to keep up.
+    pub(crate) fn flush(&mut self, sink: &mut dyn AudioSink, speed: f64) {
+        let speed = speed.clamp(1.0 - MAX_SPEED_CHANGE, 1.0 + MAX_SPEED_CHANGE);
+        let control = sink.buffer_status().map_or(1.0, rate_adjustment);
+        if let Err(e) = self
+            .resampler
+            .set_resample_ratio_relative(control / speed, true)
+        {
+            log::warn!("can't adjust the resampling ratio: {e}");
         }
         let mut consumed = 0;
         while self.pending.len() - consumed >= self.resampler.input_frames_next() * 2 {
@@ -134,16 +142,15 @@ impl AudioPipeline {
     }
 }
 
-/// The relative resampling ratio that moves the sink's queue toward half full:
-/// above 1 when the queue runs low, so that more output frames are produced,
-/// and below 1 when it runs high.
+/// The relative resampling ratio that moves the sink's queue toward its
+/// target: above 1 when the queue runs low, so that more output frames are
+/// produced, and below 1 when it runs high.
 fn rate_adjustment(status: BufferStatus) -> f64 {
-    if status.capacity == 0 {
+    if status.target == 0 {
         return 1.0;
     }
-    let half = status.capacity as f64 / 2.0;
-    let free = status.capacity.saturating_sub(status.queued) as f64;
-    let direction = ((free - half) / half).clamp(-1.0, 1.0);
+    let target = status.target as f64;
+    let direction = ((target - status.queued as f64) / target).clamp(-1.0, 1.0);
     1.0 + MAX_RATE_DEVIATION * direction
 }
 
@@ -191,7 +198,7 @@ mod tests {
         let input = sine(32_000.0, 440.0, 32_000);
         for piece in input.chunks(2 * 32_000 / 60) {
             pipeline.push(piece);
-            pipeline.flush(&mut sink);
+            pipeline.flush(&mut sink, 1.0);
         }
         sink.samples
     }
@@ -225,12 +232,12 @@ mod tests {
         let nominal = run(None).len();
         let starved = run(Some(BufferStatus {
             queued: 0,
-            capacity: 4096,
+            target: 2048,
         }))
         .len();
         let full = run(Some(BufferStatus {
             queued: 4096,
-            capacity: 4096,
+            target: 2048,
         }))
         .len();
         assert!(starved > nominal, "{starved} <= {nominal}");
@@ -241,16 +248,16 @@ mod tests {
     }
 
     #[test]
-    fn rate_adjustment_is_neutral_at_half_full() {
-        let half = BufferStatus {
+    fn rate_adjustment_is_neutral_at_the_target() {
+        let at_target = BufferStatus {
             queued: 500,
-            capacity: 1000,
+            target: 500,
         };
-        assert_eq!(rate_adjustment(half), 1.0);
+        assert_eq!(rate_adjustment(at_target), 1.0);
         assert_eq!(
             rate_adjustment(BufferStatus {
                 queued: 0,
-                capacity: 0
+                target: 0
             }),
             1.0
         );

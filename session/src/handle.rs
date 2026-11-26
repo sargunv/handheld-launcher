@@ -2,8 +2,9 @@
 //! through UniFFI.
 //!
 //! A [`Session`] stays on the thread that created it, so [`GameSession`]
-//! starts a thread that loads the core, runs it at the core's frame rate, and
-//! takes commands from the app between frames. Input skips the queue: the app
+//! starts a thread that loads the core, runs it at the core's frame rate, or
+//! on the display's vsync as [`crate::pacing`] describes, and takes commands
+//! from the app between frames. Input skips the queue: the app
 //! writes it straight to the shared [`InputState`].
 
 use std::collections::HashMap;
@@ -15,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
+use crate::pacing::{self, FrameStats, Vsync};
 use crate::save::SaveWriter;
 use crate::session::{SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, VideoSink};
@@ -375,6 +377,7 @@ fn run(
         hardware_rendered: session.is_hardware_rendered(),
     };
     session.set_audio_paused(true);
+    let vsync = vsync_clock(&session);
     if started.send(Ok(info)).is_err() {
         return;
     }
@@ -384,6 +387,9 @@ fn run(
         save_ram,
         paused: true,
         next_frame: Instant::now(),
+        vsync,
+        vsyncs: None,
+        stats: FrameStats::new(Instant::now()),
     };
     runner.run(&commands);
 }
@@ -424,6 +430,35 @@ fn audio_sink() -> Box<dyn AudioSink> {
     Box::new(NullAudioSink)
 }
 
+/// The display's vsync, for a session that presents to windows on a platform
+/// that tells it.
+#[cfg(target_os = "android")]
+type VsyncClock = crate::platform::VsyncClock;
+
+#[cfg(target_os = "android")]
+fn vsync_clock(session: &Session) -> Option<VsyncClock> {
+    session.presents_to_window().then(VsyncClock::new).flatten()
+}
+
+#[cfg(not(target_os = "android"))]
+enum VsyncClock {}
+
+#[cfg(not(target_os = "android"))]
+impl VsyncClock {
+    fn set_running(&self, _running: bool) {
+        match *self {}
+    }
+
+    fn vsync(&self) -> Option<Vsync> {
+        match *self {}
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn vsync_clock(_session: &Session) -> Option<VsyncClock> {
+    None
+}
+
 /// The session thread's state.
 struct Runner {
     session: Session,
@@ -432,11 +467,15 @@ struct Runner {
     paused: bool,
     /// When the next frame is due, while running.
     next_frame: Instant,
+    vsync: Option<VsyncClock>,
+    /// How many vsyncs frames are paced to, or `None` for a timer.
+    vsyncs: Option<u32>,
+    /// Frame timing since the session last resumed or logged it.
+    stats: FrameStats,
 }
 
-/// How far behind schedule the session may fall before it gives up catching
-/// up and starts counting from now.
-const MAX_LAG_FRAMES: u32 = 4;
+/// How often a running session logs its frame timing.
+const STATS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// What the session thread does next.
 enum Next {
@@ -493,22 +532,40 @@ impl Runner {
 
     fn run_frame(&mut self) {
         self.session.run_frame();
-        self.save_ram.write_if_due(&self.session);
-        let period = self.frame_period();
-        self.next_frame += period;
         let now = Instant::now();
-        if now > self.next_frame + period * MAX_LAG_FRAMES {
-            self.next_frame = now;
+        let fps = self.session.av_info().fps;
+        let vsync = self.vsync();
+        self.stats.record(now, fps, vsync);
+        if self.stats.elapsed(now) >= STATS_INTERVAL {
+            self.log_stats(now);
+        }
+        self.save_ram.write_if_due(&self.session);
+        let schedule = pacing::next_frame(self.next_frame, now, fps, vsync);
+        self.next_frame = schedule.due;
+        self.session.set_speed(schedule.speed);
+        if schedule.vsyncs != self.vsyncs {
+            self.vsyncs = schedule.vsyncs;
+            match self.vsyncs {
+                Some(n) => log::info!(
+                    "pacing frames every {n} vsyncs, at {:.4}x the core's rate",
+                    schedule.speed
+                ),
+                None => log::info!("pacing frames by a timer"),
+            }
         }
     }
 
-    fn frame_period(&self) -> Duration {
-        let fps = self.session.av_info().fps;
-        if fps.is_finite() && fps > 1.0 {
-            Duration::from_secs_f64(1.0 / fps)
-        } else {
-            Duration::from_secs_f64(1.0 / 60.0)
+    /// The display's vsync, while the session presents to it.
+    fn vsync(&self) -> Option<Vsync> {
+        self.window.as_ref()?;
+        self.vsync.as_ref()?.vsync()
+    }
+
+    fn log_stats(&mut self, now: Instant) {
+        if let Some(report) = self.stats.report(now) {
+            log::info!("{report}");
         }
+        self.stats = FrameStats::new(now);
     }
 
     fn handle(&mut self, command: Command) {
@@ -563,8 +620,15 @@ impl Runner {
         }
         self.paused = paused;
         self.session.set_audio_paused(paused);
-        if !paused {
-            self.next_frame = Instant::now();
+        if let Some(vsync) = &self.vsync {
+            vsync.set_running(!paused);
+        }
+        let now = Instant::now();
+        if paused {
+            self.log_stats(now);
+        } else {
+            self.next_frame = now;
+            self.stats = FrameStats::new(now);
         }
     }
 

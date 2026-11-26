@@ -555,6 +555,18 @@ impl Session {
         Ok(())
     }
 
+    /// Whether the session presents to a window itself.
+    pub fn presents_to_window(&self) -> bool {
+        matches!(self.host().video, VideoTarget::Window { .. })
+    }
+
+    /// Tells the session it runs frames at `speed` times the core's own
+    /// rate, as when it paces them to the display, so that it resamples the
+    /// audio to play in step with them.
+    pub fn set_speed(&mut self, speed: f64) {
+        self.host_mut().audio_speed = speed;
+    }
+
     /// Tells the audio sink whether the session is paused, so it can stop its
     /// output while no audio comes.
     pub fn set_audio_paused(&mut self, paused: bool) {
