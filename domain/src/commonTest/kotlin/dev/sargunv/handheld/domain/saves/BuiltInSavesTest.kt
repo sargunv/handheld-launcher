@@ -24,4 +24,17 @@ class BuiltInSavesTest {
     )
     assertEquals("/data/files/saves/42/.hidden.srm", saves.saveRamOf(42, "/ROMs/.hidden"))
   }
+
+  @Test
+  fun eachGameHasSixStateSlotsNamedAfterItsFile() {
+    val states = saves.statesOf(42, "/ROMs/gba/Pokemon Gaia.gba")
+    assertEquals(
+      (1..6).map { "/data/files/saves/42/Pokemon Gaia.state$it" },
+      states,
+    )
+    assertEquals(
+      "/data/files/saves/42/Pokemon Gaia.state1.png",
+      BuiltInSaves.thumbnailOf(states.first()),
+    )
+  }
 }

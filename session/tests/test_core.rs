@@ -88,6 +88,24 @@ fn audio_arrives_resampled_to_the_sink_rate() {
 }
 
 #[test]
+fn muted_audio_is_dropped() {
+    let _lock = lock();
+    let mut h = Harness::start(CORE, None).unwrap();
+    h.session.set_audio_muted(true);
+    h.run(60);
+    assert_eq!(h.audio.frames(), 0);
+    assert_eq!(h.frames.count(), 60, "frames still arrive");
+    h.session.set_audio_muted(false);
+    h.run(60);
+    let frames = h.audio.frames();
+    let expected = Audio::RATE as usize;
+    assert!(
+        frames.abs_diff(expected) < 1_000,
+        "{frames} frames for a second"
+    );
+}
+
+#[test]
 fn states_round_trip() {
     let _lock = lock();
     let mut h = Harness::start(CORE, None).unwrap();

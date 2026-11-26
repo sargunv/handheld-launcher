@@ -66,6 +66,7 @@ class BuiltInPlayer(private val activity: ComponentActivity) {
         systemDir = File(activity.filesDir, "system").path,
         saveDir = folder,
         saveRam = saves.saveRamOf(request.gameId, request.romPath),
+        states = saves.statesOf(request.gameId, request.romPath),
         pauseWhenUnfocused = settings.pauseGameWhenUnfocused,
         aButtonPosition = settings.input.aButtonPosition,
       )
