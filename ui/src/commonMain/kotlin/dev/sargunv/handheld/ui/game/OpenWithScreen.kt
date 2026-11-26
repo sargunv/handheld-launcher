@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -156,7 +158,11 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             }
           }
         }
-        Column(Modifier.width(360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // A game in many collections has more levels than fit, so the column scrolls.
+        Column(
+          Modifier.width(360.dp).verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
           Text("Use for", color = Placeholder.mutedText, modifier = Modifier.padding(top = 8.dp))
           levels.forEachIndexed { index, (rowLevel, name) ->
             val choice = launch.choiceAt(rowLevel)
