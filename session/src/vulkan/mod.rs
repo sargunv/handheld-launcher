@@ -11,6 +11,10 @@
 //! waits for before the core runs the slot's next frame, so a core may reuse
 //! what it used in that slot then.
 //!
+//! A context presents to up to two windows: the main one and, for a
+//! two-screen system whose core draws its screens stacked, a lower one. With
+//! both, each shows its half of the one frame, as [`crate::gl`] does.
+//!
 //! Cores may call the interface from threads of their own, as PPSSPP hands
 //! over its images from its submission thread, so what the interface reaches
 //! is behind a lock, in [`Shared`].
@@ -26,7 +30,7 @@ use interface::{Handles, QueueLock, RenderInterface, RetroVulkanContext, RetroVu
 pub(crate) use interface::{NEGOTIATION_VERSION, Negotiation};
 
 use crate::gl::{NativeWindow, Target, WindowRef};
-use crate::video::fit;
+use crate::video::{Region, fit};
 
 /// Why the session couldn't set up or use Vulkan.
 #[derive(Debug, thiserror::Error)]
@@ -72,9 +76,9 @@ pub(crate) struct VulkanContext {
     #[cfg(target_os = "android")]
     android_surface_fn: Option<khr::android_surface::Instance>,
     window: Option<Window>,
-    /// The window's size in pixels, for surfaces that leave it to the
-    /// swapchain.
-    window_size: (u32, u32),
+    /// The lower window, which shows the bottom half of each frame while the
+    /// main window shows the top half.
+    lower_window: Option<Window>,
     vsync: bool,
     frames: Vec<FrameSlot>,
     readback: Option<Readback>,
@@ -215,13 +219,26 @@ impl CoreImage {
 struct FrameSlot {
     pool: vk::CommandPool,
     commands: vk::CommandBuffer,
-    /// Signaled when the swapchain image acquired in this slot is ready.
-    acquired: vk::Semaphore,
+    /// Signaled when the swapchain image acquired in this slot is ready, one
+    /// for each [`Output`].
+    acquired: [vk::Semaphore; 2],
 }
 
-/// The attached window: its surface and swapchain.
+/// One of the windows a context presents to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Output {
+    Main = 0,
+    /// The lower window. Presenting to it doesn't wait for its display's
+    /// refresh, so the main window alone paces the session.
+    Lower = 1,
+}
+
+/// An attached window: its surface and swapchain.
 struct Window {
     surface: vk::SurfaceKHR,
+    /// The window's size in pixels, for surfaces that leave it to the
+    /// swapchain.
+    size: (u32, u32),
     swapchain: vk::SwapchainKHR,
     images: Vec<vk::Image>,
     /// One per swapchain image, signaled when its frame is drawn.
@@ -229,6 +246,47 @@ struct Window {
     extent: vk::Extent2D,
     /// Whether the swapchain needs making again before the next frame.
     stale: bool,
+}
+
+/// A swapchain image acquired for a frame, and what goes on it.
+struct Draw {
+    output: Output,
+    swapchain: vk::SwapchainKHR,
+    index: u32,
+    target: vk::Image,
+    /// Signaled when `target` is ready to draw to.
+    acquired: vk::Semaphore,
+    /// Signaled when `target` is drawn.
+    drawn: vk::Semaphore,
+    blit: Blit,
+}
+
+/// Where a region of the core's image goes on a swapchain image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Blit {
+    /// The region's first row, counted from the image's top, and how many,
+    /// all `width` pixels wide.
+    rows: (u32, u32),
+    width: u32,
+    /// Where it goes: x, y, width and height.
+    rect: (i32, i32, i32, i32),
+}
+
+impl Blit {
+    /// Shows `region` of the `width` by `height` region at the core image's
+    /// origin, scaled to fit an `extent` image at the region's share of
+    /// `aspect` and centered.
+    fn new(width: u32, height: u32, aspect: f32, region: Region, extent: vk::Extent2D) -> Self {
+        let rows = region.rows(height);
+        let rect = fit(
+            width,
+            rows.1,
+            region.aspect(width, height, aspect),
+            extent.width,
+            extent.height,
+        );
+        Self { rows, width, rect }
+    }
 }
 
 /// A host-visible buffer frames are read back into.
@@ -431,7 +489,7 @@ impl VulkanContext {
             memory,
             destroy_device,
             window: None,
-            window_size: (0, 0),
+            lower_window: None,
             vsync,
             frames: Vec::new(),
             readback: None,
@@ -482,7 +540,18 @@ impl VulkanContext {
                         .level(vk::CommandBufferLevel::PRIMARY)
                         .command_buffer_count(1),
                 )?[0];
-                let acquired = d.create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?;
+                let mut acquired = [vk::Semaphore::null(); 2];
+                for semaphore in &mut acquired {
+                    match d.create_semaphore(&vk::SemaphoreCreateInfo::default(), None) {
+                        Ok(s) => *semaphore = s,
+                        Err(e) => {
+                            for &s in &acquired {
+                                d.destroy_semaphore(s, None);
+                            }
+                            return Err(e);
+                        }
+                    }
+                }
                 Ok(FrameSlot {
                     pool,
                     commands,
@@ -531,12 +600,12 @@ impl VulkanContext {
     }
 
     /// Submits the core's pending work, then the commands `record` records,
-    /// waiting for `acquired` and signaling `drawn` if given, on the current
-    /// slot's fence.
+    /// waiting for the `acquired` semaphores and signaling the `drawn` ones,
+    /// on the current slot's fence.
     fn submit(
         &mut self,
-        acquired: Option<vk::Semaphore>,
-        drawn: Option<vk::Semaphore>,
+        acquired: &[vk::Semaphore],
+        drawn: &[vk::Semaphore],
         record: impl FnOnce(&ash::Device, vk::CommandBuffer),
     ) -> Result<(), vk::Result> {
         let shared = &*self.shared;
@@ -568,14 +637,13 @@ impl VulkanContext {
                 waits.clear();
             }
             let mut stages = vec![vk::PipelineStageFlags::ALL_COMMANDS; waits.len()];
-            if let Some(acquired) = acquired {
-                waits.push(acquired);
-                stages.push(vk::PipelineStageFlags::TRANSFER);
-            }
+            waits.extend_from_slice(acquired);
+            stages.resize(waits.len(), vk::PipelineStageFlags::TRANSFER);
             commands.push(cmd);
             let core_signal = std::mem::replace(&mut frame.signal_semaphore, vk::Semaphore::null());
             let signals: Vec<_> = drawn
-                .into_iter()
+                .iter()
+                .copied()
                 .chain((core_signal != vk::Semaphore::null()).then_some(core_signal))
                 .collect();
             let info = vk::SubmitInfo::default()
@@ -605,63 +673,80 @@ impl VulkanContext {
             return;
         }
         drop(frame);
-        if let Err(e) = self.submit(None, None, |_, _| {}) {
+        if let Err(e) = self.submit(&[], &[], |_, _| {}) {
             log::error!("can't submit the core's work: {e}");
         }
     }
 
     /// Draws the `width` by `height` region at the core image's origin to the
     /// window, scaled to fit at `aspect` (width over height) and centered on
-    /// black, and presents it. Without a window, it only runs the core's
-    /// pending work.
+    /// black, and presents it. With a lower window, the main window shows the
+    /// region's top half and the lower window its bottom half, both from the
+    /// one image. Without a window, it only runs the core's pending work.
     pub(crate) fn present(&mut self, width: u32, height: u32, aspect: f32) {
         let image = self.shared.frame().image;
         let Some(image) = image.filter(|_| width > 0 && height > 0) else {
             self.flush();
             return;
         };
-        if !self.ensure_swapchain() {
-            self.flush();
-            return;
-        }
-        // The slot's semaphore is free once its last submission is done.
+        // The lower window first, as in GL: it doesn't wait for vsync, so
+        // both show the frame by the main window's next refresh.
+        let outputs: &[(Output, Region)] = if self.lower_window.is_some() {
+            &[(Output::Lower, Region::Bottom), (Output::Main, Region::Top)]
+        } else {
+            &[(Output::Main, Region::Whole)]
+        };
+        // The slot's semaphores are free once its last submission is done.
         let slot = {
             let mut frame = self.shared.frame();
             let slot = frame.slot;
             self.shared.wait(&mut frame, slot);
             slot
         };
-        let acquired = self.frames[slot].acquired;
         let swapchain_fn = self.swapchain_fn.clone().expect("a windowed context");
-        let window = self.window.as_mut().expect("ensured above");
-        // SAFETY: the swapchain is live and the semaphore unsignaled.
-        let index = match unsafe {
-            swapchain_fn.acquire_next_image(window.swapchain, u64::MAX, acquired, vk::Fence::null())
-        } {
-            // A suboptimal swapchain still presents correctly. Android
-            // reports it whenever the display is rotated against the
-            // swapchain, which would otherwise remake it every frame.
-            Ok((index, _suboptimal)) => index as usize,
-            Err(e) => {
-                if e == vk::Result::ERROR_OUT_OF_DATE_KHR {
-                    window.stale = true;
-                } else {
-                    log::warn!("can't acquire a swapchain image: {e}");
-                }
-                self.flush();
-                return;
+        let mut draws = Vec::with_capacity(outputs.len());
+        for &(output, region) in outputs {
+            if !self.ensure_swapchain(output) {
+                continue;
             }
-        };
-        let (target, drawn, extent, swapchain) = (
-            window.images[index],
-            window.drawn[index],
-            window.extent,
-            window.swapchain,
-        );
-        let (x, y, w, h) = fit(width, height, aspect, extent.width, extent.height);
-        let submitted = self.submit(Some(acquired), Some(drawn), |d, cmd| {
-            // SAFETY: recording into the slot's command buffer.
-            unsafe { record_blit(d, cmd, &image, target, [width, height], [x, y, w, h]) }
+            let acquired = self.frames[slot].acquired[output as usize];
+            let window = self.window_mut(output).as_mut().expect("ensured above");
+            // SAFETY: the swapchain is live and the semaphore unsignaled.
+            match unsafe {
+                swapchain_fn.acquire_next_image(
+                    window.swapchain,
+                    u64::MAX,
+                    acquired,
+                    vk::Fence::null(),
+                )
+            } {
+                // A suboptimal swapchain still presents correctly. Android
+                // reports it whenever the display is rotated against the
+                // swapchain, which would otherwise remake it every frame.
+                Ok((index, _suboptimal)) => draws.push(Draw {
+                    output,
+                    index,
+                    acquired,
+                    target: window.images[index as usize],
+                    drawn: window.drawn[index as usize],
+                    swapchain: window.swapchain,
+                    blit: Blit::new(width, height, aspect, region, window.extent),
+                }),
+                Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => window.stale = true,
+                Err(e) => log::warn!("can't acquire a swapchain image: {e}"),
+            }
+        }
+        if draws.is_empty() {
+            self.flush();
+            return;
+        }
+        let acquired: Vec<_> = draws.iter().map(|d| d.acquired).collect();
+        let drawn: Vec<_> = draws.iter().map(|d| d.drawn).collect();
+        let submitted = self.submit(&acquired, &drawn, |d, cmd| {
+            for draw in &draws {
+                // SAFETY: recording into the slot's command buffer.
+                unsafe { record_blit(d, cmd, &image, draw.target, draw.blit) }
+            }
         });
         if let Err(e) = submitted {
             log::error!("can't draw a frame: {e}");
@@ -672,27 +757,36 @@ impl VulkanContext {
         if image.slot != slot {
             self.shared.wait_sync_index();
         }
-        let waits = [drawn];
-        let swapchains = [swapchain];
-        let indices = [index as u32];
-        let info = vk::PresentInfoKHR::default()
-            .wait_semaphores(&waits)
-            .swapchains(&swapchains)
-            .image_indices(&indices);
-        // SAFETY: the image was acquired and drawn; the queue lock keeps
-        // others off the queue.
-        let presented = self
-            .shared
-            .queue_lock
-            .with(|| unsafe { swapchain_fn.queue_present(self.queue, &info) });
-        match presented {
-            Ok(_) => {}
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                if let Some(window) = &mut self.window {
-                    window.stale = true;
+        for draw in draws {
+            let waits = [draw.drawn];
+            let swapchains = [draw.swapchain];
+            let indices = [draw.index];
+            let info = vk::PresentInfoKHR::default()
+                .wait_semaphores(&waits)
+                .swapchains(&swapchains)
+                .image_indices(&indices);
+            // SAFETY: the image was acquired and drawn; the queue lock keeps
+            // others off the queue.
+            let presented = self
+                .shared
+                .queue_lock
+                .with(|| unsafe { swapchain_fn.queue_present(self.queue, &info) });
+            match presented {
+                Ok(_) => {}
+                Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                    if let Some(window) = self.window_mut(draw.output) {
+                        window.stale = true;
+                    }
                 }
+                Err(e) => log::warn!("can't present: {e}"),
             }
-            Err(e) => log::warn!("can't present: {e}"),
+        }
+    }
+
+    fn window_mut(&mut self, output: Output) -> &mut Option<Window> {
+        match output {
+            Output::Main => &mut self.window,
+            Output::Lower => &mut self.lower_window,
         }
     }
 
@@ -722,7 +816,7 @@ impl VulkanContext {
         }
         let readback = self.readback.as_ref().expect("ensured above");
         let (buffer, mapped) = (readback.buffer, readback.mapped);
-        let submitted = self.submit(None, None, |d, cmd| {
+        let submitted = self.submit(&[], &[], |d, cmd| {
             // SAFETY: recording into the slot's command buffer.
             unsafe { record_copy(d, cmd, &image, buffer, [width, height]) }
         });
@@ -811,11 +905,25 @@ impl VulkanContext {
     /// `None`. The old window's surface is gone when this returns. On an
     /// error, the context has no window.
     pub(crate) fn set_window(&mut self, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
-        self.destroy_window();
+        self.attach(Output::Main, window)
+    }
+
+    /// Replaces the lower window, which shows the bottom half of each frame
+    /// while the main window shows the top half, or detaches it with `None`.
+    /// As with [`VulkanContext::set_window`], the old window's surface is gone
+    /// when this returns, and on an error, the context has no lower window.
+    pub(crate) fn set_lower_window(
+        &mut self,
+        window: Option<WindowRef<'_>>,
+    ) -> Result<(), VulkanError> {
+        self.attach(Output::Lower, window)
+    }
+
+    fn attach(&mut self, output: Output, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
+        self.destroy_window(output);
         let Some((window, width, height)) = window else {
             return Ok(());
         };
-        self.window_size = (width, height);
         let surface = self.create_surface(window)?;
         let surface_fn = self.surface_fn.as_ref().expect("made with the surface");
         // SAFETY: a surface of this instance and a family of this GPU.
@@ -823,8 +931,9 @@ impl VulkanContext {
             surface_fn.get_physical_device_surface_support(self.gpu, self.queue_family, surface)
         }
         .unwrap_or(false);
-        self.window = Some(Window {
+        *self.window_mut(output) = Some(Window {
             surface,
+            size: (width, height),
             swapchain: vk::SwapchainKHR::null(),
             images: Vec::new(),
             drawn: Vec::new(),
@@ -832,13 +941,13 @@ impl VulkanContext {
             stale: true,
         });
         if !supported {
-            self.destroy_window();
+            self.destroy_window(output);
             return Err(VulkanError::Vulkan(
                 "the device's queue can't present to the window".into(),
             ));
         }
-        self.create_swapchain()
-            .inspect_err(|_| self.destroy_window())
+        self.create_swapchain(output)
+            .inspect_err(|_| self.destroy_window(output))
     }
 
     fn create_surface(&self, window: &NativeWindow) -> Result<vk::SurfaceKHR, VulkanError> {
@@ -858,36 +967,40 @@ impl VulkanContext {
 
     /// Tells the context its window's new size, for the next frame.
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
-        self.window_size = (width, height);
         if let Some(window) = &mut self.window {
+            window.size = (width, height);
             window.stale = true;
         }
     }
 
-    /// Makes the swapchain again if it's stale, and returns whether there's
-    /// one to present to.
-    fn ensure_swapchain(&mut self) -> bool {
-        let Some(window) = &self.window else {
+    /// Makes `output`'s swapchain again if it's stale, and returns whether
+    /// there's one to present to.
+    fn ensure_swapchain(&mut self, output: Output) -> bool {
+        let Some(window) = self.window_mut(output) else {
             return false;
         };
         if window.stale
-            && let Err(e) = self.create_swapchain()
+            && let Err(e) = self.create_swapchain(output)
         {
             log::warn!("{e}");
         }
-        self.window.as_ref().is_some_and(|w| {
+        self.window_mut(output).as_ref().is_some_and(|w| {
             w.swapchain != vk::SwapchainKHR::null()
                 && !w.images.is_empty()
                 && w.drawn.len() == w.images.len()
         })
     }
 
-    /// Makes the window's swapchain for its current size, replacing any old
-    /// one. A window with no area gets none.
-    fn create_swapchain(&mut self) -> Result<(), VulkanError> {
+    /// Makes `output`'s swapchain for its window's current size, replacing
+    /// any old one. A window with no area gets none.
+    fn create_swapchain(&mut self, output: Output) -> Result<(), VulkanError> {
         self.wait_idle();
+        let window = match output {
+            Output::Main => &mut self.window,
+            Output::Lower => &mut self.lower_window,
+        };
         let (Some(surface_fn), Some(swapchain_fn), Some(window)) =
-            (&self.surface_fn, &self.swapchain_fn, &mut self.window)
+            (&self.surface_fn, &self.swapchain_fn, window)
         else {
             return Ok(());
         };
@@ -907,12 +1020,12 @@ impl VulkanContext {
                     .map_err(failed("query the surface"))?;
                 let extent = if caps.current_extent.width == u32::MAX {
                     vk::Extent2D {
-                        width: self
-                            .window_size
+                        width: window
+                            .size
                             .0
                             .clamp(caps.min_image_extent.width, caps.max_image_extent.width),
-                        height: self
-                            .window_size
+                        height: window
+                            .size
                             .1
                             .clamp(caps.min_image_extent.height, caps.max_image_extent.height),
                     }
@@ -952,7 +1065,7 @@ impl VulkanContext {
                 let modes = surface_fn
                     .get_physical_device_surface_present_modes(self.gpu, window.surface)
                     .map_err(failed("query the surface's present modes"))?;
-                let preferred: &[vk::PresentModeKHR] = if self.vsync {
+                let preferred: &[vk::PresentModeKHR] = if self.vsync && output == Output::Main {
                     &[]
                 } else {
                     &[vk::PresentModeKHR::MAILBOX, vk::PresentModeKHR::IMMEDIATE]
@@ -1001,7 +1114,7 @@ impl VulkanContext {
                     .create_swapchain(&info, None)
                     .map_err(failed("create a swapchain"))?;
                 log::info!(
-                    "Vulkan swapchain: {}x{} {:?}, {mode:?}, transform {transform:?} on a display at {:?}",
+                    "Vulkan swapchain for the {output:?} window: {}x{} {:?}, {mode:?}, transform {transform:?} on a display at {:?}",
                     extent.width,
                     extent.height,
                     format.format,
@@ -1031,8 +1144,8 @@ impl VulkanContext {
         Ok(())
     }
 
-    fn destroy_window(&mut self) {
-        let Some(window) = self.window.take() else {
+    fn destroy_window(&mut self, output: Output) {
+        let Some(window) = self.window_mut(output).take() else {
             return;
         };
         self.wait_idle();
@@ -1053,7 +1166,8 @@ impl VulkanContext {
 
 impl Drop for VulkanContext {
     fn drop(&mut self) {
-        self.destroy_window();
+        self.destroy_window(Output::Lower);
+        self.destroy_window(Output::Main);
         self.wait_idle();
         self.destroy_readback();
         // SAFETY: the device is idle and nothing uses these objects after
@@ -1061,7 +1175,9 @@ impl Drop for VulkanContext {
         // device and instance go.
         unsafe {
             for frame in &self.frames {
-                self.device.destroy_semaphore(frame.acquired, None);
+                for &semaphore in &frame.acquired {
+                    self.device.destroy_semaphore(semaphore, None);
+                }
                 self.device.destroy_command_pool(frame.pool, None);
             }
             for &fence in &self.shared.frame().fences {
@@ -1188,9 +1304,8 @@ unsafe fn with_source(
     }
 }
 
-/// Records clearing `target`, a swapchain image, to black and scaling the
-/// `size` region of the core's image into `rect` (x, y, width, height) on
-/// it, leaving it ready to present.
+/// Records clearing `target`, a swapchain image, to black and scaling
+/// `blit`'s region of the core's image onto it, leaving it ready to present.
 ///
 /// # Safety
 ///
@@ -1200,9 +1315,10 @@ unsafe fn record_blit(
     cmd: vk::CommandBuffer,
     image: &CoreImage,
     target: vk::Image,
-    [width, height]: [u32; 2],
-    [x, y, w, h]: [i32; 4],
+    blit: Blit,
 ) {
+    let (first, rows) = blit.rows;
+    let (x, y, w, h) = blit.rect;
     let to_dst = barrier(
         target,
         color_range(),
@@ -1244,14 +1360,18 @@ unsafe fn record_blit(
                     ),
                 )],
             );
-            if w > 0 && h > 0 {
+            if w > 0 && h > 0 && rows > 0 {
                 let region = vk::ImageBlit {
                     src_subresource: image.layers(),
                     src_offsets: [
-                        vk::Offset3D::default(),
                         vk::Offset3D {
-                            x: width as i32,
-                            y: height as i32,
+                            x: 0,
+                            y: first as i32,
+                            z: 0,
+                        },
+                        vk::Offset3D {
+                            x: blit.width as i32,
+                            y: (first + rows) as i32,
                             z: 1,
                         },
                     ],
@@ -1383,6 +1503,31 @@ fn to_rgba(order: ChannelOrder, pixels: &[u8], out: &mut Vec<u8>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splits_a_stacked_3ds_frame_between_the_thors_screens() {
+        // Azahar draws its screens stacked at 400x480, shown at 5:6.
+        let blit = |region, width, height| {
+            Blit::new(
+                400,
+                480,
+                400.0 / 480.0,
+                region,
+                vk::Extent2D { width, height },
+            )
+        };
+        let top = blit(Region::Top, 1920, 1080);
+        assert_eq!(top.rows, (0, 240));
+        assert_eq!(top.width, 400);
+        assert_eq!(top.rect, (60, 0, 1800, 1080));
+        let bottom = blit(Region::Bottom, 1240, 1080);
+        assert_eq!(bottom.rows, (240, 240));
+        assert_eq!(bottom.rect, (0, 168, 1240, 744));
+        // One screen shows the whole frame.
+        let whole = blit(Region::Whole, 1920, 1080);
+        assert_eq!(whole.rows, (0, 480));
+        assert_eq!(whole.rect, (510, 0, 900, 1080));
+    }
 
     #[test]
     fn converts_read_back_pixels_to_opaque_rgba() {

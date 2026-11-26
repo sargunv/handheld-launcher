@@ -44,8 +44,9 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  * into. [source] is where its Android builds come from.
  *
  * [stackedScreensOptions] are the core options that make a two-screen system's core draw its
- * screens stacked in one frame, top above bottom, the same size, with no gap, so the built-in
- * session can show each half on a screen of its own. They're empty for cores that draw one screen.
+ * screens stacked in one frame, top above bottom, each in its own half of the frame, with no gap,
+ * so the built-in session can show each half on a screen of its own. They're empty for cores that
+ * draw one screen.
  */
 data class LibretroCore(
   val library: String,
@@ -102,6 +103,14 @@ object LibretroCores {
       "azahar_libretro",
       retroArchFolder = "Azahar",
       source = CoreSource.GitHubRelease("azahar-emu/azahar", "azahar-libretro-android-"),
+      // Its default layout stacks the 400x240 top screen above the 320x240 bottom one, centered,
+      // with no gap. Stereo 3D would draw each eye beside the other, so it stays off.
+      stackedScreensOptions =
+        mapOf(
+          "citra_layout_option" to "default",
+          "citra_swap_screen" to "Top",
+          "citra_render_3d" to "off",
+        ),
     )
   private val dolphin = LibretroCore("dolphin_libretro", retroArchFolder = "dolphin-emu")
   private val beetlePsxHw =

@@ -277,8 +277,7 @@ impl GameSession {
     /// the top half to the main window, as for a two-screen system whose core
     /// draws its screens stacked, top above bottom, with no gap. It replaces
     /// any lower window before it and shows the last frame on it at once.
-    /// Only sessions in [`VideoMode::Window`] whose core doesn't render with
-    /// Vulkan present to a lower window.
+    /// Only sessions in [`VideoMode::Window`] present to a lower window.
     pub fn attach_lower_window(
         &self,
         window: WindowHandle,

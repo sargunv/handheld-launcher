@@ -607,8 +607,7 @@ impl Session {
     /// window is attached, the main window shows the top half of each frame
     /// and the lower window its bottom half, as a two-screen system's core
     /// draws its screens stacked. The new window shows the last frame at once.
-    /// Only OpenGL presents to a lower window; a Vulkan core's session turns
-    /// it down. On an error, the session has no lower window.
+    /// On an error, the session has no lower window.
     ///
     /// When this returns, the session no longer uses the old lower window.
     ///
@@ -624,16 +623,15 @@ impl Session {
         if !matches!(host.video, VideoTarget::Window { .. }) {
             return Err(SessionError::NoWindowOutput);
         }
-        let Some(gpu) = &mut host.gpu else {
-            return match window {
-                Some(_) => Err(SessionError::UnsupportedWindow),
-                None => Ok(()),
-            };
-        };
         let window = window
             .as_ref()
             .map(|(w, width, height)| (w, *width, *height));
-        gpu.context.set_lower_window(window)?;
+        match (&mut host.gpu, &mut host.vulkan) {
+            (Some(gpu), _) => gpu.context.set_lower_window(window)?,
+            (None, Some(vulkan)) => vulkan.set_lower_window(window)?,
+            (None, None) if window.is_some() => return Err(SessionError::UnsupportedWindow),
+            (None, None) => return Ok(()),
+        }
         host.redraw();
         Ok(())
     }
