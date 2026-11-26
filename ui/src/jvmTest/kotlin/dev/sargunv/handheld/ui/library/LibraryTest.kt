@@ -22,6 +22,7 @@ import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.rememberTestDownloads
 import dev.sargunv.handheld.ui.testCoverDir
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -74,12 +75,17 @@ class LibraryTest {
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
+      val credentials = remember {
+        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token"))
+      }
+      val library = remember { LibraryCache.open(path = null) }
       App(
         DualScreenLayout.Frame,
         heldKeys,
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token")),
+        credentials,
         TestDevice,
-        remember { LibraryCache.open(path = null) },
+        library,
+        rememberTestDownloads(library, credentials),
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
         initialSettings = settings,
@@ -138,7 +144,7 @@ class LibraryTest {
     awaitTag("shelf:platform:2")
     assertFocused("game:4")
     press(Key.ButtonR1)
-    onNodeWithText("Downloads are coming soon.").assertExists()
+    onNodeWithText("Nothing is downloading.").assertExists()
     press(Key.ButtonL1)
     assertFocused("game:4")
     // Each platform keeps its own focus.
