@@ -261,7 +261,7 @@ class StandalonePlayer(
     )
     // Noted before the launch, so an emulator that starts counts as running even if the launcher
     // stops before it hears back. A launch that fails errs the same way.
-    emulators.launched(packageName, request.romId, probe)
+    val before = emulators.launched(packageName, request.romId, probe)
     try {
       when (val outcome = dispatcher.launch(command)) {
         is LaunchOutcome.Started ->
@@ -270,11 +270,14 @@ class StandalonePlayer(
             quiet = true,
           )
         LaunchOutcome.NeedsAllFilesAccess -> {
+          // Nothing started, so the emulator still holds whatever game it held.
+          emulators.launchFailed(packageName, before)
           activity.startActivity(dispatcher.allFilesAccessSettings())
           note("Allow access to all files, then play again.")
           return notes
         }
         is LaunchOutcome.Failed -> {
+          emulators.launchFailed(packageName, before)
           note(outcome.reason)
           return notes
         }

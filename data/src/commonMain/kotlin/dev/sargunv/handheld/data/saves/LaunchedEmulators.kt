@@ -83,12 +83,31 @@ class LaunchedEmulators(path: Path) {
   private val file = JsonFile(path, MapSerializer(String.serializer(), Launch.serializer()))
   private val mutex = Mutex()
 
-  @Serializable private data class Launch(val romId: Long?, val boot: Boot)
+  @Serializable internal data class Launch(val romId: Long?, val boot: Boot)
 
-  /** Notes that the launcher started [packageName] with the ROM [romId]. */
-  suspend fun launched(packageName: String, romId: Long?, probe: EmulatorProbe) = mutex.withLock {
-    write(read() + (packageName to Launch(romId, probe.boot())))
+  /**
+   * Notes that the launcher started [packageName] with the ROM [romId]. Returns what it knew
+   * before, for [launchFailed].
+   */
+  suspend fun launched(packageName: String, romId: Long?, probe: EmulatorProbe): Earlier =
+    mutex.withLock {
+      val launches = read()
+      write(launches + (packageName to Launch(romId, probe.boot())))
+      Earlier(launches[packageName])
+    }
+
+  /**
+   * Notes that a launch of [packageName] didn't start, so the game it may still hold is the one it
+   * held [before]. With nothing before, it stays counted as running, since a failed launch may have
+   * started it anyway.
+   */
+  suspend fun launchFailed(packageName: String, before: Earlier) = mutex.withLock {
+    val earlier = before.launch ?: return@withLock
+    write(read() + (packageName to earlier))
   }
+
+  /** What [LaunchedEmulators] knew about an app before a launch. */
+  class Earlier internal constructor(internal val launch: Launch?)
 
   /** Forgets [packageName], once it's known to have stopped. */
   suspend fun stopped(packageName: String) = mutex.withLock { write(read() - packageName) }

@@ -40,6 +40,10 @@ internal class Emulators private constructor(private val context: Context) {
   suspend fun launched(packageName: String, romId: Long?, probe: EmulatorProbe) =
     launched.launched(packageName, romId, probe)
 
+  /** Notes that a launch of [packageName] didn't start, back to what was known [before] it. */
+  suspend fun launchFailed(packageName: String, before: LaunchedEmulators.Earlier) =
+    launched.launchFailed(packageName, before)
+
   /** Whether [packageName] may still be running. */
   suspend fun state(packageName: String, probe: EmulatorProbe): EmulatorState =
     launched.state(packageName, probe).also { Log.i(TAG, "$packageName: $it") }

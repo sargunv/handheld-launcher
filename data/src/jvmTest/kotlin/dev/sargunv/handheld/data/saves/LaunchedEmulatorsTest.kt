@@ -111,4 +111,24 @@ class LaunchedEmulatorsTest {
     emulators.stopped(armsx2)
     assertIs<EmulatorState.NotRunning>(emulators.state(armsx2, probe))
   }
+
+  @Test
+  fun aLaunchThatDidntStartLeavesTheGameTheEmulatorHolds() = runTest {
+    val probe = FakeProbe()
+    val emulators = LaunchedEmulators(path)
+    emulators.launched(armsx2, romId = 7, probe)
+
+    val before = emulators.launched(armsx2, romId = 8, probe)
+    emulators.launchFailed(armsx2, before)
+    val state = assertIs<EmulatorState.MayBeRunning>(emulators.state(armsx2, probe))
+    assertEquals(7, state.romId)
+  }
+
+  @Test
+  fun aFirstLaunchThatFailedStillCountsAsRunning() = runTest {
+    val probe = FakeProbe()
+    val emulators = LaunchedEmulators(path)
+    emulators.launchFailed(armsx2, emulators.launched(armsx2, romId = 8, probe))
+    assertIs<EmulatorState.MayBeRunning>(emulators.state(armsx2, probe))
+  }
 }
