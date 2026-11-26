@@ -13,29 +13,16 @@ use std::time::Instant;
 
 use crate::audio::{AudioPipeline, AudioSink};
 use crate::ffi;
-use crate::gl::{self, Framebuffer, GlApi, GlContext, NativeWindow};
+use crate::gl::{self, Framebuffer, GlApi, GlContext};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
 use crate::options::{Options, opt_string};
-use crate::session::SessionError;
-use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region, VideoSink};
+use crate::session::{SessionError, VideoOutput};
+use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region};
 use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
 use crate::{AvInfo, GlError};
 
 thread_local! {
     static HOST: Cell<*mut Host> = const { Cell::new(std::ptr::null_mut()) };
-}
-
-/// Where frames go.
-pub(crate) enum VideoTarget {
-    Sink(Box<dyn VideoSink>),
-    Window {
-        window: Option<NativeWindow>,
-        width: u32,
-        height: u32,
-        vsync: bool,
-        /// What a lower window shows of each frame.
-        lower: Region,
-    },
 }
 
 /// The GL context and the framebuffers the session draws with.
@@ -87,7 +74,9 @@ pub(crate) struct Host {
     pub(crate) audio_speed: f64,
     /// Whether the core's audio is dropped rather than played.
     pub(crate) audio_muted: bool,
-    pub(crate) video: VideoTarget,
+    pub(crate) video: VideoOutput,
+    /// What a lower window shows of each frame.
+    pub(crate) lower: Region,
     pub(crate) gpu: Option<Gpu>,
     /// The Vulkan context, for a core that renders with Vulkan.
     pub(crate) vulkan: Option<VulkanContext>,
@@ -124,7 +113,8 @@ impl Host {
         options: Options,
         input: Arc<InputState>,
         audio_sink: Box<dyn AudioSink>,
-        video: VideoTarget,
+        video: VideoOutput,
+        lower: Region,
     ) -> Self {
         Self {
             system_dir,
@@ -142,6 +132,7 @@ impl Host {
             audio_speed: 1.0,
             audio_muted: false,
             video,
+            lower,
             gpu: None,
             vulkan: None,
             hw_render: None,
@@ -255,7 +246,7 @@ impl Host {
 
     /// Presents the last frame again, as when a window is attached.
     pub(crate) fn redraw(&mut self) {
-        if !matches!(self.video, VideoTarget::Window { .. }) {
+        if !matches!(self.video, VideoOutput::Window { .. }) {
             return;
         }
         if self.last_frame_hw {
@@ -313,12 +304,12 @@ impl Host {
             return;
         }
         match &mut self.video {
-            VideoTarget::Sink(sink) => sink.frame(Frame {
+            VideoOutput::Sink(sink) => sink.frame(Frame {
                 width,
                 height,
                 pixels: &self.frame,
             }),
-            &mut VideoTarget::Window { lower, .. } => {
+            VideoOutput::Window { .. } => {
                 let Some(gpu) = &mut self.gpu else { return };
                 let gl = &gpu.context.gl;
                 if gpu.upload.is_none() {
@@ -339,7 +330,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     true,
-                    lower,
+                    self.lower,
                 );
             }
         }
@@ -348,7 +339,7 @@ impl Host {
     fn show_hw_frame(&mut self, width: u32, height: u32) {
         if let Some(vulkan) = &mut self.vulkan {
             match &mut self.video {
-                VideoTarget::Sink(sink) => {
+                VideoOutput::Sink(sink) => {
                     if vulkan.read(width, height, &mut self.frame) {
                         sink.frame(Frame {
                             width,
@@ -357,8 +348,8 @@ impl Host {
                         });
                     }
                 }
-                &mut VideoTarget::Window { lower, .. } => {
-                    vulkan.present(width, height, self.av_info.aspect_ratio, lower);
+                VideoOutput::Window { .. } => {
+                    vulkan.present(width, height, self.av_info.aspect_ratio, self.lower);
                 }
             }
             return;
@@ -371,7 +362,7 @@ impl Host {
             return;
         }
         match &mut self.video {
-            VideoTarget::Sink(sink) => {
+            VideoOutput::Sink(sink) => {
                 fb.read(&gpu.context.gl, width, height, &mut gpu.readback);
                 gl::drain_errors(&gpu.context.gl, "reading back a frame");
                 if bottom_left_origin {
@@ -383,7 +374,7 @@ impl Host {
                     pixels: &gpu.readback,
                 });
             }
-            &mut VideoTarget::Window { lower, .. } => {
+            VideoOutput::Window { .. } => {
                 gl::present(
                     &gpu.context,
                     fb,
@@ -391,7 +382,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     !bottom_left_origin,
-                    lower,
+                    self.lower,
                 );
             }
         }
@@ -885,6 +876,7 @@ mod tests {
 
     use super::*;
     use crate::audio::NullAudioSink;
+    use crate::video::VideoSink;
 
     struct Discard;
 
@@ -899,7 +891,8 @@ mod tests {
             Options::new(HashMap::new()),
             Arc::new(InputState::new()),
             Box::new(NullAudioSink),
-            VideoTarget::Sink(Box::new(Discard)),
+            VideoOutput::Sink(Box::new(Discard)),
+            Region::Whole,
         )
     }
 

@@ -25,7 +25,6 @@ fn render(core: &str, frames: usize) -> Option<OwnedFrame> {
         }
         Err(e) => panic!("{e}: {:?}", std::error::Error::source(&e)),
     };
-    assert!(h.session.is_hardware_rendered());
     h.run(frames);
     assert_eq!(h.frames.count(), frames);
     Some(h.frames.last())

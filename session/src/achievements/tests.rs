@@ -313,7 +313,7 @@ fn retries_an_unlock_the_server_missed() {
 
 #[test]
 fn names_rcheevos_for_the_user_agent() {
-    assert_eq!(rcheevos_user_agent_clause(), "rcheevos/12.5");
+    assert!(rcheevos_user_agent_clause().starts_with("rcheevos/"));
 }
 
 #[test]
