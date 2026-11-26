@@ -29,6 +29,7 @@ import java.io.File
 import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -182,9 +183,13 @@ class StandalonePlayer(
 
   /**
    * Sends [game]'s save to RomM while the game runs, for the companion's Sync button, and says what
-   * happened. It never pulls, since the emulator would write over a pulled save.
+   * happened. It never pulls, since the emulator would write over a pulled save. It finishes even
+   * when the companion closes, so the sync after the game sees what it sent.
    */
-  private suspend fun syncNow(request: PlayRequest, game: GameSave?, target: LaunchTarget): String {
+  private suspend fun syncNow(request: PlayRequest, game: GameSave?, target: LaunchTarget): String =
+    withContext(NonCancellable) { pushNow(request, game, target) }
+
+  private suspend fun pushNow(request: PlayRequest, game: GameSave?, target: LaunchTarget): String {
     if (game == null) {
       return "${appName(target)}'s saves don't sync yet, so there's nothing to sync."
     }
