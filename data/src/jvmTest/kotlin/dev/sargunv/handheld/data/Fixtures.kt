@@ -111,17 +111,6 @@ object Fixtures {
     }
     """
 
-  val heartbeat =
-    """
-    {
-      "SYSTEM": {"VERSION": "5.4.1", "GIT_BRANCH": null, "SHOW_SETUP_WIZARD": false},
-      "METADATA_SOURCES": {"ANY_SOURCE_ENABLED": true},
-      "FILESYSTEM": {"FS_PLATFORMS": ["test"]},
-      "FRONTEND": {"DISABLE_USERPASS_LOGIN": true, "DISABLE_LOGS_VIEWER": false},
-      "OIDC": {"ENABLED": true, "AUTOLOGIN": false, "PROVIDER": "Example SSO"}
-    }
-    """
-
   val me =
     """
     {

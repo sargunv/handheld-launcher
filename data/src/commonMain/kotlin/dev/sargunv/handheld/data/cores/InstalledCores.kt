@@ -1,11 +1,10 @@
 package dev.sargunv.handheld.data.cores
 
+import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.domain.emulator.CoreSource
 import dev.sargunv.handheld.domain.emulator.LibretroCore
-import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.request.head
 import io.ktor.client.request.header
@@ -71,14 +70,7 @@ class InstalledCores(
     )
   private val mutex = Mutex()
 
-  private val http =
-    HttpClient(engine) {
-      expectSuccess = false
-      install(HttpTimeout) {
-        connectTimeoutMillis = 15_000
-        socketTimeoutMillis = 60_000
-      }
-    }
+  private val http = httpClient(engine)
 
   override fun close() {
     http.close()
@@ -177,16 +169,6 @@ class InstalledCores(
     }
     return fileOf(core)
   }
-
-  /** Removes [core], if it's installed. */
-  suspend fun remove(core: LibretroCore) =
-    withContext(Dispatchers.IO) {
-      mutex.withLock {
-        val current = records.read() ?: emptyMap()
-        if (core.library in current) records.write(current - core.library)
-        SystemFileSystem.delete(fileOf(core), mustExist = false)
-      }
-    }
 
   private class Build(val url: String, val release: String?)
 

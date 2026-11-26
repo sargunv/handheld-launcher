@@ -4,12 +4,15 @@ import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readString
-import kotlinx.io.writeString
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 
 /** A value kept as JSON in the file at [path]. Callers serialize access to it. */
-internal class JsonFile<T>(private val path: Path, private val serializer: KSerializer<T>) {
+internal class JsonFile<T>(
+  private val path: Path,
+  private val serializer: KSerializer<T>,
+  private val json: Json = DefaultJson,
+) {
   /** The stored value, or null when there's none. */
   fun read(): T? {
     if (!SystemFileSystem.exists(path)) return null
@@ -17,17 +20,20 @@ internal class JsonFile<T>(private val path: Path, private val serializer: KSeri
     return json.decodeFromString(serializer, text)
   }
 
-  fun write(value: T) {
-    path.parent?.let { SystemFileSystem.createDirectories(it) }
-    // Write a sibling and move it over the old file, so a crash never leaves half a file.
-    val temp = Path("$path.tmp")
-    SystemFileSystem.sink(temp).buffered().use {
-      it.writeString(json.encodeToString(serializer, value))
-    }
-    SystemFileSystem.atomicMove(temp, path)
-  }
+  fun write(value: T) =
+    writeAtomically(path, json.encodeToString(serializer, value).encodeToByteArray())
 
   private companion object {
-    val json = Json { ignoreUnknownKeys = true }
+    val DefaultJson = Json { ignoreUnknownKeys = true }
   }
+}
+
+/**
+ * Writes [bytes] to [path] by way of a sibling moved over it, so a crash never leaves half a file.
+ */
+internal fun writeAtomically(path: Path, bytes: ByteArray) {
+  path.parent?.let { SystemFileSystem.createDirectories(it) }
+  val temp = Path("$path.tmp")
+  SystemFileSystem.sink(temp).buffered().use { it.write(bytes) }
+  SystemFileSystem.atomicMove(temp, path)
 }

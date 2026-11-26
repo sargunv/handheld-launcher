@@ -1,9 +1,8 @@
 package dev.sargunv.handheld.data.achievements
 
+import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.platformHttpEngine
-import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -34,14 +33,7 @@ class RetroAchievementsClient(
   private val engine: HttpClientEngine = platformHttpEngine(),
   private val endpoint: String = DEFAULT_ENDPOINT,
 ) : AutoCloseable {
-  private val http =
-    HttpClient(engine) {
-      expectSuccess = false
-      install(HttpTimeout) {
-        connectTimeoutMillis = 15_000
-        socketTimeoutMillis = 30_000
-      }
-    }
+  private val http = httpClient(engine, socketTimeoutMillis = 30_000)
 
   override fun close() {
     http.close()

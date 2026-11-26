@@ -1,7 +1,0 @@
-ALTER TABLE rom_file ADD COLUMN crc_hash TEXT;
-ALTER TABLE rom_file ADD COLUMN md5_hash TEXT;
-ALTER TABLE rom_file ADD COLUMN sha1_hash TEXT;
-ALTER TABLE rom_file ADD COLUMN chd_sha1_hash TEXT;
-
--- The files cached before have no hashes, so the next sync fetches every ROM again.
-DELETE FROM sync_state WHERE key = 'rom_cursor';

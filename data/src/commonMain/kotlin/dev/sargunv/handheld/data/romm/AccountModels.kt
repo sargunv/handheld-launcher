@@ -7,27 +7,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 
-/** The server's public configuration, from `GET /api/heartbeat`, which needs no sign-in. */
-@Serializable
-data class RommHeartbeat(
-  @SerialName("SYSTEM") val system: System,
-  @SerialName("FRONTEND") val frontend: Frontend = Frontend(),
-  @SerialName("OIDC") val oidc: Oidc = Oidc(),
-) {
-  @Serializable data class System(@SerialName("VERSION") val version: String)
-
-  @Serializable
-  data class Frontend(
-    @SerialName("DISABLE_USERPASS_LOGIN") val disableUserPassLogin: Boolean = false,
-  )
-
-  @Serializable
-  data class Oidc(
-    @SerialName("ENABLED") val enabled: Boolean = false,
-    @SerialName("PROVIDER") val provider: String = "",
-  )
-}
-
 /** The signed-in user, from `GET /api/users/me`. */
 @Serializable
 data class RommUser(

@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.domain.storage
 
+import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
@@ -14,14 +15,14 @@ object GameLayout {
     "${root.trimEnd('/')}/ROMs/$platformFolder"
 
   /**
-   * The name of a ROM on the device, within its platform's folder: its one file's name, or for a
-   * ROM with several files, the name of the folder that holds them.
-   *
-   * @param romName the ROM's name on the server: its file's, or its folder's.
-   * @param fileNames the names of the ROM's files.
+   * The name of [rom] on the device, within its platform's folder: its one file's name, or for a
+   * ROM with several files, the name of the folder that holds them. Null when that name isn't one
+   * entry of the folder, so nothing outside the game's own place is taken for it.
    */
-  fun romName(romName: String, fileNames: List<String>): String =
-    fileNames.singleOrNull() ?: romName
+  fun romName(rom: Rom): String? {
+    val name = rom.files.singleOrNull()?.fileName ?: rom.fileName
+    return name.takeUnless { it.isEmpty() || it == "." || it == ".." || '/' in it }
+  }
 
   /**
    * The discs a playlist (`.m3u`) lists, in order, for a ROM made of [files] on [platform], or null

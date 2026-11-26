@@ -70,14 +70,12 @@ class DownloadTest {
   fun downloadsAWholeFile() = runTest {
     val server = fileServer()
     val progress = mutableListOf<DownloadProgress>()
-    val result =
-      server.client.downloadRom(7, "Disc Game #1.zip", target, listOf(70, 71)) { progress += it }
+    val result = server.client.downloadRomFile(70, "Disc Game #1.chd", target) { progress += it }
 
     assertEquals(DownloadResult(totalBytes = content.size.toLong(), resumedFrom = 0), result)
     assertContentEquals(content, readTarget())
     val request = server.requests.single()
-    assertEquals("/api/roms/7/content/Disc%20Game%20%231.zip", request.url.encodedPath)
-    assertEquals("70,71", request.url.parameters["file_ids"])
+    assertEquals("/api/roms/70/files/content/Disc%20Game%20%231.chd", request.url.encodedPath)
     assertEquals("identity", request.headers[HttpHeaders.AcceptEncoding])
     assertNull(request.headers[HttpHeaders.Range])
     assertEquals(DownloadProgress(0, content.size.toLong()), progress.first())
@@ -100,7 +98,7 @@ class DownloadTest {
   @Test
   fun startsOverWhenTheServerIgnoresTheRange() = runTest {
     writeTarget(ByteArray(1000) { 1 })
-    val result = fileServer(ignoreRanges = true).client.downloadRom(7, "game.bin", target)
+    val result = fileServer(ignoreRanges = true).client.downloadRomFile(70, "game.bin", target)
 
     assertEquals(0, result.resumedFrom)
     assertContentEquals(content, readTarget())
@@ -110,7 +108,7 @@ class DownloadTest {
   fun keepsACompleteFile() = runTest {
     writeTarget(content)
     val server = fileServer()
-    val result = server.client.downloadRom(7, "game.bin", target)
+    val result = server.client.downloadRomFile(70, "game.bin", target)
 
     assertEquals(DownloadResult(content.size.toLong(), content.size.toLong()), result)
     assertContentEquals(content, readTarget())
@@ -121,7 +119,7 @@ class DownloadTest {
   fun startsOverWhenTheFileIsLongerThanTheServers() = runTest {
     writeTarget(content + ByteArray(10))
     val server = fileServer()
-    server.client.downloadRom(7, "game.bin", target)
+    server.client.downloadRomFile(70, "game.bin", target)
 
     assertContentEquals(content, readTarget())
     assertEquals(
@@ -133,11 +131,11 @@ class DownloadTest {
   @Test
   fun keepsWhatArrivedWhenTheConnectionBreaks() = runTest {
     assertFailsWith<RommException.Unreachable> {
-      fileServer(truncateAt = 120_000).client.downloadRom(7, "game.bin", target)
+      fileServer(truncateAt = 120_000).client.downloadRomFile(70, "game.bin", target)
     }
     assertContentEquals(content.copyOf(120_000), readTarget())
 
-    val result = fileServer().client.downloadRom(7, "game.bin", target)
+    val result = fileServer().client.downloadRomFile(70, "game.bin", target)
     assertEquals(120_000, result.resumedFrom)
     assertContentEquals(content, readTarget())
   }
@@ -146,7 +144,9 @@ class DownloadTest {
   fun leavesTheFileAloneOnAnError() = runTest {
     writeTarget(content.copyOf(10))
     val server = MockServer { respond("""{"detail":"Not found"}""", HttpStatusCode.NotFound) }
-    assertFailsWith<RommException.NotFound> { server.client.downloadRom(7, "game.bin", target) }
+    assertFailsWith<RommException.NotFound> {
+      server.client.downloadRomFile(70, "game.bin", target)
+    }
     assertContentEquals(content.copyOf(10), readTarget())
   }
 }
