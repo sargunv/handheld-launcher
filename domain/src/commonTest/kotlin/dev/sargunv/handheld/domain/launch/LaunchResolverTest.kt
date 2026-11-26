@@ -6,6 +6,7 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAMECUBE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.NDS
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSX
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SNES
@@ -225,8 +226,8 @@ class LaunchResolverTest {
     }
   }
 
-  // GameCube, Wii, 3DS, DS and PSP play better in their own emulators, so the built-in session
-  // waits for none to be installed.
+  // GameCube, Wii, 3DS and PSP play better in their own emulators, so the built-in session waits
+  // for none to be installed.
   @Test
   fun anInstalledEmulatorComesFirstWhereItPlaysBetter() {
     val game = LaunchSubject(gameId = 1, platform = GAMECUBE)
@@ -237,6 +238,16 @@ class LaunchResolverTest {
     assertEquals(
       LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
       LaunchResolver.resolve(game, LaunchRules(), emptySet()),
+    )
+  }
+
+  // melonDS DS plays the DS built-in, on both screens, even with a DS emulator installed.
+  @Test
+  fun theDsPlaysBuiltInEvenWithAnEmulatorInstalled() {
+    val game = LaunchSubject(gameId = 1, platform = NDS)
+    assertEquals(
+      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
+      LaunchResolver.resolve(game, LaunchRules(), setOf("com.dsemu.drastic", "me.magnum.melonds")),
     )
   }
 

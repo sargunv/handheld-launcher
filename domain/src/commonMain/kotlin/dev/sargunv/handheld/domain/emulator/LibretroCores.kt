@@ -174,7 +174,7 @@ object LibretroCores {
    * The platforms whose libretro core is a fallback: an installed standalone emulator plays them
    * better, so it comes first, and the built-in session only when none is installed.
    */
-  private val standaloneFirst = setOf(NDS, N3DS, GAMECUBE, WII, PSP)
+  private val standaloneFirst = setOf(N3DS, GAMECUBE, WII, PSP)
 
   /** Whether an installed standalone emulator plays [platform] before its libretro core does. */
   fun prefersStandalone(platform: PlatformSlug): Boolean =

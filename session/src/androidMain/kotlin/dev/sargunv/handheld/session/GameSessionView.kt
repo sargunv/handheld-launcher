@@ -176,26 +176,31 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
 /**
  * Passes [event], a touch on [view], which shows the session on [screen], to the session as its
- * pointer: the first finger down (Android gives it pointer id 0), until it lifts. Other fingers
- * don't move or hold the pointer.
+ * pointer. Like the resistive screens of the DS and 3DS, which these games were made for, two
+ * fingers at once press at the point between them: the pointer is at the middle of every finger
+ * down, and held while any is.
  */
 internal fun GameSession.touch(screen: Screen, view: View, event: MotionEvent): Boolean {
-  val first = event.findPointerIndex(0)
-  val (index, pressed) =
+  // A lifting finger is still in the event, but no longer presses.
+  val lifting =
     when (event.actionMasked) {
-      MotionEvent.ACTION_DOWN,
-      MotionEvent.ACTION_MOVE -> (if (first < 0) return true else first) to true
-      MotionEvent.ACTION_POINTER_UP ->
-        if (event.getPointerId(event.actionIndex) == 0) event.actionIndex to false else return true
+      MotionEvent.ACTION_POINTER_UP -> event.actionIndex
       MotionEvent.ACTION_UP,
-      MotionEvent.ACTION_CANCEL -> event.actionIndex to false
+      MotionEvent.ACTION_CANCEL -> -1
+      MotionEvent.ACTION_DOWN,
+      MotionEvent.ACTION_POINTER_DOWN,
+      MotionEvent.ACTION_MOVE -> null
       else -> return true
     }
+  val pressing = (0 until event.pointerCount).filter { it != lifting }
+  val pressed = lifting != -1 && pressing.isNotEmpty()
+  // A release stays where the last fingers were.
+  val at = if (pressed) pressing else (0 until event.pointerCount).toList()
   try {
     touch(
       screen,
-      event.getX(index),
-      event.getY(index),
+      at.map { event.getX(it) }.average().toFloat(),
+      at.map { event.getY(it) }.average().toFloat(),
       view.width.toUInt(),
       view.height.toUInt(),
       pressed,
