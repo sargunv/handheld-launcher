@@ -263,15 +263,17 @@ impl Session {
         };
 
         // SAFETY: libretro's start-up sequence, with callbacks of the right
-        // signatures.
+        // signatures. The environment comes before retro_init and the rest
+        // after it, as RetroArch sets them: some cores, such as Mesen, keep
+        // the rest in state that retro_init creates, and crash without it.
         unsafe {
             (session.core.set_environment)(Some(host::environment));
+            (session.core.init)();
             (session.core.set_video_refresh)(Some(host::video_refresh));
             (session.core.set_audio_sample)(Some(host::audio_sample));
             (session.core.set_audio_sample_batch)(Some(host::audio_sample_batch));
             (session.core.set_input_poll)(Some(host::input_poll));
             (session.core.set_input_state)(Some(host::input_state));
-            (session.core.init)();
         }
         session.initialized = true;
         session.system_info = session.read_system_info();
