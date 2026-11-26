@@ -325,6 +325,16 @@ class DownloadManagerTest {
     // The game is on the device, so it isn't downloaded again.
     assertFalse(downloads.enqueue(rom))
 
+    // A file replaced since the scan isn't the game's any more, so it stays.
+    val modified = copied.lastModified()
+    copied.writeBytes(disc1)
+    copied.setLastModified(modified + 10_000)
+    assertEquals(Removal.NotOnDevice, downloads.remove(rom))
+    assertContentEquals(disc1, copied.readBytes())
+    copied.writeBytes(game)
+    downloads.recheck()
+    waitFor { downloads.status(rom).first { it == onDevice } }
+
     assertEquals(Removal.Removed, downloads.remove(rom))
     assertFalse(copied.exists())
     waitFor { downloads.status(rom).first { it == RomStatus.NotOnDevice } }

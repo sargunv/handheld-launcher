@@ -366,6 +366,11 @@ class DownloadManager(
     withContext(NonCancellable + Dispatchers.IO) {
       val folder = library.platform(rom.platformId)?.fsSlug
       val path = folder?.let { locate(rom, it) } ?: return@withContext Removal.NotOnDevice
+      // A file matched by content is read again first, in case it changed since the scan.
+      if (path.toString() == scanned.value.matched[rom.id] && !scanner.stillMatches(path, rom)) {
+        installs.update { it + 1 }
+        return@withContext Removal.NotOnDevice
+      }
       try {
         if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
           // A file is the game's while no more files have its name than the game has, so a stray
@@ -515,7 +520,9 @@ class DownloadManager(
           }
           root to target
         }
-      if (SystemFileSystem.exists(target)) return RommInstallStatus.AlreadyInstalled
+      if (SystemFileSystem.exists(target) || scanned.value.matched[download.romId] != null) {
+        return RommInstallStatus.AlreadyInstalled
+      }
       val staging = Path("$target.part")
       val multiFile = rom.files.size > 1
       val targets = files.map {

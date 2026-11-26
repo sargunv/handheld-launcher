@@ -142,6 +142,19 @@ internal class ContentScanner(
     LocalScan(matched, unmatched)
   }
 
+  /** Whether the file at [path] still has the content of [rom]'s one file. */
+  suspend fun stillMatches(path: Path, rom: Rom): Boolean = mutex.withLock {
+    val romFile = rom.files.singleOrNull() ?: return false
+    val metadata = SystemFileSystem.metadataOrNull(path)
+    if (metadata == null || !metadata.isRegularFile) return false
+    val cache = cache ?: loadCache().also { cache = it }
+    try {
+      contentOf(path, metadata.size, setOf(romFile.sizeBytes), cache)?.matches(romFile) == true
+    } catch (e: IOException) {
+      false
+    }
+  }
+
   /**
    * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
    * game.
