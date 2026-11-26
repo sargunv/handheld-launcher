@@ -34,6 +34,7 @@ import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.launch.LaunchOutcome
 import dev.sargunv.handheld.launch.installFirmwareFor
 import java.io.File
+import java.io.IOException
 
 /**
  * Launches [rom], a game for [platform], the way the Game screen will: the resolver picks the app,
@@ -121,6 +122,8 @@ private suspend fun firmwareStatus(
       installFirmwareFor(activity, credentials, target, platform, biosDir?.let(::listOf))
     } catch (e: RommException) {
       return "Couldn't list the firmware: ${e.message}"
+    } catch (e: IOException) {
+      return "Couldn't place the firmware: ${e.message}"
     }
   return when (result) {
     null -> null

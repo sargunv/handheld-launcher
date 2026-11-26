@@ -10,7 +10,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -102,27 +102,31 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
   /** Downloads [file] and writes it to [target], unless a file appears there first. */
   private suspend fun place(file: RommFirmware, target: File): Boolean {
     staging.mkdirs()
-    val staged = File(staging, file.id.toString())
-    client.downloadFirmware(file.id, file.fileName, Path(staged.path))
-    mismatchedHash(staged, file)?.let {
-      staged.delete()
-      throw IOException("The download doesn't match the server's $it hash")
-    }
-    target.parentFile.mkdirs()
-    // Copy beside the target and move it into place, so a broken copy never sits at the target,
-    // where it would be kept from then on.
-    val partial = Files.createTempFile(target.parentFile.toPath(), ".handheld-", ".part")
+    val staged = Files.createTempFile(staging.toPath(), "${file.id}-", ".part").toFile()
     try {
-      Files.copy(staged.toPath(), partial, StandardCopyOption.REPLACE_EXISTING)
-      // Without REPLACE_EXISTING, the move fails rather than replace a file.
-      Files.move(partial, target.toPath())
-    } catch (e: FileAlreadyExistsException) {
-      return false
+      client.downloadFirmware(file.id, file.fileName, Path(staged.path))
+      mismatchedHash(staged, file)?.let {
+        throw IOException("The download doesn't match the server's $it hash")
+      }
+      target.parentFile.mkdirs()
+      // Creating the file fails if one exists, so nothing is ever replaced.
+      val output =
+        try {
+          Files.newOutputStream(target.toPath(), StandardOpenOption.CREATE_NEW)
+        } catch (e: FileAlreadyExistsException) {
+          return false
+        }
+      try {
+        output.use { Files.copy(staged.toPath(), it) }
+      } catch (e: IOException) {
+        // The file is this copy's own, and a broken one would be kept from then on.
+        target.delete()
+        throw e
+      }
+      return true
     } finally {
-      Files.deleteIfExists(partial)
+      staged.delete()
     }
-    staged.delete()
-    return true
   }
 
   /** The name of the first hash RomM lists for [file] that [staged] doesn't match, if any. */
