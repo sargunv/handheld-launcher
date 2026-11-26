@@ -37,6 +37,12 @@ class Navigator<T : Any>(start: T) {
     return true
   }
 
+  /** Puts [new] in [old]'s place, if [old] is on the way back. */
+  fun replace(old: T, new: T) {
+    val index = backStack.lastIndexOf(old)
+    if (index >= 0) backStack[index] = new
+  }
+
   /** Leaves every screen but the first. */
   fun backToStart() {
     while (back()) continue

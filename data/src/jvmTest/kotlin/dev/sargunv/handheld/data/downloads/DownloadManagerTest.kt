@@ -343,6 +343,124 @@ class DownloadManagerTest {
   }
 
   @Test
+  fun aFileThatMatchesNothingIsALocalGameUntilRemoved() = runTest {
+    fillLibrary()
+    val homebrew =
+      file("ROMs/gba/Homebrew (PD).gba").apply {
+        parentFile.mkdirs()
+        writeBytes(disc1)
+      }
+    // A save beside it isn't a game.
+    file("ROMs/gba/Homebrew (PD).srm").writeBytes(ByteArray(8))
+    val downloads = manager(backgroundScope, server())
+
+    val local = waitFor { downloads.localGames().first { it.isNotEmpty() } }.single()
+    assertEquals(homebrew.path, local.path)
+    assertEquals("Homebrew (PD)", local.title)
+    assertEquals("gba", local.platformSlug)
+    assertEquals(1L, local.platformId)
+    assertEquals(disc1.size.toLong(), local.sizeBytes)
+    assertEquals(
+      LocalGameState.Local(local),
+      waitFor { downloads.localGame(local.path).first { it != null } },
+    )
+
+    assertEquals(Removal.Removed, downloads.remove(local))
+    assertFalse(homebrew.exists())
+    assertTrue(file("ROMs/gba/Homebrew (PD).srm").exists())
+    waitFor { downloads.localGame(local.path).first { it == LocalGameState.Gone } }
+    waitFor { downloads.localGames().first { it.isEmpty() } }
+  }
+
+  @Test
+  fun removingALocalGameDeletesOnlyAFileTheScanFound() = runTest {
+    fillLibrary()
+    file("ROMs/gba/Homebrew.gba").apply {
+      parentFile.mkdirs()
+      writeBytes(disc1)
+    }
+    val outside = File(dir, "elsewhere.gba").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+    val local = waitFor { downloads.localGames().first { it.isNotEmpty() } }.single()
+
+    assertEquals(Removal.NotOnDevice, downloads.remove(local.copy(path = outside.path)))
+    assertTrue(outside.exists())
+    // A file of another size since the scan isn't the one it found.
+    file("ROMs/gba/Homebrew.gba").writeBytes(disc2)
+    assertEquals(Removal.NotOnDevice, downloads.remove(local))
+    assertTrue(file("ROMs/gba/Homebrew.gba").exists())
+  }
+
+  @Test
+  fun aLocalGameBecomesTheRomItMatchesOnceTheLibraryHasIt() = runTest {
+    fillLibrary()
+    val copied =
+      file("ROMs/gba/my copy.gba").apply {
+        parentFile.mkdirs()
+        writeBytes(game)
+      }
+    val downloads = manager(backgroundScope, server())
+    val local = waitFor { downloads.localGames().first { it.isNotEmpty() } }.single()
+    assertEquals(copied.path, local.path)
+
+    // The server gains the game, such as after the file is uploaded.
+    val file = gameRom.files.single()
+    val rom =
+      gameRom.copy(
+        files =
+          listOf(
+            file.copy(crcHash = CRC32().apply { update(game) }.value.toString(16).padStart(8, '0')),
+          ),
+      )
+    library.upsertRoms(listOf(rom))
+    assertEquals(
+      LocalGameState.Matched(rom.id),
+      waitFor { downloads.localGame(copied.path).first { it is LocalGameState.Matched } },
+    )
+    waitFor { downloads.localGames().first { it.isEmpty() } }
+    waitFor { downloads.status(rom).first { it == RomStatus.OnDevice(copied.path) } }
+  }
+
+  @Test
+  fun aLocalGameNamedAsTheServerNamesAGameBecomesIt() = runTest {
+    fillLibrary()
+    val named =
+      file("ROMs/gba/${single.name}").apply {
+        parentFile.mkdirs()
+        writeBytes(disc1)
+      }
+    val downloads = manager(backgroundScope, server())
+    // With no game of that name, the file is local.
+    waitFor { downloads.localGames().first { it.isNotEmpty() } }
+    library.upsertRoms(listOf(gameRom))
+    assertEquals(
+      LocalGameState.Matched(gameRom.id),
+      waitFor { downloads.localGame(named.path).first { it is LocalGameState.Matched } },
+    )
+  }
+
+  @Test
+  fun onlyFilesThatMayBeGamesAreLocalGames() {
+    for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f")) {
+      assertTrue(isGameFile("/ROMs/gba/$name"), name)
+    }
+    for (name in
+      listOf(
+        "a.srm",
+        "b.sav",
+        "c.state",
+        "d.state3",
+        "e.st0",
+        "f.png",
+        "g.txt",
+        "h.ips",
+        "i.tmp",
+      )) {
+      assertFalse(isGameFile("/ROMs/gba/$name"), name)
+    }
+  }
+
+  @Test
   fun resumesAfterARestart() = runTest {
     fillLibrary()
     stopMidDownload(game.copyOf(131_072))

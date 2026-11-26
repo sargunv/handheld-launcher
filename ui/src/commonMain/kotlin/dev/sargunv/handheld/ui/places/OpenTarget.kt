@@ -17,6 +17,12 @@ sealed interface OpenTarget {
   /** The Game screen for the game with RomM id [romId]. */
   data class Game(val romId: Long) : OpenTarget
 
+  /**
+   * The Game screen for the local game whose file is at [path], or for the game of the library the
+   * file is now.
+   */
+  data class Local(val path: String) : OpenTarget
+
   /** Library, on [tab], or on the tab it was last left on when null. */
   data class Library(val tab: LibraryTab?) : OpenTarget
 
@@ -32,9 +38,10 @@ sealed interface OpenTarget {
   companion object {
     /**
      * The target [text] names: `place:<place>` (such as `place:downloads`), `game:<romId>`,
-     * `library`, `library:tab:<tab>` (such as `library:tab:on-device`), `library:<platform-slug>`,
-     * `library:collection:<id>`, `library:collection:smart:<id>`, `settings` or
-     * `settings:<section>` (such as `settings:romm`). Null when it names none of those.
+     * `local:<path>` (a local game's file), `library`, `library:tab:<tab>` (such as
+     * `library:tab:on-device`), `library:<platform-slug>`, `library:collection:<id>`,
+     * `library:collection:smart:<id>`, `settings` or `settings:<section>` (such as
+     * `settings:romm`). Null when it names none of those.
      */
     fun parse(text: String): OpenTarget? {
       val kind = text.substringBefore(':')
@@ -42,6 +49,7 @@ sealed interface OpenTarget {
       return when (kind) {
         "place" -> Place.entries.find { it.name.equals(arg, ignoreCase = true) }?.let(::AtPlace)
         "game" -> arg?.toLongOrNull()?.let(::Game)
+        "local" -> arg?.takeIf { it.startsWith('/') }?.let(::Local)
         "library" -> parseLibrary(arg)
         "settings" ->
           if (arg == null) Settings(null)

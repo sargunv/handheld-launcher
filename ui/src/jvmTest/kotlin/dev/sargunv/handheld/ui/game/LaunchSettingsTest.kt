@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.game
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.CollectionRule
 import dev.sargunv.handheld.domain.launch.LaunchChoice
@@ -37,7 +38,7 @@ class LaunchSettingsTest {
   fun theChoicesAtEachLevelSurviveARestart() = runTest {
     val launch =
       LaunchSettings()
-        .withChoice(RuleLevel.Game(1), armsx2)
+        .withChoice(RuleLevel.Game(GameKey.Romm(1)), armsx2)
         .withChoice(RuleLevel.InCollection(jak.launchId, PS2), pocketGoal)
         .withChoice(RuleLevel.Platform(GBA), SavedChoice("com.retroarch", "mgba_libretro"))
     settingsFile().write(Settings(launch = launch))
@@ -46,7 +47,7 @@ class LaunchSettingsTest {
     assertEquals(launch, read)
     assertEquals(
       LaunchRules(
-        gameOverrides = mapOf(1L to LaunchChoice("com.armsx2")),
+        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("com.armsx2")),
         collectionRules =
           listOf(
             CollectionRule(CollectionId("regular:7"), LaunchChoice("dev.sargunv.pocketgoal"), PS2),
@@ -76,7 +77,9 @@ class LaunchSettingsTest {
     assertEquals(LaunchSettings(), replaced.withChoice(level, null))
     assertEquals(
       LaunchSettings(),
-      LaunchSettings().withChoice(RuleLevel.Game(1), armsx2).withChoice(RuleLevel.Game(1), null),
+      LaunchSettings()
+        .withChoice(RuleLevel.Game(GameKey.Romm(1)), armsx2)
+        .withChoice(RuleLevel.Game(GameKey.Romm(1)), null),
     )
   }
 }

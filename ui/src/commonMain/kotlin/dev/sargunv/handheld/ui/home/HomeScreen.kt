@@ -383,7 +383,7 @@ private fun GameMenu(
       }
       MenuButton("menu:open-with", "Open with") {
         onDismissRequest()
-        state.navigator.push(Screen.OpenWith(OpenWithScope.Game(rom.id), rom.title))
+        state.navigator.push(Screen.OpenWith(OpenWithScope.Game(rom.key), rom.title))
       }
       for (hidden in HomeShelf.entries.filter { it in settings.hidden }) {
         MenuButton("menu:show:${hidden.name}", "Show “${hidden.title}”") {

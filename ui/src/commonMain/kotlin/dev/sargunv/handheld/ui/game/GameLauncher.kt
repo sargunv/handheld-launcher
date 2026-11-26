@@ -3,7 +3,7 @@ package dev.sargunv.handheld.ui.game
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
-import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.ui.saves.SaveConflict
@@ -19,15 +19,20 @@ interface GameLauncher {
     get() = false
 
   /**
-   * Where [rom] opens by [rules], in words, such as "Opens in ARMSX2", or null when there's nothing
-   * to say. [collections] are the collections [rom] is in.
+   * Where [game] opens by [rules], in words, such as "Opens in ARMSX2", or null when there's
+   * nothing to say. [collections] are the collections [game] is in.
    */
-  suspend fun opensIn(rom: Rom, rules: LaunchRules, collections: Set<CollectionId>): String?
+  suspend fun opensIn(
+    game: LibraryGame,
+    rules: LaunchRules,
+    collections: Set<CollectionId>,
+  ): String?
 
   /**
-   * Plays [rom], whose file or folder is at [path], in the app [rules] pick for it, and returns
+   * Plays [game], whose file or folder is at [path], in the app [rules] pick for it, and returns
    * once the player is back from the game, with what they should know about how it went, in plain
-   * words. [collections] are the collections [rom] is in.
+   * words. [collections] are the collections [game] is in. A ROM's save syncs with RomM; a local
+   * game's stays on the device, since RomM files saves by ROM.
    *
    * @param onProgress hears what the launch is doing before the game starts, such as downloading
    *   the game's core, in a few words.
@@ -40,7 +45,7 @@ interface GameLauncher {
    *   synced. Null cancels the launch and leaves both copies as they are.
    */
   suspend fun play(
-    rom: Rom,
+    game: LibraryGame,
     path: String,
     rules: LaunchRules,
     collections: Set<CollectionId>,
@@ -52,19 +57,19 @@ interface GameLauncher {
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String>
 
-  /** The copies of [rom]'s saves that save sync kept on this device, newest first. */
-  suspend fun keptSaves(rom: Rom): List<KeptSave>
+  /** The copies of [game]'s saves that save sync kept on this device, newest first. */
+  suspend fun keptSaves(game: LibraryGame): List<KeptSave>
 
   /** A launcher for platforms that can't play games yet. */
   object Unsupported : GameLauncher {
     override suspend fun opensIn(
-      rom: Rom,
+      game: LibraryGame,
       rules: LaunchRules,
       collections: Set<CollectionId>,
     ): String? = null
 
     override suspend fun play(
-      rom: Rom,
+      game: LibraryGame,
       path: String,
       rules: LaunchRules,
       collections: Set<CollectionId>,
@@ -74,6 +79,6 @@ interface GameLauncher {
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> = listOf("Playing games isn't available on this device yet.")
 
-    override suspend fun keptSaves(rom: Rom): List<KeptSave> = emptyList()
+    override suspend fun keptSaves(game: LibraryGame): List<KeptSave> = emptyList()
   }
 }

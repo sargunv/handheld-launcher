@@ -2,6 +2,7 @@ package dev.sargunv.handheld.ui.game
 
 import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.domain.Collection
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.launch.CollectionId
@@ -36,9 +37,9 @@ fun interface AppCatalog {
 sealed interface OpenWithScope {
   val level: RuleLevel
 
-  data class Game(val romId: Long) : OpenWithScope {
+  data class Game(val game: GameKey) : OpenWithScope {
     override val level: RuleLevel
-      get() = RuleLevel.Game(romId)
+      get() = RuleLevel.Game(game)
   }
 
   data class Platform(val platform: PlatformSlug) : OpenWithScope {
@@ -63,8 +64,8 @@ internal fun platformChain(
   installed: Set<String>,
 ): List<RuleStep> =
   RuleChain.explain(
-    // No game has this id, and the subject is in no collection, so only the platform's rules apply.
-    LaunchSubject(gameId = -1, platform = platform),
+    // The subject is no game and in no collection, so only the platform's rules apply.
+    LaunchSubject(game = null, platform = platform),
     launch.toRules().copy(gameOverrides = emptyMap(), collectionRules = emptyList()),
     installed,
   )
@@ -80,8 +81,8 @@ internal fun collectionChain(
   installed: Set<String>,
 ): List<RuleStep> =
   RuleChain.explain(
-    // No game has this id, so its own rule doesn't apply, and it's in only this collection.
-    LaunchSubject(gameId = -1, platform = platform, collections = setOf(collection)),
+    // The subject is no game, so no game's rule applies, and it's in only this collection.
+    LaunchSubject(game = null, platform = platform, collections = setOf(collection)),
     launch.toRules().copy(gameOverrides = emptyMap()),
     installed,
   )

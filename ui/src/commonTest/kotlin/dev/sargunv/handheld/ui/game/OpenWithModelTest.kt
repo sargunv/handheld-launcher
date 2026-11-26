@@ -2,6 +2,7 @@ package dev.sargunv.handheld.ui.game
 
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.launch.CollectionRule
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRules
@@ -22,7 +23,7 @@ class OpenWithModelTest {
       InstalledApp("com.example.notes", "notes"),
     )
   private val jak = Collection(CollectionKind.Regular, 7, "Jak and Daxter", "", 3, false)
-  private val jak1 = LaunchSubject(1, PS2, setOf(jak.launchId))
+  private val jak1 = LaunchSubject(GameKey.Romm(1), PS2, setOf(jak.launchId))
 
   private fun lines(
     rules: LaunchRules,
@@ -76,7 +77,7 @@ class OpenWithModelTest {
   fun explainsAChoiceSkippedBecauseItsAppIsMissing() {
     val rules =
       LaunchRules(
-        gameOverrides = mapOf(1L to LaunchChoice("dev.sargunv.pocketgoal")),
+        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("dev.sargunv.pocketgoal")),
         platformDefaults = mapOf(PS2 to LaunchChoice("com.armsx2")),
       )
     val withoutPocketGoal = apps.filter { it.packageName != "dev.sargunv.pocketgoal" }
@@ -121,7 +122,7 @@ class OpenWithModelTest {
 
   @Test
   fun explainsTheBuiltInSession() {
-    val gaia = LaunchSubject(2, GBA)
+    val gaia = LaunchSubject(GameKey.Romm(2), GBA)
     assertEquals(
       listOf(
         ChainLine("Game: none"),
@@ -130,7 +131,8 @@ class OpenWithModelTest {
       ),
       lines(LaunchRules(), subject = gaia, platformName = "GBA"),
     )
-    val retroArch = LaunchRules(gameOverrides = mapOf(2L to LaunchChoice("com.retroarch")))
+    val retroArch =
+      LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice("com.retroarch")))
     assertEquals(
       listOf(
         ChainLine("Game: RetroArch · opens here", wins = true),
@@ -140,7 +142,7 @@ class OpenWithModelTest {
       lines(retroArch, subject = gaia, platformName = "GBA"),
     )
     // Chosen for a game, it's named with the platform's core.
-    val builtIn = LaunchRules(gameOverrides = mapOf(2L to LaunchChoice.BuiltIn))
+    val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice.BuiltIn))
     assertEquals(
       ChainLine("Game: Built-in · mGBA · opens here", wins = true),
       lines(builtIn, subject = gaia, platformName = "GBA").first(),

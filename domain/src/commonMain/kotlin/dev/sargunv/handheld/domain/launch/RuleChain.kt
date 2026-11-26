@@ -46,7 +46,7 @@ object RuleChain {
     installedPackages: Set<String>,
   ): List<RuleStep> {
     val levels = buildList {
-      add(LaunchRule.GameOverride to rules.gameOverrides[subject.gameId])
+      add(LaunchRule.GameOverride to subject.game?.let(rules.gameOverrides::get))
       for (rule in rules.collectionRulesFor(subject)) {
         add(LaunchRule.CollectionOverride(rule.collection) to rule.choice)
       }

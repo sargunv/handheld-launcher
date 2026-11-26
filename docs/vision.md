@@ -57,8 +57,10 @@ In priority order, for when they conflict:
 2. **Controller first.** Every screen uses the same controls: confirm, back, the
    menu for the focused item, search. Focus is always visible, and comes back
    where you left it.
-3. **The server is the truth; the device is a cache.** Everything you've already
-   seen works offline.
+3. **The server is the truth for what it has; the device can play what it holds
+   too.** Everything you've already seen works offline. A game on the device
+   that the server doesn't have still plays, and becomes the server's game once
+   the server has it.
 4. **Every rule has an override.** A game can override its collection, which can
    override its platform, and any installed app can be the emulator at any
    level.

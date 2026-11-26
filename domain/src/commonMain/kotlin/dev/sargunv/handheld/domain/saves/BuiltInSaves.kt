@@ -1,30 +1,48 @@
 package dev.sargunv.handheld.domain.saves
 
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.platform.PlatformSlug
+
 /**
- * Where the built-in session keeps games' saves: a folder per game under [root], named by the
- * game's id, which holds the game's save memory, its save states and any files its core saves
- * itself. Save memory and states are named after the game's file, as RetroArch names them.
+ * Where the built-in session keeps games' saves: a folder per game under [root], which holds the
+ * game's save memory, its save states and any files its core saves itself. A ROM's folder is named
+ * by its id. A local game's is named by its platform and file name, under `local/`, and becomes the
+ * ROM's once the file matches one ([localFolderOf]). Save memory and states are named after the
+ * game's file, as RetroArch names them.
  */
 class BuiltInSaves(private val root: String) {
-  /** The folder of the game [gameId]. */
-  fun folderOf(gameId: Long): String = "${root.trimEnd('/')}/$gameId"
-
-  /** The save memory file of the game [gameId], whose file is at [romPath]. */
-  fun saveRamOf(gameId: Long, romPath: String): String = "${pathOf(gameId, romPath)}.srm"
+  /** The folder of [game], a game on [platform]. */
+  fun folderOf(game: GameKey, platform: PlatformSlug): String =
+    when (game) {
+      is GameKey.Romm -> "${root.trimEnd('/')}/${game.romId}"
+      is GameKey.Local -> localFolderOf(platform, game.path)
+    }
 
   /**
-   * The save-state files of the game [gameId], whose file is at [romPath], one for each of
-   * [STATE_SLOTS], in order. A state's picture goes beside it, at [thumbnailOf].
+   * The folder a local game kept its saves in while its file, at [romPath] on [platform], matched
+   * none of the server's games.
    */
-  fun statesOf(gameId: Long, romPath: String): List<String> = STATE_SLOTS.map {
-    "${pathOf(gameId, romPath)}.state$it"
+  fun localFolderOf(platform: PlatformSlug, romPath: String): String =
+    "${root.trimEnd('/')}/local/${platform.value}/${romPath.substringAfterLast('/')}"
+
+  /**
+   * The save memory file of the game whose saves are in [folder] and whose file is at [romPath].
+   */
+  fun saveRamOf(folder: String, romPath: String): String = "${pathOf(folder, romPath)}.srm"
+
+  /**
+   * The save-state files of the game whose saves are in [folder] and whose file is at [romPath],
+   * one for each of [STATE_SLOTS], in order. A state's picture goes beside it, at [thumbnailOf].
+   */
+  fun statesOf(folder: String, romPath: String): List<String> = STATE_SLOTS.map {
+    "${pathOf(folder, romPath)}.state$it"
   }
 
   /** The game's file name without its extension, in the game's folder. */
-  private fun pathOf(gameId: Long, romPath: String): String {
+  private fun pathOf(folder: String, romPath: String): String {
     val name = romPath.substringAfterLast('/')
     val stem = name.substringBeforeLast('.').ifEmpty { name }
-    return "${folderOf(gameId)}/$stem"
+    return "$folder/$stem"
   }
 
   companion object {

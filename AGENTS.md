@@ -40,15 +40,18 @@ common ones:
   screenshot: the focused element first, then each visible element with its test
   tag, text, accessibility label and bounds. Confirming on a game that isn't on
   the device downloads it, so check first: Home's covers say so in their label,
-  and Library marks the games on the device with an `onDevice:<romId>` element.
+  and Library marks the games on the device with an `onDevice:<romId>` element,
+  and local games with `onDevice:local:<path>`.
 - `mise run android:open <target>`: show a screen of the debug app straight
   away: `place:home`, `place:library`, `place:downloads`, `place:settings`,
-  `game:<romId>`, `library` (on its last tab), `library:tab:<tab>` (`on-device`,
-  `platforms`, `collections`, `all-games`), `library:<platform-slug>`,
-  `library:collection:<id>`, `library:collection:smart:<id>`, `settings` or
-  `settings:<section>` (`controls`, `romm`, `retroachievements`, `emulators`,
-  `storage`, `about`). Before sign-in, only the `settings` targets show. It's
-  the `open` extra of the launch intent, so
+  `game:<romId>`, `local:<path>` (a local game: a file in a platform's folder
+  that matches none of the server's games), `library` (on its last tab),
+  `library:tab:<tab>` (`on-device`, `platforms`, `collections`, `all-games`),
+  `library:<platform-slug>`, `library:collection:<id>`,
+  `library:collection:smart:<id>`, `settings` or `settings:<section>`
+  (`controls`, `romm`, `retroachievements`, `emulators`, `storage`, `about`).
+  Before sign-in, only the `settings` targets show. It's the `open` extra of the
+  launch intent, so
   `adb shell am start -n dev.sargunv.handheld/.MainActivity --es open game:42`
   does the same.
 - `mise run android:lock -- <command>`: run a command while holding the device's

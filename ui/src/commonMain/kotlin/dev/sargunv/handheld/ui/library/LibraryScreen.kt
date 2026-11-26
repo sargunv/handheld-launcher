@@ -64,6 +64,8 @@ import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
+import dev.sargunv.handheld.domain.LibraryGame
+import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.Placeholder
@@ -87,6 +89,7 @@ import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.GameDescription
 import dev.sargunv.handheld.ui.places.MenuButton
+import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.SyncStatus
@@ -151,9 +154,10 @@ private fun rememberShelves(state: AppState, tab: LibraryTab): List<LibraryShelf
   val cache = state.library
   val platforms by remember(cache) { cache.platforms() }.collectAsState(null)
   val collections by remember(cache) { cache.collections() }.collectAsState(null)
-  return remember(tab, platforms, collections) {
+  val local = state.localGames
+  return remember(tab, platforms, collections, local) {
     when (tab) {
-      LibraryTab.Platforms -> platforms?.let(::platformShelves)
+      LibraryTab.Platforms -> platforms?.let { platformShelves(it, local) }
       LibraryTab.Collections -> collections?.let(::collectionShelves)
       LibraryTab.OnDevice,
       LibraryTab.AllGames -> emptyList()
@@ -257,9 +261,11 @@ private fun TabGames(state: AppState, tab: LibraryTab, gridStates: SaveableState
   val cache = state.library
   val all by remember(cache) { cache.allRoms() }.collectAsState(null)
   val onDevice = tab == LibraryTab.OnDevice
+  // The local games are on the device, and in the whole library.
+  val local = state.localGames
   val roms =
-    remember(all, onDevice, state.deviceStates) {
-      if (onDevice) all?.onDevice(state.deviceStates) else all
+    remember(all, onDevice, state.deviceStates, local) {
+      (if (onDevice) all?.onDevice(state.deviceStates) else all)?.let { it + local }
     }
   GameGridPane(
     state = state,
@@ -425,8 +431,9 @@ private fun rememberShelfSummaries(
   val cache = state.library
   val romPlatforms by remember(cache) { cache.romPlatforms() }.collectAsState(emptyMap())
   val collectionRoms by remember(cache) { cache.collectionRoms() }.collectAsState(emptyMap())
-  return remember(shelves, romPlatforms, collectionRoms, state.deviceStates) {
-    shelfSummaries(shelves, romPlatforms, collectionRoms, state.deviceStates)
+  val local = state.localGames
+  return remember(shelves, romPlatforms, collectionRoms, state.deviceStates, local) {
+    shelfSummaries(shelves, romPlatforms, collectionRoms, state.deviceStates, local)
   }
 }
 
@@ -514,7 +521,20 @@ private fun ShelfGames(
         }.map { shelfKey to it }
       }
       .collectAsState(null)
-  val roms = loaded?.takeIf { it.first == shelfKey }?.second
+  // A platform's local games are in its grid too.
+  val local = state.localGames
+  val roms =
+    remember(loaded, shelf, local) {
+      loaded
+        ?.takeIf { it.first == shelfKey }
+        ?.second
+        ?.let { roms ->
+          when (shelf) {
+            is LibraryShelf.OfPlatform -> roms + local.filter { it.platformId == shelf.platform.id }
+            is LibraryShelf.OfCollection -> roms
+          }
+        }
+    }
 
   fun moveTo(next: LibraryShelf?) {
     if (next == null) return
@@ -566,7 +586,7 @@ private fun ShelfGames(
         shelves,
         shelf,
         roms?.size,
-        roms?.count { state.deviceStates[it.id] == DeviceState.OnDevice },
+        roms?.count { deviceStateOf(it, state.deviceStates) == DeviceState.OnDevice },
       )
     }
   }
@@ -583,7 +603,7 @@ private fun GameGridPane(
   gridStates: SaveableStateHolder,
   sourceKey: String,
   title: String,
-  roms: List<Rom>?,
+  roms: List<LibraryGame>?,
   filters: Boolean,
   empty: String,
   backHint: String,
@@ -710,7 +730,7 @@ private fun ShelfHeader(
 }
 
 @Composable
-private fun GameGrid(state: AppState, shown: List<Rom>, index: Map<Char, Int>) {
+private fun GameGrid(state: AppState, shown: List<LibraryGame>, index: Map<Char, Int>) {
   val view = state.libraryView
   val grid = rememberLazyGridState()
   val scope = LocalFocusScope.current
@@ -722,7 +742,7 @@ private fun GameGrid(state: AppState, shown: List<Rom>, index: Map<Char, Int>) {
       grid.scrollToItem(target)
       // The grid composes the items it scrolled to during the next layout.
       withFrameNanos {}
-      scope?.focus(gameKey(shown[target]))
+      scope?.focus(gameTag(shown[target]))
     } finally {
       // Clearing it any sooner would cancel this effect.
       if (view.jump === jump) view.jump = null
@@ -736,22 +756,23 @@ private fun GameGrid(state: AppState, shown: List<Rom>, index: Map<Char, Int>) {
     verticalArrangement = Arrangement.spacedBy(16.dp),
     horizontalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    items(shown, key = { it.id }) { rom ->
-      val key = gameKey(rom)
+    items(shown, key = { gameTag(it) }) { game ->
+      val key = gameTag(game)
       LibraryCover(
-        rom = rom,
-        deviceState = state.deviceStates[rom.id],
+        game = game,
+        deviceState = deviceStateOf(game, state.deviceStates),
         modifier =
           Modifier.aspectRatio(3f / 4f)
             .testTag(key)
-            .onFocusChanged { if (it.isFocused) state.focused = Focused.OnGame(rom) }
-            .focusItem(key, onConfirm = { state.navigator.push(Screen.Game(rom.id, rom.title)) }),
+            .onFocusChanged { if (it.isFocused) state.focused = Focused.OnGame(game) }
+            .focusItem(
+              key,
+              onConfirm = { state.navigator.push(Screen.Game(game.key, game.title)) },
+            ),
       )
     }
   }
 }
-
-private fun gameKey(rom: Rom) = "game:${rom.id}"
 
 /** What a screen reader says for a game's [DeviceState]. */
 private fun deviceStateText(state: DeviceState?) =
@@ -761,16 +782,28 @@ private fun deviceStateText(state: DeviceState?) =
     null -> "Not on this device"
   }
 
-/** A game's cover, marked when the game is on the device or on its way. */
+/**
+ * A game's cover, marked when the game is on the device or on its way. A local game has no cover,
+ * so its tile shows its title, and says it's not on the server.
+ */
 @Composable
-private fun LibraryCover(rom: Rom, deviceState: DeviceState?, modifier: Modifier) {
+private fun LibraryCover(game: LibraryGame, deviceState: DeviceState?, modifier: Modifier) {
   Box(
     modifier.semantics(mergeDescendants = true) {
       role = Role.Button
       stateDescription = deviceStateText(deviceState)
     },
   ) {
-    Cover(rom.coverSmallUrl, rom.title, Modifier.fillMaxSize())
+    when (game) {
+      is Rom -> Cover(game.coverSmallUrl, game.title, Modifier.fillMaxSize())
+      is LocalGame ->
+        Cover(
+          null,
+          game.title,
+          Modifier.fillMaxSize(),
+          description = "${game.title}, $NOT_ON_SERVER",
+        )
+    }
     when (deviceState) {
       DeviceState.OnDevice ->
         Box(
@@ -778,7 +811,12 @@ private fun LibraryCover(rom: Rom, deviceState: DeviceState?, modifier: Modifier
             .padding(8.dp)
             .size(12.dp)
             .background(Placeholder.text, CircleShape)
-            .testTag("onDevice:${rom.id}"),
+            .testTag(
+              when (game) {
+                is Rom -> "onDevice:${game.id}"
+                is LocalGame -> "onDevice:local:${game.path}"
+              },
+            ),
         )
       is DeviceState.Downloading ->
         Box(
@@ -900,7 +938,7 @@ private fun GamesSecondary(state: AppState, filters: Boolean) {
   val view = state.libraryView
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Box(Modifier.fillMaxWidth().weight(1f)) {
-      (state.focused as? Focused.OnGame)?.let { GameDescription(state, it.rom) }
+      (state.focused as? Focused.OnGame)?.let { GameDescription(state, it.game) }
     }
     FlowRow(
       horizontalArrangement = Arrangement.spacedBy(8.dp),

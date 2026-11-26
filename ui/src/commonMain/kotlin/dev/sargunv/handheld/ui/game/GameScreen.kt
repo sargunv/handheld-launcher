@@ -38,6 +38,7 @@ import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RommAchievementProgress
 import dev.sargunv.handheld.data.achievements.achievementProgress
+import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.Removal
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.formatSize
@@ -46,6 +47,9 @@ import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.LibraryGame
+import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.cover.Cover
@@ -57,6 +61,7 @@ import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
+import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveConflictScreen
@@ -81,22 +86,79 @@ private class PendingStillRunning(val prompt: StillRunning) {
   val choice = CompletableDeferred<StillRunningChoice>()
 }
 
+/** What the Game screen knows of its game. */
+private sealed interface ShownGame {
+  data object Loading : ShownGame
+
+  data class Found(val game: LibraryGame) : ShownGame
+
+  /** A local game whose file is gone. */
+  data object Gone : ShownGame
+}
+
+/**
+ * The game [screen] shows: a ROM from the library, or a local game while its file matches nothing.
+ * A local game that a scan matches to a ROM, such as after the server gained it, becomes that ROM's
+ * screen, unless [playing] holds it.
+ */
+@Composable
+private fun rememberShownGame(state: AppState, screen: Screen.Game, playing: Boolean): ShownGame {
+  val key = screen.key
+  // The ROM a local game's file matched, whose screen takes this one's place.
+  var matched by remember(key) { mutableStateOf<Long?>(null) }
+  val shown by
+    produceState<ShownGame>(ShownGame.Loading, key) {
+      when (key) {
+        is GameKey.Romm -> state.library.rom(key.romId)?.let { value = ShownGame.Found(it) }
+        is GameKey.Local ->
+          state.downloads.localGame(key.path).collect {
+            when (it) {
+              is LocalGameState.Local -> {
+                value = ShownGame.Found(it.game)
+                matched = null
+              }
+              LocalGameState.Gone -> value = ShownGame.Gone
+              // It shows as it was until its ROM's screen takes over.
+              is LocalGameState.Matched -> matched = it.romId
+              null -> Unit
+            }
+          }
+      }
+    }
+  LaunchedEffect(matched, playing) {
+    val romId = matched ?: return@LaunchedEffect
+    if (playing) return@LaunchedEffect
+    val rom = state.library.rom(romId) ?: return@LaunchedEffect
+    state.navigator.replace(screen, Screen.Game(rom.id, rom.title))
+  }
+  return shown
+}
+
 /**
  * A game: one primary action, focused first, that plays the game when it's on the device and
  * downloads it when it isn't. Everything else is in the menu. When [Screen.Game.play] asks, it
- * plays the game as it opens, if the game is on the device.
+ * plays the game as it opens, if the game is on the device. A local game is always on the device,
+ * and isn't on the server, so its saves stay on the device.
  *
  * A launch runs while the screen shows, so while one is under way, leaving the screen asks first,
  * and the menu and the main menu wait.
  */
 @Composable
 internal fun GameScreen(state: AppState, screen: Screen.Game) {
-  val rom by produceState<Rom?>(null, screen.romId) { value = state.library.rom(screen.romId) }
+  var playing by remember { mutableStateOf(false) }
+  val shown = rememberShownGame(state, screen, playing)
+  val game = (shown as? ShownGame.Found)?.game
   val status by
-    remember(rom) { rom?.let { state.downloads.status(it) } ?: flowOf(null) }.collectAsState(null)
+    remember(game) {
+        when (game) {
+          is Rom -> state.downloads.status(game)
+          is LocalGame -> flowOf(RomStatus.OnDevice(game.path))
+          null -> flowOf(null)
+        }
+      }
+      .collectAsState(null)
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   var confirmRemove by rememberSaveable { mutableStateOf(false) }
-  var playing by remember { mutableStateOf(false) }
   // What the launch is doing before the game starts, such as getting its core.
   var playProgress by remember { mutableStateOf<String?>(null) }
   // What the player should know about the last thing they did here, such as how a play went.
@@ -108,16 +170,16 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   var autoPlayed by rememberSaveable { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
 
-  fun play(rom: Rom, path: String) {
+  fun play(game: LibraryGame, path: String) {
     playing = true
     notes = emptyList()
     scope.launch {
       try {
-        val collections = state.library.collectionsOf(rom.id).mapTo(mutableSetOf()) { it.launchId }
+        val collections = collectionsOf(state, game)
         val rules = state.settings.launch.toRules()
         notes =
           state.launcher.play(
-            rom,
+            game,
             path,
             rules,
             collections,
@@ -150,7 +212,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     }
   }
 
-  val current = rom
+  val current = game
   val currentStatus = status
   LaunchedEffect(current, currentStatus) {
     if (!screen.play || autoPlayed || current == null || currentStatus == null) {
@@ -201,7 +263,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         horizontalArrangement = Arrangement.spacedBy(32.dp),
       ) {
         Cover(
-          current?.let { it.coverLargeUrl ?: it.coverSmallUrl },
+          (current as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
           screen.title,
           Modifier.size(240.dp, 320.dp),
           description = null,
@@ -214,11 +276,20 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             modifier = Modifier.semantics { heading() },
           )
           current?.let { GameFacts(state, it) }
+          if (shown == ShownGame.Gone) {
+            Text(
+              "This game's file is no longer on the device.",
+              color = Placeholder.mutedText,
+              modifier = Modifier.testTag("note"),
+            )
+          }
           if (current != null && primary != null) {
             MenuButton("primary", primary.label, enabled = primary.isAction) {
               when (primary) {
-                is PrimaryAction.Download -> scope.launch { state.downloads.enqueue(current) }
-                PrimaryAction.Retry -> scope.launch { state.downloads.retry(current.id) }
+                is PrimaryAction.Download ->
+                  if (current is Rom) scope.launch { state.downloads.enqueue(current) }
+                PrimaryAction.Retry ->
+                  if (current is Rom) scope.launch { state.downloads.retry(current.id) }
                 is PrimaryAction.Play -> play(current, primary.path)
                 else -> Unit
               }
@@ -238,7 +309,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
                 },
             )
           }
-          current?.summary?.let {
+          (current as? Rom)?.summary?.let {
             Text(it, color = Placeholder.mutedText, maxLines = 3, overflow = TextOverflow.Ellipsis)
           }
         }
@@ -262,9 +333,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             RomStatus.Queued,
             is RomStatus.Downloading,
             is RomStatus.Failed ->
-              MenuButton("menu:cancel", "Cancel download") {
-                scope.launch { state.downloads.cancel(current.id) }
-                close()
+              if (current is Rom) {
+                MenuButton("menu:cancel", "Cancel download") {
+                  scope.launch { state.downloads.cancel(current.id) }
+                  close()
+                }
               }
             is RomStatus.OnDevice ->
               MenuButton("menu:remove", "Remove from device") {
@@ -276,7 +349,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           }
           MenuButton("menu:open-with", "Open with") {
             close()
-            state.navigator.push(Screen.OpenWith(OpenWithScope.Game(current.id), current.title))
+            state.navigator.push(Screen.OpenWith(OpenWithScope.Game(current.key), current.title))
           }
         }
       }
@@ -295,7 +368,12 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             modifier = Modifier.semantics { heading() },
           )
           Text(
-            "Its saves stay, here and on RomM, and you can download it again.",
+            when (current) {
+              is Rom -> "Its saves stay, here and on RomM, and you can download it again."
+              is LocalGame ->
+                "It isn't on your server, so you can't download it again. Its saves stay on " +
+                  "this device."
+            },
             color = Placeholder.mutedText,
           )
           Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -303,8 +381,18 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             MenuButton("remove:confirm", "Remove") {
               close()
               scope.launch {
+                val removal =
+                  when (current) {
+                    is Rom -> state.downloads.remove(current)
+                    is LocalGame -> state.downloads.remove(current)
+                  }
+                // A local game removed is gone, so its page has nothing left to show.
+                if (current is LocalGame && removal == Removal.Removed) {
+                  state.navigator.back()
+                  return@launch
+                }
                 notes =
-                  when (val removal = state.downloads.remove(current)) {
+                  when (removal) {
                     is Removal.HoldsOtherFiles ->
                       listOf(
                         "The game's folder also holds ${removal.names.joinToString()}, " +
@@ -366,15 +454,34 @@ private fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit) 
   }
 }
 
-/** The game's platform, release year and genres, on one line. */
+/**
+ * The game's platform, release year and genres, on one line. A local game has its platform, its
+ * size, and that it isn't on the server.
+ */
 @Composable
-private fun GameFacts(state: AppState, rom: Rom) {
+private fun GameFacts(state: AppState, game: LibraryGame) {
   val platforms by remember(state.library) { state.library.platforms() }.collectAsState(emptyList())
-  val platform = platforms.find { it.id == rom.platformId }?.name ?: rom.platformSlug
-  // An ISO instant starts with its year.
-  val facts = listOfNotNull(platform, rom.releaseDate?.toString()?.take(4)) + rom.genres.take(2)
+  val platform = platforms.find { it.id == game.platformId }?.name ?: game.platformSlug
+  val facts =
+    when (game) {
+      // An ISO instant starts with its year.
+      is Rom -> listOfNotNull(platform, game.releaseDate?.toString()?.take(4)) + game.genres.take(2)
+      is LocalGame ->
+        listOf(
+          platform,
+          formatSize(game.sizeBytes),
+          NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
+        )
+    }
   Text(facts.joinToString(" · "), color = Placeholder.mutedText)
 }
+
+/** The collections [game] is in, as launch rules name them. A local game is in none. */
+private suspend fun collectionsOf(state: AppState, game: LibraryGame) =
+  when (game) {
+    is Rom -> state.library.collectionsOf(game.id).mapTo(mutableSetOf()) { it.launchId }
+    is LocalGame -> emptySet()
+  }
 
 /** What the primary action does, by the game's [RomStatus]. */
 internal sealed interface PrimaryAction {
@@ -402,16 +509,16 @@ internal sealed interface PrimaryAction {
   }
 }
 
-/** The primary action for [rom], with [progress] saying what a launch underway is doing. */
+/** The primary action for [game], with [progress] saying what a launch underway is doing. */
 internal fun primaryAction(
-  rom: Rom,
+  game: LibraryGame,
   status: RomStatus?,
   playing: Boolean,
   progress: String? = null,
 ): PrimaryAction? =
   when (status) {
     null -> null
-    RomStatus.NotOnDevice -> PrimaryAction.Download(rom.sizeBytes)
+    RomStatus.NotOnDevice -> PrimaryAction.Download(game.sizeBytes)
     RomStatus.Queued -> PrimaryAction.Waiting("Queued to download")
     is RomStatus.Downloading -> {
       val percent =
@@ -447,8 +554,57 @@ private sealed interface SaveHistoryState {
  */
 @Composable
 internal fun GameSecondary(state: AppState, screen: Screen.Game) {
-  val rom by produceState<Rom?>(null, screen.romId) { value = state.library.rom(screen.romId) }
-  val current = rom ?: return
+  val game by produceState<LibraryGame?>(null, screen.key) { value = state.game(screen.key) }
+  when (val current = game) {
+    is Rom -> RomSecondary(state, current)
+    is LocalGame -> LocalSecondary(state, current)
+    null -> Unit
+  }
+}
+
+/** Where [game] opens under the launch settings, in words. */
+@Composable
+private fun rememberOpensIn(state: AppState, game: LibraryGame): String? {
+  val launch = state.settings.launch
+  val opensIn by
+    produceState<String?>(null, game, launch) {
+      value = state.launcher.opensIn(game, launch.toRules(), collectionsOf(state, game))
+    }
+  return opensIn
+}
+
+/**
+ * The lower screen for a local game: it isn't on the server, so its saves stay on the device, and
+ * where it opens.
+ */
+@Composable
+private fun LocalSecondary(state: AppState, game: LocalGame) {
+  val opensIn = rememberOpensIn(state, game)
+  Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Text(
+      NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
+      color = Placeholder.text,
+      fontSize = 20.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.testTag("game:not-on-server").semantics { heading() },
+    )
+    Text(
+      "Saves stay on this device until the game is on your server.",
+      color = Placeholder.mutedText,
+      modifier = Modifier.testTag("game:saves-local"),
+    )
+    Text(game.path, color = Placeholder.mutedText, fontSize = 14.sp)
+    Spacer(Modifier.weight(1f))
+    opensIn?.let { Text(it, color = Placeholder.mutedText) }
+  }
+}
+
+/**
+ * The lower screen for a ROM: its saves on RomM across devices, the copies save sync kept on this
+ * device, and where it opens.
+ */
+@Composable
+private fun RomSecondary(state: AppState, current: Rom) {
   val history by
     produceState<SaveHistoryState>(SaveHistoryState.Loading, current, state.savesChanged) {
       value = loadSaveHistory(state, current.id)
@@ -457,13 +613,7 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
     produceState(emptyList<KeptSave>(), current, state.savesChanged) {
       value = state.launcher.keptSaves(current)
     }
-  val launch = state.settings.launch
-  val opensIn by
-    produceState<String?>(null, current, launch) {
-      val collections =
-        state.library.collectionsOf(current.id).mapTo(mutableSetOf()) { it.launchId }
-      value = state.launcher.opensIn(current, launch.toRules(), collections)
-    }
+  val opensIn = rememberOpensIn(state, current)
   val achievements by
     produceState<RommAchievementProgress?>(null, current) {
       value = loadAchievementProgress(state, current.id)

@@ -24,6 +24,8 @@ data class LocalFile(
   /** The platform whose folder holds the file. */
   val platformId: Long,
   val sizeBytes: Long,
+  /** When the file last changed, in milliseconds since the epoch. */
+  val modifiedMillis: Long = 0,
 )
 
 /**
@@ -124,7 +126,8 @@ internal class ContentScanner(
         seen += path.toString()
         val found = content?.let { c -> candidates.filter { c.matches(it.files.single()) } }
         if (found.isNullOrEmpty()) {
-          unmatched += LocalFile(path.toString(), sharing.first().id, metadata.size)
+          unmatched +=
+            LocalFile(path.toString(), sharing.first().id, metadata.size, lastModified(path))
         } else {
           for (rom in found) matched.getOrPut(rom.id) { path.toString() }
         }
