@@ -166,6 +166,8 @@ class MainActivity : ComponentActivity() {
     // Read before anything else: focus says whether the launcher was in front when the intent came.
     val wasInFront = hasWindowFocus()
     super.onNewIntent(intent)
+    // The second display's home only hands the controller back, and the launcher stays as it was.
+    if (intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false)) return
     setIntent(intent)
     // The activity picks a debug screen when it's created, so a launch that opens, leaves or
     // changes one recreates it. That also closes a game session the old screen was running.
@@ -179,8 +181,7 @@ class MainActivity : ComponentActivity() {
     when (
       val response =
         respondTo(
-          // The second display's home hands the focus back with HOME's intent, which isn't a press.
-          home = home && !intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false),
+          home = home,
           open = openRequest(intent),
           wasInFront = wasInFront,
           playing = player?.isPlaying == true,
