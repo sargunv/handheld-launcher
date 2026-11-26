@@ -62,6 +62,24 @@ class LibraryModelTest {
   }
 
   @Test
+  fun countsEachShelfsGamesOnTheDevice() {
+    val shelves = libraryShelves(listOf(gb, nes), allGames = true)
+    val romPlatforms = mapOf(1L to 1L, 2L to 1L, 3L to 2L, 4L to 2L)
+    val states =
+      mapOf(
+        1L to DeviceState.OnDevice,
+        3L to DeviceState.OnDevice,
+        4L to DeviceState.Downloading(0f),
+      )
+    assertEquals(
+      listOf(Triple("all", 5, 2), Triple("platform:1", 3, 1), Triple("platform:2", 2, 1)),
+      shelfSummaries(shelves, romPlatforms, states).map {
+        Triple(it.shelf.key, it.games, it.onDevice)
+      },
+    )
+  }
+
+  @Test
   fun sortsByNameOrNewestFirst() {
     val roms = listOf(rom(1, "bravo", 3), rom(2, "Alpha", 1), rom(3, "charlie", 2))
     assertEquals(

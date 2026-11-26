@@ -85,6 +85,7 @@ class LibraryCacheTest {
     assertEquals(roms[0], cache.rom(1))
     assertNull(cache.rom(99))
     assertEquals(4, cache.romCount())
+    assertEquals(mapOf(1L to 1L, 2L to 1L, 3L to 1L, 4L to 2L), cache.romPlatforms().first())
   }
 
   @Test

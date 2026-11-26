@@ -4,12 +4,13 @@ import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.ui.places.gameCount
 import kotlinx.serialization.Serializable
 
 /** Library's settings. */
 @Serializable
 data class LibrarySettings(
-  /** Whether an "All games" shelf, holding the whole library, comes before the platforms. */
+  /** Whether an "All games" entry, holding the whole library, comes before the platforms. */
   val allGames: Boolean = false,
 )
 
@@ -47,7 +48,10 @@ internal fun deviceStates(statuses: Map<Long, RomStatus>): Map<Long, DeviceState
   }
 }
 
-/** One page of Library, which L and R move between. */
+/**
+ * An entry on Library's list of platforms, which opens a grid of its games. Inside a grid, L and R
+ * move to the neighboring entries.
+ */
 @Immutable
 sealed interface LibraryShelf {
   /** Identifies the shelf across syncs. */
@@ -67,8 +71,8 @@ sealed interface LibraryShelf {
 }
 
 /**
- * The shelves in the order L and R step through them: "All games" first when [allGames] is on, then
- * each platform with games, in the order given.
+ * The shelves in the order Library lists them: "All games" first when [allGames] is on, then each
+ * platform with games, in the order given.
  */
 fun libraryShelves(platforms: List<Platform>, allGames: Boolean): List<LibraryShelf> = buildList {
   if (allGames) add(LibraryShelf.AllGames)
@@ -84,6 +88,45 @@ fun List<LibraryShelf>.shelfAt(key: String?): LibraryShelf? =
  */
 fun List<LibraryShelf>.step(key: String?, step: Int): LibraryShelf? =
   getOrNull(indexOfFirst { it.key == key }.coerceAtLeast(0) + step)
+
+/** A shelf on Library's list, with how many games it holds and how many are on this device. */
+@Immutable
+data class ShelfSummary(val shelf: LibraryShelf, val games: Int, val onDevice: Int) {
+  /** What a screen reader says for the shelf. */
+  val description: String
+    get() = "${shelf.title}, ${gameCount(games)}, $onDevice on this device"
+}
+
+/**
+ * The [shelves] with their counts. [romPlatforms] gives each game's platform by ROM id, and
+ * [states] says which games are on the device. "All games" holds every platform's games.
+ */
+fun shelfSummaries(
+  shelves: List<LibraryShelf>,
+  romPlatforms: Map<Long, Long>,
+  states: Map<Long, DeviceState>,
+): List<ShelfSummary> {
+  val onDevice =
+    states
+      .filterValues { it == DeviceState.OnDevice }
+      .keys
+      .mapNotNull(romPlatforms::get)
+      .groupingBy { it }
+      .eachCount()
+  val platforms = shelves.filterIsInstance<LibraryShelf.OfPlatform>().map { it.platform }
+  return shelves.map { shelf ->
+    when (shelf) {
+      LibraryShelf.AllGames ->
+        ShelfSummary(
+          shelf,
+          platforms.sumOf { it.romCount },
+          platforms.sumOf { onDevice[it.id] ?: 0 },
+        )
+      is LibraryShelf.OfPlatform ->
+        ShelfSummary(shelf, shelf.platform.romCount, onDevice[shelf.platform.id] ?: 0)
+    }
+  }
+}
 
 enum class LibrarySort(val title: String) {
   Name("Name"),

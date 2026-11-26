@@ -35,6 +35,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -45,9 +46,21 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
@@ -73,7 +86,6 @@ import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.places.gameCount
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /** A request to jump to the first game under [letter]. Each request is a new one. */
@@ -82,8 +94,11 @@ class Jump(val letter: Char)
 /** What Library shows, which its upper and lower screens share. */
 @Stable
 class LibraryState {
-  /** The key of the shelf on screen, or null for the first. */
+  /** The key of the shelf focused on the list, or open, or null for the first. */
   var shelfKey: String? by mutableStateOf(null)
+
+  /** Whether the shelf's games are open, rather than the list of shelves. */
+  var isOpen: Boolean by mutableStateOf(false)
   var filter: LibraryFilter by mutableStateOf(LibraryFilter.All)
   var sort: LibrarySort by mutableStateOf(LibrarySort.Name)
 
@@ -96,9 +111,9 @@ class LibraryState {
 }
 
 /**
- * Library: one shelf at a time, a platform or the whole library, as a grid of covers from the
- * library cache. L and R step between shelves; past the first or last they go on to the neighboring
- * place.
+ * Library: a list of shelves, each a platform or the whole library, from the library cache. A shelf
+ * opens as a grid of its games, where L and R step to the neighboring shelves and Back returns to
+ * the list.
  */
 @Composable
 internal fun LibraryPlace(state: AppState) {
@@ -111,12 +126,164 @@ internal fun LibraryPlace(state: AppState) {
       libraryShelves(platforms.orEmpty(), settings.allGames)
     }
   val shelf = shelves.shelfAt(view.shelfKey)
-  val shelfKey = shelf?.key
+  // Each shelf, sort and filter keeps its own focus and scroll position, while the list shows too.
+  val shelfStates = rememberSaveableStateHolder()
+  if (view.isOpen && shelf != null) {
+    ShelfGames(state, shelves, shelf, shelfStates)
+  } else {
+    ShelfList(state, shelves, shelf, loaded = platforms != null)
+  }
+}
+
+/** The list of shelves, focused on [focused]. Confirm opens the focused shelf. */
+@Composable
+private fun ShelfList(
+  state: AppState,
+  shelves: List<LibraryShelf>,
+  focused: LibraryShelf?,
+  loaded: Boolean,
+) {
+  val view = state.libraryView
+  val summaries = rememberShelfSummaries(state, shelves)
+  var menuOpen by rememberSaveable { mutableStateOf(false) }
+  // A new scope each time the list shows, so focus lands on the shelf that was open, even when L
+  // and R moved on from the one that opened.
+  FocusScope(
+    Modifier.fillMaxSize().onAction { action ->
+      if (action == Action.Menu) {
+        menuOpen = true
+        true
+      } else {
+        false
+      }
+    },
+    initialFocus = focused?.let(::shelfTileKey),
+  ) {
+    Column(Modifier.fillMaxSize()) {
+      Box(Modifier.fillMaxWidth().weight(1f)) {
+        if (loaded && shelves.isEmpty()) {
+          Text(
+            when (state.sync) {
+              SyncStatus.Failed -> "Couldn't reach your server to sync your library."
+              SyncStatus.Synced -> "Your library has no games yet."
+              else -> "Syncing your library"
+            },
+            color = Placeholder.mutedText,
+            modifier = Modifier.align(Alignment.Center),
+          )
+        }
+        if (summaries.isNotEmpty()) {
+          ShelfTiles(
+            summaries = summaries,
+            focused = focused,
+            onFocus = { view.shelfKey = it.key },
+            onOpen = {
+              view.shelfKey = it.key
+              view.isOpen = true
+              state.focused = null
+            },
+          )
+        }
+      }
+      HintBar(
+        buildList {
+          if (summaries.isNotEmpty()) add(Hint(Action.Confirm, "Open"))
+          add(Hint(Action.Menu, "Menu"))
+          add(Hint(Action.QuickMenu, "Quick menu"))
+        },
+      )
+    }
+    if (menuOpen) {
+      ListMenu(state, onDismissRequest = { menuOpen = false })
+    }
+  }
+}
+
+@Composable
+private fun ShelfTiles(
+  summaries: List<ShelfSummary>,
+  focused: LibraryShelf?,
+  onFocus: (LibraryShelf) -> Unit,
+  onOpen: (LibraryShelf) -> Unit,
+) {
+  // The list starts at the focused shelf, so its tile is there for focus to come back to.
+  val grid =
+    rememberLazyGridState(
+      initialFirstVisibleItemIndex =
+        summaries.indexOfFirst { it.shelf == focused }.coerceAtLeast(0),
+    )
+  FocusLazyVerticalGrid(
+    columns = GridCells.Adaptive(220.dp),
+    modifier = Modifier.fillMaxSize().testTag("library:shelves"),
+    state = grid,
+    contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 8.dp, bottom = 24.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+    horizontalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    items(summaries, key = { it.shelf.key }) { summary ->
+      val key = shelfTileKey(summary.shelf)
+      Box(
+        Modifier.testTag(key)
+          .semantics {
+            contentDescription = summary.description
+            role = Role.Button
+          }
+          .onFocusChanged { if (it.isFocused) onFocus(summary.shelf) }
+          .focusItem(key, onConfirm = { onOpen(summary.shelf) })
+          .height(112.dp)
+          .background(Placeholder.tile)
+          .padding(16.dp),
+      ) {
+        // The tile's description says all of this once.
+        Column(
+          Modifier.align(Alignment.BottomStart).clearAndSetSemantics {},
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          Text(summary.shelf.title, color = Placeholder.text, fontSize = 18.sp)
+          Text(gameCount(summary.games), color = Placeholder.mutedText, fontSize = 14.sp)
+          if (summary.onDevice > 0) {
+            Text(
+              "${summary.onDevice} on this device",
+              color = Placeholder.mutedText,
+              fontSize = 14.sp,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+private fun shelfTileKey(shelf: LibraryShelf) = "library:${shelf.key}"
+
+/** The [shelves] with their counts of games, all and on this device. */
+@Composable
+private fun rememberShelfSummaries(
+  state: AppState,
+  shelves: List<LibraryShelf>,
+): List<ShelfSummary> {
+  val cache = state.library
+  val romPlatforms by remember(cache) { cache.romPlatforms() }.collectAsState(emptyMap())
+  return remember(shelves, romPlatforms, state.deviceStates) {
+    shelfSummaries(shelves, romPlatforms, state.deviceStates)
+  }
+}
+
+/** The games of [shelf], open from the list. L and R step between shelves, and Back returns. */
+@Composable
+private fun ShelfGames(
+  state: AppState,
+  shelves: List<LibraryShelf>,
+  shelf: LibraryShelf,
+  shelfStates: SaveableStateHolder,
+) {
+  val cache = state.library
+  val view = state.libraryView
+  val shelfKey = shelf.key
   // Each value carries its shelf's key, so a shelf never shows the games of the one before it.
   val loaded by
     remember(cache, shelf) {
         when (shelf) {
-          null -> flowOf(emptyList())
           LibraryShelf.AllGames -> cache.allRoms()
           is LibraryShelf.OfPlatform -> cache.romsOnPlatform(shelf.platform.id)
         }.map { shelfKey to it }
@@ -136,19 +303,33 @@ internal fun LibraryPlace(state: AppState) {
   val empty = shown.isNullOrEmpty()
   LaunchedEffect(empty) { if (empty) state.focused = null }
   var menuOpen by rememberSaveable { mutableStateOf(false) }
-  val shelfStates = rememberSaveableStateHolder()
 
-  fun moveTo(next: LibraryShelf) {
+  fun moveTo(next: LibraryShelf?) {
+    if (next == null) return
     view.shelfKey = next.key
     state.focused = null
+  }
+
+  fun close() {
+    view.isOpen = false
+    state.focused = null
+  }
+
+  // The system back gesture returns to the list too, as Back does.
+  if (LocalNavigationEventDispatcherOwner.current != null) {
+    NavigationBackHandler(
+      state = rememberNavigationEventState(NavigationEventInfo.None),
+      onBackCompleted = { close() },
+    )
   }
 
   Box(
     Modifier.fillMaxSize().onAction { action ->
       when (action) {
-        // Past either end, the action goes on to switch places.
-        Action.PreviousShelf -> moveTo(shelves.step(shelfKey, -1) ?: return@onAction false)
-        Action.NextShelf -> moveTo(shelves.step(shelfKey, 1) ?: return@onAction false)
+        // At either end, L and R stay on the shelf rather than leave it for another place.
+        Action.PreviousShelf -> moveTo(shelves.step(shelfKey, -1))
+        Action.NextShelf -> moveTo(shelves.step(shelfKey, 1))
+        Action.Back -> close()
         Action.Menu -> menuOpen = true
         else -> return@onAction false
       }
@@ -163,27 +344,13 @@ internal fun LibraryPlace(state: AppState) {
         roms?.count { state.deviceStates[it.id] == DeviceState.OnDevice },
       )
       Box(Modifier.fillMaxWidth().weight(1f)) {
-        // Each shelf, sort and filter keeps its own focus and scroll position, so focus comes back
-        // where it was on each.
         val stateKey = "${shelfKey}/${view.sort}/${view.filter}"
         shelfStates.SaveableStateProvider(stateKey) {
           key(stateKey) {
             FocusScope(Modifier.fillMaxSize()) {
-              val message =
-                when {
-                  platforms == null || (shelf != null && shown == null) -> null
-                  shelf == null ->
-                    when (state.sync) {
-                      SyncStatus.Failed -> "Couldn't reach your server to sync your library."
-                      SyncStatus.Synced -> "Your library has no games yet."
-                      else -> "Syncing your library"
-                    }
-                  shown.isNullOrEmpty() -> "No games here match the filter."
-                  else -> null
-                }
-              if (message != null) {
+              if (shown != null && shown.isEmpty()) {
                 Text(
-                  message,
+                  "No games here match the filter.",
                   color = Placeholder.mutedText,
                   modifier = Modifier.align(Alignment.Center),
                 )
@@ -198,15 +365,16 @@ internal fun LibraryPlace(state: AppState) {
       HintBar(
         buildList {
           if (state.focused is Focused.OnGame) add(Hint(Action.Confirm, "Open"))
+          add(Hint(Action.Back, "Back"))
           add(Hint(Action.Menu, "Menu"))
           add(Hint(Action.QuickMenu, "Quick menu"))
         },
       )
     }
     if (menuOpen) {
-      LibraryMenu(
+      ShelfMenu(
         state = state,
-        title = shelf?.title ?: Place.Library.title,
+        title = shelf.title,
         letters = index.keys.toList(),
         onDismissRequest = { menuOpen = false },
       )
@@ -217,7 +385,7 @@ internal fun LibraryPlace(state: AppState) {
 @Composable
 private fun ShelfHeader(
   shelves: List<LibraryShelf>,
-  shelf: LibraryShelf?,
+  shelf: LibraryShelf,
   games: Int?,
   onDevice: Int?,
 ) {
@@ -225,29 +393,28 @@ private fun ShelfHeader(
   fun buttonFor(action: Action) =
     PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
   val at = shelves.indexOf(shelf)
-  // Past the ends, L and R lead to the neighboring places.
-  val previous = shelves.getOrNull(at - 1)?.title ?: Place.Home.title
-  val next = shelves.getOrNull(at + 1)?.title ?: Place.Downloads.title
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 8.dp),
     horizontalArrangement = Arrangement.spacedBy(16.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    if (shelf != null) {
+    shelves.getOrNull(at - 1)?.let { previous ->
       Text(
-        "${buttonFor(Action.PreviousShelf)} $previous",
+        "${buttonFor(Action.PreviousShelf)} ${previous.title}",
         color = Placeholder.mutedText,
         fontSize = 14.sp,
       )
+    }
+    Text(
+      shelf.title,
+      color = Placeholder.text,
+      fontSize = 24.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.testTag("shelf:${shelf.key}"),
+    )
+    shelves.getOrNull(at + 1)?.let { next ->
       Text(
-        shelf.title,
-        color = Placeholder.text,
-        fontSize = 24.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.testTag("shelf:${shelf.key}"),
-      )
-      Text(
-        "$next ${buttonFor(Action.NextShelf)}",
+        "${next.title} ${buttonFor(Action.NextShelf)}",
         color = Placeholder.mutedText,
         fontSize = 14.sp,
       )
@@ -303,10 +470,23 @@ private fun ShelfGrid(state: AppState, shown: List<Rom>, index: Map<Char, Int>) 
 
 private fun gameKey(rom: Rom) = "game:${rom.id}"
 
+/** What a screen reader says for a game's [DeviceState]. */
+private fun deviceStateText(state: DeviceState?) =
+  when (state) {
+    DeviceState.OnDevice -> "On this device"
+    is DeviceState.Downloading -> "Downloading"
+    null -> "Not on this device"
+  }
+
 /** A game's cover, marked when the game is on the device or on its way. */
 @Composable
 private fun LibraryCover(rom: Rom, deviceState: DeviceState?, modifier: Modifier) {
-  Box(modifier) {
+  Box(
+    modifier.semantics(mergeDescendants = true) {
+      role = Role.Button
+      stateDescription = deviceStateText(deviceState)
+    },
+  ) {
     Cover(rom.coverSmallUrl, rom.title, Modifier.fillMaxSize())
     when (deviceState) {
       DeviceState.OnDevice ->
@@ -338,18 +518,17 @@ private fun LibraryCover(rom: Rom, deviceState: DeviceState?, modifier: Modifier
 }
 
 /**
- * The menu on Library: sort, filter, the A–Z jump and the "All games" shelf, the same choices the
- * lower screen offers to touch. Each choice closes the menu.
+ * The menu on an open shelf: sort, filter and the A–Z jump, the same choices the lower screen
+ * offers to touch. Each choice closes the menu.
  */
 @Composable
-private fun LibraryMenu(
+private fun ShelfMenu(
   state: AppState,
   title: String,
   letters: List<Char>,
   onDismissRequest: () -> Unit,
 ) {
   val view = state.libraryView
-  val settings = state.settings.library
   fun choose(action: () -> Unit) {
     action()
     onDismissRequest()
@@ -375,10 +554,6 @@ private fun LibraryMenu(
           }
         MenuButton("menu:filter:${filter.name}", label) { choose { view.filter = filter } }
       }
-      val allGames = if (settings.allGames) "Hide “All games”" else "Show “All games”"
-      MenuButton("menu:allGames", allGames) {
-        choose { setAllGames(state, !settings.allGames) }
-      }
       if (letters.isNotEmpty()) {
         Text("Jump to", color = Placeholder.mutedText)
         // One row that scrolls with focus, so the whole alphabet fits on the screen.
@@ -394,22 +569,65 @@ private fun LibraryMenu(
   }
 }
 
-/** Turns the "All games" shelf on, and goes to it, or off. */
-private fun setAllGames(state: AppState, on: Boolean) {
-  state.settings = state.settings.copy(library = LibrarySettings(allGames = on))
-  if (on) {
-    state.libraryView.shelfKey = LibraryShelf.AllGames.key
-    state.focused = null
+/** The menu on the list of shelves: it shows or hides "All games". */
+@Composable
+private fun ListMenu(state: AppState, onDismissRequest: () -> Unit) {
+  val allGames = state.settings.library.allGames
+  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text(Place.Library.title, color = Placeholder.text)
+      MenuButton("menu:allGames", if (allGames) "Hide “All games”" else "Show “All games”") {
+        setAllGames(state, !allGames)
+        onDismissRequest()
+      }
+    }
   }
 }
 
+/** Turns the "All games" shelf, first on the list, on or off. */
+private fun setAllGames(state: AppState, on: Boolean) {
+  state.settings = state.settings.copy(library = LibrarySettings(allGames = on))
+}
+
 /**
- * Library's lower screen: the focused game, and touch shortcuts for the filter, the sort and the
- * A–Z jump. The menu on the upper screen offers the same.
+ * Library's lower screen. On the list, the focused shelf and a touch shortcut for "All games". On
+ * an open shelf, the focused game and touch shortcuts for the filter, the sort and the A–Z jump.
+ * The menus on the upper screen offer the same.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun LibrarySecondary(state: AppState) {
+  if (state.libraryView.isOpen) ShelfGamesSecondary(state) else ShelfListSecondary(state)
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ShelfListSecondary(state: AppState) {
+  val cache = state.library
+  val allGames = state.settings.library.allGames
+  val platforms by remember(cache) { cache.platforms() }.collectAsState(emptyList())
+  val shelves = remember(platforms, allGames) { libraryShelves(platforms, allGames) }
+  val summary =
+    rememberShelfSummaries(state, shelves).let { summaries ->
+      val shelf = shelves.shelfAt(state.libraryView.shelfKey)
+      summaries.find { it.shelf == shelf }
+    }
+  Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      if (summary != null) {
+        Text(summary.shelf.title, color = Placeholder.text, fontSize = 24.sp)
+        Text(gameCount(summary.games), color = Placeholder.mutedText)
+        Text("${summary.onDevice} on this device", color = Placeholder.mutedText)
+      }
+    }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      TouchChip("touch:allGames", "All games", allGames) { setAllGames(state, !allGames) }
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ShelfGamesSecondary(state: AppState) {
   val view = state.libraryView
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Box(Modifier.fillMaxWidth().weight(1f)) {
@@ -427,9 +645,6 @@ internal fun LibrarySecondary(state: AppState) {
       val nextSort = LibrarySort.entries[(view.sort.ordinal + 1) % LibrarySort.entries.size]
       TouchChip("touch:sort", "Sort: ${view.sort.title}", selected = false) {
         view.sort = nextSort
-      }
-      TouchChip("touch:allGames", "All games", state.settings.library.allGames) {
-        setAllGames(state, !state.settings.library.allGames)
       }
     }
     if (view.letters.isNotEmpty()) {
@@ -453,6 +668,14 @@ private fun TouchChip(tag: String, label: String, selected: Boolean, onTap: () -
   val currentOnTap by rememberUpdatedState(onTap)
   Box(
     Modifier.testTag(tag)
+      .semantics(mergeDescendants = true) {
+        role = Role.Button
+        this.selected = selected
+        onClick {
+          currentOnTap()
+          true
+        }
+      }
       .pointerInput(Unit) { detectTapGestures { currentOnTap() } }
       .background(if (selected) Placeholder.text else Placeholder.tile)
       .padding(horizontal = 16.dp, vertical = 10.dp),

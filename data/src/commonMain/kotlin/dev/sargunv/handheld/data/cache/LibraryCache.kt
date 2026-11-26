@@ -97,6 +97,12 @@ private constructor(
       }
     }
 
+  /** Each ROM's platform id, by ROM id. */
+  fun romPlatforms(): Flow<Map<Long, Long>> =
+    queries.romPlatforms().asFlow().map { query ->
+      transaction { query.awaitAsList().associate { it.id to it.platform_id } }
+    }
+
   /** The ROMs in a collection, in title order. */
   fun romsInCollection(kind: CollectionKind, id: Long): Flow<List<Rom>> =
     queries.romsInCollection(kind, id).asFlow().map { query ->

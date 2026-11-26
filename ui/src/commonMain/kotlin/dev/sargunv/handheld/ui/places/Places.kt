@@ -239,14 +239,14 @@ private fun PlacesScreen(state: AppState) {
     },
   ) {
     Column(Modifier.fillMaxSize()) {
-      // Inside Library, L and R step between its shelves first, so the tabs don't name them.
+      // Inside a shelf of Library, L and R step between shelves, so the tabs don't name them.
       val queue by state.downloads.queue.collectAsState()
       PlaceTabs(
         state.place,
         state.sync,
         queue.size,
         state.inputSettings,
-        showButtons = state.place != Place.Library,
+        showButtons = !(state.place == Place.Library && state.libraryView.isOpen),
       )
       Box(Modifier.fillMaxWidth().weight(1f)) {
         // Each place is a focus scope, which keeps its focus and scroll position while another

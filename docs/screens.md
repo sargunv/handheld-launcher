@@ -28,11 +28,16 @@ user can turn each shelf on or off and reorder them. They're all on by default.
 
 ## Library
 
-One platform at a time, with L and R moving between platforms. Covers show
-whether the game is on the device and how far its download has got. The lower
-screen holds filters, sort and an A–Z jump. An optional "All games" entry at the
-start of the platform list shows the whole library in one grid. It's off by
-default, for small libraries that want it.
+Opens on a grid of platforms, each with its name, its number of games and how
+many of them are on the device. An optional "All games" entry comes first and
+shows the whole library in one grid. It's off by default, for small libraries
+that want it. The lower screen describes the focused platform.
+
+A opens a platform's games. Covers show whether the game is on the device and
+how far its download has got. The lower screen holds filters, sort and an A–Z
+jump. L and R move to the previous or next platform, a shortcut that stops at
+the ends. B goes back to the platforms, with the one you were in focused. On the
+grid of platforms, L and R switch places as everywhere else.
 
 ## Game
 

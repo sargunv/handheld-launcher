@@ -3,10 +3,16 @@ package dev.sargunv.handheld.ui.library
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -101,7 +107,7 @@ class LibraryTest {
     }
   }
 
-  /** Launches and goes to Library once the sync has filled it. */
+  /** Launches and goes to Library's list once the sync has filled it. */
   private fun ComposeUiTest.openLibrary(
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
@@ -110,6 +116,15 @@ class LibraryTest {
     launch(settings, saveSettings, storage)
     awaitTag("shelf:RecentlyAdded")
     press(Key.ButtonR1)
+    awaitTag("library:shelves")
+  }
+
+  /** Launches and opens the Game Boy's games. */
+  private fun ComposeUiTest.openGameBoy(storage: File? = null) {
+    openLibrary(storage = storage)
+    assertFocused("library:platform:1")
+    press(Key.ButtonA)
+    awaitTag("shelf:platform:1")
   }
 
   private fun ComposeUiTest.awaitTag(tag: String) {
@@ -138,40 +153,72 @@ class LibraryTest {
   }
 
   @Test
-  fun shoulderButtonsStepThroughPlatformsAndOnToTheOtherPlaces() = runComposeUiTest {
+  fun theListOpensAPlatformAndBackReturnsToIt() = runComposeUiTest {
     openLibrary()
-    awaitTag("shelf:platform:1")
+    // The empty platform isn't listed.
+    assertFocused("library:platform:1")
+    onNodeWithTag("library:platform:3").assertDoesNotExist()
+    onNodeWithTag("library:platform:1")
+      .assertContentDescriptionEquals("Game Boy, 3 games, 0 on this device")
+      .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+    press(Key.DirectionRight)
+    assertFocused("library:platform:2")
+    press(Key.ButtonA)
+    awaitTag("shelf:platform:2")
+    assertFocused("game:4")
+    press(Key.ButtonB)
+    assertFocused("library:platform:2")
+  }
+
+  @Test
+  fun shoulderButtonsStepBetweenPlatformsAndBackFocusesTheLastOne() = runComposeUiTest {
+    openGameBoy()
     assertFocused("game:1")
     press(Key.DirectionRight)
     assertFocused("game:2")
     press(Key.ButtonR1)
-    // The empty platform doesn't show, so the NES is the last.
     awaitTag("shelf:platform:2")
     assertFocused("game:4")
+    // At the last platform, R stays put rather than going on to Downloads.
     press(Key.ButtonR1)
-    onNodeWithText("Nothing is downloading.").assertExists()
-    press(Key.ButtonL1)
     assertFocused("game:4")
+    onNodeWithText("Nothing is downloading.").assertDoesNotExist()
     // Each platform keeps its own focus.
     press(Key.ButtonL1)
     assertFocused("game:2")
+    press(Key.ButtonR1)
+    assertFocused("game:4")
+    press(Key.ButtonB)
+    assertFocused("library:platform:2")
+  }
+
+  @Test
+  fun shoulderButtonsOnTheListSwitchPlaces() = runComposeUiTest {
+    openLibrary()
+    assertFocused("library:platform:1")
+    press(Key.ButtonR1)
+    onNodeWithText("Nothing is downloading.").assertExists()
+    press(Key.ButtonL1)
+    assertFocused("library:platform:1")
     press(Key.ButtonL1)
     awaitTag("shelf:RecentlyAdded")
   }
 
   @Test
   fun aGameOpensItsScreenAndBackComesToIt() = runComposeUiTest {
-    openLibrary()
+    openGameBoy()
     assertFocused("game:1")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     assertFocused("primary")
     press(Key.ButtonB)
     assertFocused("game:2")
+    press(Key.ButtonB)
+    assertFocused("library:platform:1")
   }
 
   @Test
   fun theMenuSortsAndJumpsToALetter() = runComposeUiTest {
-    openLibrary()
+    openGameBoy()
     assertFocused("game:1")
     // The first choice sorts by recently added, which starts again at the newest game.
     press(Key.ButtonX)
@@ -181,9 +228,9 @@ class LibraryTest {
     // Sorting by name again comes back to the game that had focus then.
     press(listOf(Key.ButtonX, Key.ButtonA))
     assertFocused("game:1")
-    // Past the sort, the filters and "All games" come the letters: A, B and Z.
+    // Past the sort and the filters come the letters: A, B and Z.
     press(Key.ButtonX)
-    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown))
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown))
     press(listOf(Key.DirectionLeft, Key.DirectionLeft))
     assertFocused("menu:jump:A")
     press(listOf(Key.DirectionRight, Key.DirectionRight, Key.ButtonA))
@@ -194,30 +241,36 @@ class LibraryTest {
   fun allGamesTurnsOnFromTheMenuAndStays() = runComposeUiTest {
     val saved = mutableListOf<Settings>()
     openLibrary(saveSettings = { saved += it })
-    assertFocused("game:1")
-    press(listOf(Key.ButtonX, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown))
+    assertFocused("library:platform:1")
+    press(Key.ButtonX)
     assertFocused("menu:allGames")
     press(Key.ButtonA)
-    awaitTag("shelf:all")
+    awaitTag("library:all")
     assertEquals(true, saved.last().library.allGames)
+    onNodeWithTag("library:all")
+      .assertContentDescriptionEquals("All games, 5 games, 0 on this device")
+    // It's first on the list, and focus stays where it was.
+    assertFocused("library:platform:1")
+    press(listOf(Key.DirectionLeft, Key.ButtonA))
+    awaitTag("shelf:all")
     // The whole library, in title order.
     assertFocused("game:1")
     press(listOf(Key.DirectionRight, Key.DirectionRight))
     assertFocused("game:4")
-    // "All games" is the first shelf.
     press(Key.ButtonR1)
     awaitTag("shelf:platform:1")
-    press(listOf(Key.ButtonL1, Key.ButtonL1))
-    awaitTag("shelf:RecentlyAdded")
+    press(Key.ButtonB)
+    assertFocused("library:platform:1")
   }
 
   @Test
-  fun allGamesIsTheFirstShelfWhenOn() = runComposeUiTest {
+  fun allGamesIsFirstOnTheListWhenOn() = runComposeUiTest {
     val saved = mutableListOf<Settings>()
     openLibrary(Settings(library = LibrarySettings(allGames = true)), { saved += it })
-    awaitTag("shelf:all")
-    press(listOf(Key.ButtonX, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
-    awaitTag("shelf:platform:1")
+    assertFocused("library:all")
+    press(listOf(Key.ButtonX, Key.ButtonA))
+    assertFocused("library:platform:1")
+    onNodeWithTag("library:all").assertDoesNotExist()
     assertEquals(LibrarySettings(), saved.last().library)
   }
 
@@ -228,10 +281,20 @@ class LibraryTest {
     File(storage, "ROMs/p1").mkdirs()
     File(storage, "ROMs/p1/Zulu.bin").writeText("game")
     openLibrary(storage = storage)
-    awaitTag("onDevice:3")
+    // The list and its lower screen count the games on the device.
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodesWithText("1 on this device").fetchSemanticsNodes().size == 1
+    }
+    assertFocused("library:platform:1")
+    onNodeWithTag("library:platform:1")
+      .assertContentDescriptionEquals("Game Boy, 3 games, 1 on this device")
+    press(Key.ButtonA)
     assertFocused("game:1")
-    onNodeWithTag("onDevice:3").assertExists()
-    onNodeWithTag("onDevice:1").assertDoesNotExist()
+    // The covers mark it, and say so to a screen reader.
+    onNodeWithTag("onDevice:3", useUnmergedTree = true).assertExists()
+    onNodeWithTag("onDevice:1", useUnmergedTree = true).assertDoesNotExist()
+    onNodeWithTag("game:3").assert(onDevice("On this device"))
+    onNodeWithTag("game:1").assert(onDevice("Not on this device"))
     onNodeWithText("3 games, 1 on this device").assertExists()
     onNodeWithTag("touch:filter:OnDevice").performClick()
     assertFocused("game:3")
@@ -245,7 +308,7 @@ class LibraryTest {
 
   @Test
   fun aFilterThatLeavesNothingClearsTheFocusedGame() = runComposeUiTest {
-    openLibrary()
+    openGameBoy()
     assertFocused("game:1")
     onNodeWithText("Open").assertExists()
     onNodeWithTag("touch:filter:OnDevice").performClick()
@@ -256,6 +319,9 @@ class LibraryTest {
   }
 
   private companion object {
+    fun onDevice(state: String) =
+      SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, state)
+
     fun platform(id: Int, name: String, roms: Int) =
       """{"id": $id, "slug": "p$id", "fs_slug": "p$id", "name": "$name",
       "display_name": "$name", "rom_count": $roms, "created_at": "2024-01-01T00:00:00+00:00",

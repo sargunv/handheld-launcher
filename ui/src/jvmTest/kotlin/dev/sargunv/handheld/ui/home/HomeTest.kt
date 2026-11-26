@@ -130,8 +130,7 @@ class HomeTest {
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
     assertFocused("RecentlyAdded:2")
     press(Key.ButtonR1)
-    awaitTag("shelf:platform:1")
-    // Library has one platform, so R goes on to Downloads.
+    awaitTag("library:platform:1")
     press(Key.ButtonR1)
     onNodeWithText("Nothing is downloading.").assertExists()
     // Downloads is the last place.
