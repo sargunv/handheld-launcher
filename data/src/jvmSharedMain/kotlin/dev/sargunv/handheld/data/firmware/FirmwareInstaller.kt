@@ -116,8 +116,18 @@ class FirmwareInstaller(
   /** Downloads [file] and writes it to [target], unless a file appears there first. */
   private suspend fun place(file: RommFirmware, target: File): Boolean {
     staging.mkdirs()
-    // The name stays the same from one install to the next, so a broken download resumes.
-    val staged = File(staging, "${file.id}.part")
+    // The name stays the same from one install to the next, so a broken download resumes, and
+    // changes with the file's server or version, so it resumes only onto the same bytes.
+    val identity =
+      listOf(
+        client.baseUrl,
+        file.id,
+        file.fileSizeBytes,
+        file.updatedAt,
+        file.md5Hash,
+        file.sha1Hash,
+      )
+    val staged = File(staging, "${sha256Hex(identity.joinToString("\n").encodeToByteArray())}.part")
     download(file, staged)
     try {
       mismatchedHash(staged, file)?.let {
@@ -186,4 +196,7 @@ class FirmwareInstaller(
       ?.first
       ?.first
   }
+
+  private fun sha256Hex(bytes: ByteArray) =
+    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }

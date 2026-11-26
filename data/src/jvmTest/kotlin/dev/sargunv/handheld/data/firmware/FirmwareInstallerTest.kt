@@ -25,6 +25,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.test.runTest
@@ -197,6 +198,28 @@ class FirmwareInstallerTest {
       server.requests.last { it.apiPath.endsWith("/scph5501.bin") }.headers[HttpHeaders.Range],
     )
     assertTrue(staging.list().orEmpty().isEmpty(), "The staged download is cleaned up")
+  }
+
+  @Test
+  fun doesntResumeOntoAFileThatChanged() = runTest {
+    val old = Random(1).nextBytes(200_000)
+    val new = Random(2).nextBytes(200_000)
+    stallAfter = 100_000
+    FirmwareInstaller(
+        server(ServedFile(1, 51, "scph5501.bin", old, md5(old))).client,
+        staging,
+        300.milliseconds,
+      )
+      .install(PlatformCatalog.PSX, duckStation, listOf(folder.path))
+
+    stallAfter = null
+    val server = server(ServedFile(1, 51, "scph5501.bin", new, md5(new)))
+    val result =
+      FirmwareInstaller(server.client, staging)
+        .install(PlatformCatalog.PSX, duckStation, listOf(folder.path))
+    assertEquals(listOf("scph5501.bin"), assertIs<FirmwareInstall.Done>(result).placed)
+    assertContentEquals(new, File(folder, "scph5501.bin").readBytes())
+    assertNull(server.requests.last().headers[HttpHeaders.Range], "It starts over")
   }
 
   @Test
