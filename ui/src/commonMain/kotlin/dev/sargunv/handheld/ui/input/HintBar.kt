@@ -10,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
@@ -33,7 +35,9 @@ fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier) {
   ) {
     for (hint in hints) {
       val button = PadButton.entries.firstOrNull { settings.actionFor(it) == hint.action }
+      // The button and what it does make one element for accessibility services.
       Row(
+        Modifier.semantics(mergeDescendants = true) {}.testTag("hint:${hint.action.name}"),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
       ) {

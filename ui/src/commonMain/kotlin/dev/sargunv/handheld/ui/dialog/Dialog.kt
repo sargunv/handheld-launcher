@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.dismiss
+import androidx.compose.ui.semantics.semantics
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.navigationevent.compose.NavigationBackHandler
@@ -56,6 +58,13 @@ fun Dialog(
     FocusScope(
       modifier =
         modifier
+          // A screen reader's dismiss gesture closes it, like a tap outside.
+          .semantics {
+            this.dismiss {
+              dismiss()
+              true
+            }
+          }
           .pointerInput(Unit) { detectTapGestures {} }
           .focusProperties { onExit = { cancelFocusChange() } }
           .onAction { action ->

@@ -9,10 +9,14 @@ import android.view.Display
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.MainActivity
+import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.ui.play.PlayCompanionScreen
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,7 +79,9 @@ class PlayCompanionActivity : ComponentActivity() {
     }
     setContent {
       val session by PlayCompanion.session.collectAsState()
-      session?.let { PlayCompanionScreen(it.title, it.sync, ::backToLibrary) }
+      Box(Modifier.fillMaxSize().exposeTestTags()) {
+        session?.let { PlayCompanionScreen(it.title, it.sync, ::backToLibrary) }
+      }
     }
   }
 

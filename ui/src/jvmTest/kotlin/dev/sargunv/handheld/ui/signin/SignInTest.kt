@@ -3,8 +3,14 @@ package dev.sargunv.handheld.ui.signin
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -51,6 +57,14 @@ class SignInTest {
   fun opensOnTheServerAddressWithoutCredentials() = runComposeUiTest {
     launch(InMemoryCredentialStore())
     onNodeWithTag("address").assertIsFocused()
+  }
+
+  @Test
+  fun fieldsSayWhatTheyAreAndWhatTheyHold() = runComposeUiTest {
+    launch(InMemoryCredentialStore())
+    onNodeWithTag("address").assertContentDescriptionEquals("Server address: empty")
+    onNodeWithText("Sign in to RomM").assert(isHeading())
+    onNodeWithTag("continue").assert(expectValue(SemanticsProperties.Role, Role.Button))
   }
 
   @Test

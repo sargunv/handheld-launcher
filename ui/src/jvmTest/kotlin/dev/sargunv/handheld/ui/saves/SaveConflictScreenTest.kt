@@ -1,9 +1,16 @@
 package dev.sargunv.handheld.ui.saves
 
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -61,6 +68,18 @@ class SaveConflictScreenTest {
       listOf<Any>(SaveCopy.Device),
       choose(serverNewer, listOf(Key.DirectionLeft, Key.ButtonA)),
     )
+  }
+
+  @Test
+  fun eachCopyIsOneButtonThatSaysAllAboutIt() = runComposeUiTest {
+    val conflict = conflict("2025-03-01T10:00:00Z", "2025-03-01T11:00:00Z")
+    setContent {
+      TestActionInputRoot { FocusRoot { SaveConflictScreen(conflict, {}, {}, now = now) } }
+    }
+    onNodeWithTag(SaveCopy.Server.name)
+      .assert(expectValue(SemanticsProperties.Role, Role.Button))
+      .assertTextEquals("RomM", "Saved 1 hour ago", "512 KB", "Newer")
+    onNodeWithText("Which save do you want to play?").assert(isHeading())
   }
 
   @Test

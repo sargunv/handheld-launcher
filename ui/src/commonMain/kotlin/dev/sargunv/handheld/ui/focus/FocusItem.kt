@@ -18,6 +18,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.FocusRingVisibility
@@ -44,10 +52,19 @@ val LocalFocusIndication = staticCompositionLocalOf { FocusIndication() }
  *
  * [key] identifies the item within its [FocusScope], which puts focus back on it when the scope
  * becomes active again, and within its list (such as a [FocusLazyRow]), which puts focus back on it
- * when focus moves into the list. It has to be unique and stable within the scope.
+ * when focus moves into the list. It has to be unique and stable within the scope. It's also the
+ * item's test tag, unless a test tag before this modifier sets another.
+ *
+ * Accessibility services see the item as one element, with the text inside it as its label, and the
+ * screen reader's focus follows the controller's. A screen reader's activation confirms it.
  *
  * @param shape the item's outline, which the focus indication follows.
  * @param onConfirm called on [Action.Confirm] and on a tap.
+ * @param role what kind of element accessibility services say it is. Items that confirm are buttons
+ *   by default.
+ * @param description the item's label for accessibility services, in place of the text inside it,
+ *   for an item whose text doesn't say what it is, such as a cover.
+ * @param stateDescription the item's state, for accessibility services, when its text doesn't say.
  * @param onAction called with the other actions; return true to consume one.
  */
 @Composable
@@ -55,9 +72,13 @@ fun Modifier.focusItem(
   key: String,
   shape: Shape = RectangleShape,
   onConfirm: (() -> Unit)? = null,
+  role: Role? = if (onConfirm != null) Role.Button else null,
+  description: String? = null,
+  stateDescription: String? = null,
   onAction: (Action) -> Boolean = { false },
 ): Modifier {
-  val scope = LocalFocusScope.current?.memory
+  val focusScope = LocalFocusScope.current
+  val scope = focusScope?.memory
   val group = LocalFocusMemory.current
   val requester = remember { FocusRequester() }
   val interactions = remember { MutableInteractionSource() }
@@ -74,7 +95,20 @@ fun Modifier.focusItem(
     }
   }
 
-  return this.focusRing(
+  return this.testTag(key)
+    .semantics(mergeDescendants = true) {
+      role?.let { this.role = it }
+      stateDescription?.let { this.stateDescription = it }
+      // Only in the active scope: a screen reader can reach items behind a dialog.
+      if (onConfirm != null && focusScope?.isActive != false) {
+        onClick {
+          requester.requestFocus()
+          currentOnConfirm?.invoke()
+          true
+        }
+      }
+    }
+    .focusRing(
       interactionSource = interactions,
       width = indication.width,
       color = indication.color,
@@ -105,4 +139,9 @@ fun Modifier.focusItem(
       }
     }
     .focusable(interactionSource = interactions)
+    // Last, since it clears what the modifiers after it would add, but not what came before.
+    .then(
+      if (description != null) Modifier.clearAndSetSemantics { contentDescription = description }
+      else Modifier,
+    )
 }

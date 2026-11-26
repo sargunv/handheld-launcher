@@ -8,6 +8,8 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.WindowManager
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -16,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCompositionContext
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.LifecycleOwner
@@ -86,7 +89,7 @@ fun SecondaryDisplayContent(
         setViewTreeLifecycleOwner(activity as LifecycleOwner)
         setViewTreeSavedStateRegistryOwner(activity as SavedStateRegistryOwner)
         setParentCompositionContext(parent)
-        setContent { currentContent() }
+        setContent { Box(Modifier.fillMaxSize().exposeTestTags()) { currentContent() } }
       },
     )
     try {

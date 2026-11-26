@@ -3,16 +3,30 @@ package dev.sargunv.handheld.ui.home
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsFocused
-import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isHeading
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
@@ -23,6 +37,9 @@ import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.places.OpenRequest
+import dev.sargunv.handheld.ui.places.OpenTarget
+import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.rememberTestDownloads
 import dev.sargunv.handheld.ui.testCoverDir
 import io.ktor.client.engine.mock.MockEngine
@@ -64,6 +81,7 @@ class HomeTest {
     played: Boolean = true,
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
+    open: OpenRequest? = null,
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
@@ -83,6 +101,7 @@ class HomeTest {
         initialSettings = settings,
         saveSettings = saveSettings,
         httpEngine = server(fail, played),
+        openRequest = open,
       )
     }
   }
@@ -108,6 +127,89 @@ class HomeTest {
   private fun ComposeUiTest.press(key: Key) = press(listOf(key))
 
   private fun ComposeUiTest.assertFocused(tag: String) = onNodeWithTag(tag).assertIsFocused()
+
+  @Test
+  fun coversTabsAndHintsDescribeThemselvesToAccessibilityServices() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    // A cover is one button, which says the game's title once and whether it's on the device.
+    onNodeWithTag("continue:2")
+      .assertContentDescriptionEquals("Game 2, not on this device")
+      .assert(expectValue(SemanticsProperties.Role, Role.Button))
+      .assertHasClickAction()
+    onAllNodesWithText("Game 2").assertCountEquals(0)
+    onNodeWithText("Continue playing").assert(isHeading())
+    onNodeWithTag("place:Home").assert(expectValue(SemanticsProperties.Role, Role.Tab))
+    onNodeWithTag("place:Home").assertIsSelected()
+    onNodeWithTag("place:Library").assertIsNotSelected()
+    // Each hint is one element: the button, then what it does.
+    onNodeWithTag("hint:Confirm").assertTextEquals("A", "Open")
+  }
+
+  @Test
+  fun aScreenReaderOpensTheFocusedGame() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    onNodeWithTag("continue:2").performSemanticsAction(SemanticsActions.OnClick)
+    awaitTag("primary")
+    assertFocused("primary")
+    onNodeWithTag("primary").assert(expectValue(SemanticsProperties.Role, Role.Button))
+    onNodeWithText("Game 2").assert(isHeading())
+  }
+
+  @Test
+  fun aScreenReaderPicksAPlaceByItsTab() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    onNodeWithTag("place:Downloads").performSemanticsAction(SemanticsActions.OnClick)
+    onNodeWithTag("place:Downloads").assertIsSelected()
+    onNodeWithText("Nothing is downloading.").assertExists()
+  }
+
+  @Test
+  fun aScreenReaderCantPressWhatsBehindAMenu() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(Key.ButtonStart)
+    awaitTag("quick:confirm")
+    onNodeWithTag("quick:confirm").assertHasClickAction()
+    onNodeWithTag("continue:2").assertHasNoClickAction()
+    onNodeWithTag("place:Downloads").assertHasNoClickAction()
+  }
+
+  @Test
+  fun anOpenRequestShowsTheScreenItNames() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.Game(3)))
+    awaitTag("primary")
+    onNodeWithText("Game 3").assert(isHeading())
+    // Back goes to the places, as if the player had come from Home.
+    press(Key.ButtonB)
+    awaitTag("continue:2")
+  }
+
+  @Test
+  fun anOpenRequestForAPlaceSwitchesToIt() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.AtPlace(Place.Downloads)))
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodesWithText("Nothing is downloading.").fetchSemanticsNodes().isNotEmpty()
+    }
+    onNodeWithTag("place:Downloads").assertIsSelected()
+  }
+
+  @Test
+  fun anOpenRequestForAPlatformOpensItsLibraryShelf() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.LibraryShelf("gb")))
+    // The shelf's games, rather than the list of shelves.
+    awaitTag("shelf:platform:1")
+    onNodeWithTag("place:Library").assertIsSelected()
+  }
+
+  @Test
+  fun anOpenRequestForLibraryShowsItsShelves() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.LibraryShelf(null)))
+    awaitTag("library:shelves")
+    onNodeWithTag("place:Library").assertIsSelected()
+  }
 
   @Test
   fun focusesTheLastPlayedGameFirst() = runComposeUiTest {
@@ -148,7 +250,7 @@ class HomeTest {
     // The primary action has focus first.
     awaitTag("primary")
     assertFocused("primary")
-    onNode(hasTestTag("primary") and hasAnyDescendant(hasText("Download (1.0 KB)"))).assertExists()
+    onNode(hasTestTag("primary") and hasText("Download (1.0 KB)")).assertExists()
     press(Key.ButtonB)
     assertFocused("continue:2")
   }

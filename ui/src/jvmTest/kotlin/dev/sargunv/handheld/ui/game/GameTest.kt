@@ -3,9 +3,16 @@ package dev.sargunv.handheld.ui.game
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -260,6 +267,12 @@ class GameTest {
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Why it opens in Notes")
     onNodeWithText("→ Platform Game Boy: Built-in session (default) · overridden").assertExists()
+    // The levels are a set of options: a screen reader hears which is picked, not its dot.
+    onNodeWithTag("level:0")
+      .assert(expectValue(SemanticsProperties.Role, Role.RadioButton))
+      .assertIsSelected()
+      .assertContentDescriptionEquals("This game, Notes")
+    onNodeWithTag("level:1").assertIsNotSelected()
     press(listOf(Key.DirectionRight, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)

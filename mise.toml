@@ -55,10 +55,18 @@ printf %s "$b64" | base64 -d > "$f" && mv "$f" "$k"
 [tasks."run:android"]
 description = "Install and launch the debug app on the connected device"
 depends = ["android:debug-key"]
+# It builds first, then installs and launches while holding the device's lock.
 run = [
-  "./gradlew :apps:android:installDebug",
-  "adb shell am start -W -n dev.sargunv.handheld/.MainActivity ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}",
+  "./gradlew :apps:android:assembleDebug",
+  """apps/android/scripts/with-device-lock.sh sh -c '
+    ./gradlew :apps:android:installDebug &&
+    adb shell am start -W -n dev.sargunv.handheld/.MainActivity ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}
+  '""",
 ]
+
+[tasks."android:lock"]
+description = "Run a command while holding the connected device's lock"
+run = "apps/android/scripts/with-device-lock.sh"
 
 [tasks."android:screenshot"]
 description = "Save a screenshot of the connected device to a temp file and print its path"
@@ -85,8 +93,17 @@ case "$usage_action" in
   select) key=F2 ;;
   *) echo "unknown action: $usage_action" >&2; exit 2 ;;
 esac
-adb shell input keyevent "KEYCODE_$key"
+adb shell input -d 0 keyevent "KEYCODE_$key"
 """
+
+[tasks."android:open"]
+description = "Show a screen of the debug app on the connected device straight away"
+usage = 'arg "<target>" help="place:home, place:library, place:downloads, game:<romId>, library or library:<platform-slug>"'
+run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$usage_target" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
+
+[tasks."android:ui"]
+description = "Print the debug app's focused element and visible elements, on every display"
+run = "apps/android/scripts/ui.sh"
 
 [hooks]
 postinstall = ["hk install --mise"]

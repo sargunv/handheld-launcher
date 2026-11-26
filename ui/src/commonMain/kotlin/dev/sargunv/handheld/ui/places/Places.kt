@@ -21,9 +21,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selectableGroup
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +55,7 @@ import dev.sargunv.handheld.ui.downloads.DownloadsPlace
 import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.isDialogOpen
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.GameScreen
@@ -60,10 +74,12 @@ import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryPlace
 import dev.sargunv.handheld.ui.library.LibrarySecondary
+import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import io.ktor.client.engine.HttpClientEngine
+import kotlinx.coroutines.flow.first
 
 /** The top-level places, switched with L and R. */
 enum class Place(val title: String) {
@@ -133,9 +149,42 @@ class AppState(
 
   /** Moves [step] places along, stopping at the ends. */
   fun switchPlace(step: Int) {
-    val next = Place.entries.getOrNull(place.ordinal + step) ?: return
+    showPlace(Place.entries.getOrNull(place.ordinal + step) ?: return)
+  }
+
+  /** Shows [next]. The lower screen describes nothing until something there takes focus. */
+  fun showPlace(next: Place) {
+    if (next == place) return
     place = next
     focused = null
+  }
+
+  /**
+   * Shows [target], on top of the places, as if the player had gone there. A game or platform that
+   * the cache doesn't hold yet shows once the sync under way brings it, if it does.
+   */
+  suspend fun open(target: OpenTarget) {
+    while (navigator.back()) Unit
+    when (target) {
+      is OpenTarget.AtPlace -> showPlace(target.place)
+      is OpenTarget.Game -> {
+        val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
+        if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
+      }
+      is OpenTarget.LibraryShelf -> {
+        showPlace(Place.Library)
+        libraryView.isOpen = false
+        val slug = target.platformSlug ?: return
+        suspend fun find() = library.platforms().first().find { it.slug == slug }
+        val platform = find() ?: awaitSync().let { find() } ?: return
+        libraryView.shelfKey = LibraryShelf.OfPlatform(platform).key
+        libraryView.isOpen = true
+      }
+    }
+  }
+
+  private suspend fun awaitSync() {
+    snapshotFlow { sync }.first { it == SyncStatus.Synced || it == SyncStatus.Failed }
   }
 
   fun swapConfirmButton() {
@@ -187,7 +236,12 @@ fun MainSecondary(state: AppState) {
         LibrarySecondary(state)
       focused is Focused.OnGame -> GameDescription(state, focused.rom)
       focused is Focused.OnCollection -> {
-        Text(focused.collection.name, color = Placeholder.text, fontSize = 24.sp)
+        Text(
+          focused.collection.name,
+          color = Placeholder.text,
+          fontSize = 24.sp,
+          modifier = Modifier.semantics { heading() },
+        )
         Text(gameCount(focused.collection.romCount), color = Placeholder.mutedText)
         if (focused.collection.description.isNotBlank()) {
           Text(focused.collection.description, color = Placeholder.mutedText)
@@ -203,9 +257,19 @@ internal fun GameDescription(state: AppState, rom: Rom) {
   val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-    Cover(rom.coverLargeUrl ?: rom.coverSmallUrl, rom.title, Modifier.size(180.dp, 240.dp))
+    Cover(
+      rom.coverLargeUrl ?: rom.coverSmallUrl,
+      rom.title,
+      Modifier.size(180.dp, 240.dp),
+      description = null,
+    )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      Text(rom.title, color = Placeholder.text, fontSize = 24.sp)
+      Text(
+        rom.title,
+        color = Placeholder.text,
+        fontSize = 24.sp,
+        modifier = Modifier.semantics { heading() },
+      )
       Text(
         platforms.find { it.id == rom.platformId }?.name ?: rom.platformSlug,
         color = Placeholder.mutedText,
@@ -222,6 +286,21 @@ internal fun GameDescription(state: AppState, rom: Rom) {
 }
 
 internal fun gameCount(count: Int) = if (count == 1) "1 game" else "$count games"
+
+/**
+ * What accessibility services say for a game's cover: its title, and whether it's on the device,
+ * which the cover doesn't show.
+ */
+internal fun coverDescription(rom: Rom, state: DeviceState?): String {
+  val where =
+    when (state) {
+      DeviceState.OnDevice -> "on this device"
+      is DeviceState.Downloading ->
+        state.progress?.let { "downloading ${(it * 100).toInt()}%" } ?: "downloading"
+      null -> "not on this device"
+    }
+  return "${rom.title}, $where"
+}
 
 @Composable
 private fun PlacesScreen(state: AppState) {
@@ -242,6 +321,7 @@ private fun PlacesScreen(state: AppState) {
       // Inside a shelf of Library, L and R step between shelves, so the tabs don't name them.
       val queue by state.downloads.queue.collectAsState()
       PlaceTabs(
+        state::showPlace,
         state.place,
         state.sync,
         queue.size,
@@ -266,6 +346,7 @@ private fun PlacesScreen(state: AppState) {
 
 @Composable
 private fun PlaceTabs(
+  onSelect: (Place) -> Unit,
   current: Place,
   sync: SyncStatus,
   downloads: Int,
@@ -282,16 +363,46 @@ private fun PlaceTabs(
     horizontalArrangement = Arrangement.spacedBy(24.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    Text(buttonFor(Action.PreviousShelf), color = Placeholder.mutedText, fontSize = 14.sp)
-    for (place in Place.entries) {
-      Text(
-        if (place == Place.Downloads && downloads > 0) "${place.title} $downloads" else place.title,
-        color = if (place == current) Placeholder.text else Placeholder.mutedText,
-        fontWeight = if (place == current) FontWeight.SemiBold else FontWeight.Normal,
-        modifier = Modifier.testTag("place:${place.name}"),
-      )
+    // The buttons that switch places are decoration beside the tabs: a screen reader skips them.
+    val canSelect = !isDialogOpen()
+    Text(
+      buttonFor(Action.PreviousShelf),
+      color = Placeholder.mutedText,
+      fontSize = 14.sp,
+      modifier = Modifier.clearAndSetSemantics {},
+    )
+    Row(
+      Modifier.semantics { selectableGroup() },
+      horizontalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+      for (place in Place.entries) {
+        val queued = place == Place.Downloads && downloads > 0
+        Text(
+          if (queued) "${place.title} $downloads" else place.title,
+          color = if (place == current) Placeholder.text else Placeholder.mutedText,
+          fontWeight = if (place == current) FontWeight.SemiBold else FontWeight.Normal,
+          modifier =
+            Modifier.testTag("place:${place.name}").semantics {
+              role = Role.Tab
+              selected = place == current
+              // The shoulder buttons switch places; a screen reader picks a tab instead.
+              if (canSelect) {
+                onClick {
+                  onSelect(place)
+                  true
+                }
+              }
+              if (queued) contentDescription = "${place.title}, $downloads in the queue"
+            },
+        )
+      }
     }
-    Text(buttonFor(Action.NextShelf), color = Placeholder.mutedText, fontSize = 14.sp)
+    Text(
+      buttonFor(Action.NextShelf),
+      color = Placeholder.mutedText,
+      fontSize = 14.sp,
+      modifier = Modifier.clearAndSetSemantics {},
+    )
     Spacer(Modifier.weight(1f))
     val status =
       when (sync) {
@@ -301,7 +412,14 @@ private fun PlaceTabs(
         SyncStatus.NotStarted,
         SyncStatus.Synced -> null
       }
-    status?.let { Text(it, color = Placeholder.mutedText, fontSize = 14.sp) }
+    status?.let {
+      Text(
+        it,
+        color = Placeholder.mutedText,
+        fontSize = 14.sp,
+        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+      )
+    }
   }
 }
 
@@ -323,7 +441,7 @@ private fun EmptyPlace(text: String) {
 private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
   Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text("Quick menu", color = Placeholder.text)
+      Text("Quick menu", color = Placeholder.text, modifier = Modifier.semantics { heading() })
       val confirm =
         when (state.inputSettings.confirmButton) {
           ConfirmButton.South -> PadButton.South
@@ -334,11 +452,21 @@ private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
   }
 }
 
-/** A button in a menu. */
+/**
+ * A button in a menu.
+ *
+ * @param enabled whether pressing it does something now. Accessibility services say when it
+ *   doesn't; it still takes focus.
+ */
 @Composable
-internal fun MenuButton(key: String, label: String, onConfirm: () -> Unit) {
+internal fun MenuButton(
+  key: String,
+  label: String,
+  enabled: Boolean = true,
+  onConfirm: () -> Unit,
+) {
   Box(
-    Modifier.testTag(key)
+    Modifier.then(if (enabled) Modifier else Modifier.semantics { disabled() })
       .focusItem(key, onConfirm = onConfirm)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),

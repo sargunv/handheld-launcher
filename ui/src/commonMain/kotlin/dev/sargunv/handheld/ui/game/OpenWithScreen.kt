@@ -22,6 +22,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -106,7 +110,10 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       "Open ${screen.title} with",
       color = Placeholder.text,
       fontSize = 28.sp,
-      modifier = Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 16.dp),
+      modifier =
+        Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 16.dp).semantics {
+          heading()
+        },
     )
     if (game == null) {
       Spacer(Modifier.weight(1f))
@@ -173,14 +180,19 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           Modifier.width(360.dp).verticalScroll(rememberScrollState()),
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-          Text("Use for", color = Placeholder.mutedText, modifier = Modifier.padding(top = 8.dp))
+          Text(
+            "Use for",
+            color = Placeholder.mutedText,
+            modifier = Modifier.padding(top = 8.dp).semantics { heading() },
+          )
           levels.forEachIndexed { index, (rowLevel, name) ->
             val choice = launch.choiceAt(rowLevel)
             OptionRow(
               key = "level:$index",
-              label = if (index == levelIndex) "● $name" else name,
+              label = name,
               note = choice?.let { game.name(it.packageName, it.core) } ?: "Not set",
               background = if (index == levelIndex) Placeholder.tile else Placeholder.background,
+              selected = index == levelIndex,
               onConfirm = { picked = index },
             )
           }
@@ -195,6 +207,11 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
   }
 }
 
+/**
+ * One choice in a list: an app, or a level the choice applies to.
+ *
+ * @param selected for one of a set of options, whether it's the one picked, which a dot marks.
+ */
 @Composable
 private fun OptionRow(
   key: String,
@@ -202,15 +219,22 @@ private fun OptionRow(
   note: String?,
   background: Color,
   onConfirm: () -> Unit,
+  selected: Boolean? = null,
 ) {
   Column(
     Modifier.fillMaxWidth()
-      .testTag(key)
-      .focusItem(key, onConfirm = onConfirm)
+      .then(if (selected != null) Modifier.semantics { this.selected = selected } else Modifier)
+      .focusItem(
+        key,
+        onConfirm = onConfirm,
+        role = if (selected != null) Role.RadioButton else Role.Button,
+        // The dot is for the eye; a screen reader says the option is selected instead.
+        description = if (selected == true) listOfNotNull(label, note).joinToString(", ") else null,
+      )
       .background(background)
       .padding(horizontal = 20.dp, vertical = 10.dp),
   ) {
-    Text(label, color = Placeholder.text)
+    Text(if (selected == true) "● $label" else label, color = Placeholder.text)
     note?.let { Text(it, color = Placeholder.mutedText, fontSize = 14.sp) }
   }
 }
@@ -234,6 +258,7 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       color = Placeholder.text,
       fontSize = 20.sp,
       fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.semantics { heading() },
     )
     val lines = chainLines(steps, game.collections, game.platformName, game::name)
     lines.forEachIndexed { index, line ->

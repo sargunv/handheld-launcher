@@ -23,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
@@ -38,11 +40,13 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
+import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.places.coverDescription
 import dev.sargunv.handheld.ui.places.gameCount
 
 /** How many games a shelf of games holds. */
@@ -143,6 +147,7 @@ internal fun HomePlace(state: AppState) {
                   ) {
                     GameTile(
                       rom = rom,
+                      deviceState = state.deviceStates[rom.id],
                       key = "continue:${rom.id}",
                       modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
                       onFocus = ::onFocusGame,
@@ -156,9 +161,23 @@ internal fun HomePlace(state: AppState) {
                   val onFocusShelf = { focusedShelf = shelf }
                   when (shelf) {
                     HomeShelf.RecentlyPlayed ->
-                      GameShelf(shelf, playedNow.drop(1), onFocusShelf, ::onFocusGame, ::openGame)
+                      GameShelf(
+                        shelf,
+                        playedNow.drop(1),
+                        state.deviceStates,
+                        onFocusShelf,
+                        ::onFocusGame,
+                        ::openGame,
+                      )
                     HomeShelf.RecentlyAdded ->
-                      GameShelf(shelf, addedNow, onFocusShelf, ::onFocusGame, ::openGame)
+                      GameShelf(
+                        shelf,
+                        addedNow,
+                        state.deviceStates,
+                        onFocusShelf,
+                        ::onFocusGame,
+                        ::openGame,
+                      )
                     HomeShelf.Collections ->
                       CollectionShelf(collectionsNow, onFocusShelf, ::onFocusCollection)
                   }
@@ -195,7 +214,11 @@ private fun ShelfColumn(
   content: @Composable () -> Unit,
 ) {
   Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    Text(title, color = Placeholder.mutedText, modifier = Modifier.padding(start = 48.dp))
+    Text(
+      title,
+      color = Placeholder.mutedText,
+      modifier = Modifier.padding(start = 48.dp).semantics { heading() },
+    )
     content()
   }
 }
@@ -204,6 +227,7 @@ private fun ShelfColumn(
 private fun GameShelf(
   shelf: HomeShelf,
   games: List<Rom>,
+  deviceStates: Map<Long, DeviceState>,
   onFocusShelf: () -> Unit,
   onFocusGame: (Rom) -> Unit,
   onOpen: (Rom) -> Unit,
@@ -220,6 +244,7 @@ private fun GameShelf(
       items(games, key = { it.id }) { rom ->
         GameTile(
           rom = rom,
+          deviceState = deviceStates[rom.id],
           key = "${shelf.name}:${rom.id}",
           modifier = Modifier.size(120.dp, 160.dp),
           onFocus = onFocusGame,
@@ -233,6 +258,7 @@ private fun GameShelf(
 @Composable
 private fun GameTile(
   rom: Rom,
+  deviceState: DeviceState?,
   key: String,
   modifier: Modifier,
   onFocus: (Rom) -> Unit,
@@ -243,9 +269,12 @@ private fun GameTile(
     title = rom.title,
     modifier =
       modifier
-        .testTag(key)
         .onFocusChanged { if (it.isFocused) onFocus(rom) }
-        .focusItem(key, onConfirm = { onOpen(rom) }),
+        .focusItem(
+          key,
+          onConfirm = { onOpen(rom) },
+          description = coverDescription(rom, deviceState),
+        ),
   )
 }
 
@@ -268,8 +297,7 @@ private fun CollectionShelf(
         val key = "collection:${collection.kind}:${collection.id}"
         // Opening a collection waits for the library screen.
         Column(
-          Modifier.testTag(key)
-            .onFocusChanged { if (it.isFocused) onFocusCollection(collection) }
+          Modifier.onFocusChanged { if (it.isFocused) onFocusCollection(collection) }
             .focusItem(key)
             .size(200.dp, 100.dp)
             .background(Placeholder.tile)
@@ -302,7 +330,11 @@ private fun ShelfMenu(
   }
   Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(shelf?.title ?: "Home", color = Placeholder.text)
+      Text(
+        shelf?.title ?: "Home",
+        color = Placeholder.text,
+        modifier = Modifier.semantics { heading() },
+      )
       if (shelf != null) {
         MenuButton("menu:hide", "Hide this shelf") { choose(settings.hide(shelf)) }
         if (shown.firstOrNull() != shelf) {
