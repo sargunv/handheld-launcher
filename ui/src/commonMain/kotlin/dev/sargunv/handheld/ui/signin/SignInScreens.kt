@@ -1,0 +1,404 @@
+package dev.sargunv.handheld.ui.signin
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicSecureTextField
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation3.runtime.NavEntry
+import com.composeunstyled.Text
+import dev.sargunv.handheld.data.auth.DeviceDescription
+import dev.sargunv.handheld.data.auth.RommSignIn
+import dev.sargunv.handheld.data.romm.DeviceCode
+import dev.sargunv.handheld.ui.demo.Placeholder
+import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.input.Action
+import dev.sargunv.handheld.ui.navigation.NavigationHost
+import dev.sargunv.handheld.ui.navigation.Navigator
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+
+/** The steps of signing in. */
+sealed interface SignInScreen {
+  /** The server's address. */
+  data object Address : SignInScreen
+
+  /** A code to approve from another device: the usual way in. */
+  data class Code(val baseUrl: String) : SignInScreen
+
+  /** A pasted client API token: the fallback. */
+  data class Token(val baseUrl: String) : SignInScreen
+}
+
+/** What the lower screen says about the focused item. */
+@Immutable data class Help(val title: String, val text: String)
+
+/** State the sign-in's two screens share. */
+@Stable
+class SignInState(
+  internal val signIn: RommSignIn,
+  internal val device: DeviceDescription,
+  internal val onSignedIn: () -> Unit,
+) {
+  val navigator = Navigator<SignInScreen>(SignInScreen.Address)
+  internal val address = TextFieldState()
+  internal var help: Help? by mutableStateOf(null)
+}
+
+/** The sign-in's top screen. */
+@Composable
+fun SignInPrimary(state: SignInState) {
+  NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
+    screen ->
+    when (screen) {
+      SignInScreen.Address -> NavEntry(screen) { AddressScreen(state) }
+      is SignInScreen.Code -> NavEntry(screen) { CodeScreen(state, screen.baseUrl) }
+      is SignInScreen.Token -> NavEntry(screen) { TokenScreen(state, screen.baseUrl) }
+    }
+  }
+}
+
+/** The sign-in's bottom screen: what the focused item does. */
+@Composable
+fun SignInSecondary(state: SignInState) {
+  Column(
+    Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+  ) {
+    state.help?.let { help ->
+      Text(help.title, color = Placeholder.text)
+      Text(help.text, color = Placeholder.mutedText)
+    }
+  }
+}
+
+@Composable
+private fun AddressScreen(state: SignInState) {
+  var error by remember { mutableStateOf<String?>(null) }
+  fun next(screen: (String) -> SignInScreen) {
+    val url = serverUrl(state.address.text.toString())
+    error =
+      if (url == null) "Enter the address you open RomM at, such as romm.example.com." else null
+    if (url != null) state.navigator.push(screen(url))
+  }
+  ScreenColumn {
+    Text("Sign in to RomM", color = Placeholder.text, fontSize = 28.sp)
+    TextEntry(
+      state = state,
+      key = "address",
+      field = state.address,
+      modifier = Modifier.fillMaxWidth(),
+      placeholder = "romm.example.com",
+      help =
+        Help(
+          "Server address",
+          "The address you open RomM at in a browser, such as romm.example.com.",
+        ),
+      keyboardOptions =
+        KeyboardOptions(
+          autoCorrectEnabled = false,
+          keyboardType = KeyboardType.Uri,
+          imeAction = ImeAction.Go,
+        ),
+      onSubmit = { next(SignInScreen::Code) },
+    )
+    error?.let { Text(it, color = Placeholder.text) }
+    SignInButton(
+      state,
+      "continue",
+      "Continue",
+      Help("Continue", "Get a code, then approve it in RomM on your phone or computer."),
+    ) {
+      next(SignInScreen::Code)
+    }
+    SignInButton(state, "token", "Use an API token", TokenHelp) { next(SignInScreen::Token) }
+  }
+}
+
+@Composable
+private fun CodeScreen(state: SignInState, baseUrl: String) {
+  var attempt by remember { mutableIntStateOf(0) }
+  var code by remember { mutableStateOf<DeviceCode?>(null) }
+  var error by remember { mutableStateOf<String?>(null) }
+  LaunchedEffect(attempt) {
+    code = null
+    error = null
+    try {
+      state.signIn.withDeviceCode(baseUrl, state.device) { code = it }
+      state.onSignedIn()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      error = signInErrorMessage(e, baseUrl, SignInMethod.Code)
+    }
+  }
+  ScreenColumn {
+    Text("Approve this device", color = Placeholder.text, fontSize = 28.sp)
+    val shown = code
+    when {
+      error != null -> Text(error.orEmpty(), color = Placeholder.text)
+      shown == null -> Text("Asking $baseUrl for a code…", color = Placeholder.mutedText)
+      else -> {
+        Text(
+          "On a phone or computer signed in to RomM, open this address:",
+          color = Placeholder.mutedText,
+        )
+        Text(shown.verificationUrl, color = Placeholder.text)
+        Text("Check that it shows this code, then approve it:", color = Placeholder.mutedText)
+        Text(shown.userCode, color = Placeholder.text, fontSize = 48.sp, letterSpacing = 6.sp)
+        Text("Waiting for approval…", color = Placeholder.mutedText)
+      }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+      if (error != null) {
+        SignInButton(
+          state,
+          "retry",
+          "Get a new code",
+          Help("Get a new code", "Ask for a new code."),
+        ) {
+          attempt++
+        }
+      }
+      SignInButton(state, "token", "Use an API token instead", TokenHelp) {
+        state.navigator.push(SignInScreen.Token(baseUrl))
+      }
+    }
+  }
+}
+
+@Composable
+private fun TokenScreen(state: SignInState, baseUrl: String) {
+  var error by remember { mutableStateOf<String?>(null) }
+  var checking by remember { mutableStateOf(false) }
+  // Each visit starts empty, so a token typed for one server isn't sent to another.
+  val field = remember { TextFieldState() }
+  val scope = rememberCoroutineScope()
+  val clipboard = LocalClipboard.current
+  fun submit() {
+    if (checking) return
+    val token = field.text.toString()
+    if (token.isBlank()) {
+      error = "Paste or type a client API token first."
+      return
+    }
+    error = null
+    checking = true
+    scope.launch {
+      try {
+        state.signIn.withToken(baseUrl, token)
+        state.onSignedIn()
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        error = signInErrorMessage(e, baseUrl, SignInMethod.Token)
+      } finally {
+        checking = false
+      }
+    }
+  }
+  ScreenColumn {
+    Text("Sign in with an API token", color = Placeholder.text, fontSize = 28.sp)
+    Text(
+      "Create a client API token in RomM on another device, then paste or type it here.",
+      color = Placeholder.mutedText,
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+      TextEntry(
+        state = state,
+        key = "token",
+        field = field,
+        modifier = Modifier.weight(1f),
+        placeholder = "API token",
+        help = Help("API token", "A client API token from RomM, for $baseUrl."),
+        secure = true,
+        keyboardOptions =
+          KeyboardOptions(
+            autoCorrectEnabled = false,
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done,
+          ),
+        onSubmit = ::submit,
+      )
+      SignInButton(state, "paste", "Paste", Help("Paste", "Paste the token from the clipboard.")) {
+        scope.launch {
+          val text = clipboard.readText()?.trim()
+          if (text.isNullOrEmpty()) {
+            error = "The clipboard has no text to paste."
+          } else {
+            field.setTextAndPlaceCursorAtEnd(text)
+            error = null
+          }
+        }
+      }
+    }
+    when {
+      checking -> Text("Checking the token with $baseUrl…", color = Placeholder.mutedText)
+      error != null -> Text(error.orEmpty(), color = Placeholder.text)
+    }
+    SignInButton(state, "sign-in", "Sign in", Help("Sign in", "Check the token, then sign in.")) {
+      submit()
+    }
+  }
+}
+
+private val TokenHelp =
+  Help(
+    "Use an API token",
+    "Sign in with a client API token that you create in RomM, instead of approving a code.",
+  )
+
+@Composable
+private fun ScreenColumn(content: @Composable () -> Unit) {
+  Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) { content() }
+}
+
+/**
+ * A text field for a controller: an item that focus moves over like any other, and that opens the
+ * system keyboard on [Action.Confirm] or a tap. [Action.Back], [Action.Confirm] or moving focus
+ * away stops editing; the keyboard's action key also calls [onSubmit].
+ *
+ * @param secure hides what's typed, for secrets.
+ */
+@Composable
+private fun TextEntry(
+  state: SignInState,
+  key: String,
+  field: TextFieldState,
+  placeholder: String,
+  help: Help,
+  keyboardOptions: KeyboardOptions,
+  onSubmit: () -> Unit,
+  modifier: Modifier = Modifier,
+  secure: Boolean = false,
+) {
+  var editing by remember { mutableStateOf(false) }
+  val itemRequester = remember { FocusRequester() }
+  val fieldRequester = remember { FocusRequester() }
+  fun stopEditing() {
+    itemRequester.requestFocus()
+    editing = false
+  }
+  Box(
+    modifier
+      .testTag(key)
+      .onFocusChanged { if (it.hasFocus) state.help = help }
+      .focusRequester(itemRequester)
+      .focusItem(
+        key,
+        onConfirm = { if (editing) stopEditing() else editing = true },
+        onAction = { action ->
+          if (action == Action.Back && editing) {
+            stopEditing()
+            true
+          } else {
+            false
+          }
+        },
+      )
+      .background(Placeholder.tile)
+      .then(if (editing) Modifier.border(2.dp, Placeholder.text) else Modifier)
+      .padding(horizontal = 16.dp, vertical = 12.dp),
+  ) {
+    if (editing) {
+      var hadFocus by remember { mutableStateOf(false) }
+      val modifier =
+        Modifier.fillMaxWidth().focusRequester(fieldRequester).onFocusChanged {
+          // Focus that moves on, such as with the D-pad, ends editing too.
+          if (it.isFocused) hadFocus = true else if (hadFocus) editing = false
+        }
+      val textStyle = TextStyle(color = Placeholder.text, fontSize = 20.sp)
+      val cursor = SolidColor(Placeholder.text)
+      val submit = {
+        stopEditing()
+        onSubmit()
+      }
+      if (secure) {
+        BasicSecureTextField(
+          state = field,
+          modifier = modifier,
+          textStyle = textStyle,
+          keyboardOptions = keyboardOptions,
+          onKeyboardAction = { submit() },
+          cursorBrush = cursor,
+          textObfuscationMode = TextObfuscationMode.Hidden,
+        )
+      } else {
+        BasicTextField(
+          state = field,
+          modifier = modifier,
+          textStyle = textStyle,
+          keyboardOptions = keyboardOptions,
+          onKeyboardAction = { submit() },
+          lineLimits = TextFieldLineLimits.SingleLine,
+          cursorBrush = cursor,
+        )
+      }
+      LaunchedEffect(Unit) { fieldRequester.requestFocus() }
+    } else {
+      val text = field.text
+      Text(
+        when {
+          text.isEmpty() -> placeholder
+          secure -> "•".repeat(minOf(text.length, 32))
+          else -> text.toString()
+        },
+        color = if (text.isEmpty()) Placeholder.mutedText else Placeholder.text,
+        fontSize = 20.sp,
+        maxLines = 1,
+      )
+    }
+  }
+}
+
+@Composable
+private fun SignInButton(
+  state: SignInState,
+  key: String,
+  label: String,
+  help: Help,
+  onConfirm: () -> Unit,
+) {
+  Box(
+    Modifier.testTag(key)
+      .onFocusChanged { if (it.isFocused) state.help = help }
+      .focusItem(key, onConfirm = onConfirm)
+      .background(Placeholder.tile)
+      .padding(horizontal = 24.dp, vertical = 12.dp),
+  ) {
+    Text(label, color = Placeholder.text)
+  }
+}

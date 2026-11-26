@@ -12,6 +12,7 @@ kotlin {
     namespace = "dev.sargunv.handheld.data"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
     minSdk = libs.versions.android.minSdk.get().toInt()
+    withHostTest {}
   }
   jvm()
 
@@ -43,6 +44,11 @@ kotlin {
       implementation(libs.kotlin.test)
       implementation(libs.kotlinx.coroutines.test)
       implementation(libs.ktor.client.mock)
+    }
+    getByName("androidHostTest").dependencies {
+      implementation(libs.kotlin.test)
+      implementation(libs.kotlinx.coroutines.test)
+      implementation(libs.junit)
     }
   }
 }
