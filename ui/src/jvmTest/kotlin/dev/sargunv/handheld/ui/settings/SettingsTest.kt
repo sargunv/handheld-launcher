@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.settings
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertContentDescriptionEquals
@@ -15,11 +16,13 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestDevice
@@ -84,19 +87,22 @@ class SettingsTest {
     refuses: Boolean = false,
     store: CredentialStore = credentials,
     apps: AppCatalog = AppCatalog.None,
+    onDownloads: (LibraryCache, DownloadManager) -> Unit = { _, _ -> },
   ) {
     val engine = server(refuses)
     val request = open?.let(::OpenRequest)
     setContent {
       val heldKeys = remember { HeldKeys() }
       val library = remember { LibraryCache.open(path = null) }
+      val downloads = rememberTestDownloads(library, store)
+      remember { onDownloads(library, downloads) }
       App(
         DualScreenLayout.Frame,
         heldKeys,
         store,
         TestDevice,
         library,
-        rememberTestDownloads(library, store),
+        downloads,
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
         saveSettings = { saved += it },
@@ -173,6 +179,38 @@ class SettingsTest {
     onNodeWithTag("settings:Controls").assertDoesNotExist()
     assertNull(runBlocking { credentials.load() })
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $Server")
+  }
+
+  // A queued or failed game is the old server's, so it mustn't run against the next one.
+  @Test
+  fun signingOutEmptiesTheDownloadQueue() = runComposeUiTest {
+    var downloads: DownloadManager? = null
+    var library: LibraryCache? = null
+    launch(OpenTarget.Settings(SettingsSection.RomM)) { l, d ->
+      library = l
+      downloads = d
+    }
+    awaitText("player")
+    waitUntil(timeoutMillis = 5_000) { runBlocking { library!!.rom(1) } != null }
+    runBlocking { downloads!!.enqueue(assertNotNull(library!!.rom(1))) }
+    assertEquals(1, downloads!!.queue.value.size)
+
+    press(Key.DirectionRight)
+    focusDownTo("settings:romm:signOut")
+    press(Key.ButtonA)
+    awaitTag("signOut:cancel")
+    press(listOf(Key.DirectionUp, Key.ButtonA))
+    awaitFocused("address")
+    assertEquals(emptyList(), downloads!!.queue.value)
+  }
+
+  // Accessibility services move their own focus, so a section also opens when they activate it.
+  @Test
+  fun aSectionOpensWhenActivated() = runComposeUiTest {
+    launch(OpenTarget.Settings(SettingsSection.Controls))
+    awaitFocused("settings:Controls")
+    onNodeWithTag("settings:Emulators").performSemanticsAction(SemanticsActions.OnClick)
+    awaitTag("settings:emulators:gb")
   }
 
   @Test

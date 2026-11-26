@@ -247,7 +247,10 @@ private fun SectionRow(
       Modifier.fillMaxWidth()
         .semantics { this.selected = selected }
         .onFocusChanged { if (it.isFocused) onFocus() }
-        .focusItem(section.key) { action -> action == Action.Right && onRight() }
+        // Confirming selects it too, for accessibility services, which move their own focus.
+        .focusItem(section.key, onConfirm = onFocus) { action ->
+          action == Action.Right && onRight()
+        }
         .background(if (selected) Placeholder.tile else Placeholder.background)
         .padding(horizontal = 20.dp, vertical = 12.dp),
   )

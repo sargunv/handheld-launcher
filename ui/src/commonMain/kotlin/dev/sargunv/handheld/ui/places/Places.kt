@@ -81,7 +81,9 @@ import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
 import dev.sargunv.handheld.ui.settings.SettingsView
 import io.ktor.client.engine.HttpClientEngine
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /** The top-level pages, which the main menu goes to. */
 enum class Place(val title: String) {
@@ -232,19 +234,25 @@ class AppState(
 
   /**
    * Signs out of the server and goes to the sign-in, which offers the same server again. The games
-   * on the device, their saves and the library cache stay. The next sign-in opens on Home.
+   * on the device, their saves and the library cache stay, but the downloads not yet done leave the
+   * queue, since they're games of this server. The next sign-in opens on Home.
+   *
+   * Once begun, it finishes even if the screen that asked goes away.
    */
-  suspend fun signOut() {
-    signedOutOf = credentials.load()?.baseUrl
-    romm.signOut()
-    navigator.backToStart()
-    place = Place.Home
-    focused = null
-    sync = SyncStatus.NotStarted
-    homeResets++
-    signOuts++
-    signedIn = false
-  }
+  suspend fun signOut() =
+    withContext(NonCancellable) {
+      signedOutOf = credentials.load()?.baseUrl
+      // Before the credentials go, so the server hears of the canceled installs it asked for.
+      for (download in downloads.queue.value) downloads.cancel(download.romId)
+      romm.signOut()
+      navigator.backToStart()
+      place = Place.Home
+      focused = null
+      sync = SyncStatus.NotStarted
+      homeResets++
+      signOuts++
+      signedIn = false
+    }
 
   /**
    * Shows [target], on top of the places, as if the player had gone there. A game or platform that
