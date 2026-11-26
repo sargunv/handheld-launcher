@@ -107,6 +107,16 @@ class OpenWithModelTest {
       ChainLine("Platform PS2: no emulator installed"),
       lines(LaunchRules(), emptyList()).last(),
     )
+    // A platform rule for the built-in session, where no core runs the platform, is skipped too.
+    val builtIn = LaunchRules(platformDefaults = mapOf(PS2 to LaunchChoice.BuiltIn))
+    assertEquals(
+      listOf(
+        ChainLine("Platform PS2: Built-in · no core for PS2, skipped"),
+        ChainLine("Built-in session (default) · no core for PS2, skipped"),
+        ChainLine("Default for PS2: NetherSX2 · opens here", wins = true),
+      ),
+      lines(builtIn).drop(2),
+    )
   }
 
   @Test

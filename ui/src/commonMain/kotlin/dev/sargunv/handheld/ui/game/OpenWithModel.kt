@@ -136,8 +136,10 @@ internal fun chainLines(
 
   val platformLevel = "Platform $platformName"
   val platformRule = steps.first { it.rule == LaunchRule.PlatformDefault }
-  // The platform's own rule decides or is outranked, so its defaults don't matter.
-  val defaultsMatter = platformRule.status in setOf(RuleStatus.Unset, RuleStatus.NotInstalled)
+  // Unless the platform's own rule is unset or skipped, it decides or is outranked, so its
+  // defaults don't matter.
+  val defaultsMatter =
+    platformRule.status in setOf(RuleStatus.Unset, RuleStatus.NotInstalled, RuleStatus.NoCore)
   return buildList {
     for (step in steps) {
       when (val rule = step.rule) {
