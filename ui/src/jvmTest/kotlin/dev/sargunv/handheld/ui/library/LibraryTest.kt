@@ -12,7 +12,10 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -48,9 +51,10 @@ import kotlin.test.assertEquals
 class LibraryTest {
   /**
    * A server with two platforms of games and an empty third. On the Game Boy: Alpha, Bravo and
-   * Zulu, with Zulu added first and Bravo last. On the NES: Contra and Metroid.
+   * Zulu, with Zulu added first and Bravo last. On the NES: Contra and Metroid. With [collections],
+   * three collections: Couch holds Bravo and Contra, Solo holds Alpha, and Zero holds nothing.
    */
-  private val server = {
+  private fun server(collections: Boolean = true) = {
     MockEngine { request ->
       val body =
         when (request.url.encodedPath.substringAfter("/api/")) {
@@ -70,7 +74,11 @@ class LibraryTest {
               )
             }
           "roms/identifiers" -> "[1, 2, 3, 4, 5]"
-          "collections",
+          "collections" ->
+            if (collections)
+              "[${collection(1, "Couch", listOf(2, 4))}, ${collection(2, "Solo", listOf(1))}, " +
+                "${collection(3, "Zero", emptyList())}]"
+            else "[]"
           "collections/smart" -> "[]"
           else -> return@MockEngine respondError(HttpStatusCode.NotFound)
         }
@@ -82,7 +90,9 @@ class LibraryTest {
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
     storage: File? = null,
+    collections: Boolean = true,
   ) {
+    val engine = server(collections)
     setContent {
       val heldKeys = remember { HeldKeys() }
       val credentials = remember {
@@ -104,21 +114,22 @@ class LibraryTest {
         Modifier.trackHeldKeys(heldKeys),
         initialSettings = settings,
         saveSettings = saveSettings,
-        httpEngine = server,
+        httpEngine = engine,
       )
     }
   }
 
-  /** Launches and goes to Library's list once the sync has filled it. */
+  /** Launches and goes to the Library once the sync has filled it. */
   private fun ComposeUiTest.openLibrary(
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
     storage: File? = null,
+    collections: Boolean = true,
   ) {
-    launch(settings, saveSettings, storage)
+    launch(settings, saveSettings, storage, collections)
     awaitTag("shelf:RecentlyAdded")
     press(listOf(Key.ButtonStart, Key.DirectionDown, Key.ButtonA))
-    awaitTag("library:shelves")
+    awaitTag("place:Library")
   }
 
   /** Launches and opens the Game Boy's games. */
@@ -147,6 +158,13 @@ class LibraryTest {
       onRoot().performKeyInput { keyUp(key) }
       waitForIdle()
     }
+  }
+
+  private fun ComposeUiTest.awaitText(text: String) {
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
+    }
+    waitForIdle()
   }
 
   private fun ComposeUiTest.assertFocused(tag: String) {
@@ -201,7 +219,7 @@ class LibraryTest {
   fun backOnTheListGoesHome() = runComposeUiTest {
     openLibrary()
     assertFocused("library:platform:1")
-    // The shoulder buttons don't leave the Library.
+    // The shoulder buttons switch tabs, and coming back focuses the same platform.
     press(listOf(Key.ButtonR1, Key.ButtonL1))
     assertFocused("library:platform:1")
     press(Key.ButtonB)
@@ -243,40 +261,137 @@ class LibraryTest {
   }
 
   @Test
-  fun allGamesTurnsOnFromTheMenuAndStays() = runComposeUiTest {
+  fun opensOnPlatformsAndShoulderButtonsSwitchTabsStoppingAtTheEnds() = runComposeUiTest {
     val saved = mutableListOf<Settings>()
     openLibrary(saveSettings = { saved += it })
+    onNodeWithTag("library:tab:Platforms").assertIsSelected()
     assertFocused("library:platform:1")
-    press(Key.ButtonX)
-    assertFocused("menu:allGames")
-    press(Key.ButtonA)
-    awaitTag("library:all")
-    assertEquals(true, saved.last().library.allGames)
-    onNodeWithTag("library:all")
-      .assertContentDescriptionEquals("All games, 5 games, 0 on this device")
-    // It's first on the list, and focus stays where it was.
-    assertFocused("library:platform:1")
-    press(listOf(Key.DirectionLeft, Key.ButtonA))
-    awaitTag("shelf:all")
-    // The whole library, in title order.
+    press(Key.ButtonL1)
+    onNodeWithTag("library:tab:OnDevice").assertIsSelected()
+    awaitText("No games on this device yet.")
+    // At the first tab, L stays.
+    press(Key.ButtonL1)
+    onNodeWithTag("library:tab:OnDevice").assertIsSelected()
+    press(listOf(Key.ButtonR1, Key.ButtonR1, Key.ButtonR1))
+    onNodeWithTag("library:tab:AllGames").assertIsSelected()
+    // All games is the whole library, in title order.
     assertFocused("game:1")
     press(listOf(Key.DirectionRight, Key.DirectionRight))
     assertFocused("game:4")
+    // At the last tab, R stays.
     press(Key.ButtonR1)
-    awaitTag("shelf:platform:1")
+    onNodeWithTag("library:tab:AllGames").assertIsSelected()
+    assertFocused("game:4")
+    assertEquals(LibraryTab.AllGames, saved.last().library.tab)
+    // Coming back to a tab focuses what it had focused.
+    press(listOf(Key.ButtonL1, Key.ButtonL1))
+    assertFocused("library:platform:1")
+    press(Key.ButtonR1)
+    press(Key.ButtonR1)
+    assertFocused("game:4")
+  }
+
+  @Test
+  fun opensOnTheTabItWasLastLeftOn() = runComposeUiTest {
+    openLibrary(Settings(library = LibrarySettings(tab = LibraryTab.Collections)))
+    onNodeWithTag("library:tab:Collections").assertIsSelected()
+    assertFocused("library:collection:Regular:1")
+  }
+
+  @Test
+  fun onDeviceHoldsOnlyTheGamesOnTheDevice() = runComposeUiTest {
+    val storage = createTempDirectory("library-storage").toFile()
+    File(storage, "ROMs/p1").mkdirs()
+    File(storage, "ROMs/p1/Zulu.bin").writeText("game")
+    openLibrary(Settings(library = LibrarySettings(tab = LibraryTab.OnDevice)), storage = storage)
+    assertFocused("game:3")
+    onNodeWithTag("game:1").assertDoesNotExist()
+    // Every game here is on the device, so nothing filters them.
+    onNodeWithTag("touch:filter:OnDevice").assertDoesNotExist()
+    press(Key.ButtonX)
+    assertFocused("menu:sort:RecentlyAdded")
+    onNodeWithTag("menu:filter:OnDevice").assertDoesNotExist()
+  }
+
+  @Test
+  fun collectionsOpenTheirGamesAndShoulderButtonsStepBetweenThem() = runComposeUiTest {
+    openLibrary()
+    press(Key.ButtonR1)
+    onNodeWithTag("library:tab:Collections").assertIsSelected()
+    assertFocused("library:collection:Regular:1")
+    onNodeWithTag("library:collection:Regular:1")
+      .assertContentDescriptionEquals("Couch, 2 games, 0 on this device")
+    press(Key.ButtonA)
+    awaitTag("shelf:collection:Regular:1")
+    // Couch's games in title order: Bravo, then Contra.
+    assertFocused("game:2")
+    onNodeWithTag("game:1").assertDoesNotExist()
+    press(Key.ButtonR1)
+    awaitTag("shelf:collection:Regular:2")
+    assertFocused("game:1")
+    // An empty collection is there too, as on Home, and opens to say so.
+    press(Key.ButtonR1)
+    awaitTag("shelf:collection:Regular:3")
+    awaitText("No games here yet.")
+    // At the last collection, R stays.
+    press(Key.ButtonR1)
+    onNodeWithTag("shelf:collection:Regular:3").assertExists()
+    // Back returns to the tab, on the collection it was in.
+    press(Key.ButtonB)
+    assertFocused("library:collection:Regular:3")
+    onNodeWithTag("library:tab:Collections").assertIsSelected()
+  }
+
+  @Test
+  fun aPlatformsMenuOpensOpenWithForItsGames() = runComposeUiTest {
+    openLibrary()
+    assertFocused("library:platform:1")
+    press(Key.ButtonX)
+    assertFocused("menu:open-with")
+    press(Key.ButtonA)
+    awaitText("Open Game Boy games with")
     press(Key.ButtonB)
     assertFocused("library:platform:1")
   }
 
   @Test
-  fun allGamesIsFirstOnTheListWhenOn() = runComposeUiTest {
-    val saved = mutableListOf<Settings>()
-    openLibrary(Settings(library = LibrarySettings(allGames = true)), { saved += it })
-    assertFocused("library:all")
-    press(listOf(Key.ButtonX, Key.ButtonA))
+  fun aCollectionsMenuOpensOpenWithForEachOfItsPlatforms() = runComposeUiTest {
+    openLibrary()
+    press(Key.ButtonR1)
+    assertFocused("library:collection:Regular:1")
+    // Couch holds a Game Boy game and an NES game, which open in different apps.
+    press(Key.ButtonX)
+    assertFocused("menu:open-with:p1")
+    onNodeWithTag("menu:open-with:p1").assertTextEquals("Open Game Boy games with")
+    onNodeWithTag("menu:open-with:p2").assertTextEquals("Open NES games with")
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    awaitText("Open NES games in Couch with")
+    onNodeWithText("Chosen for NES games in Couch").assertExists()
+    awaitText("Collection 'Couch': none")
+    press(Key.ButtonB)
+    assertFocused("library:collection:Regular:1")
+    // Solo's games are all on one platform.
+    press(listOf(Key.DirectionRight, Key.ButtonX))
+    assertFocused("menu:open-with:p1")
+    onNodeWithTag("menu:open-with:p1").assertTextEquals("Open with")
+    onNodeWithTag("menu:open-with:p2").assertDoesNotExist()
+  }
+
+  @Test
+  fun theMenuHintShowsOnlyWithSomethingForTheMenuToDo() = runComposeUiTest {
+    openLibrary(collections = false)
     assertFocused("library:platform:1")
-    onNodeWithTag("library:all").assertDoesNotExist()
-    assertEquals(LibrarySettings(), saved.last().library)
+    onNodeWithTag("hint:Menu").assertExists()
+    press(Key.ButtonR1)
+    awaitText("Your server has no collections.")
+    onNodeWithTag("hint:Menu").assertDoesNotExist()
+    onNodeWithTag("hint:Confirm").assertDoesNotExist()
+    press(Key.ButtonX)
+    onNodeWithTag("menu:open-with").assertDoesNotExist()
+    // On device has no games to sort.
+    press(listOf(Key.ButtonL1, Key.ButtonL1))
+    awaitText("No games on this device yet.")
+    onNodeWithTag("hint:Menu").assertDoesNotExist()
   }
 
   @Test
@@ -338,6 +453,11 @@ class LibraryTest {
       "fs_name": "$name.bin", "fs_name_no_tags": "$name", "fs_name_no_ext": "$name",
       "fs_extension": "bin", "fs_size_bytes": 1024, "path_cover_small": "", "url_cover": "",
       "created_at": "2024-01-0${day}T00:00:00+00:00",
+      "updated_at": "2024-01-01T00:00:00+00:00"}"""
+
+    fun collection(id: Int, name: String, roms: List<Int>) =
+      """{"id": $id, "name": "$name", "rom_ids": $roms, "rom_count": ${roms.size}, "user_id": 1,
+      "owner_username": "me", "created_at": "2024-01-01T00:00:00+00:00",
       "updated_at": "2024-01-01T00:00:00+00:00"}"""
 
     fun page(items: List<String>) =

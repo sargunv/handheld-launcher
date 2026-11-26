@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RommAchievementProgress
 import dev.sargunv.handheld.data.achievements.achievementProgress
@@ -78,7 +83,11 @@ private class PendingStillRunning(val prompt: StillRunning) {
 
 /**
  * A game: one primary action, focused first, that plays the game when it's on the device and
- * downloads it when it isn't. Everything else is in the menu.
+ * downloads it when it isn't. Everything else is in the menu. When [Screen.Game.play] asks, it
+ * plays the game as it opens, if the game is on the device.
+ *
+ * A launch runs while the screen shows, so while one is under way, leaving the screen asks first,
+ * and the menu and the main menu wait.
  */
 @Composable
 internal fun GameScreen(state: AppState, screen: Screen.Game) {
@@ -94,6 +103,9 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   var notes by remember { mutableStateOf(emptyList<String>()) }
   var pending by remember { mutableStateOf<PendingChoice?>(null) }
   var stillRunning by remember { mutableStateOf<PendingStillRunning?>(null) }
+  var confirmLeave by rememberSaveable { mutableStateOf(false) }
+  // Whether the play the screen was opened for has started, so it starts only once.
+  var autoPlayed by rememberSaveable { mutableStateOf(false) }
   val scope = rememberCoroutineScope()
 
   fun play(rom: Rom, path: String) {
@@ -139,21 +151,39 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   }
 
   val current = rom
+  val currentStatus = status
+  LaunchedEffect(current, currentStatus) {
+    if (!screen.play || autoPlayed || current == null || currentStatus == null) {
+      return@LaunchedEffect
+    }
+    autoPlayed = true
+    // A game that isn't on the device shows its page, where it can download.
+    if (currentStatus is RomStatus.OnDevice) play(current, currentStatus.path)
+  }
+  LaunchedEffect(playing) { if (!playing) confirmLeave = false }
+  // The system back gesture asks too, as Back does, or cancels a save choice, as Back does there.
+  if (playing && LocalNavigationEventDispatcherOwner.current != null) {
+    NavigationBackHandler(
+      state = rememberNavigationEventState(NavigationEventInfo.None),
+      onBackCompleted = {
+        val choice = pending
+        if (choice != null) choice.choice.complete(null) else confirmLeave = true
+      },
+    )
+  }
   val primary = current?.let { primaryAction(it, status, playing, playProgress) }
+  val hasMenu = current != null && status != null && !playing
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
-      if (
-        action == Action.Menu &&
-          current != null &&
-          status != null &&
-          pending == null &&
-          stillRunning == null
-      ) {
-        menuOpen = true
-        true
-      } else {
-        false
+      when {
+        action == Action.Menu && hasMenu -> menuOpen = true
+        // Leaving would stop the launch, so it asks first.
+        action == Action.Back && playing -> confirmLeave = true
+        // The main menu waits for the launch, as it would leave the screen.
+        action == Action.MainMenu && playing -> Unit
+        else -> return@onAction false
       }
+      true
     },
   ) {
     val choice = pending
@@ -217,7 +247,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         buildList {
           if (primary?.isAction == true) add(Hint(Action.Confirm, primary.label))
           add(Hint(Action.Back, "Back"))
-          if (status != null) add(Hint(Action.Menu, "Menu"))
+          if (hasMenu) add(Hint(Action.Menu, "Menu"))
+          if (!playing) add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }
@@ -226,12 +257,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       Dialog(close, Modifier.background(Placeholder.dialog).padding(24.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
           Text(current.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+          // Download and Retry are the primary action, so the menu doesn't repeat them.
           when (status) {
-            RomStatus.NotOnDevice ->
-              MenuButton("menu:download", PrimaryAction.Download(current.sizeBytes).label) {
-                scope.launch { state.downloads.enqueue(current) }
-                close()
-              }
             RomStatus.Queued,
             is RomStatus.Downloading,
             is RomStatus.Failed ->
@@ -244,6 +271,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
                 close()
                 confirmRemove = true
               }
+            RomStatus.NotOnDevice,
             null -> Unit
           }
           MenuButton("menu:open-with", "Open with") {
@@ -292,8 +320,48 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         }
       }
     }
+    if (confirmLeave && playing) {
+      LeaveDialog(
+        screen.title,
+        onStay = { confirmLeave = false },
+        onLeave = {
+          confirmLeave = false
+          state.navigator.back()
+        },
+      )
+    }
     stillRunning?.let { asking ->
       StillRunningDialog(asking.prompt, onChoose = { asking.choice.complete(it) })
+    }
+  }
+}
+
+/**
+ * Asks whether to leave a game while its launch is under way, which stops the launch. Staying is
+ * focused first.
+ */
+@Composable
+private fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit) {
+  Dialog(
+    onStay,
+    Modifier.background(Placeholder.dialog).padding(24.dp),
+    initialFocus = "leave:stay",
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text(
+        "Leave $title?",
+        color = Placeholder.text,
+        modifier = Modifier.semantics { heading() },
+      )
+      Text(
+        "A game that hasn't started yet won't start. One already playing in another app keeps " +
+          "running, but its save won't sync with RomM when you quit it.",
+        color = Placeholder.mutedText,
+      )
+      Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        MenuButton("leave:stay", "Stay", onConfirm = onStay)
+        MenuButton("leave:confirm", "Leave", onConfirm = onLeave)
+      }
     }
   }
 }

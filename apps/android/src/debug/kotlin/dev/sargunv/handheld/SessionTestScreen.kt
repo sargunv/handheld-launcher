@@ -43,9 +43,9 @@ private sealed interface Status {
 
 /**
  * Runs the core [core] gives with [content] and [coreOptions] in a game session, for trying the
- * session on a device. F2 saves a state and F4 loads it. Saves and states go in [dir]. The game
- * pauses while the window lacks focus only with [pauseWhenUnfocused]. When the core changes its
- * video mode, the label shows it, and when the core quits, the screen closes the session.
+ * session on a device. F2 saves a state and F4 loads it. Saves and states go in [dir]. When the
+ * core changes its video mode, the label shows it, and when the core quits, the screen closes the
+ * session.
  */
 @Composable
 internal fun SessionTestScreen(
@@ -53,7 +53,6 @@ internal fun SessionTestScreen(
   core: suspend () -> File?,
   content: File?,
   coreOptions: Map<String, String>,
-  pauseWhenUnfocused: Boolean,
 ) {
   var status by remember { mutableStateOf<Status>(Status.Loading) }
   var message by remember { mutableStateOf("") }
@@ -116,7 +115,6 @@ internal fun SessionTestScreen(
           factory = { context ->
             GameSessionView(context).apply {
               session = s.session
-              this.pauseWhenUnfocused = pauseWhenUnfocused
               setOnKeyListener { _, _, event ->
                 handleHotkey(s.session, dir, event)?.let { message = it } != null
               }

@@ -67,9 +67,9 @@ across devices and where the game opens, with the rule that decides it.
 ## Open with
 
 From the menu of a game, a platform or a collection, or from Settings →
-Emulators for a platform. It lists the built-in player and every installed app,
-and A chooses one for what it was opened from. The lower screen shows the rule
-chain that decides where the game, or the platform's games, open.
+Emulators for a platform. It lists Built-in, the app's own player, and every
+installed app, and A chooses one for what it was opened from. The lower screen
+shows the rule chain that decides where the game, or the platform's games, open.
 
 ## Downloads
 

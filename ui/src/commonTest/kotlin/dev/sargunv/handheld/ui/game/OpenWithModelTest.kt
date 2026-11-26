@@ -65,7 +65,7 @@ class OpenWithModelTest {
       listOf(
         ChainLine("Game: none"),
         ChainLine("Collection 'Jak and Daxter': PocketGOAL · opens here", wins = true),
-        ChainLine("Built-in session (default) · no core for PS2, skipped"),
+        ChainLine("Built-in (default) · no core for PS2, skipped"),
         ChainLine("Platform PS2: NetherSX2 (default) · overridden"),
       ),
       lines(rules),
@@ -98,7 +98,7 @@ class OpenWithModelTest {
         ChainLine("Game: none"),
         ChainLine("Collection: none"),
         ChainLine("Platform PS2: com.example.gone · not installed, skipped"),
-        ChainLine("Built-in session (default) · no core for PS2, skipped"),
+        ChainLine("Built-in (default) · no core for PS2, skipped"),
         ChainLine("Default for PS2: NetherSX2 · opens here", wins = true),
       ),
       lines(rules),
@@ -112,7 +112,7 @@ class OpenWithModelTest {
     assertEquals(
       listOf(
         ChainLine("Platform PS2: Built-in · no core for PS2, skipped"),
-        ChainLine("Built-in session (default) · no core for PS2, skipped"),
+        ChainLine("Built-in (default) · no core for PS2, skipped"),
         ChainLine("Default for PS2: NetherSX2 · opens here", wins = true),
       ),
       lines(builtIn).drop(2),
@@ -126,7 +126,7 @@ class OpenWithModelTest {
       listOf(
         ChainLine("Game: none"),
         ChainLine("Collection: none"),
-        ChainLine("Platform GBA: Built-in session (default) · opens here", wins = true),
+        ChainLine("Platform GBA: Built-in (default) · opens here", wins = true),
       ),
       lines(LaunchRules(), subject = gaia, platformName = "GBA"),
     )
@@ -135,7 +135,7 @@ class OpenWithModelTest {
       listOf(
         ChainLine("Game: RetroArch · opens here", wins = true),
         ChainLine("Collection: none"),
-        ChainLine("Platform GBA: Built-in session (default) · overridden"),
+        ChainLine("Platform GBA: Built-in (default) · overridden"),
       ),
       lines(retroArch, subject = gaia, platformName = "GBA"),
     )

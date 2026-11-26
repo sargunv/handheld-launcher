@@ -227,6 +227,11 @@ JOIN collection_rom
 WHERE collection_rom.rom_id = ?
 ORDER BY collection.is_favorite DESC, collection.name COLLATE NOCASE, collection.kind, collection.id;
 
+collectionRoms:
+SELECT collection_rom.collection_kind, collection_rom.collection_id, collection_rom.rom_id
+FROM collection_rom
+JOIN rom ON rom.id = collection_rom.rom_id;
+
 insertCollection:
 INSERT INTO collection VALUES ?;
 

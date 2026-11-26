@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.ui.places
 
 import androidx.compose.runtime.Immutable
+import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
 
 /**
@@ -15,8 +17,14 @@ sealed interface OpenTarget {
   /** The Game screen for the game with RomM id [romId]. */
   data class Game(val romId: Long) : OpenTarget
 
-  /** Library: the games of the platform with [platformSlug], or the list of shelves when null. */
-  data class LibraryShelf(val platformSlug: String?) : OpenTarget
+  /** Library, on [tab], or on the tab it was last left on when null. */
+  data class Library(val tab: LibraryTab?) : OpenTarget
+
+  /** Library: the games of the platform with [slug]. */
+  data class LibraryPlatform(val slug: String) : OpenTarget
+
+  /** Library: the games of the collection of [kind] with RomM id [id]. */
+  data class LibraryCollection(val kind: CollectionKind, val id: Long) : OpenTarget
 
   /** Settings, on [section], or on the section it was last left on when null. */
   data class Settings(val section: SettingsSection?) : OpenTarget
@@ -24,8 +32,9 @@ sealed interface OpenTarget {
   companion object {
     /**
      * The target [text] names: `place:<place>` (such as `place:downloads`), `game:<romId>`,
-     * `library`, `library:<platform-slug>`, `settings` or `settings:<section>` (such as
-     * `settings:romm`). Null when it names none of those.
+     * `library`, `library:tab:<tab>` (such as `library:tab:on-device`), `library:<platform-slug>`,
+     * `library:collection:<id>`, `library:collection:smart:<id>`, `settings` or
+     * `settings:<section>` (such as `settings:romm`). Null when it names none of those.
      */
     fun parse(text: String): OpenTarget? {
       val kind = text.substringBefore(':')
@@ -33,12 +42,33 @@ sealed interface OpenTarget {
       return when (kind) {
         "place" -> Place.entries.find { it.name.equals(arg, ignoreCase = true) }?.let(::AtPlace)
         "game" -> arg?.toLongOrNull()?.let(::Game)
-        "library" -> LibraryShelf(arg)
+        "library" -> parseLibrary(arg)
         "settings" ->
           if (arg == null) Settings(null)
           else
             SettingsSection.entries.find { it.name.equals(arg, ignoreCase = true) }?.let(::Settings)
         else -> null
+      }
+    }
+
+    private fun parseLibrary(arg: String?): OpenTarget? {
+      if (arg == null) return Library(null)
+      val kind = arg.substringBefore(':')
+      val rest = arg.substringAfter(':', missingDelimiterValue = "")
+      return when (kind) {
+        "tab" ->
+          LibraryTab.entries
+            .find { it.name.equals(rest.replace("-", ""), ignoreCase = true) }
+            ?.let(::Library)
+        "collection" ->
+          if (rest.startsWith("smart:")) {
+            rest.removePrefix("smart:").toLongOrNull()?.let {
+              LibraryCollection(CollectionKind.Smart, it)
+            }
+          } else {
+            rest.toLongOrNull()?.let { LibraryCollection(CollectionKind.Regular, it) }
+          }
+        else -> LibraryPlatform(arg)
       }
     }
   }

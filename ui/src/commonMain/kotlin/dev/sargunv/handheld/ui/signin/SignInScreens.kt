@@ -50,6 +50,8 @@ import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
+import dev.sargunv.handheld.ui.input.Hint
+import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import kotlinx.coroutines.CancellationException
@@ -123,7 +125,7 @@ private fun AddressScreen(state: SignInState) {
       if (url == null) "Enter the address you open RomM at, such as romm.example.com." else null
     if (url != null) state.navigator.push(screen(url))
   }
-  ScreenColumn {
+  ScreenColumn(canGoBack = false) {
     Text(
       "Sign in to RomM",
       color = Placeholder.text,
@@ -180,7 +182,7 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
       error = signInErrorMessage(e, baseUrl, SignInMethod.Code)
     }
   }
-  ScreenColumn {
+  ScreenColumn(canGoBack = true) {
     Text(
       "Approve this device",
       color = Placeholder.text,
@@ -259,7 +261,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       }
     }
   }
-  ScreenColumn {
+  ScreenColumn(canGoBack = true) {
     Text(
       "Sign in with an API token",
       color = Placeholder.text,
@@ -324,8 +326,22 @@ private fun UnencryptedNote(url: String?) {
 }
 
 @Composable
-private fun ScreenColumn(content: @Composable () -> Unit) {
-  Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) { content() }
+private fun ScreenColumn(canGoBack: Boolean, content: @Composable () -> Unit) {
+  Column(Modifier.fillMaxSize()) {
+    Column(
+      Modifier.fillMaxWidth().weight(1f).padding(48.dp),
+      verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+      content()
+    }
+    HintBar(
+      buildList {
+        add(Hint(Action.Confirm, "Choose"))
+        if (canGoBack) add(Hint(Action.Back, "Back"))
+        add(Hint(Action.MainMenu, "Main menu"))
+      },
+    )
+  }
 }
 
 /** A [TextEntry] on a sign-in screen, whose lower screen shows [help] while it has focus. */

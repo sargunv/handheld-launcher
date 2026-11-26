@@ -48,9 +48,12 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Downloads: the queue, in the order it downloads. The menu cancels or retries a download. */
+/**
+ * Downloads: the queue, in the order it downloads. Confirm opens a game with [onOpen], and the menu
+ * cancels or retries its download.
+ */
 @Composable
-internal fun DownloadsPlace(downloads: DownloadManager) {
+internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Unit) {
   val queue by downloads.queue.collectAsState()
   var focusedId by remember { mutableStateOf<Long?>(null) }
   var menuFor by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -85,6 +88,7 @@ internal fun DownloadsPlace(downloads: DownloadManager) {
               DownloadRow(
                 download,
                 Modifier.onFocusChanged { if (it.isFocused) focusedId = download.romId },
+                onOpen = { onOpen(download) },
               )
             }
           }
@@ -92,6 +96,7 @@ internal fun DownloadsPlace(downloads: DownloadManager) {
       }
       HintBar(
         buildList {
+          if (focused != null) add(Hint(Action.Confirm, "Open"))
           add(Hint(Action.Back, "Home"))
           if (focused != null) add(Hint(Action.Menu, "Menu"))
           add(Hint(Action.MainMenu, "Main menu"))
@@ -126,10 +131,14 @@ internal fun DownloadsPlace(downloads: DownloadManager) {
 }
 
 @Composable
-private fun DownloadRow(download: Download, modifier: Modifier) {
+private fun DownloadRow(download: Download, modifier: Modifier, onOpen: () -> Unit) {
   val key = "download:${download.romId}"
   Column(
-    modifier.focusItem(key).fillMaxWidth().background(Placeholder.tile).padding(16.dp),
+    modifier
+      .focusItem(key, onConfirm = onOpen)
+      .fillMaxWidth()
+      .background(Placeholder.tile)
+      .padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(download.title, color = Placeholder.text)

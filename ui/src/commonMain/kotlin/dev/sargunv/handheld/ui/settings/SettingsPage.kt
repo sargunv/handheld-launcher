@@ -76,11 +76,11 @@ import kotlinx.coroutines.launch
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
-  Controls("Controls", "Which button confirms, and where the A button sits for built-in games."),
+  Controls("Controls", "Which button confirms, and where the A button sits for games in Built-in."),
   RomM("RomM", "The server your library comes from, and this device's sign-in to it."),
   RetroAchievements(
     "RetroAchievements",
-    "Your RetroAchievements account, and hardcore mode, for games in the built-in session.",
+    "Your RetroAchievements account, and hardcore mode, for games in Built-in.",
   ),
   Emulators(
     "Emulators",
@@ -332,8 +332,8 @@ private fun LazyListScope.controls(state: AppState) {
       position,
       Help(
         "A button position",
-        "Where this device's A button sits, so games in the built-in session get the button " +
-          "they expect in each place.",
+        "Where this device's A button sits, so games in Built-in get the button they expect " +
+          "in each place.",
       ),
       onConfirm = state::switchAButtonPosition,
     )

@@ -84,7 +84,6 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         saveDir = folder,
         saveRam = saveRam,
         states = saves.statesOf(request.gameId, request.romPath),
-        pauseWhenUnfocused = settings.pauseGameWhenUnfocused,
         aButtonPosition = settings.input.aButtonPosition,
         stackedScreensOptions = chosen.stackedScreensOptions,
         lowerScreenWidthShare = chosen.lowerScreenWidthShare,

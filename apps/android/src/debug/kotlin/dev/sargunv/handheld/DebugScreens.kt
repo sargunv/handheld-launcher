@@ -69,8 +69,7 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
         intent.getStringArrayExtra("core_options").orEmpty().associate {
           it.substringBefore('=') to it.substringAfter('=')
         }
-      val pauseWhenUnfocused = settingsFile(activity).read().pauseGameWhenUnfocused
-      ({ SessionTestScreen(dir, core, content, coreOptions, pauseWhenUnfocused) })
+      ({ SessionTestScreen(dir, core, content, coreOptions) })
     }
     "launch" -> {
       val rom = intent.getStringExtra("rom")

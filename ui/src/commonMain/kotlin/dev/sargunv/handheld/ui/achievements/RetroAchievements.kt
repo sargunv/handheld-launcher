@@ -162,7 +162,7 @@ internal fun RetroAchievementsPanel(
       MenuButton("ra:sign-out", "Sign out") { scope.launch { state.signOut() } }
     } else {
       Text(
-        "Sign in to earn achievements in games that play in the built-in session. Your password " +
+        "Sign in to earn achievements in games that play in Built-in. Your password " +
           "goes only to RetroAchievements, and the device keeps a token instead of it.",
         color = Placeholder.mutedText,
       )

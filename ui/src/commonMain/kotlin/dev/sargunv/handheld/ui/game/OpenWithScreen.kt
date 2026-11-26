@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
-import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.RuleChain
@@ -57,6 +56,15 @@ private class OpenWithContext(
   val forGame: Boolean
     get() = scope is OpenWithScope.Game
 
+  /** What the choice is for, such as "this game" or "Game Boy games in Favourites". */
+  val subject: String
+    get() =
+      when (scope) {
+        is OpenWithScope.Game -> "this game"
+        is OpenWithScope.Platform -> "$platformName games"
+        is OpenWithScope.Collection -> "$platformName games in ${collections.first().name}"
+      }
+
   fun chain(launch: LaunchSettings): List<RuleStep> =
     when (scope) {
       is OpenWithScope.Game ->
@@ -66,16 +74,13 @@ private class OpenWithContext(
           installed,
         )
       is OpenWithScope.Platform -> platformChain(platform, launch, installed)
+      is OpenWithScope.Collection -> collectionChain(scope.collection, platform, launch, installed)
     }
 
   /** The app that wins under [launch], by name, or null when none can open the games. */
   fun opensIn(launch: LaunchSettings): String? {
     val winner = chain(launch).firstOrNull { it.status == RuleStatus.Wins } ?: return null
-    return when (val app = winner.packageName) {
-      null -> null
-      LaunchChoice.BUILT_IN -> "the built-in session"
-      else -> name(app, winner.core)
-    }
+    return winner.packageName?.let { name(it, winner.core) }
   }
 
   fun name(packageName: String, core: String?) = appName(packageName, core, apps, platform)
@@ -97,13 +102,23 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
               state.apps.apps(),
             )
           }
-          is OpenWithScope.Platform -> {
-            val slug = scope.platform.value
+          is OpenWithScope.Platform ->
             OpenWithContext(
               scope,
               scope.platform,
-              state.library.platforms().first().find { it.slug == slug }?.name ?: slug,
+              platformName(state, scope.platform),
               emptyList(),
+              state.apps.apps(),
+            )
+          is OpenWithScope.Collection -> {
+            val collection =
+              state.library.collections().first().find { it.launchId == scope.collection }
+                ?: return@produceState
+            OpenWithContext(
+              scope,
+              scope.platform,
+              platformName(state, scope.platform),
+              listOf(collection),
               state.apps.apps(),
             )
           }
@@ -112,10 +127,14 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
   return context
 }
 
+private suspend fun platformName(state: AppState, platform: PlatformSlug): String =
+  state.library.platforms().first().find { it.slug == platform.value }?.name ?: platform.value
+
 /**
- * Picks the app games open in, for what the screen was opened from: one game from its menu, or a
- * platform's games from Settings → Emulators. Any installed app can be picked, known emulators for
- * the platform first. Choosing an app, or clearing the choice, goes back.
+ * Picks the app games open in, for what the screen was opened from: one game from its menu, a
+ * platform's games from its menu or Settings → Emulators, or a collection's games on one platform
+ * from the collection's menu. Any installed app can be picked, known emulators for the platform
+ * first. Choosing an app, or clearing the choice, goes back.
  */
 @Composable
 internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
@@ -127,6 +146,8 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       when (screen.scope) {
         is OpenWithScope.Game -> "Open ${screen.title} with"
         is OpenWithScope.Platform -> "Open ${screen.title} games with"
+        is OpenWithScope.Collection ->
+          context?.let { "Open ${it.subject} with" } ?: "Open ${screen.title} games with"
       },
       color = Placeholder.text,
       fontSize = 28.sp,
@@ -188,8 +209,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         }
         Column(Modifier.width(360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
-            if (context.forGame) "Chosen for this game"
-            else "Chosen for ${context.platformName} games",
+            "Chosen for ${context.subject}",
             color = Placeholder.mutedText,
             modifier = Modifier.padding(top = 8.dp).semantics { heading() },
           )
@@ -244,12 +264,12 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
   val steps = context.chain(launch)
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     val opensIn = context.opensIn(launch)
-    val subject = if (context.forGame) "it" else "${context.platformName} games"
+    val subject = if (context.forGame) "it" else context.subject
     Text(
       when {
         opensIn == null -> "No app on this device can open $subject"
         context.forGame -> "Why it opens in $opensIn"
-        else -> "Why ${context.platformName} games open in $opensIn"
+        else -> "Why $subject open in $opensIn"
       },
       color = Placeholder.text,
       fontSize = 20.sp,
@@ -257,7 +277,14 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       modifier = Modifier.semantics { heading() },
     )
     val lines =
-      chainLines(steps, context.collections, context.platformName, context.forGame, context::name)
+      chainLines(
+        steps,
+        context.collections,
+        context.platformName,
+        context.forGame,
+        forCollection = context.scope is OpenWithScope.Collection,
+        name = context::name,
+      )
     lines.forEachIndexed { index, line ->
       Text(
         (if (index > 0) "→ " else "") + line.text,
@@ -267,8 +294,13 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       )
     }
     Text(
-      if (context.forGame) "The most specific choice wins."
-      else "A game's own choice, or its collection's, comes before the platform's.",
+      when (context.scope) {
+        is OpenWithScope.Game -> "The most specific choice wins."
+        is OpenWithScope.Platform ->
+          "A game's own choice, or its collection's, comes before the platform's."
+        is OpenWithScope.Collection ->
+          "A game's own choice comes before its collection's, which comes before the platform's."
+      },
       color = Placeholder.mutedText,
     )
   }
