@@ -441,7 +441,7 @@ class DownloadManagerTest {
 
   @Test
   fun onlyFilesThatMayBeGamesAreLocalGames() {
-    for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f")) {
+    for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f", "Sonic.md")) {
       assertTrue(isGameFile("/ROMs/gba/$name"), name)
     }
     for (name in

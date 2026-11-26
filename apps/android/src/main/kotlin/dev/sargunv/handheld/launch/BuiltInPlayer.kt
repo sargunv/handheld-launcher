@@ -67,7 +67,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
       notes += PlayNote(text, quiet)
     }
 
-    val folder = saves.folderOf(request.game, request.platform)
+    val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)
     val settings =
       withContext(Dispatchers.IO) {
@@ -121,7 +121,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
    */
   private fun adoptLocalSaves(request: PlayRequest, folder: String) {
     if (request.game !is GameKey.Romm) return
-    val local = File(saves.localFolderOf(request.platform, request.romPath))
+    val local = File(saves.localFolderOf(request.romPath))
     val own = File(folder)
     if (!local.isDirectory) return
     // An empty folder, such as one a launch canceled at the save choice left, holds no saves.

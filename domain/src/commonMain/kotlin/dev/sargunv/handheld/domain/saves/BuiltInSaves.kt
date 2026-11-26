@@ -1,29 +1,29 @@
 package dev.sargunv.handheld.domain.saves
 
 import dev.sargunv.handheld.domain.GameKey
-import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /**
  * Where the built-in session keeps games' saves: a folder per game under [root], which holds the
  * game's save memory, its save states and any files its core saves itself. A ROM's folder is named
- * by its id. A local game's is named by its platform and file name, under `local/`, and becomes the
- * ROM's once the file matches one ([localFolderOf]). Save memory and states are named after the
- * game's file, as RetroArch names them.
+ * by its id. A local game's is its file's whole path under `local/`, so two files of one name on
+ * different storage keep their own saves, and it becomes the ROM's once the file matches one
+ * ([localFolderOf]). Save memory and states are named after the game's file, as RetroArch names
+ * them.
  */
 class BuiltInSaves(private val root: String) {
-  /** The folder of [game], a game on [platform]. */
-  fun folderOf(game: GameKey, platform: PlatformSlug): String =
+  /** The folder of [game]. */
+  fun folderOf(game: GameKey): String =
     when (game) {
       is GameKey.Romm -> "${root.trimEnd('/')}/${game.romId}"
-      is GameKey.Local -> localFolderOf(platform, game.path)
+      is GameKey.Local -> localFolderOf(game.path)
     }
 
   /**
-   * The folder a local game kept its saves in while its file, at [romPath] on [platform], matched
-   * none of the server's games.
+   * The folder a local game kept its saves in while its file, at [romPath], matched none of the
+   * server's games.
    */
-  fun localFolderOf(platform: PlatformSlug, romPath: String): String =
-    "${root.trimEnd('/')}/local/${platform.value}/${romPath.substringAfterLast('/')}"
+  fun localFolderOf(romPath: String): String =
+    "${root.trimEnd('/')}/local/${romPath.trimStart('/')}"
 
   /**
    * The save memory file of the game whose saves are in [folder] and whose file is at [romPath].
