@@ -3,6 +3,7 @@ package dev.sargunv.handheld.launch
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,20 +40,21 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
 
   /**
    * Plays [request]'s game in [core], a libretro core's library name, or the platform's chosen core
-   * when it's null, and returns once the player is back from the game, with notes on what happened.
-   * [onProgress] hears how a download of the core is going, and [chooseSave] which copy of the save
-   * to keep when both changed; null cancels the launch.
+   * when it's null, and returns once the player is back from the game, telling [note] what the
+   * player should know. [onProgress] hears how a download of the core is going, and [chooseSave]
+   * which copy of the save to keep when both changed; null cancels the launch.
    */
   suspend fun play(
     request: PlayRequest,
     core: String?,
     onProgress: (String) -> Unit,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
-  ): List<PlayNote> {
+    note: (String) -> Unit,
+  ) {
     val chosen =
       core?.let(LibretroCores::byLibrary)
         ?: CoreChoices(Path(coresDir, "choices.json")).coreFor(request.platform)
-        ?: return listOf(PlayNote("No libretro core runs this game's platform."))
+        ?: return note("No libretro core runs this game's platform.")
     val coreFile =
       try {
         // The app's native libraries are built for the device's first ABI.
@@ -63,13 +65,8 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
           }
         }
       } catch (e: IOException) {
-        return listOf(PlayNote("Couldn't download the game's core: ${e.message}"))
+        return note("Couldn't download the game's core: ${e.message}")
       }
-    val notes = mutableListOf<PlayNote>()
-    fun note(text: String, quiet: Boolean = false) {
-      notes += PlayNote(text, quiet)
-    }
-
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)
     // The scan that matched the game's file may not have handed its saves over yet.
@@ -83,7 +80,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         settingsFile(activity).read()
       }
     val game = request.romId?.let { builtInGameSave(it, chosen.library, File(saveRam)) }
-    if (game != null && !playSaves.beforeLaunch(request, game, chooseSave, ::note)) return notes
+    if (game != null && !playSaves.beforeLaunch(request, game, chooseSave, note)) return
     val intent =
       SessionActivity.intent(
         activity,
@@ -108,16 +105,15 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         ?: SessionActivity.takeUnreportedSaveError()
     if (error != null) {
       note("Couldn't start the game: $error")
-      return notes
+      return
     }
     if (saveError != null) note("The game's save couldn't be written: $saveError")
-    else note("Back from the game in ${chosen.library}", quiet = true)
+    else Log.i(TAG, "Back from the game in ${chosen.library}")
     // The session writes its save memory as it stops, but one that ends without stopping, such as
     // when the launcher comes to the front over it, writes as it's destroyed, which can come after
     // this. So this only sends: a newer save on RomM waits for the next launch, where a change on
     // both sides is a conflict. When a write failed, the file still holds the last whole save.
-    if (game != null) playSaves.afterPlay(request, game, ::note)
-    return notes
+    if (game != null) playSaves.afterPlay(game, note)
   }
 
   /** Starts [intent] and waits for the activity it starts to finish. */
@@ -136,6 +132,10 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     } finally {
       launcher.unregister()
     }
+  }
+
+  private companion object {
+    const val TAG = "BuiltInPlayer"
   }
 }
 

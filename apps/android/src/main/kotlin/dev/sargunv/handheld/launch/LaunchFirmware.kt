@@ -18,8 +18,6 @@ import java.io.File
  * the game needs no firmware there, the emulator's firmware folder isn't known, or the launcher
  * isn't signed in.
  *
- * [folders] stands in for the emulator's own folders, for testing.
- *
  * @throws RommException when the server can't list its firmware.
  */
 suspend fun installFirmwareFor(
@@ -27,7 +25,6 @@ suspend fun installFirmwareFor(
   credentials: CredentialStore,
   target: LaunchTarget,
   platform: PlatformSlug,
-  folders: List<String>? = null,
 ): FirmwareInstall? {
   val emulator = target.emulator ?: return null
   val location = BiosKnowledge.locationFor(emulator.id, platform) ?: return null
@@ -35,6 +32,6 @@ suspend fun installFirmwareFor(
   val storage = Environment.getExternalStorageDirectory().path
   return RommClient(signedIn.baseUrl, signedIn.token).use { client ->
     FirmwareInstaller(client, File(context.cacheDir, "firmware"))
-      .install(platform, location, folders ?: location.folders(storage, target.packageName))
+      .install(platform, location, location.folders(storage, target.packageName))
   }
 }
