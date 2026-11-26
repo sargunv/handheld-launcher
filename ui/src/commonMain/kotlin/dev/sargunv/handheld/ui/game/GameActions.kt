@@ -153,7 +153,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     when {
       conflict != null -> conflict.choice.complete(null)
       playing -> dialog = GameDialog.Leave
-      !uploadFinishing -> dialog = GameDialog.StopUpload
+      uploading && !uploadFinishing -> dialog = GameDialog.StopUpload
     }
   }
 
