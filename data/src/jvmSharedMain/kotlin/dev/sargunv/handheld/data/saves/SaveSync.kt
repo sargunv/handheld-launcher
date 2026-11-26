@@ -338,7 +338,7 @@ class SaveSync(
     keptAs: File? = null,
   ): Replaced? {
     val current = unit.read()
-    val replaced =
+    var replaced =
       when {
         current == null -> null
         keptAs != null && contentHash(keptAs.readBytes()) == current.hash ->
@@ -349,8 +349,10 @@ class SaveSync(
             keepInHistory(game, SaveCopy.Device, current.name, current.bytes),
           )
       }
+    // What the emulator wrote after the copy above is what the pull replaced, and may write back.
     unit.write(current?.file ?: target, bytes, current?.hash) { changed ->
-      keepInHistory(game, SaveCopy.Device, changed.name, changed.bytes)
+      replaced =
+        Replaced(changed.hash, keepInHistory(game, SaveCopy.Device, changed.name, changed.bytes))
     }
     return replaced
   }
