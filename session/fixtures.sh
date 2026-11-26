@@ -7,13 +7,14 @@
 # toolchain and the OpenGL and OpenGL ES development libraries.
 #
 # On macOS the cores build as .dylib and keep the .so names below, which the
-# tests use on every platform. The GL test cores aren't built there: their tests
-# need EGL, which macOS doesn't have, and are ignored.
+# tests use on every platform. The GL and Vulkan test cores aren't built there:
+# their tests need EGL or Vulkan, which macOS doesn't have, and are ignored.
 #
 # The fixtures:
 # - test_libretro.so: libretro-samples' software test core (MIT).
 # - testgl_{gl,gles,core}_libretro.so: libretro-samples' GL test core, built for
 #   OpenGL 2 (compatibility), OpenGL ES 2 and OpenGL 3.1 core (MIT).
+# - testvulkan_libretro.so: libretro-samples' Vulkan test core (MIT).
 # - gambatte_libretro.so: the Gambatte Game Boy core (GPL-2.0).
 # - ucity.gbc: µCity, a Game Boy Color city builder by Antonio Niño Díaz (code
 #   GPL-3.0-or-later, graphics and music CC BY-SA 4.0).
@@ -34,8 +35,8 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 jobs="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 case "$(uname -s)" in
-  Darwin) ext=dylib gl=false ;;
-  *) ext=so gl=true ;;
+  Darwin) ext=dylib gpu=false ;;
+  *) ext=so gpu=true ;;
 esac
 
 out="$work/out"
@@ -46,7 +47,7 @@ fetch_samples "$work/samples"
 # An empty ARCHFLAGS stops the Makefile building for i386 and x86_64 on macOS.
 make -s -C "$work/samples/tests/test" -j"$jobs" ARCHFLAGS=
 cp "$work/samples/tests/test/test_libretro.$ext" "$out/test_libretro.so"
-for variant in $([[ "$gl" == true ]] && echo gl gles core); do
+for variant in $([[ "$gpu" == true ]] && echo gl gles core); do
   src="$work/samples-$variant"
   cp -r "$work/samples/video/opengl/libretro_test_gl_shaders" "$src"
   case "$variant" in
@@ -57,6 +58,10 @@ for variant in $([[ "$gl" == true ]] && echo gl gles core); do
   make -s -C "$src" -j"$jobs" "${flags[@]}"
   cp "$src/testgl_libretro.so" "$out/testgl_${variant}_libretro.so"
 done
+if [[ "$gpu" == true ]]; then
+  make -s -C "$work/samples/video/vulkan/vk_rendering" -j"$jobs"
+  cp "$work/samples/video/vulkan/vk_rendering/testvulkan_libretro.so" "$out/"
+fi
 
 echo "Building Gambatte"
 fetch_gambatte "$work/gambatte"

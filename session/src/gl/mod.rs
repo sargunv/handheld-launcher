@@ -11,6 +11,8 @@ use glow::HasContext;
 
 use egl::*;
 
+use crate::video::fit;
+
 pub(crate) use egl::Egl;
 
 /// A native window the session presents frames to.
@@ -69,6 +71,15 @@ impl NativeWindow {
             kind: WindowKind::Android { window },
         }
     }
+
+    /// The `ANativeWindow`, if this is one.
+    #[cfg(target_os = "android")]
+    pub(crate) fn android_window(&self) -> Option<NonNull<c_void>> {
+        match self.kind {
+            WindowKind::Android { window } => Some(window),
+            _ => None,
+        }
+    }
 }
 
 /// Why the session couldn't set up or use OpenGL.
@@ -92,7 +103,8 @@ pub(crate) enum GlApi {
     Gles { major: u32, minor: u32 },
 }
 
-/// What a [`GlContext`] draws to.
+/// What a [`GlContext`] or [`crate::vulkan::VulkanContext`] draws to.
+#[derive(Clone, Copy)]
 pub(crate) enum Target<'a> {
     /// No window: frames stay in framebuffers the session reads back.
     Headless,
@@ -800,29 +812,6 @@ pub(crate) fn present(
     drain_errors(gl, "presenting");
 }
 
-/// The largest rectangle with `aspect` that fits the window, centered, as
-/// (x, y, width, height). A non-positive `aspect` uses the frame's own.
-fn fit(width: u32, height: u32, aspect: f32, win_w: u32, win_h: u32) -> (i32, i32, i32, i32) {
-    let aspect = if aspect > 0.0 {
-        f64::from(aspect)
-    } else {
-        f64::from(width) / f64::from(height.max(1))
-    };
-    let (win_w, win_h) = (f64::from(win_w), f64::from(win_h));
-    let (w, h) = if win_w / win_h.max(1.0) > aspect {
-        (win_h * aspect, win_h)
-    } else {
-        (win_w, win_w / aspect)
-    };
-    let (w, h) = (w.round(), h.round());
-    (
-        ((win_w - w) / 2.0).round() as i32,
-        ((win_h - h) / 2.0).round() as i32,
-        w as i32,
-        h as i32,
-    )
-}
-
 /// Logs and clears pending GL errors.
 pub(crate) fn drain_errors(gl: &glow::Context, during: &str) {
     for _ in 0..16 {
@@ -957,7 +946,7 @@ pub(crate) fn test_context() -> Option<GlContext> {
 mod tests {
     use glow::HasContext;
 
-    use super::{Framebuffer, fit, test_context};
+    use super::{Framebuffer, test_context};
 
     /// Fills `fb` with one color.
     fn clear(gl: &glow::Context, fb: &Framebuffer, color: [f32; 4]) {
@@ -1039,12 +1028,5 @@ mod tests {
                 .all(|p| *p == [0, 0, 255, 255])
         );
         fb.delete(gl);
-    }
-
-    #[test]
-    fn fit_letterboxes_and_pillarboxes() {
-        assert_eq!(fit(320, 240, 4.0 / 3.0, 1920, 1080), (240, 0, 1440, 1080));
-        assert_eq!(fit(320, 240, 4.0 / 3.0, 800, 1000), (0, 200, 800, 600));
-        assert_eq!(fit(256, 224, 0.0, 256, 224), (0, 0, 256, 224));
     }
 }

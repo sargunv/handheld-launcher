@@ -16,8 +16,10 @@ use crate::ffi;
 use crate::gl::{self, Framebuffer, GlApi, GlContext, NativeWindow};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
 use crate::options::{Options, opt_string};
+use crate::session::SessionError;
 use crate::video::{self, CapturedFrame, Frame, PixelFormat, VideoSink};
-use crate::{AvInfo, InputDescriptor};
+use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
+use crate::{AvInfo, GlError, InputDescriptor};
 
 thread_local! {
     static HOST: Cell<*mut Host> = const { Cell::new(std::ptr::null_mut()) };
@@ -84,11 +86,15 @@ pub(crate) struct Host {
     pub(crate) audio_speed: f64,
     pub(crate) video: VideoTarget,
     pub(crate) gpu: Option<Gpu>,
+    /// The Vulkan context, for a core that renders with Vulkan.
+    pub(crate) vulkan: Option<VulkanContext>,
     /// The core's hardware render request, with our callbacks filled in.
     pub(crate) hw_render: Option<ffi::retro_hw_render_callback>,
+    /// The Vulkan context negotiation interface the core set.
+    pub(crate) negotiation: Option<Negotiation>,
     /// Why the session turned down the core's hardware render request, when
     /// it had to.
-    pub(crate) hw_refused: Option<String>,
+    pub(crate) hw_refused: Option<SessionError>,
     /// The last software frame, converted, for repeats and presenting.
     frame: Vec<u8>,
     frame_size: (u32, u32),
@@ -128,7 +134,9 @@ impl Host {
             audio_speed: 1.0,
             video,
             gpu: None,
+            vulkan: None,
             hw_render: None,
+            negotiation: None,
             hw_refused: None,
             frame: Vec::new(),
             frame_size: (0, 0),
@@ -259,6 +267,16 @@ impl Host {
                 pixels: self.frame.clone(),
             });
         }
+        if let Some(vulkan) = &mut self.vulkan {
+            let mut pixels = Vec::new();
+            return vulkan
+                .read(width, height, &mut pixels)
+                .then_some(CapturedFrame {
+                    width,
+                    height,
+                    pixels,
+                });
+        }
         let bottom_left_origin = self.hw_render.is_some_and(|hw| hw.bottom_left_origin);
         let gpu = self.gpu.as_ref()?;
         let fb = gpu.hw.as_ref()?;
@@ -314,6 +332,23 @@ impl Host {
     }
 
     fn show_hw_frame(&mut self, width: u32, height: u32) {
+        if let Some(vulkan) = &mut self.vulkan {
+            match &mut self.video {
+                VideoTarget::Sink(sink) => {
+                    if vulkan.read(width, height, &mut self.frame) {
+                        sink.frame(Frame {
+                            width,
+                            height,
+                            pixels: &self.frame,
+                        });
+                    }
+                }
+                VideoTarget::Window { .. } => {
+                    vulkan.present(width, height, self.av_info.aspect_ratio);
+                }
+            }
+            return;
+        }
         let bottom_left_origin = self.hw_render.is_some_and(|hw| hw.bottom_left_origin);
         let Some(gpu) = &mut self.gpu else { return };
         let Some(fb) = &gpu.hw else { return };
@@ -424,6 +459,30 @@ impl Host {
                     write::<c_uint>(data, preferred)
                 }
                 ffi::RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT => true,
+                ffi::RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE => match &self.vulkan {
+                    Some(vulkan) => write(data, vulkan.interface()),
+                    None => false,
+                },
+                ffi::RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT => {
+                    let Some(query) = data
+                        .cast::<ffi::retro_hw_render_context_negotiation_interface>()
+                        .as_mut()
+                    else {
+                        return false;
+                    };
+                    query.interface_version = if query.interface_type
+                        == ffi::RETRO_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_VULKAN
+                    {
+                        vulkan::NEGOTIATION_VERSION
+                    } else {
+                        0
+                    };
+                    true
+                }
+                ffi::RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE => {
+                    self.negotiation = Negotiation::read(data);
+                    self.negotiation.is_some()
+                }
                 ffi::RETRO_ENVIRONMENT_GET_VARIABLE => {
                     let Some(var) = data.cast::<ffi::retro_variable>().as_mut() else {
                         return false;
@@ -596,20 +655,28 @@ impl Host {
         let Some(cb) = (unsafe { cb.as_mut() }) else {
             return false;
         };
-        if hw_api(cb).is_none() {
-            log::warn!(
-                "core asked for unsupported hardware context {}",
-                cb.context_type
-            );
-            return false;
+        if cb.context_type == ffi::RETRO_HW_CONTEXT_VULKAN {
+            if let Err(e) = vulkan::entry() {
+                log::warn!("core asked for Vulkan, but {e}");
+                self.hw_refused = Some(VulkanError::Unavailable(e).into());
+                return false;
+            }
+        } else {
+            if hw_api(cb).is_none() {
+                log::warn!(
+                    "core asked for unsupported hardware context {}",
+                    cb.context_type
+                );
+                return false;
+            }
+            if let Err(e) = gl::Egl::get() {
+                log::warn!("core asked for hardware rendering, but {e}");
+                self.hw_refused = Some(GlError::Unavailable(e).into());
+                return false;
+            }
+            cb.get_current_framebuffer = Some(get_current_framebuffer);
+            cb.get_proc_address = Some(get_proc_address);
         }
-        if let Err(e) = gl::Egl::get() {
-            log::warn!("core asked for hardware rendering, but {e}");
-            self.hw_refused = Some(e);
-            return false;
-        }
-        cb.get_current_framebuffer = Some(get_current_framebuffer);
-        cb.get_proc_address = Some(get_proc_address);
         log::debug!(
             "core hardware context: type {} version {}.{}, depth {}, stencil {}, bottom-left origin {}",
             cb.context_type,

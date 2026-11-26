@@ -7,7 +7,12 @@ drives it through UniFFI.
 The platform layer plugs in through `VideoSink` or a `NativeWindow` for video,
 `AudioSink` for audio, and `InputState` for controllers. Cores that render with
 OpenGL or OpenGL ES draw on an EGL context the session owns, either headless,
-with frames read back for the sink, or on the window it presents to.
+with frames read back for the sink, or on the window it presents to. Cores that
+render with Vulkan get an instance and device the session makes, or that they
+make through libretro's context negotiation, and hand over images that the
+session reads back for the sink or copies to an Android window's swapchain. The
+session loads EGL and the Vulkan loader at run time, so it runs where either is
+missing.
 
 `vendor/libretro/` holds the pinned libretro API header, and `src/ffi/` the
 bindings generated from it.
@@ -23,13 +28,14 @@ quicker work on an emulator.
 
 `GameSession` is the app's way in: a session on a thread of its own, which runs
 the core at its frame rate between the app's commands. It starts paused. On
-Android it presents to an `ANativeWindow` through an OpenGL ES context that
-outlives the windows, plays audio through AAudio, and `GameSessionView` shows it
-in a `SurfaceView`, feeding it the gamepad and pausing it while the surface is
-gone or the window loses focus. Save memory is written to its file within a few
-seconds of changing and whenever the session pauses or stops, on a thread of its
-own, replacing the file atomically. A save file whose size differs from the
-core's save memory is copied to a backup beside it before it's replaced.
+Android it presents to an `ANativeWindow` through an OpenGL ES context, or a
+Vulkan device for Vulkan cores, that outlives the windows, plays audio through
+AAudio, and `GameSessionView` shows it in a `SurfaceView`, feeding it the
+gamepad and pausing it while the surface is gone or the window loses focus. Save
+memory is written to its file within a few seconds of changing and whenever the
+session pauses or stops, on a thread of its own, replacing the file atomically.
+A save file whose size differs from the core's save memory is copied to a backup
+beside it before it's replaced.
 
 On Android, frames start on the display's vsync, which a Choreographer thread
 follows, when the core's rate is within 2% of a whole fraction of the display's:
@@ -55,13 +61,14 @@ adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen sessi
 The core and content paths are relative to the app's `files/session-test`, or
 absolute. Innkeeper has no `run-as`, so there, pass the absolute paths under
 `/data/local/tmp/session-test` instead of copying the files. F2 saves a state
-and F4 loads it.
+and F4 loads it. `--esa core_options key=value,...` sets core options, such as
+`ppsspp_backend=vulkan` for PPSSPP to render with Vulkan.
 
 ## Tests
 
-The integration tests run real cores: libretro-samples' software and GL test
-cores, and Gambatte with µCity, a Game Boy Color game under the GPL-3.0-or-later
-with CC BY-SA 4.0 graphics and music. `fixtures.sh`, which
+The integration tests run real cores: libretro-samples' software, GL and Vulkan
+test cores, and Gambatte with µCity, a Game Boy Color game under the
+GPL-3.0-or-later with CC BY-SA 4.0 graphics and music. `fixtures.sh`, which
 `mise run session:fixtures` runs, builds the cores from pinned commits and
 downloads the game into `~/.cache/handheld/session-fixtures`, or
 `$HANDHELD_SESSION_FIXTURES`. `mise run test` runs it first, so the first run on
@@ -70,12 +77,14 @@ caches them by the files that pin them. Building them needs a C and C++
 toolchain and the OpenGL and OpenGL ES development libraries
 (`mesa-libGL-devel mesa-libGLES-devel` on Fedora, `libgl-dev libgles-dev` on
 Debian and Ubuntu). On macOS, the Xcode command line tools are enough: the GL
-test cores aren't built there.
+and Vulkan test cores aren't built there.
 
 The GL tests skip on machines without a usable EGL, unless
-`HANDHELD_REQUIRE_EGL` is set, as it is in CI. macOS has no EGL, so they're
-ignored there. Set `HANDHELD_SESSION_DUMP_DIR` to a directory to see the frames
-the tests check, as PNGs.
+`HANDHELD_REQUIRE_EGL` is set, and the Vulkan test skips without a usable
+Vulkan, unless `HANDHELD_REQUIRE_VULKAN` is set. CI sets both, and runs Vulkan
+on Mesa's lavapipe (`mesa-vulkan-drivers` on Debian and Ubuntu). macOS has
+neither, so they're ignored there. Set `HANDHELD_SESSION_DUMP_DIR` to a
+directory to see the frames the tests check, as PNGs.
 
 ## Desktop runner
 
@@ -83,7 +92,8 @@ the tests check, as PNGs.
 on the session. It plays audio, reads the keyboard and gamepads, loads and saves
 save memory, and saves and loads a state with F2 and F4. `--present cpu` copies
 frames to the window instead of presenting through EGL, and `--help` lists the
-rest.
+rest. The session presents Vulkan frames only to Android windows, so Vulkan
+cores run here with `--present cpu`.
 
 It needs the ALSA and libudev development libraries
 (`alsa-lib-devel systemd-devel` on Fedora, `libasound2-dev libudev-dev` on

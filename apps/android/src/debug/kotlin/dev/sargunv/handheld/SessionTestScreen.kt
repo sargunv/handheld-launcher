@@ -38,15 +38,16 @@ private sealed interface Status {
 }
 
 /**
- * Runs the core [core] gives with [content] in a game session, for trying the session on a device.
- * F2 saves a state and F4 loads it. Saves and states go in [dir]. The game pauses while the window
- * lacks focus only with [pauseWhenUnfocused].
+ * Runs the core [core] gives with [content] and [coreOptions] in a game session, for trying the
+ * session on a device. F2 saves a state and F4 loads it. Saves and states go in [dir]. The game
+ * pauses while the window lacks focus only with [pauseWhenUnfocused].
  */
 @Composable
 internal fun SessionTestScreen(
   dir: File,
   core: suspend () -> File?,
   content: File?,
+  coreOptions: Map<String, String>,
   pauseWhenUnfocused: Boolean,
 ) {
   var status by remember { mutableStateOf<Status>(Status.Loading) }
@@ -70,7 +71,9 @@ internal fun SessionTestScreen(
       status =
         withContext(Dispatchers.IO + NonCancellable) {
           try {
-            Status.Running(GameSession.start(options(dir, core, content)).also { unclaimed = it })
+            Status.Running(
+              GameSession.start(options(dir, core, content, coreOptions)).also { unclaimed = it },
+            )
           } catch (e: SessionException) {
             Status.Failed("Can't start ${core.name}: ${e.message}")
           }
@@ -114,14 +117,14 @@ internal fun SessionTestScreen(
   }
 }
 
-private fun options(dir: File, core: File, content: File?) =
+private fun options(dir: File, core: File, content: File?, coreOptions: Map<String, String>) =
   SessionOptions(
     corePath = core.path,
     contentPath = content?.path,
     systemDir = dir.resolve("system").path,
     saveDir = dir.resolve("saves").path,
     saveRamPath = dir.resolve("saves/${(content ?: core).nameWithoutExtension}.srm").path,
-    coreOptions = emptyMap(),
+    coreOptions = coreOptions,
     video = VideoMode.WINDOW,
   )
 

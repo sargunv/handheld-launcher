@@ -25,6 +25,7 @@ runner = [
 ]
 
 [dependencies]
+ash = "0.38.0"
 glow = "0.18.0"
 libloading = "0.9.1"
 log = "0.4.35"

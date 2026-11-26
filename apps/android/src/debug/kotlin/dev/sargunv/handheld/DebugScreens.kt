@@ -16,7 +16,8 @@ import kotlinx.io.files.Path
  *   optional `content` extra the content, as paths relative to the app's `files/session-test`
  *   directory or absolute ones. A `platform` extra, a platform slug such as `gbc`, runs that
  *   platform's core instead, installing it first through [InstalledCores] if it isn't installed or
- *   has an update.
+ *   has an update. The optional `core_options` extra, a string array of `key=value`, sets core
+ *   options, such as a renderer.
  * - `launch`: launches the game at the `rom` extra, an absolute path, for the platform the
  *   `platform` extra names by slug, through the launch resolver and dispatcher. The optional `app`
  *   extra names a package to launch it in, as a game's own override would. Before the launch, the
@@ -29,6 +30,9 @@ import kotlinx.io.files.Path
  *   --es debug_screen session_test --es core test_libretro_android.so
  * adb shell am start -n dev.sargunv.handheld/.MainActivity \
  *   --es debug_screen session_test --es platform gbc --es content ucity.gbc
+ * adb shell am start -n dev.sargunv.handheld/.MainActivity \
+ *   --es debug_screen session_test --es platform psp --es content game.iso \
+ *   --esa core_options ppsspp_backend=vulkan
  * adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen launch \
  *   --es rom "'/storage/emulated/0/ROMs/ps2/Jak II.chd'" --es platform ps2 \
  *   --es app dev.sargunv.pocketgoal
@@ -48,8 +52,12 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
           val core = intent.getStringExtra("core")?.let { dir.resolve(it) }
           ({ core })
         }
+      val coreOptions =
+        intent.getStringArrayExtra("core_options").orEmpty().associate {
+          it.substringBefore('=') to it.substringAfter('=')
+        }
       val pauseWhenUnfocused = settingsFile(activity).read().pauseGameWhenUnfocused
-      ({ SessionTestScreen(dir, core, content, pauseWhenUnfocused) })
+      ({ SessionTestScreen(dir, core, content, coreOptions, pauseWhenUnfocused) })
     }
     "launch" -> {
       val rom = intent.getStringExtra("rom")

@@ -19,6 +19,7 @@ use crate::input::{InputState, MAX_PORTS};
 use crate::options::{CoreOption, Options, opt_string};
 use crate::save::{back_up, write_atomically};
 use crate::video::{CapturedFrame, PixelFormat, VideoSink};
+use crate::vulkan::{VulkanContext, VulkanError};
 
 /// Where a session's frames go.
 pub enum VideoOutput {
@@ -26,8 +27,9 @@ pub enum VideoOutput {
     /// frames back from the GPU.
     Sink(Box<dyn VideoSink>),
     /// The session presents every frame to a window itself, through an EGL
-    /// context it owns. [`Session::set_window`] replaces the window or
-    /// detaches it, keeping the context.
+    /// context it owns, or a Vulkan device for cores that render with Vulkan,
+    /// which presents only to Android windows. [`Session::set_window`]
+    /// replaces the window or detaches it, keeping the context.
     Window {
         /// The window to start with. A session that starts without one uses
         /// the platform's default EGL display, so only windows on that
@@ -148,6 +150,8 @@ pub enum SessionError {
     ReadSaveRam(#[source] io::Error),
     #[error("can't set up OpenGL")]
     Gl(#[from] GlError),
+    #[error("can't set up Vulkan")]
+    Vulkan(#[from] VulkanError),
     #[error("the session doesn't present to a window")]
     NoWindowOutput,
     #[error("the session can't present to this kind of window here")]
@@ -363,14 +367,15 @@ impl Session {
         };
         match (loaded, self.host_mut().hw_refused.take()) {
             (true, _) => Ok(()),
-            (false, Some(reason)) => Err(GlError::Unavailable(reason).into()),
+            (false, Some(refused)) => Err(refused),
             (false, None) => Err(SessionError::LoadGame),
         }
     }
 
     /// Creates the GL context and framebuffer when the core renders with
-    /// OpenGL or frames go to a window, and lets a hardware-rendered core set
-    /// up its GL state.
+    /// OpenGL or frames go to a window, or the Vulkan context when the core
+    /// renders with Vulkan, and lets a hardware-rendered core set up its
+    /// state.
     fn set_up_video(&mut self) -> Result<(), SessionError> {
         let host = self.host_mut();
         let (target, vsync) = match &host.video {
@@ -386,6 +391,17 @@ impl Session {
             VideoTarget::Sink(_) => (Target::Headless, None),
         };
         let hw = host.hw_render;
+        if let Some(cb) = hw.filter(|cb| cb.context_type == ffi::RETRO_HW_CONTEXT_VULKAN) {
+            let context =
+                VulkanContext::new(host.negotiation.as_ref(), target, vsync.unwrap_or(true))?;
+            host.vulkan = Some(context);
+            if let Some(reset) = cb.context_reset {
+                // SAFETY: the context exists, as libretro requires; no host
+                // reference is live.
+                unsafe { reset() };
+            }
+            return Ok(());
+        }
         let mut context = match (hw, target) {
             (Some(cb), target) => {
                 let api = host::hw_api(&cb).expect("accepted in SET_HW_RENDER");
@@ -425,6 +441,9 @@ impl Session {
     pub fn run_frame(&mut self) {
         let host = self.host_mut();
         host.begin_frame_input();
+        if let Some(vulkan) = &mut host.vulkan {
+            vulkan.begin_frame();
+        }
         let frame_time = host.frame_time;
         if let Some(ffi::retro_frame_time_callback {
             callback: Some(callback),
@@ -443,6 +462,10 @@ impl Session {
 
     /// Resets the core, like a console's reset button.
     pub fn reset(&mut self) {
+        // A Vulkan core may destroy its images as it resets.
+        if let Some(vulkan) = &mut self.host_mut().vulkan {
+            vulkan.release_image();
+        }
         // SAFETY: the game is loaded and no host reference is live.
         unsafe { (self.core.reset)() };
     }
@@ -462,7 +485,7 @@ impl Session {
         self.host().pixel_format
     }
 
-    /// Whether the core renders with OpenGL.
+    /// Whether the core renders with OpenGL or Vulkan.
     pub fn is_hardware_rendered(&self) -> bool {
         self.host().hw_render.is_some()
     }
@@ -507,6 +530,9 @@ impl Session {
             if let Some(gpu) = &host.gpu {
                 gpu.context.resize(width, height);
             }
+            if let Some(vulkan) = &mut host.vulkan {
+                vulkan.resize(width, height);
+            }
             host.redraw();
         }
     }
@@ -539,14 +565,14 @@ impl Session {
         if let Some((_, w, h)) = window {
             (*width, *height) = (w, h);
         }
-        let Some(gpu) = &mut host.gpu else {
-            return Ok(());
+        let window = window
+            .as_ref()
+            .map(|(w, width, height)| (w, *width, *height));
+        let result: Result<(), SessionError> = match (&mut host.gpu, &mut host.vulkan) {
+            (Some(gpu), _) => gpu.context.set_window(window).map_err(Into::into),
+            (None, Some(vulkan)) => vulkan.set_window(window).map_err(Into::into),
+            (None, None) => return Ok(()),
         };
-        let result = gpu.context.set_window(
-            window
-                .as_ref()
-                .map(|(w, width, height)| (w, *width, *height)),
-        );
         if result.is_err() {
             *current = None;
         }
@@ -691,8 +717,16 @@ impl Drop for Session {
         if self.game_loaded {
             let host = self.host_mut();
             let destroy = host.hw_render.and_then(|cb| cb.context_destroy);
-            let current = host.gpu.as_ref().map(|gpu| gpu.context.make_current());
-            if let (Some(destroy), Some(Ok(()))) = (destroy, current) {
+            let ready = match (&host.gpu, &mut host.vulkan) {
+                (Some(gpu), _) => gpu.context.make_current().is_ok(),
+                (None, Some(vulkan)) => {
+                    // The core frees what the session's work may still use.
+                    vulkan.release_image();
+                    true
+                }
+                (None, None) => false,
+            };
+            if let (Some(destroy), true) = (destroy, ready) {
                 // SAFETY: the context is current; no host reference is live.
                 unsafe { destroy() };
             }
