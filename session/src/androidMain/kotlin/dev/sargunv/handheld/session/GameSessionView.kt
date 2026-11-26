@@ -176,19 +176,30 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
 /**
  * Passes [event], a touch on [view], which shows the session on [screen], to the session as its
- * pointer: the first finger down, until it lifts.
+ * pointer: the first finger down (Android gives it pointer id 0), until it lifts. Other fingers
+ * don't move or hold the pointer.
  */
 internal fun GameSession.touch(screen: Screen, view: View, event: MotionEvent): Boolean {
-  val pressed =
+  val first = event.findPointerIndex(0)
+  val (index, pressed) =
     when (event.actionMasked) {
       MotionEvent.ACTION_DOWN,
-      MotionEvent.ACTION_MOVE -> true
+      MotionEvent.ACTION_MOVE -> (if (first < 0) return true else first) to true
+      MotionEvent.ACTION_POINTER_UP ->
+        if (event.getPointerId(event.actionIndex) == 0) event.actionIndex to false else return true
       MotionEvent.ACTION_UP,
-      MotionEvent.ACTION_CANCEL -> false
+      MotionEvent.ACTION_CANCEL -> event.actionIndex to false
       else -> return true
     }
   try {
-    touch(screen, event.x, event.y, view.width.toUInt(), view.height.toUInt(), pressed)
+    touch(
+      screen,
+      event.getX(index),
+      event.getY(index),
+      view.width.toUInt(),
+      view.height.toUInt(),
+      pressed,
+    )
   } catch (_: IllegalStateException) {
     // The owner closed the session.
   }
