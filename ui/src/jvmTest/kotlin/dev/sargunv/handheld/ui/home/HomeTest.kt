@@ -2,9 +2,7 @@ package dev.sargunv.handheld.ui.home
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -17,45 +15,41 @@ import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertHasNoClickAction
-import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
-import dev.sargunv.handheld.data.auth.RommCredentials
-import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.domain.CollectionKind
-import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.TestDevice
+import dev.sargunv.handheld.ui.assertFocused
+import dev.sargunv.handheld.ui.awaitFocused
+import dev.sargunv.handheld.ui.awaitTag
+import dev.sargunv.handheld.ui.awaitText
+import dev.sargunv.handheld.ui.collection
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
-import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.fakeRomm
+import dev.sargunv.handheld.ui.json
+import dev.sargunv.handheld.ui.lastPlayed
+import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.library.LibraryTab
+import dev.sargunv.handheld.ui.page
 import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
-import dev.sargunv.handheld.ui.rememberTestDownloads
+import dev.sargunv.handheld.ui.platform
+import dev.sargunv.handheld.ui.press
+import dev.sargunv.handheld.ui.rom
 import dev.sargunv.handheld.ui.settings.SettingsSection
-import dev.sargunv.handheld.ui.testCoverDir
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -68,23 +62,20 @@ class HomeTest {
    * A server with three games on one platform. The user played game 2 last and game 1 before it,
    * and game 3 was added most recently. One collection holds games 1 and 2.
    */
-  private fun server(fail: Boolean = false, played: Boolean = true) = {
-    MockEngine { request ->
-      if (fail) return@MockEngine respondError(HttpStatusCode.InternalServerError)
-      val body =
-        when (request.url.encodedPath.substringAfter("/api/")) {
-          "platforms" -> "[$Platform]"
-          "roms" ->
-            if (request.url.parameters["last_played"] == "true") {
-              page(if (played) listOf(rom(2), rom(1)) else emptyList())
-            } else page(listOf(rom(1), rom(2), rom(3)))
-          "roms/identifiers" -> "[1, 2, 3]"
-          "collections" -> "[$Collection]"
-          "collections/smart" -> "[]"
-          else -> return@MockEngine respondError(HttpStatusCode.NotFound)
-        }
-      respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
-    }
+  private fun server(fail: Boolean = false, played: Boolean = true) = fakeRomm { path, request ->
+    if (fail) return@fakeRomm respondError(HttpStatusCode.InternalServerError)
+    json(
+      when (path) {
+        "platforms" -> "[${platform(roms = 3)}]"
+        "roms" ->
+          if (request.lastPlayed) page(if (played) listOf(game(2), game(1)) else emptyList())
+          else page(listOf(game(1), game(2), game(3)))
+        "roms/identifiers" -> "[1, 2, 3]"
+        "collections" -> "[${collection(1, "Favourites", listOf(1, 2))}]"
+        "collections/smart" -> "[]"
+        else -> return@fakeRomm respondError(HttpStatusCode.NotFound)
+      },
+    )
   }
 
   private fun ComposeUiTest.launch(
@@ -94,62 +85,20 @@ class HomeTest {
     saveSettings: suspend (Settings) -> Unit = {},
     open: OpenRequest? = null,
   ) {
-    // Made once: a new engine would make a new app state when HOME recomposes the content.
-    val engine = server(fail, played)
-    setContent {
-      val heldKeys = remember { HeldKeys() }
-      val library = remember { LibraryCache.open(path = null) }
-      val credentials = remember {
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token"))
-      }
-      App(
-        DualScreenLayout.Separate,
-        heldKeys,
-        credentials,
-        TestDevice,
-        library,
-        rememberTestDownloads(library, credentials),
-        remember { testCoverDir() },
-        Modifier.trackHeldKeys(heldKeys),
-        initialSettings = settings,
-        saveSettings = saveSettings,
-        httpEngine = engine,
-        openRequest = open,
-        homePress = homePress,
-      )
-    }
+    launchApp(
+      server(fail, played),
+      settings = settings,
+      saveSettings = saveSettings,
+      open = open,
+      homePress = { homePress },
+      layout = DualScreenLayout.Separate,
+    )
   }
 
   private fun ComposeUiTest.pressHome() {
     homePress = HomePress()
     waitForIdle()
   }
-
-  private fun ComposeUiTest.awaitFocused(tag: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
-    }
-  }
-
-  private fun ComposeUiTest.awaitTag(tag: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.press(keys: List<Key>) {
-    for (key in keys) {
-      // The key goes up once the screen settles: the test tracks held keys through the focused
-      // element, and a screen change can leave nothing focused for a moment.
-      onRoot().performKeyInput { keyDown(key) }
-      waitForIdle()
-      onRoot().performKeyInput { keyUp(key) }
-      waitForIdle()
-    }
-  }
-
-  private fun ComposeUiTest.press(key: Key) = press(listOf(key))
 
   /** Goes to [place] from Home with the main menu, as the player would. */
   private fun ComposeUiTest.goFromHome(place: Place) {
@@ -158,8 +107,6 @@ class HomeTest {
     press(List(place.ordinal) { Key.DirectionDown } + Key.ButtonA)
     awaitTag("place:${place.name}")
   }
-
-  private fun ComposeUiTest.assertFocused(tag: String) = onNodeWithTag(tag).assertIsFocused()
 
   @Test
   fun coversHeadersAndHintsDescribeThemselvesToAccessibilityServices() = runComposeUiTest {
@@ -456,13 +403,6 @@ class HomeTest {
     onNodeWithTag("main:Home").assertExists()
   }
 
-  private fun ComposeUiTest.awaitText(text: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
   @Test
   fun aGameQueuesAndDownloadsOpensAndCancelsIt() = runComposeUiTest {
     launch()
@@ -563,25 +503,7 @@ class HomeTest {
   }
 
   private companion object {
-    const val Platform =
-      """{"id": 1, "slug": "gb", "fs_slug": "gb", "name": "Game Boy", "display_name": "Game Boy",
-      "rom_count": 3, "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    const val Collection =
-      """{"id": 1, "name": "Favourites", "rom_ids": [1, 2], "rom_count": 2, "user_id": 1,
-      "owner_username": "me", "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    fun rom(id: Int) =
-      """{"id": $id, "platform_id": 1, "platform_slug": "gb", "platform_fs_slug": "gb",
-      "platform_display_name": "Game Boy", "name": "Game $id", "fs_name": "Game $id.gb",
-      "fs_name_no_tags": "Game $id", "fs_name_no_ext": "Game $id", "fs_extension": "gb",
-      "fs_size_bytes": 1024, "path_cover_small": "", "url_cover": "",
-      "created_at": "2024-01-0${id}T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00",
-      "rom_user": {"last_played": "2025-0${id}-01T00:00:00+00:00"}}"""
-
-    fun page(items: List<String>) =
-      """{"items": [${items.joinToString()}], "total": ${items.size}, "limit": 200, "offset": 0}"""
+    /** Game [id], added on the [id]th of January and last played in month [id]. */
+    fun game(id: Int) = rom(id, added = "2024-01-0$id", lastPlayed = "2025-0$id-01")
   }
 }

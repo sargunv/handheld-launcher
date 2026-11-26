@@ -1,7 +1,5 @@
 package dev.sargunv.handheld.ui.game
 
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -11,37 +9,30 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
-import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.domain.GameKey
-import dev.sargunv.handheld.domain.LibraryGame
-import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRules
-import dev.sargunv.handheld.ui.App
-import dev.sargunv.handheld.ui.TestDevice
-import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
-import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.trackHeldKeys
-import dev.sargunv.handheld.ui.rememberTestDownloads
+import dev.sargunv.handheld.ui.TestServer
+import dev.sargunv.handheld.ui.awaitTag
+import dev.sargunv.handheld.ui.awaitText
+import dev.sargunv.handheld.ui.fakeRomm
+import dev.sargunv.handheld.ui.json
+import dev.sargunv.handheld.ui.launchApp
+import dev.sargunv.handheld.ui.page
+import dev.sargunv.handheld.ui.platform
+import dev.sargunv.handheld.ui.press
+import dev.sargunv.handheld.ui.rom
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveVersion
-import dev.sargunv.handheld.ui.saves.StillRunning
-import dev.sargunv.handheld.ui.testCoverDir
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
@@ -51,7 +42,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 
 @OptIn(ExperimentalTestApi::class)
@@ -61,85 +51,19 @@ class GameTest {
 
   @AfterTest fun cleanUp() = check(storage.deleteRecursively())
 
-  /**
-   * Plays nothing, but records what it was asked, and asks [conflict] first when given, and then
-   * about [stillRunning] when given. [canCloseEmulators] stands in for a device with a root
-   * service.
-   */
-  private class FakeLauncher(
-    val conflict: SaveConflict? = null,
-    val stillRunning: String? = null,
-    override val canCloseEmulators: Boolean = false,
-    /** Holds the launch, saying it's getting the core, until it completes. */
-    val hold: CompletableDeferred<Unit>? = null,
-  ) : GameLauncher {
-    var canceled = false
-    val played = mutableListOf<String>()
-    val rules = mutableListOf<LaunchRules>()
-    var chosen: SaveCopy? = null
-    var stillRunningChoice: StillRunningChoice? = null
-    val closeEmulators = mutableListOf<Boolean>()
-
-    override suspend fun opensIn(
-      game: LibraryGame,
-      rules: LaunchRules,
-      collections: Set<CollectionId>,
-    ) = "Opens in Test Emulator"
-
-    override suspend fun play(
-      game: LibraryGame,
-      path: String,
-      rules: LaunchRules,
-      collections: Set<CollectionId>,
-      onProgress: (String) -> Unit,
-      closeEmulators: Boolean,
-      askStillRunning: suspend (StillRunning) -> StillRunningChoice,
-      chooseSave: suspend (SaveConflict) -> SaveCopy?,
-    ): List<String> {
-      if (hold != null) {
-        onProgress("Getting the core 40%")
-        try {
-          hold.await()
-        } catch (e: CancellationException) {
-          canceled = true
-          throw e
-        }
-      }
-      if (conflict != null) {
-        chosen = chooseSave(conflict) ?: return emptyList()
-      }
-      this.closeEmulators += closeEmulators
-      if (stillRunning != null) {
-        val choice = askStillRunning(StillRunning("Game 1", stillRunning, closeEmulators))
-        stillRunningChoice = choice
-        if (choice == StillRunningChoice.QuitFirst) return emptyList()
-      }
-      played += path
-      this.rules += rules
-      return listOf("Couldn't sync the save with RomM: Forbidden.")
-    }
-
-    override suspend fun keptSaves(game: LibraryGame) =
-      listOf(KeptSave("/kept", Clock.System.now() - 3.hours, SaveCopy.Device, "mgba", 2048))
-  }
-
   /** A server with one game, Game 1 on the Game Boy, and one save of it from another device. */
-  private val server = {
-    MockEngine { request ->
-      val body =
-        when (request.url.encodedPath.substringAfter("/api/")) {
-          "platforms" -> "[$Platform]"
-          "roms" ->
-            if (request.url.parameters["last_played"] == "true") page(listOf(Rom1))
-            else page(listOf(Rom1))
-          "roms/identifiers" -> "[1]"
-          "collections",
-          "collections/smart" -> "[]"
-          "saves" -> "[$Save]"
-          else -> return@MockEngine respondError(HttpStatusCode.NotFound)
-        }
-      respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
-    }
+  private val server = fakeRomm { path, _ ->
+    json(
+      when (path) {
+        "platforms" -> "[${platform()}]"
+        "roms" -> page(listOf(rom(1, lastPlayed = "2025-01-01")))
+        "roms/identifiers" -> "[1]"
+        "collections",
+        "collections/smart" -> "[]"
+        "saves" -> "[$Save]"
+        else -> return@fakeRomm respondError(HttpStatusCode.NotFound)
+      },
+    )
   }
 
   /** Launches with the game on the device, and opens its page from Home. */
@@ -163,62 +87,20 @@ class GameTest {
   ) {
     gameFile.parentFile.mkdirs()
     gameFile.writeText("game")
-    setContent {
-      val heldKeys = remember { HeldKeys() }
-      val credentials = remember {
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token", "thor"))
-      }
-      val library = remember { LibraryCache.open(path = null) }
-      App(
-        DualScreenLayout.Frame,
-        heldKeys,
-        credentials,
-        TestDevice,
-        library,
-        rememberTestDownloads(
-          library,
-          credentials,
-          listOf(StorageTarget(storage.path, "Test storage")),
-        ),
-        remember { testCoverDir() },
-        Modifier.trackHeldKeys(heldKeys),
-        httpEngine = server,
-        launcher = launcher,
-        apps = apps,
-        romHeaders = romHeaders,
-      )
-    }
+    launchApp(
+      server,
+      credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", "thor")),
+      storage = listOf(StorageTarget(storage.path, "Test storage")),
+      launcher = launcher,
+      apps = apps,
+      romHeaders = romHeaders,
+    )
     awaitTag("continue:1")
     // Home knows the game is on the device once its folder has been read.
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasTestTag("hint:Confirm") and hasText("Play")).fetchSemanticsNodes().isNotEmpty()
     }
   }
-
-  private fun ComposeUiTest.awaitTag(tag: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.awaitText(text: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.press(keys: List<Key>) {
-    for (key in keys) {
-      onRoot().performKeyInput { keyDown(key) }
-      waitForIdle()
-      onRoot().performKeyInput { keyUp(key) }
-      waitForIdle()
-    }
-  }
-
-  private fun ComposeUiTest.press(key: Key) = press(listOf(key))
 
   /** Goes from Home to Settings → Emulators with the main menu, focusing its first setting. */
   private fun ComposeUiTest.openEmulatorsSettings() {
@@ -239,7 +121,7 @@ class GameTest {
     onNodeWithTag("primary").assertIsFocused()
 
     press(Key.ButtonA)
-    awaitText("Couldn't sync the save with RomM: Forbidden.")
+    awaitText("Played")
     assertEquals(listOf(gameFile.path), launcher.played)
     onNodeWithTag("primary").assertIsFocused()
   }
@@ -250,7 +132,7 @@ class GameTest {
     launchHome(launcher)
     press(Key.ButtonA)
     // It plays on the game's page, which says how it went.
-    awaitText("Couldn't sync the save with RomM: Forbidden.")
+    awaitText("Played")
     assertEquals(listOf(gameFile.path), launcher.played)
     onNodeWithTag("primary").assertIsFocused()
     press(Key.ButtonB)
@@ -291,7 +173,7 @@ class GameTest {
     press(Key.ButtonB)
     onNodeWithTag("leave:stay").assertIsFocused()
     hold.complete(Unit)
-    awaitText("Couldn't sync the save")
+    awaitText("Played")
     onNodeWithTag("leave:stay").assertDoesNotExist()
     onNodeWithTag("primary").assertIsFocused()
   }
@@ -309,7 +191,7 @@ class GameTest {
     // The newer copy, this device's, has focus.
     onNodeWithTag(SaveCopy.Device.name).assertIsFocused()
     press(Key.ButtonA)
-    awaitText("Couldn't sync the save")
+    awaitText("Played")
     assertEquals(SaveCopy.Device, launcher.chosen)
     assertEquals(listOf(gameFile.path), launcher.played)
   }
@@ -348,7 +230,7 @@ class GameTest {
     press(Key.ButtonA)
     awaitText("ARMSX2 may still be running")
     press(listOf(Key.DirectionDown, Key.ButtonA))
-    awaitText("Couldn't sync the save")
+    awaitText("Played")
     assertEquals(StillRunningChoice.PlayDeviceSave, launcher.stillRunningChoice)
     assertEquals(listOf(gameFile.path), launcher.played)
 
@@ -384,7 +266,7 @@ class GameTest {
     press(Key.ButtonA)
     awaitText("ARMSX2 may still be running")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
-    awaitText("Couldn't sync the save")
+    awaitText("Played")
     assertEquals(StillRunningChoice.CloseNow, launcher.stillRunningChoice)
     assertEquals(listOf(true), launcher.closeEmulators)
   }
@@ -438,7 +320,7 @@ class GameTest {
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)
-    awaitText("Couldn't sync the save")
+    awaitText("Played")
     assertEquals(
       listOf(
         LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("com.example.notes"))),
@@ -461,7 +343,8 @@ class GameTest {
 
   @Test
   fun theLowerScreenShowsTheSaveHistory() = runComposeUiTest {
-    openGame(FakeLauncher())
+    val kept = KeptSave("/kept", Clock.System.now() - 3.hours, SaveCopy.Device, "mgba", 2048)
+    openGame(FakeLauncher(keptSaves = listOf(kept)))
     awaitText("Steam Deck")
     onNodeWithText("mgba · 1 day ago · 8 KB", substring = true).assertExists()
     onNodeWithText("This device's copy").assertExists()
@@ -483,19 +366,6 @@ class GameTest {
   }
 
   private companion object {
-    const val Platform =
-      """{"id": 1, "slug": "gb", "fs_slug": "gb", "name": "Game Boy", "display_name": "Game Boy",
-      "rom_count": 1, "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    const val Rom1 =
-      """{"id": 1, "platform_id": 1, "platform_slug": "gb", "platform_fs_slug": "gb",
-      "platform_display_name": "Game Boy", "name": "Game 1", "fs_name": "Game 1.gb",
-      "fs_name_no_tags": "Game 1", "fs_name_no_ext": "Game 1", "fs_extension": "gb",
-      "fs_size_bytes": 1024, "path_cover_small": "", "url_cover": "",
-      "created_at": "2024-01-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00",
-      "rom_user": {"last_played": "2025-01-01T00:00:00+00:00"}}"""
-
     val Save: String
       get() {
         val yesterday = Clock.System.now() - 25.hours
@@ -505,8 +375,5 @@ class GameTest {
         "device_name": "Steam Deck", "last_synced_at": "$yesterday"}],
         "created_at": "$yesterday", "updated_at": "$yesterday"}"""
       }
-
-    fun page(items: List<String>) =
-      """{"items": [${items.joinToString()}], "total": ${items.size}, "limit": 200, "offset": 0}"""
   }
 }
