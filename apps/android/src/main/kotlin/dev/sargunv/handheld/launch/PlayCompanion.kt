@@ -25,13 +25,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** A game playing in another app, as the companion on the second display shows it. */
-class PlaySession(val title: String, val sync: suspend () -> String)
+/**
+ * A game playing in another app, as the companion on the second display shows it. [quit], when set,
+ * asks for the emulator to be closed once the launcher is back in front.
+ */
+class PlaySession(
+  val title: String,
+  val sync: suspend () -> String,
+  val quit: (() -> Unit)? = null,
+)
 
 /**
  * The companion on the second display while a game plays in another app, with touch buttons to sync
- * the save now and to go back to the library. Its own task keeps it apart from the launcher's, so
- * it stays on the second display while the emulator runs on the first.
+ * the save now, to go back to the library, and, with closing emulators on, to quit. Its own task
+ * keeps it apart from the launcher's, so it stays on the second display while the emulator runs on
+ * the first.
  */
 object PlayCompanion {
   private val current = MutableStateFlow<PlaySession?>(null)
@@ -80,7 +88,21 @@ class PlayCompanionActivity : ComponentActivity() {
     setContent {
       val session by PlayCompanion.session.collectAsState()
       Box(Modifier.fillMaxSize().exposeTestTags()) {
-        session?.let { PlayCompanionScreen(it.title, it.sync, ::backToLibrary) }
+        session?.let { session ->
+          PlayCompanionScreen(
+            session.title,
+            session.sync,
+            ::backToLibrary,
+            onQuit =
+              session.quit?.let { quit ->
+                {
+                  // The emulator closes once the launcher is in front, so it's in the background.
+                  quit()
+                  backToLibrary()
+                }
+              },
+          )
+        }
       }
     }
   }

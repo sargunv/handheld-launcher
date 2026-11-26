@@ -104,7 +104,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     // when the launcher comes to the front over it, writes as it's destroyed, which can come after
     // this. So this only sends: a newer save on RomM waits for the next launch, where a change on
     // both sides is a conflict. When a write failed, the file still holds the last whole save.
-    if (game != null) playSaves.afterPlay(request, game, ::note, pull = false)
+    if (game != null) playSaves.afterPlay(request, game, ::note)
     return notes
   }
 

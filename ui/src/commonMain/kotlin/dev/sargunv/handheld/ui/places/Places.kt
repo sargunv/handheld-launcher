@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
@@ -331,6 +332,7 @@ internal fun coverDescription(rom: Rom, state: DeviceState?): String {
 private fun PlacesScreen(state: AppState) {
   val places = rememberSaveableStateHolder()
   var quickMenu by rememberSaveable { mutableStateOf(false) }
+  var explainCloseEmulators by rememberSaveable { mutableStateOf(false) }
   Box(
     Modifier.fillMaxSize().onAction { action ->
       when (action) {
@@ -366,7 +368,25 @@ private fun PlacesScreen(state: AppState) {
         }
       }
     }
-    if (quickMenu) QuickMenu(state, onDismissRequest = { quickMenu = false })
+    if (quickMenu) {
+      QuickMenu(
+        state,
+        onDismissRequest = { quickMenu = false },
+        onTurnOnCloseEmulators = {
+          quickMenu = false
+          explainCloseEmulators = true
+        },
+      )
+    }
+    if (explainCloseEmulators) {
+      CloseEmulatorsDialog(
+        onTurnOn = {
+          state.settings = state.settings.copy(closeEmulators = true)
+          explainCloseEmulators = false
+        },
+        onDismissRequest = { explainCloseEmulators = false },
+      )
+    }
   }
 }
 
@@ -462,9 +482,16 @@ private fun EmptyPlace(text: String) {
   }
 }
 
-/** The global settings, on the quick menu button. */
+/**
+ * The global settings, on the quick menu button. Turning on closing emulators asks
+ * [onTurnOnCloseEmulators] to explain it first.
+ */
 @Composable
-private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
+private fun QuickMenu(
+  state: AppState,
+  onDismissRequest: () -> Unit,
+  onTurnOnCloseEmulators: () -> Unit,
+) {
   Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text("Quick menu", color = Placeholder.text, modifier = Modifier.semantics { heading() })
@@ -482,6 +509,41 @@ private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
       MenuButton("quick:aButton", "A button: $position") {
         state.switchAButtonPosition()
       }
+      // Only on devices with a root service the launcher can close emulators with.
+      if (state.launcher.canCloseEmulators) {
+        val on = state.settings.closeEmulators
+        MenuButton("quick:closeEmulators", "Close emulators: ${if (on) "On" else "Off"}") {
+          if (on) state.settings = state.settings.copy(closeEmulators = false)
+          else onTurnOnCloseEmulators()
+        }
+      }
+    }
+  }
+}
+
+/** Explains closing emulators before the player turns it on. */
+@Composable
+private fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> Unit) {
+  Dialog(
+    onDismissRequest,
+    Modifier.widthIn(max = 640.dp).background(Placeholder.dialog).padding(24.dp),
+    initialFocus = "closeEmulators:cancel",
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text("Close emulators", color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(
+        "This device has a built-in root service that any app can use. With this on, the " +
+          "launcher uses it only to check whether an emulator is still running and to close it, " +
+          "so a newer save from RomM can't be overwritten by the emulator's old one.",
+        color = Placeholder.mutedText,
+      )
+      Text(
+        "Closing skips the emulator's own exit, so progress since its last in-game save can be " +
+          "lost. When you can, quit from the emulator's own menu instead.",
+        color = Placeholder.mutedText,
+      )
+      MenuButton("closeEmulators:turnOn", "Turn on", onConfirm = onTurnOn)
+      MenuButton("closeEmulators:cancel", "Cancel", onConfirm = onDismissRequest)
     }
   }
 }

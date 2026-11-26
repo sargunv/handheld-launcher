@@ -38,6 +38,7 @@ import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.cover.Cover
@@ -52,6 +53,8 @@ import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveConflictScreen
+import dev.sargunv.handheld.ui.saves.StillRunning
+import dev.sargunv.handheld.ui.saves.StillRunningDialog
 import dev.sargunv.handheld.ui.saves.ago
 import dev.sargunv.handheld.ui.saves.size
 import kotlin.time.Clock
@@ -64,6 +67,11 @@ import kotlinx.coroutines.withContext
 /** A save conflict waiting for the player's choice. */
 private class PendingChoice(val conflict: SaveConflict) {
   val choice = CompletableDeferred<SaveCopy?>()
+}
+
+/** An emulator that may still hold the game, waiting for the player's choice. */
+private class PendingStillRunning(val prompt: StillRunning) {
+  val choice = CompletableDeferred<StillRunningChoice>()
 }
 
 /**
@@ -83,6 +91,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   // What the player should know about the last thing they did here, such as how a play went.
   var notes by remember { mutableStateOf(emptyList<String>()) }
   var pending by remember { mutableStateOf<PendingChoice?>(null) }
+  var stillRunning by remember { mutableStateOf<PendingStillRunning?>(null) }
   val scope = rememberCoroutineScope()
 
   fun play(rom: Rom, path: String) {
@@ -93,8 +102,23 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         val collections = state.library.collectionsOf(rom.id).mapTo(mutableSetOf()) { it.launchId }
         val rules = state.settings.launch.toRules()
         notes =
-          state.launcher.play(rom, path, rules, collections, onProgress = { playProgress = it }) {
-            conflict ->
+          state.launcher.play(
+            rom,
+            path,
+            rules,
+            collections,
+            onProgress = { playProgress = it },
+            closeEmulators = state.settings.closeEmulators && state.launcher.canCloseEmulators,
+            askStillRunning = { prompt ->
+              val choice = PendingStillRunning(prompt)
+              stillRunning = choice
+              try {
+                choice.choice.await()
+              } finally {
+                stillRunning = null
+              }
+            },
+          ) { conflict ->
             val choice = PendingChoice(conflict)
             pending = choice
             try {
@@ -116,7 +140,13 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   val primary = current?.let { primaryAction(it, status, playing, playProgress) }
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
-      if (action == Action.Menu && current != null && status != null && pending == null) {
+      if (
+        action == Action.Menu &&
+          current != null &&
+          status != null &&
+          pending == null &&
+          stillRunning == null
+      ) {
         menuOpen = true
         true
       } else {
@@ -259,6 +289,9 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           }
         }
       }
+    }
+    stillRunning?.let { asking ->
+      StillRunningDialog(asking.prompt, onChoose = { asking.choice.complete(it) })
     }
   }
 }

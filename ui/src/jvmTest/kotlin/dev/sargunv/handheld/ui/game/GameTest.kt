@@ -26,6 +26,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchChoice
@@ -38,6 +39,7 @@ import dev.sargunv.handheld.ui.input.trackHeldKeys
 import dev.sargunv.handheld.ui.rememberTestDownloads
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveVersion
+import dev.sargunv.handheld.ui.saves.StillRunning
 import dev.sargunv.handheld.ui.testCoverDir
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -62,11 +64,21 @@ class GameTest {
 
   @AfterTest fun cleanUp() = check(storage.deleteRecursively())
 
-  /** Plays nothing, but records what it was asked, and asks [conflict] first when given. */
-  private class FakeLauncher(val conflict: SaveConflict? = null) : GameLauncher {
+  /**
+   * Plays nothing, but records what it was asked, and asks [conflict] first when given, and then
+   * about [stillRunning] when given. [canCloseEmulators] stands in for a device with a root
+   * service.
+   */
+  private class FakeLauncher(
+    val conflict: SaveConflict? = null,
+    val stillRunning: String? = null,
+    override val canCloseEmulators: Boolean = false,
+  ) : GameLauncher {
     val played = mutableListOf<String>()
     val rules = mutableListOf<LaunchRules>()
     var chosen: SaveCopy? = null
+    var stillRunningChoice: StillRunningChoice? = null
+    val closeEmulators = mutableListOf<Boolean>()
 
     override suspend fun opensIn(rom: Rom, rules: LaunchRules, collections: Set<CollectionId>) =
       "Opens in Test Emulator"
@@ -77,10 +89,18 @@ class GameTest {
       rules: LaunchRules,
       collections: Set<CollectionId>,
       onProgress: (String) -> Unit,
+      closeEmulators: Boolean,
+      askStillRunning: suspend (StillRunning) -> StillRunningChoice,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> {
       if (conflict != null) {
         chosen = chooseSave(conflict) ?: return emptyList()
+      }
+      this.closeEmulators += closeEmulators
+      if (stillRunning != null) {
+        val choice = askStillRunning(StillRunning("Game 1", stillRunning, closeEmulators))
+        stillRunningChoice = choice
+        if (choice == StillRunningChoice.QuitFirst) return emptyList()
       }
       played += path
       this.rules += rules
@@ -215,6 +235,78 @@ class GameTest {
     awaitTag("primary")
     onNodeWithTag("primary").assertIsFocused()
     assertTrue(launcher.played.isEmpty())
+  }
+
+  @Test
+  fun asksBeforePullingWhileTheEmulatorMayStillBeRunning() = runComposeUiTest {
+    val launcher = FakeLauncher(stillRunning = "ARMSX2")
+    openGame(launcher)
+
+    press(Key.ButtonA)
+    awaitText("ARMSX2 may still be running")
+    // Closing isn't offered when the setting is off.
+    onNodeWithTag("stillRunning:quitFirst").assertIsFocused()
+    onNodeWithTag("stillRunning:closeNow").assertDoesNotExist()
+    press(Key.ButtonA)
+    awaitTag("primary")
+    assertEquals(StillRunningChoice.QuitFirst, launcher.stillRunningChoice)
+    assertTrue(launcher.played.isEmpty(), "Quitting first cancels the launch")
+
+    press(Key.ButtonA)
+    awaitText("ARMSX2 may still be running")
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    awaitText("Couldn't sync the save")
+    assertEquals(StillRunningChoice.PlayDeviceSave, launcher.stillRunningChoice)
+    assertEquals(listOf(gameFile.path), launcher.played)
+
+    // Back cancels, like quitting first.
+    press(Key.ButtonA)
+    awaitText("ARMSX2 may still be running")
+    press(Key.ButtonB)
+    awaitTag("primary")
+    assertEquals(StillRunningChoice.QuitFirst, launcher.stillRunningChoice)
+    assertEquals(listOf(false, false, false), launcher.closeEmulators)
+  }
+
+  @Test
+  fun offersToCloseTheEmulatorWhenTheSettingIsOn() = runComposeUiTest {
+    val launcher = FakeLauncher(stillRunning = "ARMSX2", canCloseEmulators = true)
+    openGame(launcher)
+
+    // The setting is off by default, and turning it on explains it first.
+    press(Key.ButtonB)
+    awaitTag("continue:1")
+    press(Key.ButtonStart)
+    awaitTag("quick:closeEmulators")
+    onNodeWithText("Close emulators: Off").assertExists()
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitText("built-in root service")
+    // Cancel has focus first, so one press too many leaves it off.
+    onNodeWithTag("closeEmulators:cancel").assertIsFocused()
+    press(listOf(Key.DirectionUp, Key.ButtonA))
+    press(Key.ButtonStart)
+    awaitText("Close emulators: On")
+    press(Key.ButtonB)
+
+    awaitTag("continue:1")
+    press(Key.ButtonA)
+    awaitText("Play")
+    press(Key.ButtonA)
+    awaitText("ARMSX2 may still be running")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitText("Couldn't sync the save")
+    assertEquals(StillRunningChoice.CloseNow, launcher.stillRunningChoice)
+    assertEquals(listOf(true), launcher.closeEmulators)
+  }
+
+  @Test
+  fun theCloseEmulatorsSettingShowsOnlyWhereTheDeviceCanClose() = runComposeUiTest {
+    openGame(FakeLauncher())
+    press(Key.ButtonB)
+    awaitTag("continue:1")
+    press(Key.ButtonStart)
+    awaitTag("quick:confirm")
+    onNodeWithTag("quick:closeEmulators").assertDoesNotExist()
   }
 
   @Test

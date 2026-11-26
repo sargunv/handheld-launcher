@@ -22,4 +22,9 @@ data class Settings(
   val library: LibrarySettings = LibrarySettings(),
   /** The apps the user picked to open games in. */
   val launch: LaunchSettings = LaunchSettings(),
+  /**
+   * Whether the launcher checks if a standalone emulator is still running, and offers to close it,
+   * on devices that let it.
+   */
+  val closeEmulators: Boolean = false,
 )

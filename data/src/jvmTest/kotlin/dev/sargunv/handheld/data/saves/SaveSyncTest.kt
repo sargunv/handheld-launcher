@@ -565,6 +565,243 @@ class SaveSyncTest {
     gameFolder.mkdirs()
     assertEquals(SaveSyncResult.NoSave, sync(server).sync(builtIn))
   }
+
+  // The emulator that keeps the save, as LaunchedEmulators would report it.
+  private val notRunning = EmulatorState.NotRunning("test")
+  private val holdsThisGame = EmulatorState.MayBeRunning(7, "test")
+  private val holdsAnotherGame = EmulatorState.MayBeRunning(8, "test")
+
+  /**
+   * [SaveSync.beforeLaunch], answering the prompts with [choice] and [keep], and recording them.
+   */
+  private class Prompts(
+    val choice: StillRunningChoice? = null,
+    val keep: SaveCopy? = null,
+    val closes: Boolean = true,
+  ) {
+    val asked = mutableListOf<Boolean>()
+    var closed = 0
+
+    suspend fun run(sync: SaveSync, game: GameSave, emulator: EmulatorState, canClose: Boolean) =
+      sync.beforeLaunch(
+        game,
+        emulator,
+        canClose,
+        chooseSave = { keep },
+        askStillRunning = {
+          asked += it
+          choice ?: error("Asked about the emulator")
+        },
+        close = {
+          closed++
+          closes
+        },
+      )
+  }
+
+  /** A server with a newer save [v2] than the device's [v1]. */
+  private suspend fun serverNewer(): Pair<FakeRomm, SaveSync> {
+    val (server, sync) = synced()
+    server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
+    return server to sync
+  }
+
+  @Test
+  fun aPullWhileTheEmulatorMayRunReportsTheReplacedCopyComingBackAsAConflict() = runTest {
+    val (server, sync) = serverNewer()
+    assertIs<SaveSyncResult.Pulled>(sync.sync(game, emulatorMayRun = true))
+
+    // The emulator writes the save it held in memory over the pulled one.
+    saveFile.writeBytes(v1)
+    val pushed = assertIs<SaveSyncResult.Conflict>(sync.push(game))
+    assertTrue(pushed.reverted)
+    val synced = assertIs<SaveSyncResult.Conflict>(sync.sync(game))
+    assertTrue(synced.reverted)
+    assertTrue(server.uploads.isEmpty(), "The old copy isn't sent as the newest save")
+    assertContentEquals(v1, saveFile.readBytes(), "Nothing on the device changed")
+
+    // Keeping RomM's copy brings the pulled save back, and the device's goes to the history.
+    sync.resolve(game, synced, SaveCopy.Server)
+    assertContentEquals(v2, saveFile.readBytes())
+  }
+
+  @Test
+  fun aPullWhileTheEmulatorMayRunStillSendsANewSave() = runTest {
+    val (server, sync) = serverNewer()
+    assertIs<SaveSyncResult.Pulled>(sync.sync(game, emulatorMayRun = true))
+
+    saveFile.writeBytes(mine)
+    assertIs<SaveSyncResult.Pushed>(sync.push(game))
+    assertContentEquals(mine, server.uploads.single().bytes)
+
+    // The push settles it: the old copy coming back later is a change like any other.
+    saveFile.writeBytes(v1)
+    assertIs<SaveSyncResult.Pushed>(sync.sync(game))
+  }
+
+  @Test
+  fun aPullWhenTheEmulatorIsStoppedDoesntWatchForTheOldCopy() = runTest {
+    val (server, sync) = serverNewer()
+    assertIs<SaveSyncResult.Pulled>(sync.sync(game))
+
+    saveFile.writeBytes(v1)
+    assertIs<SaveSyncResult.Pushed>(sync.push(game))
+    assertContentEquals(v1, server.uploads.single().bytes)
+  }
+
+  @Test
+  fun afterReturnOnlySends() = runTest {
+    val (server, sync) = serverNewer()
+    assertIs<SaveSyncResult.ServerNewer>(sync.afterReturn(game))
+    assertContentEquals(v1, saveFile.readBytes(), "RomM's newer save waits for the next launch")
+    assertTrue(sync.history(game).isEmpty())
+    assertTrue(server.uploads.isEmpty())
+
+    saveFile.writeBytes(mine)
+    assertIs<SaveSyncResult.Conflict>(sync.afterReturn(game), "Both changed, so nothing is sent")
+    assertContentEquals(mine, saveFile.readBytes())
+    assertTrue(server.uploads.isEmpty())
+  }
+
+  @Test
+  fun afterReturnSendsWhatTheGameSaved() = runTest {
+    val (server, sync) = synced()
+    saveFile.writeBytes(mine)
+    assertIs<SaveSyncResult.Pushed>(sync.afterReturn(game))
+    assertContentEquals(mine, server.uploads.single().bytes)
+  }
+
+  @Test
+  fun beforeLaunchAsksBeforePullingWhileTheEmulatorHoldsTheGame() = runTest {
+    for (canClose in listOf(false, true)) {
+      val (server, sync) = serverNewer()
+      val prompts = Prompts(StillRunningChoice.QuitFirst)
+
+      assertEquals(BeforeLaunch.QuitFirst, prompts.run(sync, game, holdsThisGame, canClose))
+      assertEquals(listOf(canClose), prompts.asked)
+      assertEquals(0, prompts.closed)
+      assertContentEquals(v1, saveFile.readBytes())
+      assertTrue(sync.history(game).isEmpty())
+      assertTrue(server.uploads.isEmpty())
+      root.resolve("records").deleteRecursively()
+    }
+  }
+
+  @Test
+  fun beforeLaunchPlaysTheDevicesSaveWhenThePlayerChoosesIt() = runTest {
+    val (server, sync) = serverNewer()
+    val prompts = Prompts(StillRunningChoice.PlayDeviceSave)
+
+    val result = assertIs<BeforeLaunch.Skipped>(prompts.run(sync, game, holdsThisGame, false))
+    assertIs<SaveSyncResult.ServerNewer>(result.result)
+    assertContentEquals(v1, saveFile.readBytes())
+    assertTrue(server.uploads.isEmpty())
+
+    // RomM's save stays newer, so the next launch asks again.
+    val again = Prompts(StillRunningChoice.QuitFirst)
+    assertEquals(BeforeLaunch.QuitFirst, again.run(sync, game, holdsThisGame, false))
+  }
+
+  @Test
+  fun beforeLaunchClosesTheEmulatorThenPulls() = runTest {
+    val (_, sync) = serverNewer()
+    val prompts = Prompts(StillRunningChoice.CloseNow)
+
+    val result = assertIs<BeforeLaunch.Synced>(prompts.run(sync, game, holdsThisGame, true))
+    assertIs<SaveSyncResult.Pulled>(result.result)
+    assertEquals(1, prompts.closed)
+    assertContentEquals(v2, saveFile.readBytes())
+
+    // The emulator was closed first, so the old copy coming back is a change like any other.
+    saveFile.writeBytes(v1)
+    assertIs<SaveSyncResult.Pushed>(sync.push(game))
+  }
+
+  @Test
+  fun beforeLaunchPullsNothingWhenTheEmulatorWontClose() = runTest {
+    val (server, sync) = serverNewer()
+    val prompts = Prompts(StillRunningChoice.CloseNow, closes = false)
+
+    assertEquals(BeforeLaunch.CloseFailed, prompts.run(sync, game, holdsThisGame, true))
+    assertContentEquals(v1, saveFile.readBytes())
+    assertTrue(server.uploads.isEmpty())
+
+    // Closing isn't offered, so a choice to close does nothing.
+    val notOffered = Prompts(StillRunningChoice.CloseNow)
+    assertEquals(BeforeLaunch.CloseFailed, notOffered.run(sync, game, holdsThisGame, false))
+    assertEquals(0, notOffered.closed)
+    assertContentEquals(v1, saveFile.readBytes())
+  }
+
+  @Test
+  fun beforeLaunchPullsWithoutAskingWhenTheEmulatorDoesntHoldTheGame() = runTest {
+    for (emulator in listOf(notRunning, holdsAnotherGame)) {
+      val (_, sync) = serverNewer()
+      val prompts = Prompts()
+
+      val result = assertIs<BeforeLaunch.Synced>(prompts.run(sync, game, emulator, true))
+      assertIs<SaveSyncResult.Pulled>(result.result, "$emulator")
+      assertContentEquals(v2, saveFile.readBytes())
+
+      // A pull while the emulator may run watches for the old copy coming back.
+      saveFile.writeBytes(v1)
+      val after = sync.push(game)
+      if (emulator == notRunning) {
+        assertIs<SaveSyncResult.Pushed>(after)
+      } else {
+        assertTrue(assertIs<SaveSyncResult.Conflict>(after).reverted, "$emulator")
+      }
+      root.resolve("records").deleteRecursively()
+      root.resolve("history").deleteRecursively()
+    }
+  }
+
+  @Test
+  fun beforeLaunchSendsTheDevicesSaveWithoutAskingWhileTheEmulatorHoldsTheGame() = runTest {
+    val (server, sync) = synced()
+    saveFile.writeBytes(mine)
+
+    val result = assertIs<BeforeLaunch.Synced>(Prompts().run(sync, game, holdsThisGame, true))
+    assertIs<SaveSyncResult.Pushed>(result.result)
+    assertContentEquals(mine, server.uploads.single().bytes)
+  }
+
+  @Test
+  fun beforeLaunchAsksAboutTheEmulatorOnlyWhenAConflictKeepsRommsCopy() = runTest {
+    // Keeping the device's copy writes nothing to the device, so there's nothing to ask.
+    run {
+      val (server, sync) = serverNewer()
+      saveFile.writeBytes(mine)
+      val prompts = Prompts(keep = SaveCopy.Device)
+      val result = assertIs<BeforeLaunch.Synced>(prompts.run(sync, game, holdsThisGame, true))
+      assertIs<SaveSyncResult.Resolved>(result.result)
+      assertContentEquals(mine, saveFile.readBytes())
+      assertContentEquals(mine, server.uploads.single().bytes)
+    }
+    root.resolve("records").deleteRecursively()
+    root.resolve("history").deleteRecursively()
+    run {
+      val (_, sync) = serverNewer()
+      saveFile.writeBytes(mine)
+      val prompts = Prompts(StillRunningChoice.PlayDeviceSave, keep = SaveCopy.Server)
+      val result = assertIs<BeforeLaunch.Skipped>(prompts.run(sync, game, holdsThisGame, true))
+      assertIs<SaveSyncResult.Conflict>(result.result)
+      assertEquals(listOf(true), prompts.asked)
+      assertContentEquals(mine, saveFile.readBytes(), "Both copies stay as they were")
+      assertTrue(sync.history(game).isEmpty())
+    }
+  }
+
+  @Test
+  fun beforeLaunchCancelsAtTheConflictWithoutAskingAboutTheEmulator() = runTest {
+    val (_, sync) = serverNewer()
+    saveFile.writeBytes(mine)
+    val prompts = Prompts(keep = null)
+
+    assertEquals(BeforeLaunch.Canceled, prompts.run(sync, game, holdsThisGame, true))
+    assertTrue(prompts.asked.isEmpty())
+    assertContentEquals(mine, saveFile.readBytes())
+  }
 }
 
 /** An upload the fake server received. */
