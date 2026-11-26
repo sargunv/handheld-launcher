@@ -28,6 +28,8 @@ import kotlinx.io.files.Path
  *   again when the launcher is back in front. The optional `save_dir` extra, an absolute path,
  *   stands in for the emulator's save folders, and the optional `romm_url` extra names a server to
  *   sync with, without a token, instead of the signed-in one.
+ * - `sign_in`: the sign-in screens, for a test server. What they sign in to stays in memory, so the
+ *   app stays signed in to its own server.
  *
  * For example:
  * ```
@@ -78,6 +80,7 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
         }
       ({ LaunchTestScreen(activity as ComponentActivity, rom, platform, app, biosDir, saves) })
     }
+    "sign_in" -> ({ SignInTestScreen() })
     else -> null
   }
 }
