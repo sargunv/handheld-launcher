@@ -71,12 +71,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * A game in the built-in session, full screen. Start pauses it and opens the quick menu over it,
- * with the save-state slots on the second screen. It closes when the core quits on its own, on Quit
- * in the quick menu, on the system's back gesture while the menu is closed, or on HOME, which
- * brings the launcher back, and the session's save memory is written as it closes. A session that
- * can't start closes it with the reason as its result's [EXTRA_ERROR], and one whose save memory
- * couldn't be written closes with the reason as [EXTRA_SAVE_ERROR].
+ * A game in the built-in session, full screen. Back, or a controller's guide button, pauses it and
+ * opens the quick menu over it, with the save-state slots on the second screen, while every game
+ * button, Start included, goes to the game. It closes when the core quits on its own, on Quit in
+ * the quick menu, on back before the game has started, or on HOME, which brings the launcher back,
+ * and the session's save memory is written as it closes. A session that can't start closes it with
+ * the reason as its result's [EXTRA_ERROR], and one whose save memory couldn't be written closes
+ * with the reason as [EXTRA_SAVE_ERROR].
  *
  * The view fills the screen and the session fits the core's frame inside it at the core's aspect
  * ratio, following any change to it mid-game, so the view needs no new layout when that changes.
@@ -133,7 +134,7 @@ class SessionActivity : ComponentActivity() {
   private var achievementsClient: RetroAchievementsClient? = null
 
   /**
-   * The keys pressed in the menu, including the Start that opened it, so the rest of each press
+   * The keys pressed in the menu, including the one that opened it, so the rest of each press
    * (repeats and release) stays from the game once the menu closes.
    */
   private val menuKeys = mutableSetOf<Int>()
@@ -192,7 +193,11 @@ class SessionActivity : ComponentActivity() {
     )
     view.requestFocus()
     onBackPressedDispatcher.addCallback(this) {
-      if (menuOpen) quickMenu.back() else stopAndFinish()
+      when {
+        menuOpen -> quickMenu.back()
+        session != null -> openMenu()
+        else -> stopAndFinish()
+      }
     }
     lifecycleScope.launch { start() }
   }
@@ -406,25 +411,16 @@ class SessionActivity : ComponentActivity() {
   @SuppressLint("RestrictedApi")
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     heldKeys.track(ComposeKeyEvent(event))
-    // Start opens the menu. In the menu, it closes it and presses Start in the game, which has no
-    // other way to get it.
+    // Back opens the menu through the back callback. The guide button, which games never get, does
+    // what back does, for controllers without a back button.
     val key = event.keyCode
     if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
       // A new press starts over, even if an earlier one's release went to another window.
       menuKeys -= key
-      if (key == KeyEvent.KEYCODE_BUTTON_START) {
-        if (menuOpen) {
-          // A save or load under way finishes before the game runs again.
-          if (quickMenu.busy) {
-            menuKeys += key
-            return true
-          }
-          closeMenu()
-        } else if (session != null) {
-          menuKeys += key
-          openMenu()
-          return true
-        }
+      if (key == KeyEvent.KEYCODE_BUTTON_MODE) {
+        menuKeys += key
+        onBackPressedDispatcher.onBackPressed()
+        return true
       } else if (menuOpen) {
         menuKeys += key
       }

@@ -53,8 +53,9 @@ that decides where the game opens.
 
 ## Quick menu
 
-Start pauses a built-in game and opens the menu over it: resume, save and load
-state, rewind, fast forward, controls, screen and shaders, achievements, quit.
+Back, or a controller's guide button, pauses a built-in game and opens the menu
+over it: resume, save and load state, rewind, fast forward, controls, screen and
+shaders, achievements, quit. Start and every other game button stay the game's.
 The lower screen shows the save-state slots. Standalone emulators get a cut-down
 version (quit and sync) only if an overlay can do that without trading away
 something else.
