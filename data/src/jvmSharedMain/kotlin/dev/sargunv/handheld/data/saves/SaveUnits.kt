@@ -1,5 +1,7 @@
 package dev.sargunv.handheld.data.saves
 
+import dev.sargunv.handheld.data.hexDigest
+import dev.sargunv.handheld.data.writeAtomically
 import dev.sargunv.handheld.domain.saves.FolderSave
 import dev.sargunv.handheld.domain.saves.SaveArea
 import dev.sargunv.handheld.domain.saves.SaveFolders
@@ -8,14 +10,13 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlin.time.Instant
+import kotlinx.io.files.Path
 
 /**
  * A game's save that an emulator keeps as folders, or as several files in a shared folder: the
@@ -93,16 +94,7 @@ private class FileUnit(private val candidates: List<File>) : SaveUnit {
     bytes: ByteArray,
     replaced: String?,
     keep: (LocalCopy) -> Unit,
-  ) {
-    // Write a sibling and move it over the target, so the emulator never sees half a save.
-    val temp = File(target.parentFile, ".${target.name}.handheld-part")
-    temp.writeBytes(bytes)
-    try {
-      move(temp, target)
-    } finally {
-      temp.delete()
-    }
-  }
+  ) = writeAtomically(Path(target.path), bytes)
 }
 
 /**
@@ -315,12 +307,12 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
         if (!old.mkdirs()) throw IOException("Couldn't make ${old.path}")
         for (entry in place.owned()) {
           val aside = File(old, entry.name)
-          move(entry, aside)
-          undo.addFirst { move(aside, entry) }
+          Files.move(entry.toPath(), aside.toPath(), ATOMIC_MOVE)
+          undo.addFirst { Files.move(aside.toPath(), entry.toPath(), ATOMIC_MOVE) }
         }
         for (entry in staging.listFiles().orEmpty()) {
           val placed = File(place.dir, entry.name)
-          move(entry, placed)
+          Files.move(entry.toPath(), placed.toPath(), ATOMIC_MOVE)
           undo.addFirst { placed.deleteRecursively() }
         }
       }
@@ -425,18 +417,4 @@ internal val CODE_POINTS =
       ?: x.size.compareTo(y.size)
   }
 
-internal fun md5(bytes: ByteArray): String =
-  MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }
-
-internal fun move(from: File, to: File) {
-  try {
-    Files.move(
-      from.toPath(),
-      to.toPath(),
-      StandardCopyOption.REPLACE_EXISTING,
-      StandardCopyOption.ATOMIC_MOVE,
-    )
-  } catch (e: AtomicMoveNotSupportedException) {
-    Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING)
-  }
-}
+internal fun md5(bytes: ByteArray): String = hexDigest("MD5", bytes)

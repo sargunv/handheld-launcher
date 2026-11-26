@@ -7,8 +7,8 @@
 
 package dev.sargunv.handheld.data.saves
 
+import dev.sargunv.handheld.data.digest
 import java.io.IOException
-import java.security.MessageDigest
 
 /** Bytes that aren't a PS2 memory card, or a save on one, that the launcher can read or write. */
 internal class Ps2FormatException(message: String) : IOException(message)
@@ -29,14 +29,14 @@ internal class Ps2Save(
    * Timestamps, modes and where the save sits on a card leave it alone.
    */
   fun md5(): String {
-    val digest = MessageDigest.getInstance("MD5")
+    val digest = digest("MD5")
     digest.update(entry, NAME, NAME_LENGTH)
     for (file in files) {
       digest.update(file.entry, NAME, NAME_LENGTH)
       digest.update(file.entry, LENGTH, 4)
       digest.update(file.data)
     }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    return digest.digest().toHexString()
   }
 }
 

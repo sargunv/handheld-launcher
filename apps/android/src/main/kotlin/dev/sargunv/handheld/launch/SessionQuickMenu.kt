@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.compose.ui.graphics.asImageBitmap
 import dev.sargunv.handheld.achievements.toGameAchievements
+import dev.sargunv.handheld.data.writeAtomically
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import dev.sargunv.handheld.session.CapturedFrame
 import dev.sargunv.handheld.session.GameSession
@@ -12,12 +13,14 @@ import dev.sargunv.handheld.session.SessionException
 import dev.sargunv.handheld.ui.play.GameAchievements
 import dev.sargunv.handheld.ui.play.QuickMenuSession
 import dev.sargunv.handheld.ui.play.StateSlot
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.io.files.Path
 
 /**
  * The quick menu's hold on a game in the built-in session: its save states, one file per slot in
@@ -154,16 +157,13 @@ internal class SessionQuickMenu(
       Bitmap.createBitmap(frame.width.toInt(), frame.height.toInt(), Bitmap.Config.ARGB_8888)
     // ARGB_8888's bytes are in R, G, B, A order, as the frame's are.
     bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(frame.pixels))
-    val partial = File(file.parentFile, "${file.name}.partial")
+    val png = ByteArrayOutputStream()
     try {
-      partial.outputStream().use { out ->
-        if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)) throw IOException("not encoded")
-      }
-      if (!partial.renameTo(file)) throw IOException("can't replace $file")
+      if (!bitmap.compress(Bitmap.CompressFormat.PNG, 100, png)) throw IOException("not encoded")
     } finally {
-      partial.delete()
       bitmap.recycle()
     }
+    writeAtomically(Path(file.path), png.toByteArray())
   }
 
   private fun failure(e: SessionException): String =

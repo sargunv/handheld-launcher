@@ -2,13 +2,12 @@
 
 package dev.sargunv.handheld.data.auth
 
-import dev.sargunv.handheld.data.cores.JsonFile
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.romm.RommInstantSerializer
 import kotlin.time.Instant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 
@@ -58,15 +57,12 @@ class InMemoryCredentialStore(private var credentials: RommCredentials? = null) 
  * A [CredentialStore] that keeps the credentials in a JSON file at [path]. The token is stored
  * unencrypted, so anything that can read the file can use it.
  */
-class FileCredentialStore(private val path: Path) : CredentialStore {
+class FileCredentialStore(path: Path) : CredentialStore {
   private val file = JsonFile(path, RommCredentials.serializer())
-  private val mutex = Mutex()
 
-  override suspend fun load(): RommCredentials? = mutex.withLock { file.read() }
+  override suspend fun load(): RommCredentials? = file.read()
 
-  override suspend fun save(credentials: RommCredentials) = mutex.withLock {
-    file.write(credentials)
-  }
+  override suspend fun save(credentials: RommCredentials) = file.write(credentials)
 
-  override suspend fun clear() = mutex.withLock { SystemFileSystem.delete(path, mustExist = false) }
+  override suspend fun clear() = file.delete()
 }

@@ -7,11 +7,15 @@
 
 package dev.sargunv.handheld.data.saves
 
+import dev.sargunv.handheld.data.writeAtomically
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.util.zip.ZipInputStream
 import kotlin.time.Instant
+import kotlinx.io.files.Path
 
 /**
  * A PS2 game's saves on an emulator's shared memory cards: the save folders whose name carries
@@ -249,13 +253,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     }
     return {
       checkUnchanged(card)
-      val temp = File(card.file.parentFile, ".${card.file.name}.handheld-part")
-      temp.writeBytes(image)
-      try {
-        move(temp, card.file)
-      } finally {
-        temp.delete()
-      }
+      writeAtomically(Path(card.file.path), image)
       if (!card.file.readBytes().contentEquals(image)) {
         throw IOException("${card.file.path} didn't read back as written")
       }
@@ -312,12 +310,12 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       try {
         for (old in owned(dir)) {
           val moved = File(aside, old.name)
-          move(old, moved)
-          undo.addFirst { move(moved, old) }
+          Files.move(old.toPath(), moved.toPath(), ATOMIC_MOVE)
+          undo.addFirst { Files.move(moved.toPath(), old.toPath(), ATOMIC_MOVE) }
         }
         for ((name, _) in folders) {
           val placed = File(dir, name)
-          move(File(staging, name), placed)
+          Files.move(File(staging, name).toPath(), placed.toPath(), ATOMIC_MOVE)
           undo.addFirst { placed.deleteRecursively() }
         }
       } catch (e: IOException) {

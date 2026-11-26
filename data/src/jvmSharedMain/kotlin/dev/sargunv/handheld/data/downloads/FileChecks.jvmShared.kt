@@ -1,10 +1,10 @@
 package dev.sargunv.handheld.data.downloads
 
+import dev.sargunv.handheld.data.digest
+import dev.sargunv.handheld.data.feed
+import dev.sargunv.handheld.data.hexDigest
 import java.io.File
 import java.io.IOException
-import java.io.InputStream
-import java.security.MessageDigest
-import java.util.zip.CRC32
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import kotlinx.io.files.Path
@@ -22,10 +22,10 @@ internal actual fun matchesServerHashes(
       crc != null -> "CRC32" to crc.padStart(8, '0')
       else -> return null
     }
-  fun matches(hash: Hash) = hash.hex().equals(expected, ignoreCase = true)
+  fun matches(hex: String) = hex.equals(expected, ignoreCase = true)
 
   val file = File(path.toString())
-  if (matches(Hash(algorithm).also { file.inputStream().use(it::update) })) return true
+  if (matches(hexDigest(algorithm, file))) return true
   val zip =
     try {
       ZipFile(file)
@@ -39,20 +39,17 @@ internal actual fun matchesServerHashes(
   // ROM's files has the hash of its largest member.
   return try {
     zip.use {
-      val whole = Hash(algorithm)
-      var largest: Pair<Long, Hash>? = null
+      val whole = digest(algorithm)
+      var largest: Pair<Long, String>? = null
       val members = zip.entries().asSequence().filterNot { it.isDirectory }.sortedBy { it.name }
       for (entry in members) {
-        val member = Hash(algorithm)
-        zip.getInputStream(entry).use { input ->
-          input.forEachChunk { buffer, count ->
-            whole.update(buffer, count)
-            member.update(buffer, count)
-          }
+        val member = digest(algorithm)
+        zip.getInputStream(entry).use { it.feed(listOf(whole, member)) }
+        if (largest == null || entry.size > largest.first) {
+          largest = entry.size to member.digest().toHexString()
         }
-        if (largest == null || entry.size > largest.first) largest = entry.size to member
       }
-      matches(whole) || largest?.second?.let(::matches) == true
+      matches(whole.digest().toHexString()) || largest?.second?.let(::matches) == true
     }
   } catch (e: IOException) {
     // A compression method Java doesn't read, such as Deflate64.
@@ -79,41 +76,10 @@ internal actual fun zipMembers(path: Path): List<ZipMember>? =
   }
 
 internal actual fun crcAndSha1(path: Path): Pair<String, String> {
-  val crc = Hash("CRC32")
-  val sha1 = Hash("SHA-1")
-  File(path.toString()).inputStream().use { input ->
-    input.forEachChunk { buffer, count ->
-      crc.update(buffer, count)
-      sha1.update(buffer, count)
-    }
-  }
-  return crc.hex() to sha1.hex()
+  val crc = digest("CRC32")
+  val sha1 = digest("SHA-1")
+  File(path.toString()).inputStream().use { it.feed(listOf(crc, sha1)) }
+  return crc.digest().toHexString() to sha1.digest().toHexString()
 }
 
 private val OtherArchives = setOf("7z", "rar", "tar", "gz", "tgz", "bz2", "xz")
-
-/** A running hash with the algorithm RomM names, which [MessageDigest] lacks for CRC-32. */
-private class Hash(algorithm: String) {
-  private val crc = if (algorithm == "CRC32") CRC32() else null
-  private val digest = if (crc == null) MessageDigest.getInstance(algorithm) else null
-
-  fun update(buffer: ByteArray, count: Int) {
-    crc?.update(buffer, 0, count)
-    digest?.update(buffer, 0, count)
-  }
-
-  fun update(input: InputStream) = input.forEachChunk(::update)
-
-  fun hex(): String =
-    crc?.value?.toString(16)?.padStart(8, '0')
-      ?: digest!!.digest().joinToString("") { "%02x".format(it) }
-}
-
-private inline fun InputStream.forEachChunk(block: (ByteArray, Int) -> Unit) {
-  val buffer = ByteArray(64 * 1024)
-  while (true) {
-    val count = read(buffer)
-    if (count < 0) break
-    block(buffer, count)
-  }
-}
