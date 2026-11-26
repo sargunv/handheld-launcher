@@ -41,7 +41,10 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -218,6 +221,7 @@ class DownloadManagerTest {
     scope: CoroutineScope,
     engine: () -> MockEngine,
     deviceId: String? = null,
+    canWrite: Flow<Boolean> = flowOf(true),
   ) =
     DownloadManager(
       queueFile = queueFile,
@@ -226,6 +230,7 @@ class DownloadManagerTest {
       storage = { listOf(StorageTarget(storage.path, "Test storage")) },
       scope = scope,
       engine = engine,
+      canWrite = canWrite,
     )
 
   private suspend fun DownloadManager.awaitEmpty() = waitFor {
@@ -499,5 +504,21 @@ class DownloadManagerTest {
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
     assertEquals(listOf("req-2" to """{"status":"done"}"""), updates.filter { it.first == "req-2" })
+  }
+
+  @Test
+  fun waitsForStorageAccessInsteadOfFailing() = runTest {
+    fillLibrary()
+    val access = MutableStateFlow(false)
+    val downloads = manager(backgroundScope, server(), canWrite = access)
+
+    downloads.enqueue(gameRom)
+    delay(200)
+    assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
+    assertEquals(emptyList(), contentRequests())
+
+    access.value = true
+    downloads.awaitEmpty()
+    assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
   }
 }

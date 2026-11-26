@@ -111,6 +111,12 @@ class MainActivity : ComponentActivity() {
     super.onDestroy()
   }
 
+  override fun onResume() {
+    super.onResume()
+    // The user may be back from granting all-files access, which queued downloads wait for.
+    allFilesAccess.value = Environment.isExternalStorageManager()
+  }
+
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)

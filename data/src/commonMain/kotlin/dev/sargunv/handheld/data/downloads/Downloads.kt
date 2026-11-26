@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -117,6 +118,8 @@ sealed interface RomStatus {
  * @param storage lists the storage targets in the order to fill them, the device's own first.
  * @param scope runs the downloads, for as long as it's active.
  * @param engine makes the HTTP engine for each of the server's clients.
+ * @param canWrite whether the app may write to the storage targets now. Downloads wait while it's
+ *   false, such as before the user grants access, rather than failing.
  */
 class DownloadManager(
   private val queueFile: Path,
@@ -125,6 +128,7 @@ class DownloadManager(
   private val storage: () -> List<StorageTarget>,
   scope: CoroutineScope,
   private val engine: () -> HttpClientEngine = ::platformHttpEngine,
+  private val canWrite: Flow<Boolean> = flowOf(true),
 ) {
   private val file = JsonFile(queueFile, ListSerializer(Download.serializer()))
   private val mutex = Mutex()
@@ -144,6 +148,7 @@ class DownloadManager(
     scope.launch {
       while (true) {
         entries.first { list -> list.any { it.state == DownloadState.Queued } }
+        canWrite.first { it }
         // Pick under the lock, so a game canceled meanwhile isn't started.
         val job =
           mutex.withLock {
@@ -262,7 +267,12 @@ class DownloadManager(
               it.romId != rom.id -> it
               // Sent again after it failed: this request takes it over and tries again.
               it.state == DownloadState.Failed ->
-                it.copy(installRequestId = request.id, state = DownloadState.Queued, error = null)
+                it.copy(
+                  installRequestId = request.id,
+                  fileIds = request.fileIds,
+                  state = DownloadState.Queued,
+                  error = null,
+                )
               it.installRequestId == null -> it.copy(installRequestId = request.id)
               else -> it
             }

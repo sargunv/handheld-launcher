@@ -10,9 +10,16 @@ import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.io.files.Path
 
 private var openDownloads: DownloadManager? = null
+
+/**
+ * Whether the app has all-files access, which writing games to shared storage needs. The activity
+ * updates it when it comes back from the settings page that grants it.
+ */
+internal val allFilesAccess = MutableStateFlow(Environment.isExternalStorageManager())
 
 /**
  * The download queue. It lives as long as the process, so downloads go on while the activity is
@@ -30,6 +37,7 @@ internal fun downloadManager(context: Context): DownloadManager {
       credentials = credentialStore(app),
       storage = { storageTargets(app) },
       scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+      canWrite = allFilesAccess,
     )
     .also { openDownloads = it }
 }
