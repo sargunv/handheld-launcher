@@ -52,6 +52,15 @@ class GameModelTest {
       PrimaryAction.Waiting("Playing"),
       primaryAction(rom, RomStatus.OnDevice("/ROMs/gba/Game.gba"), playing = true),
     )
+    assertEquals(
+      PrimaryAction.Waiting("Getting the core 40%"),
+      primaryAction(
+        rom,
+        RomStatus.OnDevice("/ROMs/gba/Game.gba"),
+        playing = true,
+        progress = "Getting the core 40%",
+      ),
+    )
   }
 
   private fun save(id: Long, day: Int, origin: String?, syncs: List<RommDeviceSync> = emptyList()) =

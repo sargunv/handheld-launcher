@@ -142,6 +142,16 @@ object LibretroCores {
       ARCADE to fbNeo,
     )
 
+  /**
+   * The platforms whose libretro core is a fallback: an installed standalone emulator plays them
+   * better, so it comes first, and the built-in session only when none is installed.
+   */
+  private val standaloneFirst = setOf(NDS, N3DS, GAMECUBE, WII, PSP)
+
+  /** Whether an installed standalone emulator plays [platform] before its libretro core does. */
+  fun prefersStandalone(platform: PlatformSlug): Boolean =
+    PlatformCatalog.emulatedAs(platform) in standaloneFirst
+
   /** The core recommended for [platform], or null when there's none or the platform is unknown. */
   fun recommendedFor(platform: PlatformSlug): LibretroCore? =
     recommended[PlatformCatalog.emulatedAs(platform)]

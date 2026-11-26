@@ -69,6 +69,7 @@ class GameTest {
       path: String,
       rules: LaunchRules,
       collections: Set<CollectionId>,
+      onProgress: (String) -> Unit,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> {
       if (conflict != null) {
@@ -237,13 +238,16 @@ class GameTest {
 
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Open Game 1 with")
-    // The known emulator comes first, with the platform's core, and is the platform's default.
-    onNodeWithTag("app:com.retroarch:gambatte_libretro").assertIsFocused()
+    // The built-in session comes first, with the platform's core, and is the platform's default.
+    // The known emulator follows, with the same core.
+    onNodeWithTag("app:builtin:null").assertIsFocused()
+    onNodeWithText("Built-in · Gambatte").assertExists()
     onNodeWithText("Game Boy default").assertExists()
-    awaitText("Why it opens in RetroArch")
-    onNodeWithText("→ Platform Game Boy: RetroArch (default) · opens here").assertExists()
+    onNodeWithTag("app:com.retroarch:gambatte_libretro").assertExists()
+    awaitText("Why it opens in the built-in session")
+    onNodeWithText("→ Platform Game Boy: Built-in session (default) · opens here").assertExists()
 
-    press(listOf(Key.DirectionDown, Key.ButtonA))
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)
     awaitText("Couldn't sync the save")
@@ -255,7 +259,7 @@ class GameTest {
     // Back on Open with, the game's choice is current, and clearing it goes back to the default.
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Why it opens in Notes")
-    onNodeWithText("→ Platform Game Boy: RetroArch (default) · overridden").assertExists()
+    onNodeWithText("→ Platform Game Boy: Built-in session (default) · overridden").assertExists()
     press(listOf(Key.DirectionRight, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)
