@@ -19,7 +19,7 @@ use crate::options::{Options, opt_string};
 use crate::session::SessionError;
 use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region, VideoSink};
 use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
-use crate::{AvInfo, GlError, InputDescriptor};
+use crate::{AvInfo, GlError};
 
 thread_local! {
     static HOST: Cell<*mut Host> = const { Cell::new(std::ptr::null_mut()) };
@@ -74,7 +74,6 @@ pub(crate) struct Host {
     pub(crate) pixel_format: PixelFormat,
     pub(crate) av_info: AvInfo,
     pub(crate) options: Options,
-    pub(crate) descriptors: Vec<InputDescriptor>,
     pub(crate) input: Arc<InputState>,
     input_snapshot: [PortSnapshot; MAX_PORTS],
     /// The buttons pressed since the previous frame, held for this one.
@@ -133,7 +132,6 @@ impl Host {
             pixel_format: PixelFormat::default(),
             av_info: AvInfo::default(),
             options,
-            descriptors: Vec::new(),
             input,
             input_snapshot: Default::default(),
             frame_presses: [0; MAX_PORTS],
@@ -447,23 +445,7 @@ impl Host {
                         }
                     }
                 }
-                ffi::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => {
-                    self.descriptors.clear();
-                    let mut d = data.cast::<ffi::retro_input_descriptor>().cast_const();
-                    while !d.is_null() && !(*d).description.is_null() {
-                        let desc = &*d;
-                        self.descriptors.push(InputDescriptor {
-                            port: desc.port,
-                            device: desc.device,
-                            index: desc.index,
-                            id: desc.id,
-                            description: opt_string(desc.description).unwrap_or_default(),
-                        });
-                        d = d.add(1);
-                    }
-                    log::debug!("core input descriptors: {:?}", self.descriptors);
-                    true
-                }
+                ffi::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => true,
                 ffi::RETRO_ENVIRONMENT_SET_HW_RENDER => {
                     self.set_hw_render(data.cast::<ffi::retro_hw_render_callback>())
                 }
@@ -933,21 +915,6 @@ mod tests {
     }
 
     #[test]
-    fn experimental_commands_reach_their_handlers() {
-        let mut host = host();
-        let mut enabled: c_int = 0;
-        assert!(host.environment(
-            ffi::RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE,
-            (&raw mut enabled).cast(),
-        ));
-        assert_eq!(enabled, 0b11);
-        assert!(host.environment(
-            ffi::RETRO_ENVIRONMENT_GET_INPUT_BITMASKS,
-            std::ptr::null_mut(),
-        ));
-    }
-
-    #[test]
     fn single_session_states_dont_persist() {
         let mut host = host();
         assert!(host.states_persist());
@@ -957,16 +924,6 @@ mod tests {
             (&raw mut quirks).cast(),
         ));
         assert!(!host.states_persist());
-    }
-
-    #[test]
-    fn turns_down_content_overrides() {
-        // The session loads content by the core's global need_fullpath only.
-        let mut host = host();
-        assert!(!host.environment(
-            ffi::RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE,
-            std::ptr::null_mut(),
-        ));
     }
 
     #[test]

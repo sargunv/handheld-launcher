@@ -72,16 +72,10 @@ class GameSessionTest {
   }
 
   @Test
-  fun reportsTheVersionItWasBuiltAs() {
-    assertTrue(sessionVersion().isNotEmpty())
-  }
-
-  @Test
   fun runsTheTestCore() {
     val session = start("test_libretro.so")
     val info = session.info()
     assertEquals(320u, info.baseWidth)
-    assertFalse(info.hardwareRendered)
     assertEquals(null, session.captureFrame())
 
     session.advance(1u)

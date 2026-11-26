@@ -38,28 +38,11 @@ pub use crate::handle::{
     WindowHandle,
 };
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
-pub use crate::options::{CoreOption, OptionValue};
 pub use crate::rom_header::{HeaderField, rom_game_id, rom_header_fields};
 pub use crate::session::{
-    AvInfo, InputDescriptor, SaveRamLoad, Session, SessionConfig, SessionError, SystemInfo,
-    VideoOutput,
+    AvInfo, SaveRamLoad, Session, SessionConfig, SessionError, SystemInfo, VideoOutput,
 };
 pub use crate::video::{CapturedFrame, Frame, PixelFormat, VideoSink, convert_frame};
 pub use crate::vulkan::VulkanError;
 
 uniffi::setup_scaffolding!();
-
-/// The version of the session library, for the app to check it loaded the
-/// build it expects.
-#[uniffi::export]
-pub fn session_version() -> String {
-    env!("CARGO_PKG_VERSION").to_owned()
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn version_matches_package() {
-        assert_eq!(super::session_version(), env!("CARGO_PKG_VERSION"));
-    }
-}

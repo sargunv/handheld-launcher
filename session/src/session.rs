@@ -20,7 +20,7 @@ use crate::ffi;
 use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
 use crate::host::{self, Gpu, Host, VideoTarget};
 use crate::input::{InputState, MAX_PORTS};
-use crate::options::{CoreOption, Options, opt_string};
+use crate::options::{Options, opt_string};
 use crate::save::{back_up, write_atomically};
 use crate::video::{CapturedFrame, PixelFormat, Region, VideoSink};
 use crate::vulkan::{VulkanContext, VulkanError};
@@ -124,17 +124,6 @@ impl AvInfo {
             sample_rate: info.timing.sample_rate,
         }
     }
-}
-
-/// An input the core uses, with the name it gives it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InputDescriptor {
-    pub port: u32,
-    /// A libretro device type, such as `RETRO_DEVICE_JOYPAD`.
-    pub device: u32,
-    pub index: u32,
-    pub id: u32,
-    pub description: String,
 }
 
 /// What [`Session::load_save_ram`] did.
@@ -571,19 +560,6 @@ impl Session {
             .is_some_and(Achievements::restricts)
     }
 
-    /// Resets the core, like a console's reset button.
-    pub fn reset(&mut self) {
-        // A Vulkan core may destroy its images as it resets.
-        if let Some(vulkan) = &mut self.host_mut().vulkan {
-            vulkan.release_image();
-        }
-        // SAFETY: the game is loaded and no host reference is live.
-        unsafe { (self.core.reset)() };
-        if let Some(achievements) = &self.achievements {
-            achievements.reset();
-        }
-    }
-
     /// What the core says about itself.
     pub fn system_info(&self) -> &SystemInfo {
         &self.system_info
@@ -602,28 +578,6 @@ impl Session {
     /// Whether the core renders with OpenGL or Vulkan.
     pub fn is_hardware_rendered(&self) -> bool {
         self.host().hw_render.is_some()
-    }
-
-    /// The controllers the core reads.
-    pub fn input(&self) -> &Arc<InputState> {
-        &self.host().input
-    }
-
-    /// The inputs the core uses, as it last described them.
-    pub fn input_descriptors(&self) -> &[InputDescriptor] {
-        &self.host().descriptors
-    }
-
-    /// The options the core declared, with their current values.
-    pub fn options(&self) -> Vec<CoreOption> {
-        self.host().options.list()
-    }
-
-    /// Sets a core option. The core sees the new value when it next checks.
-    /// It returns false, and changes nothing, if the core has no such option
-    /// or doesn't accept the value.
-    pub fn set_option(&mut self, key: &str, value: &str) -> bool {
-        self.host_mut().options.set(key, value)
     }
 
     /// Whether the core asked to quit, as when a game offers an exit.

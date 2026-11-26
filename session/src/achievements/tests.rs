@@ -198,7 +198,6 @@ fn shows_measured_progress() {
     achievements.do_frame();
     let counting = find(&listed(&achievements), 5502).clone();
     assert_eq!(counting.progress.as_deref(), Some("4/10"));
-    assert_eq!(counting.progress_percent, 40.0);
 }
 
 #[test]

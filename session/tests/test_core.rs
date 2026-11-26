@@ -132,22 +132,11 @@ fn states_round_trip() {
 }
 
 #[test]
-fn options_take_overrides_and_runtime_changes() {
+fn options_take_overrides() {
     let _lock = lock();
     let overrides = HashMap::from([("test_samplerate".to_owned(), "20000".to_owned())]);
-    let mut h = Harness::start_with(CORE, None, overrides).unwrap();
-    let options = h.session.options();
-    let rate = options.iter().find(|o| o.key == "test_samplerate").unwrap();
-    assert_eq!(rate.value, "20000");
-    assert_eq!(rate.default, "30000");
+    let h = Harness::start_with(CORE, None, overrides).unwrap();
     assert_eq!(h.session.av_info().sample_rate, 20_000.0);
-
-    assert!(!h.session.set_option("test_aspect", "21:9"));
-    assert!(h.session.set_option("test_aspect", "16:9"));
-    h.run(1);
-    let aspect = h.session.av_info().aspect_ratio;
-    assert!((aspect - 16.0 / 9.0).abs() < 1e-6, "aspect {aspect}");
-    assert!(!h.session.input_descriptors().is_empty());
 }
 
 #[test]

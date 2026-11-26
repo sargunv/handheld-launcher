@@ -142,11 +142,6 @@ impl Port {
         self.presses.fetch_or(mask & !before, Ordering::Relaxed);
     }
 
-    /// The pressed buttons, as a mask of [`Button::mask`] bits.
-    pub fn buttons(&self) -> u16 {
-        self.buttons.load(Ordering::Relaxed)
-    }
-
     /// Moves a stick. Each axis runs from -32768 to 32767, with positive `x`
     /// to the right and positive `y` down.
     pub fn set_stick(&self, stick: Stick, x: i16, y: i16) {
@@ -196,7 +191,7 @@ impl Port {
 
     fn snapshot(&self, presses: u32) -> PortSnapshot {
         let triggers: [i16; 2] = std::array::from_fn(|i| self.triggers[i].load(Ordering::Relaxed));
-        let mut buttons = self.buttons() | presses as u16;
+        let mut buttons = self.buttons.load(Ordering::Relaxed) | presses as u16;
         for (value, button) in triggers.iter().zip([Button::L2, Button::R2]) {
             if *value > TRIGGER_PRESSED {
                 buttons |= button.mask();
