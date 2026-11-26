@@ -190,6 +190,19 @@ class LocalContentTest {
     assertEquals(emptySet(), ContentScanner(cacheFile).scan(targets, platforms, roms).matched.keys)
   }
 
+  // A removal deletes what it checks, so it reads the file, not the cache.
+  @Test
+  fun aRemovalChecksTheFileItselfNotTheCache() = runTest {
+    val file = File(gba, "my game.gba").apply { writeBytes(game) }
+    val rom = rom(1, "Game (USA).gba", game)
+    val scanner = ContentScanner(cacheFile)
+    assertEquals(setOf(1L), scanner.scan(targets, platforms, listOf(rom)).matched.keys)
+    val modified = file.lastModified()
+    file.writeBytes(other.copyOf(game.size))
+    file.setLastModified(modified)
+    assertEquals(false, scanner.stillMatches(Path(file.path), rom))
+  }
+
   @Test
   fun forgetsFilesThatAreGone() = runTest {
     val file = File(gba, "my game.gba").apply { writeBytes(game) }

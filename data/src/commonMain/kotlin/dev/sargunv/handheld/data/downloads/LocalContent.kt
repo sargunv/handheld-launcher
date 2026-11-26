@@ -142,14 +142,18 @@ internal class ContentScanner(
     LocalScan(matched, unmatched)
   }
 
-  /** Whether the file at [path] still has the content of [rom]'s one file. */
+  /**
+   * Whether the file at [path] still has the content of [rom]'s one file, read from the file
+   * itself: a removal trusts it, and the cache can't tell a same-size, same-time replacement apart.
+   */
   suspend fun stillMatches(path: Path, rom: Rom): Boolean = mutex.withLock {
     val romFile = rom.files.singleOrNull() ?: return false
     val metadata = SystemFileSystem.metadataOrNull(path)
     if (metadata == null || !metadata.isRegularFile) return false
     val cache = cache ?: loadCache().also { cache = it }
     try {
-      contentOf(path, metadata.size, setOf(romFile.sizeBytes), cache)?.matches(romFile) == true
+      contentOf(path, metadata.size, setOf(romFile.sizeBytes), cache, fresh = true)
+        ?.matches(romFile) == true
     } catch (e: IOException) {
       false
     }
@@ -159,15 +163,17 @@ internal class ContentScanner(
    * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
    * game.
    */
+  /** With [fresh], it reads the file even if the cache has it. */
   private fun contentOf(
     path: Path,
     size: Long,
     sizes: Set<Long>,
     cache: MutableMap<String, CachedContent>,
+    fresh: Boolean = false,
   ): FileContent? {
     val modified = lastModified(path)
     cache[path.toString()]
-      ?.takeIf { it.sizeBytes == size && it.modified == modified }
+      ?.takeIf { !fresh && it.sizeBytes == size && it.modified == modified }
       ?.let {
         return it.content
       }
