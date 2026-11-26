@@ -263,6 +263,8 @@ class SessionActivity : ComponentActivity() {
     // other way to get it.
     val key = event.keyCode
     if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+      // A new press starts over, even if an earlier one's release went to another window.
+      menuKeys -= key
       if (key == KeyEvent.KEYCODE_BUTTON_START) {
         if (menuOpen) {
           // A save or load under way finishes before the game runs again.
