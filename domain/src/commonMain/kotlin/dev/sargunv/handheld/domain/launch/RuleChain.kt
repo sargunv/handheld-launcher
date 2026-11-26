@@ -1,6 +1,9 @@
 package dev.sargunv.handheld.domain.launch
 
+import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
+import dev.sargunv.handheld.domain.emulator.KnownEmulator
 import dev.sargunv.handheld.domain.emulator.LibretroCores
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /** What became of one level of the rules that decide where a game opens. */
 enum class RuleStatus {
@@ -17,28 +20,32 @@ enum class RuleStatus {
 }
 
 /**
- * One level of the rules for a game. [packageName] and [core] are its app, or null when it names
- * none. For [LaunchRule.FirstInstalled], the app is the best installed known emulator for the
- * game's platform, and for [LaunchRule.BuiltInDefault], it's [LaunchChoice.BUILT_IN].
+ * One level of the rules for a game. [packageName], [core] and [recipe] are its app, as in
+ * [LaunchChoice], or null when it names none. For [LaunchRule.FirstInstalled], the app is the best
+ * installed known emulator for the game's platform, and for [LaunchRule.BuiltInDefault], it's
+ * [LaunchChoice.BUILT_IN].
  */
 data class RuleStep(
   val rule: LaunchRule,
   val status: RuleStatus,
   val packageName: String? = null,
   val core: String? = null,
+  val recipe: LaunchRecipe? = null,
 )
 
 /**
  * The rules that decide where a game opens, from most to least specific, each with what became of
- * it, so the user can see why the game opens where it does. It agrees with [LaunchResolver].
+ * it, so the user can see why the game opens where it does. [LaunchResolver] opens the game where
+ * the level that [RuleStatus.Wins] says.
  */
 object RuleChain {
   /**
    * The game's override, then each of its collections' rules that applies, then its platform's
-   * default, then the defaults in the order [LaunchResolver] tries them: the built-in session and
-   * the best installed known emulator. Collections without a rule are left out, and so is a default
-   * that can't be reached, such as the emulator where the built-in session always runs the game.
-   * The built-in default stays where no core runs the platform, to show it's skipped.
+   * default, then the defaults: the built-in session where a libretro core runs the platform, then
+   * the best installed known emulator, which comes first for the platforms it plays better
+   * ([LibretroCores.prefersStandalone]). Collections without a rule are left out, and so is a
+   * default that can't be reached, such as the emulator where the built-in session always runs the
+   * game. The built-in default stays where no core runs the platform, to show it's skipped.
    */
   fun explain(
     subject: LaunchSubject,
@@ -64,10 +71,10 @@ object RuleChain {
             RuleStatus.Wins.also { decided = true }
           else -> RuleStatus.NotInstalled
         }
-      RuleStep(rule, status, choice?.packageName, choice?.core)
+      RuleStep(rule, status, choice?.packageName, choice?.core, choice?.recipe)
     }
 
-    val emulator = LaunchResolver.firstInstalled(subject.platform, installedPackages)?.packageName
+    val emulator = firstInstalled(subject.platform, installedPackages)
     val builtIn =
       RuleStep(
         LaunchRule.BuiltInDefault,
@@ -97,4 +104,18 @@ object RuleChain {
       }
     return steps + defaults
   }
+
+  /** The installed package of the best known emulator for [platform], or null when none is. */
+  private fun firstInstalled(platform: PlatformSlug, installed: Set<String>): String? =
+    EmulatorRegistry.forPlatform(platform).firstNotNullOfOrNull { installedBuildOf(it, installed) }
+
+  /**
+   * The installed package that is [emulator]: its own package if installed, else the first, by
+   * name, of the installed builds its patterns match that aren't another known emulator.
+   */
+  private fun installedBuildOf(emulator: KnownEmulator, installed: Set<String>): String? =
+    emulator.packageName.takeIf { it in installed }
+      ?: installed
+        .filter { emulator.matchesPattern(it) && EmulatorRegistry.forPackage(it) == emulator }
+        .minOrNull()
 }

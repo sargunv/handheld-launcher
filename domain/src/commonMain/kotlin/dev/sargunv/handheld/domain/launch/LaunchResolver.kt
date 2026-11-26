@@ -90,12 +90,9 @@ sealed interface LaunchResolution {
 }
 
 /**
- * Picks the app a game launches in: the game's override, then the first of its collections' rules
- * that applies, then its platform's default, then the built-in session when a libretro core runs
- * the platform, then the best installed known emulator. For the platforms an installed emulator
- * plays better ([LibretroCores.prefersStandalone]), the emulator comes before the built-in session.
- * A rule may name any app or the built-in session. One whose app isn't installed is skipped and
- * reported, as is the built-in session for a platform no libretro core runs.
+ * Picks the app a game launches in: the level of [RuleChain.explain] that wins. A rule may name any
+ * app or the built-in session. One whose app isn't installed is skipped and reported, as is one
+ * that picks the built-in session for a platform no libretro core runs.
  */
 object LaunchResolver {
   fun resolve(
@@ -103,48 +100,27 @@ object LaunchResolver {
     rules: LaunchRules,
     installedPackages: Set<String>,
   ): LaunchResolution {
-    val candidates = buildList {
-      subject.game?.let(rules.gameOverrides::get)?.let { add(LaunchRule.GameOverride to it) }
-      rules.collectionRulesFor(subject).forEach {
-        add(LaunchRule.CollectionOverride(it.collection) to it.choice)
-      }
-      rules.platformDefaults[subject.platform]?.let { add(LaunchRule.PlatformDefault to it) }
+    val steps = RuleChain.explain(subject, rules, installedPackages)
+    val skipped =
+      steps
+        // The built-in default is no one's choice, so it isn't reported where no core runs.
+        .filter { it.rule != LaunchRule.BuiltInDefault }
+        .filter { it.status == RuleStatus.NotInstalled || it.status == RuleStatus.NoCore }
+        .mapNotNull { step -> step.packageName?.let { SkippedChoice(step.rule, it) } }
+    val winner = steps.firstOrNull { it.status == RuleStatus.Wins }
+    val packageName =
+      winner?.packageName
+        ?: return LaunchResolution.NoEmulatorInstalled(
+          subject.platform,
+          EmulatorRegistry.forPlatform(subject.platform),
+          skipped,
+        )
+    return if (packageName == LaunchChoice.BUILT_IN) {
+      LaunchResolution.BuiltIn(winner.rule, winner.core, skipped)
+    } else {
+      val choice = LaunchChoice(packageName, winner.recipe, winner.core)
+      LaunchResolution.Resolved(targetFor(choice), winner.rule, skipped)
     }
-
-    val runsBuiltIn = LibretroCores.recommendedFor(subject.platform) != null
-    val skipped = mutableListOf<SkippedChoice>()
-    for ((rule, choice) in candidates) {
-      if (choice.isBuiltIn && runsBuiltIn) {
-        return LaunchResolution.BuiltIn(rule, choice.core, skipped.toList())
-      }
-      if (!choice.isBuiltIn && choice.packageName in installedPackages) {
-        return LaunchResolution.Resolved(targetFor(choice), rule, skipped.toList())
-      }
-      skipped += SkippedChoice(rule, choice.packageName)
-    }
-    val standaloneFirst = LibretroCores.prefersStandalone(subject.platform)
-    if (runsBuiltIn && !standaloneFirst)
-      return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
-
-    firstInstalled(subject.platform, installedPackages)?.let {
-      return LaunchResolution.Resolved(it, LaunchRule.FirstInstalled, skipped.toList())
-    }
-    if (runsBuiltIn)
-      return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
-    val known = EmulatorRegistry.forPlatform(subject.platform)
-    return LaunchResolution.NoEmulatorInstalled(subject.platform, known, skipped.toList())
-  }
-
-  /** The best installed known emulator for [platform], or null when none is installed. */
-  internal fun firstInstalled(
-    platform: PlatformSlug,
-    installedPackages: Set<String>,
-  ): LaunchTarget? {
-    for (emulator in EmulatorRegistry.forPlatform(platform)) {
-      val packageName = installedBuildOf(emulator, installedPackages) ?: continue
-      return LaunchTarget(packageName, emulator.recipeFor(packageName), emulator)
-    }
-    return null
   }
 
   private fun targetFor(choice: LaunchChoice): LaunchTarget {
@@ -156,14 +132,4 @@ object LaunchResolver {
       core = choice.core,
     )
   }
-
-  /**
-   * The installed package that is [emulator]: its own package if installed, else the first, by
-   * name, of the installed builds its patterns match that aren't another known emulator.
-   */
-  private fun installedBuildOf(emulator: KnownEmulator, installed: Set<String>): String? =
-    emulator.packageName.takeIf { it in installed }
-      ?: installed
-        .filter { emulator.matchesPattern(it) && EmulatorRegistry.forPackage(it) == emulator }
-        .minOrNull()
 }

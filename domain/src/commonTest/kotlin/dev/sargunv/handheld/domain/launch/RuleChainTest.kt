@@ -58,9 +58,6 @@ class RuleChainTest {
       ),
       steps,
     )
-    // It agrees with the resolver, skipped rule included.
-    val resolution = LaunchResolver.resolve(jak1, rules, setOf(armsx2))
-    assertEquals(listOf(SkippedChoice(GameOverride, pocketGoal)), resolution.skipped)
   }
 
   @Test
