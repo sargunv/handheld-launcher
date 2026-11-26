@@ -141,8 +141,6 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         playing = false
         playProgress = null
         closeDialog(GameDialog.Leave)
-        // The game's saves may have synced.
-        state.savesChanged++
       }
     }
   }

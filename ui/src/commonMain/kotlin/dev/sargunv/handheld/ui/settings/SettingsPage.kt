@@ -134,7 +134,7 @@ class SettingsView {
 @Composable
 internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val view = state.settingsView
-  val signedIn = state.signedIn == true
+  val signedIn = state.account.signedIn == true
   val sections =
     SettingsSection.entries.filter {
       when (it) {
@@ -434,7 +434,7 @@ private fun LazyListScope.romm(
 ) {
   sectionHeading("RomM")
   val view = state.settingsView
-  if (state.signedIn != true) {
+  if (state.account.signedIn != true) {
     item(key = "signedOut") {
       SettingRow(
         view,
@@ -786,8 +786,8 @@ private fun LazyListScope.about(state: AppState) {
           "components it's built from.",
       ),
       // About opens over the places, which the sign-in doesn't have.
-      enabled = state.signedIn == true,
-      onConfirm = { state.navigator.push(Screen.About) }.takeIf { state.signedIn == true },
+      enabled = state.account.signedIn == true,
+      onConfirm = { state.navigator.push(Screen.About) }.takeIf { state.account.signedIn == true },
     )
   }
 }
