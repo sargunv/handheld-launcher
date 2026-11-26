@@ -84,6 +84,7 @@ class RommClient(
 
   override fun close() {
     http.close()
+    if (noRedirectsMade.isInitialized()) noRedirects.close()
     engine.close()
   }
 
@@ -117,7 +118,7 @@ class RommClient(
       .buildString()
   }
 
-  private val noRedirects by lazy {
+  private val noRedirectsMade = lazy {
     HttpClient(engine) {
       expectSuccess = false
       followRedirects = false
@@ -127,6 +128,7 @@ class RommClient(
       }
     }
   }
+  private val noRedirects by noRedirectsMade
 
   /** The server's version and public configuration. Needs no sign-in. */
   suspend fun heartbeat(): RommHeartbeat = get(RommHeartbeat.serializer(), "heartbeat")
