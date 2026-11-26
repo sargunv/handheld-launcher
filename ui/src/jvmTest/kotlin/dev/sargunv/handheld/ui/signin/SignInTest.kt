@@ -93,8 +93,8 @@ class SignInTest {
   @Test
   fun notesAnUnencryptedServer() {
     assertEquals(
-      "This server isn't encrypted. Your sign-in will be sent in the clear, so use it only on a " +
-        "network you trust.",
+      "This address isn't encrypted. If the server doesn't switch to https itself, your sign-in " +
+        "is sent in the clear, so use it only on a network you trust.",
       unencryptedNote(serverUrl("http://192.168.1.5:8080")),
     )
     assertNull(unencryptedNote(serverUrl("romm.example.com")))
@@ -109,10 +109,10 @@ class SignInTest {
     waitForIdle()
     onNode(hasSetTextAction()).performTextInput("romm.example.com")
     waitForIdle()
-    onNodeWithText("This server isn't encrypted", substring = true).assertDoesNotExist()
+    onNodeWithText("This address isn't encrypted", substring = true).assertDoesNotExist()
     onNode(hasSetTextAction()).performTextReplacement("http://192.168.1.5:8080")
     waitForIdle()
-    onNodeWithText("This server isn't encrypted", substring = true).assertExists()
+    onNodeWithText("This address isn't encrypted", substring = true).assertExists()
   }
 
   @Test

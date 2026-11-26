@@ -21,12 +21,13 @@ internal fun serverUrl(input: String): String? {
 
 /**
  * A note for a server [url] that isn't encrypted, or null when it is. Plain HTTP is allowed, for a
- * server on a private network or a tailnet, but the user should know what it means.
+ * server on a private network or a tailnet, but the user should know what it means. Sign-in
+ * switches to https first when the server redirects there, so the note says so.
  */
 internal fun unencryptedNote(url: String?): String? =
   if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
-    "This server isn't encrypted. Your sign-in will be sent in the clear, so use it only on a " +
-      "network you trust."
+    "This address isn't encrypted. If the server doesn't switch to https itself, your sign-in " +
+      "is sent in the clear, so use it only on a network you trust."
   } else {
     null
   }

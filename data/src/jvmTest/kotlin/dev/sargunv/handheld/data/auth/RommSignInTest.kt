@@ -6,12 +6,17 @@ import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.json
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockRequestHandleScope
+import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLProtocol
 import io.ktor.http.content.TextContent
+import io.ktor.http.headersOf
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -133,5 +138,44 @@ class RommSignInTest {
       SystemFileSystem.delete(path, mustExist = false)
       SystemFileSystem.delete(dir, mustExist = false)
     }
+  }
+
+  /** A server at [http] whose heartbeat answers [heartbeat], and that takes `rmm_good` anywhere. */
+  private fun plainServer(heartbeat: (MockRequestHandleScope) -> HttpResponseData) =
+    RommSignIn(store) {
+      MockEngine { request ->
+        requests += request
+        when (request.url.encodedPath) {
+          "/romm/api/heartbeat" -> heartbeat(this)
+          "/romm/api/users/me" ->
+            if (request.headers[HttpHeaders.Authorization] == "Bearer rmm_good") json(Fixtures.me)
+            else json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
+          else -> respondError(HttpStatusCode.NotFound)
+        }
+      }
+    }
+
+  @Test
+  fun switchesToHttpsWhenThePlainAddressRedirectsThere() = runTest {
+    val signIn = plainServer {
+      it.respond(
+        "",
+        HttpStatusCode.MovedPermanently,
+        headersOf(HttpHeaders.Location, "https://romm.test/romm/api/heartbeat"),
+      )
+    }
+    val credentials = signIn.withToken("http://romm.test/romm", "rmm_good")
+    assertEquals("https://romm.test/romm", credentials.baseUrl)
+    // The token only ever went to the encrypted address.
+    val plain = requests.filter { it.url.protocol == URLProtocol.HTTP }
+    assertEquals(listOf("/romm/api/heartbeat"), plain.map { it.url.encodedPath })
+    assertTrue(plain.all { it.headers[HttpHeaders.Authorization] == null })
+  }
+
+  @Test
+  fun keepsAPlainAddressThatDoesNotRedirect() = runTest {
+    val signIn = plainServer { it.json("""{"SYSTEM":{"VERSION":"4.0.0"}}""") }
+    val credentials = signIn.withToken("http://romm.test/romm", "rmm_good")
+    assertEquals("http://romm.test/romm", credentials.baseUrl)
   }
 }

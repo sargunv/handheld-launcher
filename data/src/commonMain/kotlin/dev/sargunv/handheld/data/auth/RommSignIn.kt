@@ -37,11 +37,12 @@ class RommSignIn(
    * @throws RommException.DeviceAuthExpired when the code expires before anyone approves it.
    */
   suspend fun withDeviceCode(
-    baseUrl: String,
+    address: String,
     device: DeviceDescription,
     scopes: List<String> = DefaultDeviceScopes,
     onCode: suspend (DeviceCode) -> Unit,
   ): RommCredentials {
+    val baseUrl = encryptedIfOffered(address)
     val token =
       RommClient(baseUrl, engine = engine()).use { client ->
         val code =
@@ -85,7 +86,8 @@ class RommSignIn(
    *
    * @throws RommException.Unauthorized when the server doesn't accept the token.
    */
-  suspend fun withToken(baseUrl: String, token: String): RommCredentials {
+  suspend fun withToken(address: String, token: String): RommCredentials {
+    val baseUrl = encryptedIfOffered(address)
     RommClient(baseUrl, token.trim(), engine()).use { it.me() }
     val credentials = RommCredentials(baseUrl = baseUrl, token = token.trim())
     store.save(credentials)
@@ -93,6 +95,13 @@ class RommSignIn(
   }
 
   suspend fun signOut() = store.clear()
+
+  /**
+   * [address], or its `https://` address when it's a plain `http://` one whose server redirects
+   * there, so no credentials go out unencrypted to a server that offers encryption.
+   */
+  private suspend fun encryptedIfOffered(address: String): String =
+    RommClient(address, engine = engine()).use { it.httpsAddress() } ?: address
 
   /** A client for the signed-in server, or null when the device isn't signed in. */
   suspend fun client(): RommClient? =

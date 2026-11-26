@@ -19,9 +19,11 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.ParametersBuilder
 import io.ktor.http.URLBuilder
+import io.ktor.http.URLProtocol
 import io.ktor.http.Url
 import io.ktor.http.appendPathSegments
 import io.ktor.http.contentType
+import io.ktor.http.encodedPath
 import io.ktor.http.isSuccess
 import io.ktor.http.parseQueryString
 import io.ktor.http.takeFrom
@@ -83,6 +85,47 @@ class RommClient(
   override fun close() {
     http.close()
     engine.close()
+  }
+
+  /**
+   * For a server at a plain `http://` address, its `https://` address when it redirects there, or
+   * null when it doesn't. It asks without credentials and follows no redirect, so nothing secret
+   * goes out before the address is known to be encrypted.
+   */
+  suspend fun httpsAddress(): String? {
+    if (baseUrl.protocol != URLProtocol.HTTP) return null
+    val response = network {
+      noRedirects.request {
+        method = HttpMethod.Get
+        url {
+          takeFrom(baseUrl)
+          appendPathSegments("api", "heartbeat")
+        }
+      }
+    }
+    val location = response.headers[HttpHeaders.Location] ?: return null
+    if (response.status.value !in 300..399) return null
+    val target = URLBuilder(baseUrl.toString()).takeFrom(location).build()
+    if (target.protocol != URLProtocol.HTTPS) return null
+    val path = target.encodedPath.removeSuffix("/api/heartbeat").trimEnd('/')
+    return URLBuilder(target)
+      .apply {
+        encodedPath = path
+        parameters.clear()
+        fragment = ""
+      }
+      .buildString()
+  }
+
+  private val noRedirects by lazy {
+    HttpClient(engine) {
+      expectSuccess = false
+      followRedirects = false
+      install(HttpTimeout) {
+        connectTimeoutMillis = 15_000
+        socketTimeoutMillis = 60_000
+      }
+    }
   }
 
   /** The server's version and public configuration. Needs no sign-in. */
