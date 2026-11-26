@@ -55,6 +55,15 @@ data class RomFile(
   val sizeBytes: Long,
   /** What the file holds, or null when the server didn't say. */
   val category: RomFileCategory?,
+  /**
+   * RomM's hashes of the file, in lowercase hex, or null when it has none. For an archive such as a
+   * zip, they're of what the archive holds, not of the archive itself.
+   */
+  val crcHash: String? = null,
+  val md5Hash: String? = null,
+  val sha1Hash: String? = null,
+  /** The SHA-1 a CHD's header records for the disc it holds. */
+  val chdSha1Hash: String? = null,
 )
 
 /** What a [RomFile] holds, as RomM categorizes it. */

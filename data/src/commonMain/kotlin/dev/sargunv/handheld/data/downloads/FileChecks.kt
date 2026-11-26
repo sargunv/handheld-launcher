@@ -17,3 +17,15 @@ internal expect fun matchesServerHashes(
 
 /** The bytes the app can write to the storage at [root]. */
 internal expect fun freeBytes(root: String): Long
+
+/** When the file at [path] last changed, in milliseconds since the epoch. */
+internal expect fun lastModified(path: Path): Long
+
+/**
+ * The files in the zip at [path], from its central directory, without decompressing them. Null when
+ * it isn't a zip this can read.
+ */
+internal expect fun zipMembers(path: Path): List<ZipMember>?
+
+/** The CRC-32 and SHA-1 of the whole file at [path], in lowercase hex. */
+internal expect fun crcAndSha1(path: Path): Pair<String, String>

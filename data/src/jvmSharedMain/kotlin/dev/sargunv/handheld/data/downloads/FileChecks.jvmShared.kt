@@ -62,6 +62,34 @@ internal actual fun matchesServerHashes(
 
 internal actual fun freeBytes(root: String): Long = File(root).usableSpace
 
+internal actual fun lastModified(path: Path): Long = File(path.toString()).lastModified()
+
+internal actual fun zipMembers(path: Path): List<ZipMember>? =
+  try {
+    ZipFile(File(path.toString())).use { zip ->
+      zip
+        .entries()
+        .asSequence()
+        .filterNot { it.isDirectory }
+        .map { ZipMember(it.name, it.size, it.crc.toString(16).padStart(8, '0')) }
+        .toList()
+    }
+  } catch (e: ZipException) {
+    null
+  }
+
+internal actual fun crcAndSha1(path: Path): Pair<String, String> {
+  val crc = Hash("CRC32")
+  val sha1 = Hash("SHA-1")
+  File(path.toString()).inputStream().use { input ->
+    input.forEachChunk { buffer, count ->
+      crc.update(buffer, count)
+      sha1.update(buffer, count)
+    }
+  }
+  return crc.hex() to sha1.hex()
+}
+
 private val OtherArchives = setOf("7z", "rar", "tar", "gz", "tgz", "bz2", "xz")
 
 /** A running hash with the algorithm RomM names, which [MessageDigest] lacks for CRC-32. */
