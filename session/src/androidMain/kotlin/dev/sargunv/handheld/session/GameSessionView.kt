@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.session
 
 import android.content.Context
+import android.hardware.input.InputManager
 import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -32,7 +33,8 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       attached = false
       resumed = false
       field = value
-      input = value?.let(::GamepadInput)
+      input?.close()
+      input = value?.let { GamepadInput(it, context.getSystemService(InputManager::class.java)) }
       val holder = holder
       if (value != null && holder.surface?.isValid == true) attach(value, holder)
       update()
@@ -141,6 +143,8 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       controlThread.execute {
         try {
           session.action()
+        } catch (_: SessionException.Stopped) {
+          // The core quit, and the session stopped as it does when told to.
         } catch (e: SessionException) {
           Log.e(TAG, "the session failed to pause", e)
         } catch (_: IllegalStateException) {

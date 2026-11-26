@@ -1,24 +1,71 @@
 package dev.sargunv.handheld.session
 
+import android.hardware.input.InputManager
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import kotlin.math.roundToInt
 
 /**
- * Feeds Android key and motion events to a session's controller port 0, mapped to the RetroPad by
+ * Feeds Android key and motion events to a session's controller ports, mapped to the RetroPad by
  * position: the bottom face button, which Android calls A, is the RetroPad's B.
+ *
+ * Each gamepad takes the lowest free port as it connects, so the gamepads connected when the input
+ * starts take ports in the order they connected, and a handheld's own controls, the only gamepad at
+ * first, play on port 0. A gamepad's port frees when it disconnects. Keys from other devices, such
+ * as a keyboard, go to port 0. [close] stops following connections.
  */
-class GamepadInput(private val session: GameSession) {
-  private var hatX = 0
-  private var hatY = 0
+class GamepadInput(private val session: GameSession, private val inputManager: InputManager) :
+  AutoCloseable {
+  /** The port of each gamepad, by device ID. */
+  private val ports = HashMap<Int, UInt>()
+  private val hatX = IntArray(PORTS)
+  private val hatY = IntArray(PORTS)
+
+  private val listener =
+    object : InputManager.InputDeviceListener {
+      override fun onInputDeviceAdded(deviceId: Int) = connect(deviceId)
+
+      override fun onInputDeviceRemoved(deviceId: Int) {
+        ports.remove(deviceId)?.let(::release)
+      }
+
+      override fun onInputDeviceChanged(deviceId: Int) = Unit
+    }
+
+  init {
+    // Listening first misses no connection; its callbacks come later on this thread, and connecting
+    // a device twice does nothing.
+    inputManager.registerInputDeviceListener(listener, null)
+    // Android numbers devices in the order they connect.
+    inputManager.inputDeviceIds.sorted().forEach(::connect)
+  }
+
+  override fun close() = inputManager.unregisterInputDeviceListener(listener)
+
+  private fun connect(deviceId: Int) {
+    val device = inputManager.getInputDevice(deviceId) ?: return
+    if (deviceId in ports || !device.isGamepad()) return
+    val port = (0u until PORTS.toUInt()).firstOrNull { it !in ports.values } ?: return
+    ports[deviceId] = port
+  }
+
+  /** The port for events from [device], or null for a gamepad past the last port. */
+  private fun portFor(device: InputDevice?): UInt? =
+    when {
+      device == null -> 0u
+      device.id in ports -> ports[device.id]
+      device.isGamepad() -> null
+      else -> 0u
+    }
 
   /** Applies a key event, and returns whether it was a RetroPad button. */
   fun onKeyEvent(event: KeyEvent): Boolean {
     val button = buttonFor(event.keyCode) ?: return false
+    val port = portFor(event.device) ?: return true
     when (event.action) {
-      KeyEvent.ACTION_DOWN -> session.setButton(PORT, button, true)
-      KeyEvent.ACTION_UP -> session.setButton(PORT, button, false)
+      KeyEvent.ACTION_DOWN -> session.setButton(port, button, true)
+      KeyEvent.ACTION_UP -> session.setButton(port, button, false)
     }
     return true
   }
@@ -30,56 +77,62 @@ class GamepadInput(private val session: GameSession) {
     ) {
       return false
     }
+    val port = portFor(event.device) ?: return true
     session.setStick(
-      PORT,
+      port,
       Stick.LEFT,
       axis(event, MotionEvent.AXIS_X),
       axis(event, MotionEvent.AXIS_Y),
     )
     session.setStick(
-      PORT,
+      port,
       Stick.RIGHT,
       axis(event, MotionEvent.AXIS_Z),
       axis(event, MotionEvent.AXIS_RZ),
     )
     session.setTrigger(
-      PORT,
+      port,
       Button.L2,
       trigger(event, MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_BRAKE),
     )
     session.setTrigger(
-      PORT,
+      port,
       Button.R2,
       trigger(event, MotionEvent.AXIS_RTRIGGER, MotionEvent.AXIS_GAS),
     )
     // Many gamepads report the D-pad as a hat rather than as keys.
     val x = event.getAxisValue(MotionEvent.AXIS_HAT_X).roundToInt()
     val y = event.getAxisValue(MotionEvent.AXIS_HAT_Y).roundToInt()
-    if (x != hatX) {
-      session.setButton(PORT, Button.LEFT, x < 0)
-      session.setButton(PORT, Button.RIGHT, x > 0)
-      hatX = x
+    val i = port.toInt()
+    if (x != hatX[i]) {
+      session.setButton(port, Button.LEFT, x < 0)
+      session.setButton(port, Button.RIGHT, x > 0)
+      hatX[i] = x
     }
-    if (y != hatY) {
-      session.setButton(PORT, Button.UP, y < 0)
-      session.setButton(PORT, Button.DOWN, y > 0)
-      hatY = y
+    if (y != hatY[i]) {
+      session.setButton(port, Button.UP, y < 0)
+      session.setButton(port, Button.DOWN, y > 0)
+      hatY[i] = y
     }
     return true
   }
 
   /**
-   * Releases every button, stick and trigger. Call it when input stops arriving, such as when the
-   * view loses focus, since a control released meanwhile sends this class no event.
+   * Releases every button, stick and trigger on every port. Call it when input stops arriving, such
+   * as when the view loses focus, since a control released meanwhile sends this class no event.
    */
   fun releaseAll() {
-    Button.entries.forEach { session.setButton(PORT, it, false) }
-    session.setStick(PORT, Stick.LEFT, 0, 0)
-    session.setStick(PORT, Stick.RIGHT, 0, 0)
-    session.setTrigger(PORT, Button.L2, 0)
-    session.setTrigger(PORT, Button.R2, 0)
-    hatX = 0
-    hatY = 0
+    for (port in 0u until PORTS.toUInt()) release(port)
+  }
+
+  private fun release(port: UInt) {
+    Button.entries.forEach { session.setButton(port, it, false) }
+    session.setStick(port, Stick.LEFT, 0, 0)
+    session.setStick(port, Stick.RIGHT, 0, 0)
+    session.setTrigger(port, Button.L2, 0)
+    session.setTrigger(port, Button.R2, 0)
+    hatX[port.toInt()] = 0
+    hatY[port.toInt()] = 0
   }
 
   private fun axis(event: MotionEvent, axis: Int): Short {
@@ -95,7 +148,12 @@ class GamepadInput(private val session: GameSession) {
   }
 
   companion object {
-    private const val PORT = 0u
+    /** The ports the session has. */
+    private const val PORTS = 4
+
+    private fun InputDevice.isGamepad(): Boolean =
+      !isVirtual &&
+        (supportsSource(InputDevice.SOURCE_GAMEPAD) || supportsSource(InputDevice.SOURCE_JOYSTICK))
 
     /** The RetroPad button an Android key code stands for, if any. */
     fun buttonFor(keyCode: Int): Button? =

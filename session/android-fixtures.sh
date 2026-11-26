@@ -55,6 +55,10 @@ fetch_samples "$work/samples"
     -Wl,--version-script=link.T -lm -o "$out/testvulkan_libretro_android.so"
 )
 
+echo "Building the events test core for $abi"
+"$cc" -shared -fPIC -O2 -std=c99 -I"$here/vendor/libretro" "$here/tests/cores/events.c" \
+  -o "$out/events_libretro_android.so"
+
 echo "Building Gambatte for $abi"
 fetch_gambatte "$work/gambatte"
 "$ndk/ndk-build" -s -C "$work/gambatte/libgambatte/libretro/jni" APP_ABI="$abi" \

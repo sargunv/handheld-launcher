@@ -26,7 +26,9 @@ mod vulkan;
 pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
 pub use crate::gl::{GlError, NativeWindow};
-pub use crate::handle::{GameSession, SessionInfo, SessionOptions, VideoMode, WindowHandle};
+pub use crate::handle::{
+    GameSession, SessionInfo, SessionListener, SessionOptions, VideoMode, WindowHandle,
+};
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
 pub use crate::options::{CoreOption, OptionValue};
 pub use crate::session::{
