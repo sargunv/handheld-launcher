@@ -34,9 +34,11 @@ class GamepadInput(private val session: GameSession, private val inputManager: I
     }
 
   init {
+    // Listening first misses no connection; its callbacks come later on this thread, and connecting
+    // a device twice does nothing.
+    inputManager.registerInputDeviceListener(listener, null)
     // Android numbers devices in the order they connect.
     inputManager.inputDeviceIds.sorted().forEach(::connect)
-    inputManager.registerInputDeviceListener(listener, null)
   }
 
   override fun close() = inputManager.unregisterInputDeviceListener(listener)

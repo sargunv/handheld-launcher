@@ -106,8 +106,8 @@ pub trait SessionListener: Send + Sync {
     fn info_changed(&self, info: SessionInfo);
 
     /// The core asked to quit, as when a game offers an exit. The session has
-    /// stopped, with save memory on disk and the core unloaded, so the app
-    /// should close it.
+    /// stopped, writing save memory as it does when stopped, and unloaded the
+    /// core, so the app should close it.
     fn core_quit(&self);
 }
 
@@ -719,6 +719,8 @@ impl Runner {
                         }
                         self.session.run_frame();
                     }
+                    // So info() is current once advance() returns.
+                    self.report_av();
                 }
                 let _ = reply.send(Ok(()));
             }

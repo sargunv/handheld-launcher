@@ -144,7 +144,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         try {
           session.action()
         } catch (_: SessionException.Stopped) {
-          // The core quit, and the session wrote its save memory as it stopped.
+          // The core quit, and the session stopped as it does when told to.
         } catch (e: SessionException) {
           Log.e(TAG, "the session failed to pause", e)
         } catch (_: IllegalStateException) {

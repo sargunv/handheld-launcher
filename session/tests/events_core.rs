@@ -136,6 +136,7 @@ fn tells_the_app_about_a_new_video_mode() {
 
     session.set_button(0, Button::Select, true);
     session.advance(1).unwrap();
+    assert_eq!(session.info().base_width, 384);
     let Heard::Info(info) = heard.recv_timeout(WAIT).unwrap() else {
         panic!("expected new info");
     };
