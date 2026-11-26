@@ -11,8 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -90,85 +92,98 @@ internal fun HomePlace(state: AppState) {
     state.focused = Focused.OnCollection(collection)
   }
 
-  // Home is a focus scope of its own, so its menu opens even while it has nothing to focus.
-  FocusScope(
-    Modifier.fillMaxSize().onAction { action ->
-      if (action == Action.Menu && hasMenu) {
-        menuOpen = true
-        true
-      } else {
-        false
-      }
-    },
-  ) {
-    // The cache answers within a frame or two; until then there's nothing to show.
-    if (played == null || added == null || collections == null) return@FocusScope
-    Column(Modifier.fillMaxSize()) {
-      Box(Modifier.fillMaxWidth().weight(1f)) {
-        val message =
-          when {
-            !syncing && !hasItems -> "No shelves to show. The menu shows hidden shelves again."
-            !syncing -> null
-            state.sync == SyncStatus.Failed -> "Couldn't reach your server to sync your library."
-            state.sync == SyncStatus.Synced -> "Your library has no games yet."
-            else -> "Syncing your library"
-          }
-        if (message != null) {
-          Text(message, color = Placeholder.mutedText, modifier = Modifier.align(Alignment.Center))
+  // The lower screen describes nothing while Home has nothing to focus.
+  LaunchedEffect(hasItems) { if (!hasItems) state.focused = null }
+
+  // Home is a focus scope of its own, so its menu opens even while it has nothing to focus. A new
+  // game to continue starts it over with focus on that game, even when the play history lands
+  // after the shelves did.
+  val continueKey = playedNow.firstOrNull()?.let { "continue:${it.id}" }
+  key(continueKey) {
+    FocusScope(
+      Modifier.fillMaxSize().onAction { action ->
+        if (action == Action.Menu && hasMenu) {
+          menuOpen = true
+          true
         } else {
-          FocusLazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-          ) {
-            playedNow.firstOrNull()?.let { rom ->
-              item(key = "continue") {
-                ShelfColumn(
-                  title = "Continue playing",
-                  modifier = Modifier.onFocusChanged { if (it.hasFocus) focusedShelf = null },
-                ) {
-                  GameTile(
-                    rom = rom,
-                    key = "continue:${rom.id}",
-                    modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
-                    onFocus = ::onFocusGame,
-                    onOpen = ::openGame,
-                  )
+          false
+        }
+      },
+      initialFocus = continueKey,
+    ) {
+      // The cache answers within a frame or two; until then there's nothing to show.
+      if (played == null || added == null || collections == null) return@FocusScope
+      Column(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+          val message =
+            when {
+              !syncing && !hasItems -> "No shelves to show. The menu shows hidden shelves again."
+              !syncing -> null
+              state.sync == SyncStatus.Failed -> "Couldn't reach your server to sync your library."
+              state.sync == SyncStatus.Synced -> "Your library has no games yet."
+              else -> "Syncing your library"
+            }
+          if (message != null) {
+            Text(
+              message,
+              color = Placeholder.mutedText,
+              modifier = Modifier.align(Alignment.Center),
+            )
+          } else {
+            FocusLazyColumn(
+              modifier = Modifier.fillMaxSize(),
+              contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+              verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+              playedNow.firstOrNull()?.let { rom ->
+                item(key = "continue") {
+                  ShelfColumn(
+                    title = "Continue playing",
+                    modifier = Modifier.onFocusChanged { if (it.hasFocus) focusedShelf = null },
+                  ) {
+                    GameTile(
+                      rom = rom,
+                      key = "continue:${rom.id}",
+                      modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
+                      onFocus = ::onFocusGame,
+                      onOpen = ::openGame,
+                    )
+                  }
                 }
               }
-            }
-            for (shelf in shown) {
-              item(key = shelf.name) {
-                val onFocusShelf = { focusedShelf = shelf }
-                when (shelf) {
-                  HomeShelf.RecentlyPlayed ->
-                    GameShelf(shelf, playedNow.drop(1), onFocusShelf, ::onFocusGame, ::openGame)
-                  HomeShelf.RecentlyAdded ->
-                    GameShelf(shelf, addedNow, onFocusShelf, ::onFocusGame, ::openGame)
-                  HomeShelf.Collections ->
-                    CollectionShelf(collectionsNow, onFocusShelf, ::onFocusCollection)
+              for (shelf in shown) {
+                item(key = shelf.name) {
+                  val onFocusShelf = { focusedShelf = shelf }
+                  when (shelf) {
+                    HomeShelf.RecentlyPlayed ->
+                      GameShelf(shelf, playedNow.drop(1), onFocusShelf, ::onFocusGame, ::openGame)
+                    HomeShelf.RecentlyAdded ->
+                      GameShelf(shelf, addedNow, onFocusShelf, ::onFocusGame, ::openGame)
+                    HomeShelf.Collections ->
+                      CollectionShelf(collectionsNow, onFocusShelf, ::onFocusCollection)
+                  }
                 }
               }
             }
           }
         }
+        HintBar(
+          buildList {
+            if (hasItems && focusedGame) add(Hint(Action.Confirm, "Open"))
+            if (hasMenu) add(Hint(Action.Menu, "Menu"))
+            add(Hint(Action.QuickMenu, "Quick menu"))
+          },
+        )
       }
-      HintBar(
-        buildList {
-          if (hasItems && focusedGame) add(Hint(Action.Confirm, "Open"))
-          if (hasMenu) add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.QuickMenu, "Quick menu"))
-        },
-      )
-    }
-    if (menuOpen) {
-      ShelfMenu(
-        settings = settings,
-        shelf = menuShelf,
-        shown = shown,
-        onChange = { state.settings = state.settings.copy(home = it) },
-        onDismissRequest = { menuOpen = false },
-      )
+      if (menuOpen) {
+        ShelfMenu(
+          settings = settings,
+          shelf = menuShelf,
+          shown = shown,
+          onChange = { state.settings = state.settings.copy(home = it) },
+          onDismissRequest = { menuOpen = false },
+        )
+      }
     }
   }
 }
