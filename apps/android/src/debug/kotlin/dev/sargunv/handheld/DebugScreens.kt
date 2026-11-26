@@ -19,7 +19,9 @@ import kotlinx.io.files.Path
  *   has an update.
  * - `launch`: launches the game at the `rom` extra, an absolute path, for the platform the
  *   `platform` extra names by slug, through the launch resolver and dispatcher. The optional `app`
- *   extra names a package to launch it in, as a game's own override would.
+ *   extra names a package to launch it in, as a game's own override would. Before the launch, the
+ *   emulator's firmware for the platform goes in place from the signed-in RomM server; the optional
+ *   `bios_dir` extra, an absolute path, takes it instead of the emulator's own folder.
  *
  * For example:
  * ```
@@ -53,7 +55,8 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
       val rom = intent.getStringExtra("rom")
       val platform = intent.getStringExtra("platform")
       val app = intent.getStringExtra("app")
-      ({ LaunchTestScreen(activity, rom, platform, app) })
+      val biosDir = intent.getStringExtra("bios_dir")
+      ({ LaunchTestScreen(activity, rom, platform, app, biosDir) })
     }
     else -> null
   }
