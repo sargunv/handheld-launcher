@@ -63,6 +63,8 @@ data class LaunchCommand(
   private companion object {
     fun sharedFolderOf(path: String): String? {
       val folder = path.split('/').drop(1).dropLast(1)
+      // A relative segment could climb out of the folder the checks below see.
+      if (folder.any { it == ".." || it == "." || it.isEmpty() }) return null
       // `/storage/emulated/<user>` for internal storage, `/storage/<volume>` for a card.
       val volumeDepth =
         when {

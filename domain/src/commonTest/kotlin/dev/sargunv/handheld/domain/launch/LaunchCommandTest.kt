@@ -35,6 +35,8 @@ class LaunchCommandTest {
         "/storage/emulated/0/Android/data/dev.example/files/game.cue",
         "/storage/1234-ABCD/android/game.cue",
         "/data/user/0/dev.example/files/game.cue",
+        "/storage/emulated/0/ROMs/../game.cue",
+        "/storage/emulated/0/ROMs/../Android/data/game.cue",
       )) {
       assertEquals(emptyList(), viewing(path).readFolders, path)
     }
