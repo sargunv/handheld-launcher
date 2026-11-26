@@ -27,15 +27,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
-import dev.sargunv.handheld.domain.Game
 import dev.sargunv.handheld.ui.Placeholder
-import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
-import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.navigation.NavigationHost
@@ -45,42 +42,29 @@ import dev.sargunv.handheld.ui.navigation.Navigator
 sealed interface DemoScreen {
   data object Home : DemoScreen
 
-  data class Detail(val gameId: Long) : DemoScreen
+  data class Detail(val tileId: Long) : DemoScreen
 }
 
 /** State the demo's two screens share. */
 @Stable
-class DemoState(settings: Settings = Settings()) {
+class DemoState(val inputSettings: InputSettings = InputSettings()) {
   val navigator = Navigator<DemoScreen>(DemoScreen.Home)
-  var focusedGame: Game? by mutableStateOf(null)
-  var settings: Settings by mutableStateOf(settings)
-
-  val inputSettings: InputSettings
-    get() = settings.input
-
-  fun swapConfirmButton() {
-    val swapped =
-      when (inputSettings.confirmButton) {
-        ConfirmButton.A -> ConfirmButton.B
-        ConfirmButton.B -> ConfirmButton.A
-      }
-    settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
-  }
+  var focusedTile: Tile? by mutableStateOf(null)
 }
 
-/** The demo's top screen: shelves of placeholder tiles, a detail screen, and a dialog. */
+/** The demo's top screen: shelves of tiles, a detail screen, and a dialog. */
 @Composable
 fun DemoPrimary(state: DemoState) {
   NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
     screen ->
     when (screen) {
       DemoScreen.Home -> NavEntry(screen) { HomeScreen(state) }
-      is DemoScreen.Detail -> NavEntry(screen) { DetailScreen(state, screen.gameId) }
+      is DemoScreen.Detail -> NavEntry(screen) { DetailScreen(screen.tileId) }
     }
   }
 }
 
-/** The demo's bottom screen: context for the focused game, and touch shortcuts. */
+/** The demo's bottom screen: the focused tile, and a touch shortcut. */
 @Composable
 fun DemoSecondary(state: DemoState) {
   Column(
@@ -88,18 +72,14 @@ fun DemoSecondary(state: DemoState) {
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     Text("Secondary screen", color = Placeholder.mutedText)
-    Text(state.focusedGame?.title ?: "Nothing focused", color = Placeholder.text)
-    Text("Confirm: ${state.inputSettings.confirmButton}", color = Placeholder.mutedText)
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-      TouchShortcut("Home") { while (state.navigator.back()) Unit }
-      TouchShortcut("Swap confirm") { state.swapConfirmButton() }
-    }
+    Text(state.focusedTile?.title ?: "Nothing focused", color = Placeholder.text)
+    TouchShortcut("Home") { while (state.navigator.back()) Unit }
   }
 }
 
 @Composable
 private fun HomeScreen(state: DemoState) {
-  var menuGameId by rememberSaveable { mutableStateOf<Long?>(null) }
+  var menuTileId by rememberSaveable { mutableStateOf<Long?>(null) }
   val focusManager = LocalFocusManager.current
   Box(Modifier.fillMaxSize()) {
     FocusLazyColumn(
@@ -120,14 +100,14 @@ private fun HomeScreen(state: DemoState) {
       items(DemoLibrary.shelves, key = { it.id }) { shelf ->
         ShelfRow(
           shelf = shelf,
-          onFocusGame = { state.focusedGame = it },
-          onOpenGame = { state.navigator.push(DemoScreen.Detail(it.rommId)) },
-          onGameMenu = { menuGameId = it.rommId },
+          onFocusTile = { state.focusedTile = it },
+          onOpenTile = { state.navigator.push(DemoScreen.Detail(it.id)) },
+          onTileMenu = { menuTileId = it.id },
         )
       }
     }
-    menuGameId?.let(DemoLibrary::game)?.let { game ->
-      GameMenu(game, onDismissRequest = { menuGameId = null })
+    menuTileId?.let(DemoLibrary::tile)?.let { tile ->
+      TileMenu(tile, onDismissRequest = { menuTileId = null })
     }
   }
 }
@@ -135,9 +115,9 @@ private fun HomeScreen(state: DemoState) {
 @Composable
 private fun ShelfRow(
   shelf: Shelf,
-  onFocusGame: (Game) -> Unit,
-  onOpenGame: (Game) -> Unit,
-  onGameMenu: (Game) -> Unit,
+  onFocusTile: (Tile) -> Unit,
+  onOpenTile: (Tile) -> Unit,
+  onTileMenu: (Tile) -> Unit,
 ) {
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(shelf.title, color = Placeholder.mutedText, modifier = Modifier.padding(start = 48.dp))
@@ -146,18 +126,18 @@ private fun ShelfRow(
       contentPadding = PaddingValues(horizontal = 48.dp),
       horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      items(shelf.games, key = { it.rommId }) { game ->
-        Tile(
-          game = game,
+      items(shelf.tiles, key = { it.id }) { tile ->
+        TileBox(
+          tile = tile,
           modifier =
-            Modifier.testTag(gameKey(game))
-              .onFocusChanged { if (it.isFocused) onFocusGame(game) }
+            Modifier.testTag(tileKey(tile))
+              .onFocusChanged { if (it.isFocused) onFocusTile(tile) }
               .focusItem(
-                key = gameKey(game),
-                onConfirm = { onOpenGame(game) },
+                key = tileKey(tile),
+                onConfirm = { onOpenTile(tile) },
                 onAction = { action ->
                   if (action == Action.Menu) {
-                    onGameMenu(game)
+                    onTileMenu(tile)
                     true
                   } else {
                     false
@@ -171,40 +151,37 @@ private fun ShelfRow(
 }
 
 @Composable
-private fun Tile(game: Game, modifier: Modifier) {
+private fun TileBox(tile: Tile, modifier: Modifier) {
   Box(
     modifier.size(width = 120.dp, height = 160.dp).background(Placeholder.tile).padding(8.dp),
     contentAlignment = Alignment.BottomStart,
   ) {
-    Text(game.title, color = Placeholder.text)
+    Text(tile.title, color = Placeholder.text)
   }
 }
 
 @Composable
-private fun DetailScreen(state: DemoState, gameId: Long) {
-  val game = DemoLibrary.game(gameId) ?: return
+private fun DetailScreen(tileId: Long) {
+  val tile = DemoLibrary.tile(tileId) ?: return
   var showOptions by rememberSaveable { mutableStateOf(false) }
   Box(Modifier.fillMaxSize()) {
     Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
       Box(Modifier.size(width = 180.dp, height = 240.dp).background(Placeholder.tile))
-      Text(game.title, color = Placeholder.text)
+      Text(tile.title, color = Placeholder.text)
       Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         DemoButton("play", "Play") {}
         DemoButton("options", "Options") { showOptions = true }
-        DemoButton("confirm", "Confirm: ${state.inputSettings.confirmButton}") {
-          state.swapConfirmButton()
-        }
       }
     }
-    if (showOptions) GameMenu(game, onDismissRequest = { showOptions = false })
+    if (showOptions) TileMenu(tile, onDismissRequest = { showOptions = false })
   }
 }
 
 @Composable
-private fun GameMenu(game: Game, onDismissRequest: () -> Unit) {
+private fun TileMenu(tile: Tile, onDismissRequest: () -> Unit) {
   Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(game.title, color = Placeholder.text)
+      Text(tile.title, color = Placeholder.text)
       DemoButton("menu:first", "First option", onConfirm = onDismissRequest)
       DemoButton("menu:second", "Second option", onConfirm = onDismissRequest)
       DemoButton("menu:close", "Close", onConfirm = onDismissRequest)
@@ -235,4 +212,4 @@ private fun TouchShortcut(label: String, onTap: () -> Unit) {
   }
 }
 
-internal fun gameKey(game: Game) = "game:${game.rommId}"
+internal fun tileKey(tile: Tile) = "tile:${tile.id}"

@@ -13,7 +13,6 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import dev.sargunv.handheld.ui.Settings
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteRecursively
-import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,12 +55,6 @@ class LaunchSettingsTest {
       ),
       read.toRules(),
     )
-  }
-
-  @Test
-  fun settingsStoredBeforeLaunchRulesHaveNone() {
-    dir.resolve("settings.json").writeText("""{"pauseGameWhenUnfocused": true}""")
-    assertEquals(LaunchSettings(), settingsFile().read().launch)
   }
 
   @Test

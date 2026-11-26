@@ -5,16 +5,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
@@ -26,29 +23,16 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.FocusRingVisibility
 import com.composeunstyled.focusRing
+import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.onAction
 
 /**
- * How a focused item shows that it has focus. Every [focusItem] draws it, so focus looks the same
- * everywhere. The default is a neutral placeholder until the design system replaces it.
- */
-@Immutable
-data class FocusIndication(
-  val width: Dp = 3.dp,
-  val color: Color = Color(0xFFE8E4DC),
-  val offset: Dp = 3.dp,
-)
-
-val LocalFocusIndication = staticCompositionLocalOf { FocusIndication() }
-
-/**
- * Makes this element a focusable item: it takes focus, shows [LocalFocusIndication] while focused,
- * and handles the actions sent to it.
+ * Makes this element a focusable item: it takes focus, shows a focus ring while focused, and
+ * handles the actions sent to it.
  *
  * [key] identifies the item within its [FocusScope], which puts focus back on it when the scope
  * becomes active again, and within its list (such as a [FocusLazyRow]), which puts focus back on it
@@ -58,7 +42,7 @@ val LocalFocusIndication = staticCompositionLocalOf { FocusIndication() }
  * Accessibility services see the item as one element, with the text inside it as its label, and the
  * screen reader's focus follows the controller's. A screen reader's activation confirms it.
  *
- * @param shape the item's outline, which the focus indication follows.
+ * @param shape the item's outline, which the focus ring follows.
  * @param onConfirm called on [Action.Confirm] and on a tap.
  * @param role what kind of element accessibility services say it is. Items that confirm are buttons
  *   by default.
@@ -82,7 +66,6 @@ fun Modifier.focusItem(
   val group = LocalFocusMemory.current
   val requester = remember { FocusRequester() }
   val interactions = remember { MutableInteractionSource() }
-  val indication = LocalFocusIndication.current
   val currentOnConfirm by rememberUpdatedState(onConfirm)
   val currentOnAction by rememberUpdatedState(onAction)
 
@@ -110,10 +93,10 @@ fun Modifier.focusItem(
     }
     .focusRing(
       interactionSource = interactions,
-      width = indication.width,
-      color = indication.color,
+      width = 3.dp,
+      color = Placeholder.text,
       shape = shape,
-      offset = indication.offset,
+      offset = 3.dp,
       visibility = FocusRingVisibility.Focused,
     )
     .focusRequester(requester)

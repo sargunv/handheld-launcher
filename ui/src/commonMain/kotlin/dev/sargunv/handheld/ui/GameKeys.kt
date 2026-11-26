@@ -16,10 +16,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-/**
- * A [GameKey] as settings store it: a ROM by its id, as settings stored a game before local games,
- * and a local game by its file's path after `local:`.
- */
+/** A [GameKey] as settings store it: a ROM by its id, a local game as `local:<path>`. */
 object GameKeySerializer : KSerializer<GameKey> {
   override val descriptor: SerialDescriptor =
     PrimitiveSerialDescriptor("dev.sargunv.handheld.GameKey", PrimitiveKind.STRING)

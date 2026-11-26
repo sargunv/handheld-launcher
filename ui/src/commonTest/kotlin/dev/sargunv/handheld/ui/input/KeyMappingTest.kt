@@ -41,7 +41,6 @@ class KeyMappingTest {
   fun confirmSettingLeavesTheOtherButtonsAlone() {
     for (settings in listOf(confirmA, confirmB)) {
       assertEquals(Action.Menu, settings.actionFor(Key.ButtonX))
-      assertEquals(Action.Search, settings.actionFor(Key.ButtonY))
       assertEquals(Action.PreviousShelf, settings.actionFor(Key.ButtonL1))
       assertEquals(Action.NextShelf, settings.actionFor(Key.ButtonR1))
       assertEquals(Action.MainMenu, settings.actionFor(Key.ButtonStart))

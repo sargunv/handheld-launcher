@@ -53,12 +53,6 @@ class FocusScopes internal constructor() {
 
 internal val LocalFocusScopes = staticCompositionLocalOf<FocusScopes?> { null }
 
-/**
- * Whether a dialog holds focus, so what's behind it shouldn't act, even for a screen reader, which
- * can reach it.
- */
-@Composable internal fun isDialogOpen(): Boolean = LocalFocusScopes.current?.isDialogOpen == true
-
 /** Whether a dialog holds focus, or a scope inside one does. Reading this observes it. */
 internal val FocusScopes.isDialogOpen: Boolean
   get() = generateSequence(active) { it.parent }.any { it.isModal }
@@ -88,9 +82,6 @@ internal class FocusMemory(
   /** Whether no items are composed. Reading this observes it. */
   val isEmpty: Boolean
     get() = items.isEmpty()
-
-  val lastFocusedKey: String?
-    get() = saved.value
 
   fun register(key: String, requester: FocusRequester) {
     items[key] = requester
@@ -146,10 +137,6 @@ internal constructor(
   /** Whether this is the newest scope on screen, the one that holds focus. */
   val isActive: Boolean
     get() = scopes == null || scopes.active === this
-
-  /** The key of the item that had focus last, or of the initial item before anything had focus. */
-  val lastFocusedKey: String?
-    get() = memory.lastFocusedKey
 
   /**
    * Puts focus back in this scope: on the item that had it last if that item is still composed,

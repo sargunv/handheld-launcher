@@ -46,8 +46,6 @@ fun keyActionFor(key: Key): Action? =
     Key.Backspace -> Action.Back
     Key.Tab,
     Key.Menu -> Action.Menu
-    Key.Slash,
-    Key.Search -> Action.Search
     Key.PageUp -> Action.PreviousShelf
     Key.PageDown -> Action.NextShelf
     Key.F1 -> Action.MainMenu

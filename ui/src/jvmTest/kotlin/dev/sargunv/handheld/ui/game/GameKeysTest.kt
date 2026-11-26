@@ -7,7 +7,6 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import dev.sargunv.handheld.ui.Settings
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteRecursively
-import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -64,22 +63,6 @@ class GameKeysTest {
     val stored = settings(local to pocketGoal, rom to armsx2)
     settingsFile().write(stored)
     assertEquals(stored, settingsFile().read())
-  }
-
-  @Test
-  fun aRomsChoiceStoredBeforeLocalGamesReadsTheSame() {
-    // Choices for local games were kept apart then, and start over.
-    dir
-      .resolve("settings.json")
-      .writeText(
-        """{"launch": {"games": {"42": {"packageName": "com.armsx2"}},
-      "localGames": {"/storage/emulated/0/ROMs/ps2/Jak.iso": {"packageName": "x.y"}},
-      "platforms": {"ps2": {"packageName": "dev.sargunv.pocketgoal"}}}}""",
-      )
-    assertEquals(
-      LaunchSettings(games = mapOf(rom to armsx2), platforms = mapOf("ps2" to pocketGoal)),
-      settingsFile().read().launch,
-    )
   }
 
   /**

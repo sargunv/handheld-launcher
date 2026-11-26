@@ -77,10 +77,8 @@ Agents and people often share one device. Hold its lock,
 keep holds short. `mise run run:android` takes it around installing and
 launching, and waits while someone else holds it. For your own device work, run
 it under `mise run android:lock -- <command>`, which releases the lock when the
-command ends, even when it fails. It also takes the older
-`/tmp/handheld-thor.lock` that earlier agents used. The lock is a directory: a
-holder that was killed outright leaves it behind, so remove it once nobody is
-using the device.
+command ends, even when it fails. The lock is a directory: a holder that was
+killed outright leaves it behind, so remove it once nobody is using the device.
 
 ## Licences
 

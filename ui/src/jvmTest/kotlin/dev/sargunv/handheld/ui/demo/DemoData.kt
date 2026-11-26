@@ -1,9 +1,10 @@
 package dev.sargunv.handheld.ui.demo
 
-import dev.sargunv.handheld.domain.Game
+/** A placeholder game on the demo screen. */
+data class Tile(val id: Long, val title: String)
 
-/** A row of games on the demo screen. */
-data class Shelf(val id: String, val title: String, val games: List<Game>)
+/** A row of tiles on the demo screen. */
+data class Shelf(val id: String, val title: String, val tiles: List<Tile>)
 
 /** Made-up shelves for exercising focus and navigation in the tests. */
 object DemoLibrary {
@@ -16,14 +17,14 @@ object DemoLibrary {
       shelf("ps2", "Shelf E", 6),
     )
 
-  fun game(id: Long): Game? = shelves.firstNotNullOfOrNull { s -> s.games.find { it.rommId == id } }
+  fun tile(id: Long): Tile? = shelves.firstNotNullOfOrNull { s -> s.tiles.find { it.id == id } }
 
   private fun shelf(slug: String, title: String, count: Int): Shelf {
     val base = (slug.hashCode().toLong() and 0xFFFF) * 1000
     return Shelf(
       id = slug,
       title = title,
-      games = List(count) { i -> Game(base + i, "$title ${i + 1}", slug) },
+      tiles = List(count) { i -> Tile(base + i, "$title ${i + 1}") },
     )
   }
 }
