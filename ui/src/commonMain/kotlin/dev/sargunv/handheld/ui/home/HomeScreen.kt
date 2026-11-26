@@ -44,7 +44,9 @@ import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryTab
+import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.collectionShelfKey
+import dev.sargunv.handheld.ui.library.librarySyncText
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.MenuButton
@@ -107,7 +109,7 @@ internal fun HomePlace(state: AppState) {
     state.openShelf(
       LibraryTab.Collections,
       collectionShelfKey(collection.kind, collection.id),
-      fromHome = true,
+      OpenedFrom.Home,
     )
   fun onFocusGame(rom: Rom) {
     focusedContinue = false
@@ -150,9 +152,7 @@ internal fun HomePlace(state: AppState) {
             when {
               !syncing && !hasItems -> "No shelves to show. The menu shows hidden shelves again."
               !syncing -> null
-              state.sync == SyncStatus.Failed -> "Couldn't reach your server to sync your library."
-              state.sync == SyncStatus.Synced -> "Your library has no games yet."
-              else -> "Syncing your library"
+              else -> librarySyncText(state.sync)
             }
           if (message != null) {
             Text(

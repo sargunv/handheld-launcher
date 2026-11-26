@@ -49,13 +49,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,17 +94,22 @@ import kotlinx.coroutines.flow.map
 /** A request to jump to the first game under [letter]. Each request is a new one. */
 class Jump(val letter: Char)
 
+/** Where a shelf's games were opened from, which Back on them returns to. */
+enum class OpenedFrom {
+  Tab,
+  Home,
+}
+
 /** What Library shows, which its upper and lower screens share. Its tab is in the settings. */
 @Stable
 class LibraryState {
   /** The key of the shelf focused on each tab, or open; a tab without one focuses its first. */
   private val shelfKeys = mutableStateMapOf<LibraryTab, String>()
 
-  /** Whether the shelf's games are open, over its tab. */
-  var isOpen: Boolean by mutableStateOf(false)
+  /** Where the shelf's games, open over its tab, were opened from, or null while the tab shows. */
+  var openedFrom: OpenedFrom? by mutableStateOf(null)
+    private set
 
-  /** Whether Back on the open shelf goes Home, which opened it, rather than to its tab. */
-  var returnsHome: Boolean by mutableStateOf(false)
   var filter: LibraryFilter by mutableStateOf(LibraryFilter.All)
   var sort: LibrarySort by mutableStateOf(LibrarySort.Name)
 
@@ -123,6 +126,17 @@ class LibraryState {
   fun focusShelf(tab: LibraryTab, key: String) {
     shelfKeys[tab] = key
   }
+
+  /** Opens the games of the shelf with [key] on [tab], over the tab. */
+  fun open(tab: LibraryTab, key: String, from: OpenedFrom) {
+    focusShelf(tab, key)
+    openedFrom = from
+  }
+
+  /** Closes the open shelf, back to its tab. */
+  fun close() {
+    openedFrom = null
+  }
 }
 
 /**
@@ -138,7 +152,7 @@ internal fun LibraryPlace(state: AppState) {
   val shelf = shelves?.shelfAt(view.shelfKey(tab))
   // Each grid of games, sort and filter keeps its own focus and scroll position.
   val gridStates = rememberSaveableStateHolder()
-  if (view.isOpen && shelf != null) {
+  if (view.openedFrom != null && shelf != null) {
     ShelfGames(state, shelves, shelf, gridStates)
   } else {
     LibraryTabs(state, tab, shelves, shelf, gridStates)
@@ -280,7 +294,7 @@ private fun TabGames(state: AppState, tab: LibraryTab, gridStates: SaveableState
 }
 
 /** What a tab with nothing to show says, by how the sync with the server went. */
-private fun librarySyncText(sync: SyncStatus, synced: String = "Your library has no games yet.") =
+internal fun librarySyncText(sync: SyncStatus, synced: String = "Your library has no games yet.") =
   when (sync) {
     SyncStatus.Failed -> "Couldn't reach your server to sync your library."
     SyncStatus.Synced -> synced
@@ -335,9 +349,7 @@ private fun ShelfList(
             focused = focused,
             onFocus = { view.focusShelf(tab, it.key) },
             onOpen = {
-              view.focusShelf(tab, it.key)
-              view.isOpen = true
-              view.returnsHome = false
+              view.open(tab, it.key, OpenedFrom.Tab)
               state.focused = null
             },
           )
@@ -382,24 +394,18 @@ private fun ShelfTiles(
     items(summaries, key = { it.shelf.key }) { summary ->
       val key = shelfTileKey(summary.shelf)
       Box(
-        Modifier.testTag(key)
-          .semantics {
-            contentDescription = summary.description
-            role = Role.Button
-            onClick {
-              onOpen(summary.shelf)
-              true
-            }
-          }
-          .onFocusChanged { if (it.isFocused) onFocus(summary.shelf) }
-          .focusItem(key, onConfirm = { onOpen(summary.shelf) })
+        Modifier.onFocusChanged { if (it.isFocused) onFocus(summary.shelf) }
+          .focusItem(
+            key,
+            onConfirm = { onOpen(summary.shelf) },
+            description = summary.description,
+          )
           .height(112.dp)
           .background(Placeholder.tile)
           .padding(16.dp),
       ) {
-        // The tile's description says all of this once.
         Column(
-          Modifier.align(Alignment.BottomStart).clearAndSetSemantics {},
+          Modifier.align(Alignment.BottomStart),
           verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
           Text(summary.shelf.title, color = Placeholder.text, fontSize = 18.sp)
@@ -541,11 +547,11 @@ private fun ShelfGames(
 
   fun close() {
     state.focused = null
-    if (view.returnsHome) {
+    if (view.openedFrom == OpenedFrom.Home) {
       // Leaving the Library closes the shelf too.
       state.showPlace(Place.Home)
     } else {
-      view.isOpen = false
+      view.close()
     }
   }
 
@@ -569,7 +575,7 @@ private fun ShelfGames(
       roms = roms,
       filters = true,
       empty = "No games here yet.",
-      backHint = if (view.returnsHome) "Home" else "Back",
+      backHint = if (view.openedFrom == OpenedFrom.Home) "Home" else "Back",
     ) {
       ShelfHeader(
         shelves,
@@ -746,17 +752,17 @@ private fun GameGrid(state: AppState, shown: List<LibraryGame>, index: Map<Char,
     horizontalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     items(shown, key = { gameTag(it) }) { game ->
-      val key = gameTag(game)
+      val deviceState = deviceStateOf(game, state.deviceStates)
       LibraryCover(
         game = game,
-        deviceState = deviceStateOf(game, state.deviceStates),
+        deviceState = deviceState,
         modifier =
           Modifier.aspectRatio(3f / 4f)
-            .testTag(key)
             .onFocusChanged { if (it.isFocused) state.focused = Focused.OnGame(game) }
             .focusItem(
-              key,
+              gameTag(game),
               onConfirm = { state.navigator.push(Screen.Game(game.key, game.title)) },
+              stateDescription = deviceStateText(deviceState),
             ),
       )
     }
@@ -777,12 +783,7 @@ private fun deviceStateText(state: DeviceState?) =
  */
 @Composable
 private fun LibraryCover(game: LibraryGame, deviceState: DeviceState?, modifier: Modifier) {
-  Box(
-    modifier.semantics(mergeDescendants = true) {
-      role = Role.Button
-      stateDescription = deviceStateText(deviceState)
-    },
-  ) {
+  Box(modifier) {
     when (game) {
       is Rom -> Cover(game.coverSmallUrl, game.title, Modifier.fillMaxSize())
       is LocalGame ->
@@ -891,7 +892,8 @@ private fun GamesMenu(
 internal fun LibrarySecondary(state: AppState) {
   val tab = state.libraryTab
   when {
-    state.libraryView.isOpen && tab in ShelfTabs -> GamesSecondary(state, filters = true)
+    state.libraryView.openedFrom != null && tab in ShelfTabs ->
+      GamesSecondary(state, filters = true)
     tab in ShelfTabs -> ShelfListSecondary(state, tab)
     else -> GamesSecondary(state, filters = tab != LibraryTab.OnDevice)
   }

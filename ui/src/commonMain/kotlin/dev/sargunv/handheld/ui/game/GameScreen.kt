@@ -37,7 +37,6 @@ import dev.sargunv.handheld.data.achievements.achievementProgress
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.formatSize
-import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
@@ -479,12 +478,14 @@ private fun LocalSecondary(state: AppState, game: LocalGame) {
  */
 @Composable
 private fun RomSecondary(state: AppState, current: Rom) {
+  // A play may sync the game's saves, so they load again as it starts and ends.
+  val playing = state.playing == current.key
   val history by
-    produceState<SaveHistoryState>(SaveHistoryState.Loading, current, state.savesChanged) {
+    produceState<SaveHistoryState>(SaveHistoryState.Loading, current, playing) {
       value = loadSaveHistory(state, current.id)
     }
   val kept by
-    produceState(emptyList<KeptSave>(), current, state.savesChanged) {
+    produceState(emptyList<KeptSave>(), current, playing) {
       value = state.launcher.keptSaves(current)
     }
   val opensIn = rememberOpensIn(state, current)
@@ -601,29 +602,21 @@ internal fun achievementSummary(progress: RommAchievementProgress): String {
 private suspend fun loadAchievementProgress(
   state: AppState,
   romId: Long,
-): RommAchievementProgress? {
-  val credentials = state.credentials.load() ?: return null
-  return try {
-    withContext(Dispatchers.Default) {
-      RommClient(credentials.baseUrl, credentials.token, state.httpEngine()).use {
-        it.achievementProgress(romId)
-      }
-    }
+): RommAchievementProgress? =
+  try {
+    withContext(Dispatchers.Default) { state.romm.client()?.use { it.achievementProgress(romId) } }
   } catch (_: RommException) {
     null
   }
-}
 
-private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistoryState {
-  val credentials =
-    state.credentials.load() ?: return SaveHistoryState.Failed("Sign in to see saves on RomM.")
-  return try {
+private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistoryState =
+  try {
     withContext(Dispatchers.Default) {
-      RommClient(credentials.baseUrl, credentials.token, state.httpEngine()).use {
-        SaveHistoryState.Loaded(serverSaveHistory(it.saves(romId = romId), credentials.deviceId))
-      }
+      val thisDevice = state.credentials.load()?.deviceId
+      state.romm.client()?.use {
+        SaveHistoryState.Loaded(serverSaveHistory(it.saves(romId = romId), thisDevice))
+      } ?: SaveHistoryState.Failed("Sign in to see saves on RomM.")
     }
   } catch (e: RommException) {
     SaveHistoryState.Failed("Couldn't reach RomM for the game's saves: ${e.message}")
   }
-}
