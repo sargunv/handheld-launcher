@@ -1,27 +1,4 @@
-//! Reads the metadata game platforms keep in their own ROM and disc headers:
-//! each format's fields as that format defines them, with no guessing across
-//! platforms. A caller that knows the platform asks [`identify`] for its
-//! header; one that knows the format calls its module's `read`.
-//!
-//! Readers take anything that reads and seeks, and read only the headers,
-//! never a whole image.
-//!
-//! ```no_run
-//! use rom_headers::{Header, Platform, identify};
-//!
-//! let mut file = std::fs::File::open("Super Mario World.sfc")?;
-//! if let Header::Snes(header) = identify(Platform::Snes, &mut file)? {
-//!     println!("{} ({})", header.title, header.destination);
-//! }
-//! # Ok::<(), rom_headers::Error>(())
-//! ```
-//!
-//! Features, all on by default:
-//!
-//! - `chd`: CHD disc images.
-//! - `deflate`: CSO and GCZ images.
-//! - `zstd`: the 3DS's Z3DS images.
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
 mod bytes;
