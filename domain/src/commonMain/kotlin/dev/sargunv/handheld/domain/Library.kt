@@ -15,22 +15,86 @@ data class Platform(
   val romCount: Int,
 )
 
+/**
+ * What names a game across the app, such as in launch rules and on the Game screen: a ROM on the
+ * server by its RomM id, or a local game by its file's path.
+ */
+sealed interface GameKey {
+  data class Romm(val romId: Long) : GameKey
+
+  /**
+   * A [LocalGame], by its file's path. It names the file, not its content, so a choice made for it
+   * stays with the file while it keeps its name and place.
+   */
+  data class Local(val path: String) : GameKey
+}
+
+/**
+ * A game the library lists: a [Rom] on the server, or a [LocalGame], a file on the device that
+ * matches none of the server's games.
+ */
+sealed interface LibraryGame {
+  val key: GameKey
+  val platformId: Long
+  /** The platform's RomM slug, which launch rules key on. */
+  val platformSlug: String
+  val title: String
+  /** What the library sorts the game by. */
+  val sortKey: String
+  val sizeBytes: Long
+  /**
+   * When the game came to the library: added to the server, or for a local game, its file's last
+   * change.
+   */
+  val addedAt: Instant
+}
+
+/**
+ * A file in a platform's folder on the device that matches none of the server's games, by name or
+ * by content, such as a game the player copied in that the server doesn't have. It plays like a
+ * game from the server, but has no cover, and its saves don't sync, since RomM files saves by ROM.
+ * Once a scan matches the file to a ROM, such as after the server gains the game, it's that ROM.
+ */
+data class LocalGame(
+  /** The file's path, which identifies the game. */
+  val path: String,
+  /** The platform whose folder holds the file. */
+  override val platformId: Long,
+  override val platformSlug: String,
+  override val sizeBytes: Long,
+  /** When the file last changed. */
+  override val addedAt: Instant,
+) : LibraryGame {
+  override val key: GameKey
+    get() = GameKey.Local(path)
+
+  val fileName: String
+    get() = path.substringAfterLast('/')
+
+  /** The file's name without its extension. */
+  override val title: String
+    get() = fileName.substringBeforeLast('.').ifEmpty { fileName }
+
+  override val sortKey: String
+    get() = title.lowercase()
+}
+
 /** A ROM in the library: one game on one platform, made of one or more files. */
 data class Rom(
   /** RomM's id for the ROM. */
   val id: Long,
-  val platformId: Long,
-  val platformSlug: String,
+  override val platformId: Long,
+  override val platformSlug: String,
   /** The matched title, or the file name without tags when the server matched nothing. */
-  val title: String,
+  override val title: String,
   /** What the library sorts the ROM by: RomM's natural-sort key for the title. */
-  val sortKey: String,
+  override val sortKey: String,
   /** The ROM's other titles, such as regional ones. */
   val alternativeNames: List<String>,
   /** The name of the ROM's file or folder on the server. */
   val fileName: String,
   /** The total size of the ROM's files. */
-  val sizeBytes: Long,
+  override val sizeBytes: Long,
   val summary: String?,
   val genres: List<String>,
   val regions: List<String>,
@@ -45,7 +109,13 @@ data class Rom(
   val updatedAt: Instant,
   /** When the ROM was added to the server. */
   val createdAt: Instant,
-)
+) : LibraryGame {
+  override val key: GameKey
+    get() = GameKey.Romm(id)
+
+  override val addedAt: Instant
+    get() = createdAt
+}
 
 /** One file of a [Rom]. */
 data class RomFile(

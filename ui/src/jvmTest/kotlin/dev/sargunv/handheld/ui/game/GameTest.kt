@@ -21,7 +21,8 @@ import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
-import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRules
@@ -79,11 +80,14 @@ class GameTest {
     var stillRunningChoice: StillRunningChoice? = null
     val closeEmulators = mutableListOf<Boolean>()
 
-    override suspend fun opensIn(rom: Rom, rules: LaunchRules, collections: Set<CollectionId>) =
-      "Opens in Test Emulator"
+    override suspend fun opensIn(
+      game: LibraryGame,
+      rules: LaunchRules,
+      collections: Set<CollectionId>,
+    ) = "Opens in Test Emulator"
 
     override suspend fun play(
-      rom: Rom,
+      game: LibraryGame,
       path: String,
       rules: LaunchRules,
       collections: Set<CollectionId>,
@@ -115,7 +119,7 @@ class GameTest {
       return listOf("Couldn't sync the save with RomM: Forbidden.")
     }
 
-    override suspend fun keptSaves(rom: Rom) =
+    override suspend fun keptSaves(game: LibraryGame) =
       listOf(KeptSave("/kept", Clock.System.now() - 3.hours, SaveCopy.Device, "mgba", 2048))
   }
 
@@ -436,7 +440,9 @@ class GameTest {
     press(Key.ButtonA)
     awaitText("Couldn't sync the save")
     assertEquals(
-      listOf(LaunchRules(gameOverrides = mapOf(1L to LaunchChoice("com.example.notes")))),
+      listOf(
+        LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("com.example.notes"))),
+      ),
       launcher.rules,
     )
 

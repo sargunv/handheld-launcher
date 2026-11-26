@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.domain.launch
 
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.launch.LaunchChoice.Companion.BUILT_IN
 import dev.sargunv.handheld.domain.launch.LaunchRule.BuiltInDefault
 import dev.sargunv.handheld.domain.launch.LaunchRule.CollectionOverride
@@ -22,7 +23,8 @@ class RuleChainTest {
   private val pocketGoal = "dev.sargunv.pocketgoal"
   private val jak = CollectionId("regular:1")
   private val favorites = CollectionId("regular:2")
-  private val jak1 = LaunchSubject(gameId = 1, platform = PS2, collections = setOf(jak, favorites))
+  private val jak1 =
+    LaunchSubject(game = GameKey.Romm(1), platform = PS2, collections = setOf(jak, favorites))
 
   @Test
   fun theCollectionRuleWinsOverThePlatformsDefaultEmulator() {
@@ -43,7 +45,7 @@ class RuleChainTest {
   fun aRuleWhoseAppIsMissingIsSkipped() {
     val rules =
       LaunchRules(
-        gameOverrides = mapOf(1L to LaunchChoice(pocketGoal)),
+        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice(pocketGoal)),
         platformDefaults = mapOf(PS2 to LaunchChoice(armsx2)),
       )
     val steps = RuleChain.explain(jak1, rules, setOf(armsx2))
@@ -100,7 +102,7 @@ class RuleChainTest {
 
   @Test
   fun theBuiltInSessionIsTheDefaultWhereALibretroCoreRunsThePlatform() {
-    val gaia = LaunchSubject(gameId = 2, platform = GBA)
+    val gaia = LaunchSubject(game = GameKey.Romm(2), platform = GBA)
     val installed = setOf("com.retroarch")
     assertEquals(
       listOf(
@@ -111,7 +113,7 @@ class RuleChainTest {
       RuleChain.explain(gaia, LaunchRules(), installed),
     )
     // A choice of app outranks it.
-    val rules = LaunchRules(gameOverrides = mapOf(2L to LaunchChoice("com.retroarch")))
+    val rules = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice("com.retroarch")))
     assertEquals(
       RuleStep(BuiltInDefault, Outranked, BUILT_IN),
       RuleChain.explain(gaia, rules, installed).last(),
@@ -120,7 +122,7 @@ class RuleChainTest {
 
   @Test
   fun anInstalledEmulatorIsTheDefaultWhereItPlaysBetter() {
-    val game = LaunchSubject(gameId = 3, platform = GAMECUBE)
+    val game = LaunchSubject(game = GameKey.Romm(3), platform = GAMECUBE)
     assertEquals(
       RuleStep(FirstInstalled, Wins, "org.dolphinemu.dolphinemu"),
       RuleChain.explain(game, LaunchRules(), setOf("org.dolphinemu.dolphinemu")).last(),
@@ -134,8 +136,11 @@ class RuleChainTest {
   @Test
   fun aBuiltInChoiceWinsWhereACoreRunsThePlatformAndIsSkippedElsewhere() {
     val rules =
-      LaunchRules(gameOverrides = mapOf(1L to LaunchChoice.BuiltIn, 2L to LaunchChoice.BuiltIn))
-    val gaia = LaunchSubject(gameId = 2, platform = GBA)
+      LaunchRules(
+        gameOverrides =
+          mapOf(GameKey.Romm(1) to LaunchChoice.BuiltIn, GameKey.Romm(2) to LaunchChoice.BuiltIn),
+      )
+    val gaia = LaunchSubject(game = GameKey.Romm(2), platform = GBA)
     assertEquals(
       RuleStep(GameOverride, Wins, BUILT_IN),
       RuleChain.explain(gaia, rules, emptySet()).first(),

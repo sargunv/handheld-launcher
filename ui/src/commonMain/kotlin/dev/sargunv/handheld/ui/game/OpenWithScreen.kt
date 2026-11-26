@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.launch.LaunchRule
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.RuleChain
@@ -69,7 +71,7 @@ private class OpenWithContext(
     when (scope) {
       is OpenWithScope.Game ->
         RuleChain.explain(
-          LaunchSubject(scope.romId, platform, collections.mapTo(mutableSetOf()) { it.launchId }),
+          LaunchSubject(scope.game, platform, collections.mapTo(mutableSetOf()) { it.launchId }),
           launch.toRules(),
           installed,
         )
@@ -93,12 +95,13 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
       value =
         when (scope) {
           is OpenWithScope.Game -> {
-            val rom = state.library.rom(scope.romId) ?: return@produceState
+            val game = state.game(scope.game) ?: return@produceState
             OpenWithContext(
               scope,
-              PlatformSlug(rom.platformSlug),
-              state.library.platform(rom.platformId)?.name ?: rom.platformSlug,
-              state.library.collectionsOf(rom.id),
+              PlatformSlug(game.platformSlug),
+              state.library.platform(game.platformId)?.name ?: game.platformSlug,
+              // A local game is in no collection.
+              (game as? Rom)?.let { state.library.collectionsOf(it.id) }.orEmpty(),
               state.apps.apps(),
             )
           }
@@ -218,6 +221,13 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             color = Placeholder.text,
             modifier = Modifier.testTag("openWith:current"),
           )
+          if ((screen.scope as? OpenWithScope.Game)?.game is GameKey.Local) {
+            Text(
+              "A game that isn't on your server keeps this choice for its file, while the file " +
+                "keeps its name and folder.",
+              color = Placeholder.mutedText,
+            )
+          }
           if (current != null) {
             val after = context.opensIn(launch.withChoice(level, null))
             Text(

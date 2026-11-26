@@ -19,6 +19,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -78,16 +79,16 @@ internal fun LaunchTestScreen(
       status = "Pass the game with --es rom <path> --es platform <slug>"
       return@LaunchedEffect
     }
-    val gameId = 0L
+    // The game is named by its file, as a local game is.
+    val game: GameKey = GameKey.Local(rom)
     val request =
       PlayRequest(
         romPath = rom,
         platform = PlatformSlug(platform),
         title = rom.substringAfterLast('/').substringBeforeLast('.'),
-        gameId = gameId,
+        game = game,
         romId = saves?.romId,
-        rules =
-          LaunchRules(gameOverrides = app?.let { mapOf(gameId to LaunchChoice(it)) }.orEmpty()),
+        rules = LaunchRules(gameOverrides = app?.let { mapOf(game to LaunchChoice(it)) }.orEmpty()),
         saveFolders = saves?.saveDir?.let(::listOf),
         biosFolders = biosDir?.let(::listOf),
         saveServer = saves?.serverUrl,

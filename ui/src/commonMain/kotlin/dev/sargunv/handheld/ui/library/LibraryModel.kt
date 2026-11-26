@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.domain.LibraryGame
+import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.places.gameCount
@@ -60,6 +62,23 @@ internal fun deviceStates(statuses: Map<Long, RomStatus>): Map<Long, DeviceState
 }
 
 /**
+ * Whether [game] is on this device, by [states] for a ROM. A local game is only on the device, so
+ * it's always there.
+ */
+fun deviceStateOf(game: LibraryGame, states: Map<Long, DeviceState>): DeviceState? =
+  when (game) {
+    is Rom -> states[game.id]
+    is LocalGame -> DeviceState.OnDevice
+  }
+
+/** The test tag and focus key of [game]'s cover in a grid of games. */
+fun gameTag(game: LibraryGame): String =
+  when (game) {
+    is Rom -> "game:${game.id}"
+    is LocalGame -> "game:local:${game.path}"
+  }
+
+/**
  * A platform or a collection on its Library tab, which opens a grid of its games. Inside a grid, L
  * and R move to the neighboring entries.
  */
@@ -83,9 +102,17 @@ sealed interface LibraryShelf {
 /** The key of the collection of [kind] with [id]'s shelf. */
 fun collectionShelfKey(kind: CollectionKind, id: Long) = "collection:${kind.name}:$id"
 
-/** The platforms the Platforms tab lists: those with games, in the order given. */
-fun platformShelves(platforms: List<Platform>): List<LibraryShelf> =
-  platforms.filter { it.romCount > 0 }.map { LibraryShelf.OfPlatform(it) }
+/**
+ * The platforms the Platforms tab lists: those with games on the server or [localGames] on the
+ * device, in the order given.
+ */
+fun platformShelves(
+  platforms: List<Platform>,
+  localGames: List<LocalGame> = emptyList(),
+): List<LibraryShelf> {
+  val local = localGames.mapTo(mutableSetOf()) { it.platformId }
+  return platforms.filter { it.romCount > 0 || it.id in local }.map { LibraryShelf.OfPlatform(it) }
+}
 
 /**
  * The collections the Collections tab lists: all of them, in the order given, as Home lists them,
@@ -116,20 +143,28 @@ data class ShelfSummary(val shelf: LibraryShelf, val games: Int, val onDevice: I
 /**
  * The [shelves] with their counts. [romPlatforms] gives each game's platform by ROM id,
  * [collectionRoms] each collection's games by its kind and id, and [states] says which games are on
- * the device.
+ * the device. A platform counts its [localGames] too, which are on the device.
  */
 fun shelfSummaries(
   shelves: List<LibraryShelf>,
   romPlatforms: Map<Long, Long>,
   collectionRoms: Map<Pair<CollectionKind, Long>, Set<Long>>,
   states: Map<Long, DeviceState>,
+  localGames: List<LocalGame> = emptyList(),
 ): List<ShelfSummary> {
   val onDevice = states.filterValues { it == DeviceState.OnDevice }.keys
   val onDeviceByPlatform = onDevice.mapNotNull(romPlatforms::get).groupingBy { it }.eachCount()
+  val localByPlatform = localGames.groupingBy { it.platformId }.eachCount()
   return shelves.map { shelf ->
     when (shelf) {
-      is LibraryShelf.OfPlatform ->
-        ShelfSummary(shelf, shelf.platform.romCount, onDeviceByPlatform[shelf.platform.id] ?: 0)
+      is LibraryShelf.OfPlatform -> {
+        val local = localByPlatform[shelf.platform.id] ?: 0
+        ShelfSummary(
+          shelf,
+          shelf.platform.romCount + local,
+          (onDeviceByPlatform[shelf.platform.id] ?: 0) + local,
+        )
+      }
       is LibraryShelf.OfCollection -> {
         val roms = collectionRoms[shelf.collection.kind to shelf.collection.id].orEmpty()
         ShelfSummary(shelf, shelf.collection.romCount, roms.count { it in onDevice })
@@ -169,32 +204,40 @@ enum class LibraryFilter(val title: String) {
   NotOnDevice("Not on device"),
 }
 
-/** The games [filter] keeps, in [sort]'s order. [states] says which games are on the device. */
-fun List<Rom>.shown(
+/**
+ * The games [filter] keeps, in [sort]'s order. [states] says which ROMs are on the device; local
+ * games always are. Recently added puts a local game by when its file last changed.
+ */
+fun <T : LibraryGame> List<T>.shown(
   filter: LibraryFilter,
   sort: LibrarySort,
   states: Map<Long, DeviceState>,
-): List<Rom> {
+): List<T> {
   val kept =
     when (filter) {
       LibraryFilter.All -> this
-      LibraryFilter.OnDevice -> filter { states[it.id] == DeviceState.OnDevice }
-      LibraryFilter.NotOnDevice -> filter { states[it.id] != DeviceState.OnDevice }
+      LibraryFilter.OnDevice -> filter { deviceStateOf(it, states) == DeviceState.OnDevice }
+      LibraryFilter.NotOnDevice -> filter { deviceStateOf(it, states) != DeviceState.OnDevice }
     }
   return when (sort) {
-    LibrarySort.Name -> kept.sortedWith(compareBy({ it.sortKey.lowercase() }, { it.id }))
+    LibrarySort.Name ->
+      kept.sortedWith(compareBy<T> { it.sortKey.lowercase() }.then(sameNameOrder()))
     LibrarySort.RecentlyAdded ->
-      kept.sortedWith(compareByDescending<Rom> { it.createdAt }.thenByDescending { it.id })
+      kept.sortedWith(compareByDescending<T> { it.addedAt }.then(sameNameOrder<T>().reversed()))
   }
 }
 
-/** The letter the A–Z jump files [rom] under: its sort key's first letter, or # for the rest. */
-fun jumpLetter(rom: Rom): Char {
-  val first = rom.sortKey.firstOrNull()?.uppercaseChar()
+/** The order of games that sort the same otherwise: ROMs by id, then local games by path. */
+private fun <T : LibraryGame> sameNameOrder(): Comparator<T> =
+  compareBy({ (it as? Rom)?.id ?: Long.MAX_VALUE }, { (it as? LocalGame)?.path })
+
+/** The letter the A–Z jump files [game] under: its sort key's first letter, or # for the rest. */
+fun jumpLetter(game: LibraryGame): Char {
+  val first = game.sortKey.firstOrNull()?.uppercaseChar()
   return if (first != null && first in 'A'..'Z') first else '#'
 }
 
-/** Each letter's first game in [roms], in the order the letters first appear. */
-fun jumpIndex(roms: List<Rom>): Map<Char, Int> = buildMap {
-  roms.forEachIndexed { index, rom -> getOrPut(jumpLetter(rom)) { index } }
+/** Each letter's first game in [games], in the order the letters first appear. */
+fun jumpIndex(games: List<LibraryGame>): Map<Char, Int> = buildMap {
+  games.forEachIndexed { index, game -> getOrPut(jumpLetter(game)) { index } }
 }

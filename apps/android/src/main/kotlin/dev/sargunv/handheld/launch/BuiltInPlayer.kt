@@ -2,6 +2,7 @@ package dev.sargunv.handheld.launch
 
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,6 +10,7 @@ import dev.sargunv.handheld.data.cores.CoreChoices
 import dev.sargunv.handheld.data.cores.InstalledCores
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.builtInGameSave
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
@@ -65,10 +67,11 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
       notes += PlayNote(text, quiet)
     }
 
-    val folder = saves.folderOf(request.gameId)
-    val saveRam = saves.saveRamOf(request.gameId, request.romPath)
+    val folder = saves.folderOf(request.game)
+    val saveRam = saves.saveRamOf(folder, request.romPath)
     val settings =
       withContext(Dispatchers.IO) {
+        adoptLocalSaves(request, folder)
         // Made before the sync, which pulls a save only into a folder that exists.
         File(folder).mkdirs()
         settingsFile(activity).read()
@@ -83,7 +86,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         systemDir = File(activity.filesDir, "system").path,
         saveDir = folder,
         saveRam = saveRam,
-        states = saves.statesOf(request.gameId, request.romPath),
+        states = saves.statesOf(folder, request.romPath),
         aButtonPosition = settings.input.aButtonPosition,
         stackedScreensOptions = chosen.stackedScreensOptions,
         lowerScreenWidthShare = chosen.lowerScreenWidthShare,
@@ -111,6 +114,22 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     return notes
   }
 
+  /**
+   * Moves the saves a game made while its file matched nothing on the server, as a local game, into
+   * [folder], the ROM's own, while that holds nothing, so they sync from then on. A ROM folder with
+   * saves of its own keeps them, and the local ones stay where they are.
+   */
+  private fun adoptLocalSaves(request: PlayRequest, folder: String) {
+    if (request.game !is GameKey.Romm) return
+    val local = File(saves.localFolderOf(request.romPath))
+    val own = File(folder)
+    if (!local.isDirectory) return
+    // An empty folder, such as one a launch canceled at the save choice left, holds no saves.
+    if (own.exists() && (!own.isDirectory || !own.delete())) return
+    own.parentFile?.mkdirs()
+    if (!local.renameTo(own)) Log.w(TAG, "Couldn't move the saves in $local to $own")
+  }
+
   /** Starts [intent] and waits for the activity it starts to finish. */
   private suspend fun awaitResult(intent: Intent): ActivityResult {
     val result = CompletableDeferred<ActivityResult>()
@@ -129,3 +148,5 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     }
   }
 }
+
+private const val TAG = "BuiltInPlayer"

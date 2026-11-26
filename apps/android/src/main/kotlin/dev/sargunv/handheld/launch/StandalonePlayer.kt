@@ -12,6 +12,8 @@ import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.data.saves.keptSaves
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchBuild
@@ -44,9 +46,10 @@ data class PlayNote(val text: String, val quiet: Boolean = false)
  *
  * @param romPath the game's file.
  * @param title the game's name, as the save conflict screen shows it.
- * @param gameId the game, as [rules] name it.
+ * @param game the game, as [rules] name it, and as the built-in session files its saves.
  * @param collections the collections the game is in, as [rules] name them.
- * @param romId the game's RomM id, which turns on save sync; null leaves the save alone.
+ * @param romId the game's RomM id, which turns on save sync; null leaves the save alone, as for a
+ *   local game, which isn't on the server.
  * @param saveFolders stand in for the emulator's save folders, for testing.
  * @param biosFolders take the firmware instead of the emulator's own folder, for testing.
  * @param saveServer a server to sync the save with, without a token, instead of the signed-in one.
@@ -57,7 +60,7 @@ data class PlayRequest(
   val romPath: String,
   val platform: PlatformSlug,
   val title: String,
-  val gameId: Long,
+  val game: GameKey,
   val romId: Long?,
   val rules: LaunchRules = LaunchRules(),
   val collections: Set<CollectionId> = emptySet(),
@@ -100,13 +103,13 @@ class StandalonePlayer(
     get() = plays > 0
 
   override suspend fun opensIn(
-    rom: Rom,
+    game: LibraryGame,
     rules: LaunchRules,
     collections: Set<CollectionId>,
   ): String =
     when (
       val resolution =
-        resolve(LaunchSubject(rom.id, PlatformSlug(rom.platformSlug), collections), rules)
+        resolve(LaunchSubject(game.key, PlatformSlug(game.platformSlug), collections), rules)
     ) {
       is LaunchResolution.Resolved -> "Opens in ${appName(resolution.target)}"
       is LaunchResolution.BuiltIn -> "Opens in Built-in"
@@ -114,7 +117,7 @@ class StandalonePlayer(
     }
 
   override suspend fun play(
-    rom: Rom,
+    game: LibraryGame,
     path: String,
     rules: LaunchRules,
     collections: Set<CollectionId>,
@@ -129,10 +132,11 @@ class StandalonePlayer(
     val request =
       PlayRequest(
         file,
-        PlatformSlug(rom.platformSlug),
-        rom.title,
-        rom.id,
-        rom.id,
+        PlatformSlug(game.platformSlug),
+        game.title,
+        game.key,
+        // A local game isn't on the server, so its save stays on the device.
+        (game as? Rom)?.id,
         rules,
         collections,
         closeEmulators = closeEmulators,
@@ -144,8 +148,12 @@ class StandalonePlayer(
       .distinct()
   }
 
-  override suspend fun keptSaves(rom: Rom): List<KeptSave> =
-    withContext(Dispatchers.IO) { keptSaves(saveHistory(activity), rom.id) }
+  override suspend fun keptSaves(game: LibraryGame): List<KeptSave> =
+    when (game) {
+      is Rom -> withContext(Dispatchers.IO) { keptSaves(saveHistory(activity), game.id) }
+      // Save sync keeps copies only of the saves it syncs.
+      else -> emptyList()
+    }
 
   /**
    * Plays [request]'s game and returns once the launcher is back in front, or once it's clear the
@@ -189,7 +197,7 @@ class StandalonePlayer(
       when (
         val resolution =
           resolve(
-            LaunchSubject(request.gameId, request.platform, request.collections),
+            LaunchSubject(request.game, request.platform, request.collections),
             request.rules,
           )
       ) {
@@ -356,7 +364,7 @@ class StandalonePlayer(
     }
     when (
       val resolution =
-        resolve(LaunchSubject(request.gameId, request.platform, request.collections), request.rules)
+        resolve(LaunchSubject(request.game, request.platform, request.collections), request.rules)
     ) {
       is LaunchResolution.Resolved -> {
         note("Opens in ${appName(resolution.target)}", true)
@@ -382,7 +390,7 @@ class StandalonePlayer(
       Log.i(TAG, text)
     }
     val resolution =
-      resolve(LaunchSubject(request.gameId, request.platform, request.collections), request.rules)
+      resolve(LaunchSubject(request.game, request.platform, request.collections), request.rules)
         as? LaunchResolution.Resolved
         ?: return notes.apply { note("The game doesn't open in another app", false) }
     val target = resolution.target

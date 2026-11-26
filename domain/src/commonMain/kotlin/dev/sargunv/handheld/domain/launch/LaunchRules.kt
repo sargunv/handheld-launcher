@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.domain.launch
 
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.jvm.JvmInline
 
@@ -9,9 +10,12 @@ value class CollectionId(val value: String) {
   override fun toString(): String = value
 }
 
-/** The facts about a game that decide which app launches it. */
+/**
+ * The facts about a game that decide which app launches it. [game] is null for the games of a
+ * platform or a collection, which no game's own choice covers.
+ */
 data class LaunchSubject(
-  val gameId: Long,
+  val game: GameKey?,
   val platform: PlatformSlug,
   val collections: Set<CollectionId> = emptySet(),
 )
@@ -60,7 +64,7 @@ data class CollectionRule(
  * which beats a platform default. Among [collectionRules], the first that applies to a game wins.
  */
 data class LaunchRules(
-  val gameOverrides: Map<Long, LaunchChoice> = emptyMap(),
+  val gameOverrides: Map<GameKey, LaunchChoice> = emptyMap(),
   val collectionRules: List<CollectionRule> = emptyList(),
   val platformDefaults: Map<PlatformSlug, LaunchChoice> = emptyMap(),
 ) {

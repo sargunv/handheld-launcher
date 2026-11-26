@@ -14,6 +14,10 @@ class OpenTargetTest {
     assertEquals(OpenTarget.AtPlace(Place.Home), OpenTarget.parse("place:Home"))
     assertEquals(OpenTarget.AtPlace(Place.Settings), OpenTarget.parse("place:settings"))
     assertEquals(OpenTarget.Game(42), OpenTarget.parse("game:42"))
+    assertEquals(
+      OpenTarget.Local("/storage/emulated/0/ROMs/gb/My: Game.gb"),
+      OpenTarget.parse("local:/storage/emulated/0/ROMs/gb/My: Game.gb"),
+    )
     assertEquals(OpenTarget.Library(null), OpenTarget.parse("library"))
     assertEquals(OpenTarget.Library(LibraryTab.OnDevice), OpenTarget.parse("library:tab:on-device"))
     assertEquals(OpenTarget.Library(LibraryTab.AllGames), OpenTarget.parse("library:tab:AllGames"))
@@ -40,6 +44,7 @@ class OpenTargetTest {
     assertNull(OpenTarget.parse("place"))
     assertNull(OpenTarget.parse("game:mario"))
     assertNull(OpenTarget.parse("game"))
+    assertNull(OpenTarget.parse("local:ROMs/gb/Game.gb"))
     assertNull(OpenTarget.parse("settings:display"))
     assertNull(OpenTarget.parse("library:tab:search"))
     assertNull(OpenTarget.parse("library:collection:favourites"))

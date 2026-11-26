@@ -99,8 +99,11 @@ adb shell input -d 0 keyevent "KEYCODE_$key"
 
 [tasks."android:open"]
 description = "Show a screen of the debug app on the connected device straight away"
-usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, library, library:tab:<tab>, library:<platform-slug>, library:collection:<id>, library:collection:smart:<id>, settings or settings:<section>"'
-run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$usage_target" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
+usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, local:<path>, library, library:tab:<tab>, library:<platform-slug>, library:collection:<id>, library:collection:smart:<id>, settings or settings:<section>"'
+# The device's shell reads the command again, so a path with spaces is quoted for it, with bash's
+# printf.
+shell = "bash -c"
+run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$(printf %q "$usage_target")" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
 
 [tasks."android:ui"]
 description = "Print the debug app's focused element and visible elements, on every display"

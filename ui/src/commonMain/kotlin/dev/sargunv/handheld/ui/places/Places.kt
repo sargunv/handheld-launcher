@@ -43,7 +43,12 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.domain.Collection
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.LibraryGame
+import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.Settings
@@ -83,9 +88,11 @@ import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
 import dev.sargunv.handheld.ui.settings.SettingsView
 import io.ktor.client.engine.HttpClientEngine
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The top-level pages, which the main menu goes to. */
 enum class Place(val title: String) {
@@ -100,8 +107,17 @@ sealed interface Screen {
   /** The top-level places. */
   data object Places : Screen
 
-  /** A game, which plays as it opens when [play] asks and the game is on the device. */
-  data class Game(val romId: Long, val title: String, val play: Boolean = false) : Screen
+  /**
+   * A game, a ROM or a local game, which plays as it opens when [play] asks and the game is on the
+   * device.
+   */
+  data class Game(val key: GameKey, val title: String, val play: Boolean = false) : Screen {
+    constructor(
+      romId: Long,
+      title: String,
+      play: Boolean = false,
+    ) : this(GameKey.Romm(romId), title, play)
+  }
 
   /**
    * The app games open in, for [scope]: a game, from its menu, a platform, from its menu or
@@ -137,7 +153,7 @@ enum class SyncStatus {
 /** What the lower screen describes: the item focused on the upper one. */
 @Immutable
 sealed interface Focused {
-  data class OnGame(val rom: Rom) : Focused
+  data class OnGame(val game: LibraryGame) : Focused
 
   data class OnCollection(val collection: Collection) : Focused
 
@@ -198,6 +214,9 @@ class AppState(
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
    */
   var deviceStates: Map<Long, DeviceState> by mutableStateOf(emptyMap())
+
+  /** The local games: files on the device that match none of the server's games. */
+  var localGames: List<LocalGame> by mutableStateOf(emptyList())
 
   /** Counts the times Home started over, so its focus and scroll positions start over too. */
   var homeResets: Int by mutableIntStateOf(0)
@@ -299,6 +318,28 @@ class AppState(
         val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
         if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
       }
+      is OpenTarget.Local -> {
+        suspend fun find() = downloads.localGame(target.path).first { it != null }
+        // A scan before the sync brings the platforms finds no local games, so a file not found
+        // yet gets a while after it for the scan that follows.
+        val local =
+          find().takeUnless { it == LocalGameState.Gone }
+            ?: awaitSync().let {
+              withTimeoutOrNull(LOCAL_SCAN_WAIT) {
+                downloads.localGame(target.path).first {
+                  it is LocalGameState.Local || it is LocalGameState.Matched
+                }
+              }
+            }
+        // The file may have matched a game of the library since.
+        when (local) {
+          is LocalGameState.Local -> navigator.push(Screen.Game(local.game.key, local.game.title))
+          is LocalGameState.Matched ->
+            library.rom(local.romId)?.let { navigator.push(Screen.Game(it.id, it.title)) }
+          LocalGameState.Gone,
+          null -> Unit
+        }
+      }
       is OpenTarget.Library -> {
         showPlace(Place.Library)
         libraryView.isOpen = false
@@ -326,6 +367,18 @@ class AppState(
       }
     }
   }
+
+  /**
+   * The game [key] names: a ROM from the library, or a local game once the scan of the platforms'
+   * folders has found it. Null when there's no such game, such as a file that's gone or now matches
+   * a ROM.
+   */
+  suspend fun game(key: GameKey): LibraryGame? =
+    when (key) {
+      is GameKey.Romm -> library.rom(key.romId)
+      is GameKey.Local ->
+        (downloads.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
+    }
 
   private suspend fun awaitSync() {
     snapshotFlow { sync }.first { it.isDone }
@@ -390,7 +443,7 @@ fun MainSecondary(state: AppState) {
       state.place == Place.Downloads -> StorageSummary(state.downloads)
       state.place == Place.Library -> LibrarySecondary(state)
       state.place == Place.Settings -> SettingsSecondary(state.settingsView)
-      focused is Focused.OnGame -> GameDescription(state, focused.rom)
+      focused is Focused.OnGame -> GameDescription(state, focused.game)
       focused is Focused.OnCollection -> {
         Text(
           focused.collection.name,
@@ -409,37 +462,59 @@ fun MainSecondary(state: AppState) {
 
 /** The lower screen's description of a game. */
 @Composable
-internal fun GameDescription(state: AppState, rom: Rom) {
+internal fun GameDescription(state: AppState, game: LibraryGame) {
   val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
-      rom.coverLargeUrl ?: rom.coverSmallUrl,
-      rom.title,
+      (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
+      game.title,
       Modifier.size(180.dp, 240.dp),
       description = null,
     )
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
       Text(
-        rom.title,
+        game.title,
         color = Placeholder.text,
         fontSize = 24.sp,
         modifier = Modifier.semantics { heading() },
       )
       Text(
-        platforms.find { it.id == rom.platformId }?.name ?: rom.platformSlug,
+        platforms.find { it.id == game.platformId }?.name ?: game.platformSlug,
         color = Placeholder.mutedText,
       )
-      val onDevice =
-        when (state.deviceStates[rom.id]) {
-          DeviceState.OnDevice -> "On this device"
-          is DeviceState.Downloading -> "Downloading"
-          null -> "Not on this device"
+      when (game) {
+        is Rom -> {
+          val onDevice =
+            when (state.deviceStates[game.id]) {
+              DeviceState.OnDevice -> "On this device"
+              is DeviceState.Downloading -> "Downloading"
+              null -> "Not on this device"
+            }
+          Text(onDevice, color = Placeholder.mutedText)
         }
-      Text(onDevice, color = Placeholder.mutedText)
+        is LocalGame -> {
+          Text("On this device", color = Placeholder.mutedText)
+          Text(
+            NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
+            color = Placeholder.mutedText,
+            modifier = Modifier.testTag("game:not-on-server"),
+          )
+          Text(
+            "${game.fileName} · ${formatSize(game.sizeBytes)}",
+            color = Placeholder.mutedText,
+          )
+        }
+      }
     }
   }
 }
+
+/** How long opening a local game waits for the scan after a sync to find it. */
+private val LOCAL_SCAN_WAIT = 10.seconds
+
+/** What a local game is marked with, wherever it shows. */
+internal const val NOT_ON_SERVER = "not on your server"
 
 internal fun gameCount(count: Int) = if (count == 1) "1 game" else "$count games"
 

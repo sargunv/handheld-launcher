@@ -162,6 +162,7 @@ fun App(
   LaunchedEffect(state) {
     downloads.statuses().collect { state.deviceStates = deviceStates(it) }
   }
+  LaunchedEffect(state) { downloads.localGames().collect { state.localGames = it } }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
   LaunchedEffect(state) {
     snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }

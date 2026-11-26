@@ -104,7 +104,7 @@ object LaunchResolver {
     installedPackages: Set<String>,
   ): LaunchResolution {
     val candidates = buildList {
-      rules.gameOverrides[subject.gameId]?.let { add(LaunchRule.GameOverride to it) }
+      subject.game?.let(rules.gameOverrides::get)?.let { add(LaunchRule.GameOverride to it) }
       rules.collectionRulesFor(subject).forEach {
         add(LaunchRule.CollectionOverride(it.collection) to it.choice)
       }

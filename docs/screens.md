@@ -51,11 +51,16 @@ the first time.
   server's collections. The lower screen describes the focused one.
 
 A opens a platform's or collection's games. Covers show whether the game is on
-the device and how far its download has got. The lower screen holds filters,
-sort and an A–Z jump. L and R move to the previous or next platform or
-collection, a shortcut that stops at the ends. B goes back to the tab, with the
-one you were in focused. X on a platform or collection opens its menu, which
-holds **Open with** for all of its games.
+the device and how far its download has got.
+
+A file in a platform's folder on the device that matches none of the server's
+games, by name or content, is a **local game**. It's in its platform's games, On
+device and All games, titled by its file name, with a plain tile for a cover.
+The tile and the lower screen say it's not on your server. The lower screen
+holds filters, sort and an A–Z jump. L and R move to the previous or next
+platform or collection, a shortcut that stops at the ends. B goes back to the
+tab, with the one you were in focused. X on a platform or collection opens its
+menu, which holds **Open with** for all of its games.
 
 ## Game
 
@@ -65,6 +70,12 @@ Remove from device, Cancel download. The lower screen shows the save history
 across devices, what the copy on the device says about itself in its header,
 such as its serial and region, and where the game opens, with the rule that
 decides it.
+
+A local game always has Play. Its menu holds Open with, for its file, and Remove
+from device, which deletes the file after asking. Its saves don't sync, since
+RomM files saves by its own games, and the lower screen says they stay on the
+device until the game is on your server. Once a scan matches the file to a game
+of the server, the page becomes that game's.
 
 ## Open with
 
