@@ -15,9 +15,9 @@ plugins {
 }
 
 /**
- * Fails an AboutLibraries task whose output has a licence without its text. The About screen shows
- * each licence's text, and AboutLibraries runs offline here, so a licence's text has to come from
- * the entries in `licences/` or the session's.
+ * Fails an AboutLibraries task whose output has a component without a licence text. The About
+ * screen shows each component's licence texts, and AboutLibraries runs offline here, so the texts
+ * have to come from the entries in `licences/` or the session's.
  */
 object RequireLicenceTexts : Action<Task> {
   override fun execute(task: Task) {
@@ -27,16 +27,22 @@ object RequireLicenceTexts : Action<Task> {
       @Suppress("UNCHECKED_CAST") val data = JsonSlurper().parse(file) as Map<String, Any?>
       @Suppress("UNCHECKED_CAST") val licences = data["licenses"] as Map<String, Map<String, Any?>>
       @Suppress("UNCHECKED_CAST") val libraries = data["libraries"] as List<Map<String, Any?>>
-      val missing = licences.filterValues { (it["content"] as String?).isNullOrBlank() }.keys
-      if (missing.isEmpty()) continue
-      val users =
-        missing.joinToString("\n") { hash ->
-          val ids = libraries.filter { hash in (it["licenses"] as List<*>) }.map { it["uniqueId"] }
-          "  $hash, for ${ids.joinToString()}"
+      fun hasText(hash: Any?) = !(licences[hash]?.get("content") as String?).isNullOrBlank()
+      val missing = libraries.mapNotNull { library ->
+        val hashes = library["licenses"] as List<*>? ?: emptyList<Any?>()
+        val without = hashes.filterNot(::hasText)
+        when {
+          hashes.isEmpty() -> "  ${library["uniqueId"]}: no licence"
+          without.isNotEmpty() -> "  ${library["uniqueId"]}: ${without.joinToString()}"
+          else -> null
         }
+      }
+      if (missing.isEmpty()) continue
       throw GradleException(
-        "These licences have no text for the About screen:\n$users\n" +
-          "Add each one's text to licences/licenses/, as the others there are.",
+        "These components have no licence text for the About screen:\n" +
+          missing.joinToString("\n") +
+          "\nAdd each licence's text to licences/licenses/, as the others there are, or an entry " +
+          "for the component to licences/libraries/.",
       )
     }
   }
