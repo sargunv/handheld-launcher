@@ -206,15 +206,17 @@ class DownloadManager(
   }
 
   /** Stops a download and takes it out of the queue, deleting what it downloaded. */
-  suspend fun cancel(romId: Long) {
-    val job = mutex.withLock { running?.takeIf { it.first == romId }?.second }
-    job?.cancel()
-    job?.join()
-    val download = entries.value.find { it.romId == romId } ?: return
-    withContext(Dispatchers.IO) { download.path?.let { deleteRecursively(Path("$it.part")) } }
-    edit { list -> list.filterNot { it.romId == romId } }
-    report(download, RommInstallStatus.Cancelled)
-  }
+  suspend fun cancel(romId: Long) =
+    // Once begun, a cancel finishes even if the screen that asked goes away.
+    withContext(NonCancellable) {
+      val job = mutex.withLock { running?.takeIf { it.first == romId }?.second }
+      job?.cancel()
+      job?.join()
+      val download = entries.value.find { it.romId == romId } ?: return@withContext
+      withContext(Dispatchers.IO) { download.path?.let { deleteRecursively(Path("$it.part")) } }
+      edit { list -> list.filterNot { it.romId == romId } }
+      report(download, RommInstallStatus.Cancelled)
+    }
 
   /** Whether [rom] is on the device, or how far its download has got. */
   fun status(rom: Rom): Flow<RomStatus> = flow {

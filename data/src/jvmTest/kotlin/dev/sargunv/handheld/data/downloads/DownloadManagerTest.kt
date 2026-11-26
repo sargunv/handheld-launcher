@@ -36,6 +36,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
@@ -520,5 +521,34 @@ class DownloadManagerTest {
     access.value = true
     downloads.awaitEmpty()
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
+  }
+
+  @Test
+  fun aCancelFinishesWhenItsCallerGoesAway() = runTest {
+    fillLibrary()
+    val stalling =
+      server(
+        content = { request, bytes ->
+          serveFrom(request, bytes) {
+            ByteChannel(autoFlush = true).also { channel ->
+              @Suppress("OPT_IN_USAGE")
+              GlobalScope.launch { channel.writeFully(game.copyOf(65_536)) }
+            }
+          }
+        },
+      )
+    val downloads = manager(backgroundScope, stalling)
+    downloads.enqueue(gameRom)
+    waitFor {
+      downloads.queue.first { list -> list.firstOrNull()?.bytesDownloaded == 65_536L }
+    }
+
+    // The screen that canceled goes away while the cancel waits for the download to stop.
+    val caller =
+      launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) { downloads.cancel(1) }
+    caller.cancel()
+
+    waitFor { downloads.queue.first { it.isEmpty() } }
+    assertFalse(file("ROMs/gba/Game (USA).gba.part").exists())
   }
 }
