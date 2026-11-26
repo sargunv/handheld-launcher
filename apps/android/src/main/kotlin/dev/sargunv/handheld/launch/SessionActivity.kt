@@ -31,9 +31,15 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.SecondaryDisplayContent
+import dev.sargunv.handheld.achievements.SessionAchievementsHttp
+import dev.sargunv.handheld.achievements.retroAchievementsClient
+import dev.sargunv.handheld.achievements.retroAchievementsStore
+import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
+import dev.sargunv.handheld.session.AchievementEvent
+import dev.sargunv.handheld.session.AchievementOptions
 import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.LowerScreenView
@@ -53,7 +59,12 @@ import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.play.QuickMenu
 import dev.sargunv.handheld.ui.play.QuickMenuState
 import dev.sargunv.handheld.ui.play.StateSlotsPanel
+import dev.sargunv.handheld.ui.play.Toast
+import dev.sargunv.handheld.ui.play.ToastHost
+import dev.sargunv.handheld.ui.play.ToastState
+import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -101,6 +112,7 @@ class SessionActivity : ComponentActivity() {
         session = { session },
         statePaths = intent.getStringArrayExtra(EXTRA_STATES)?.toList().orEmpty(),
         saveRamPath = intent.getStringExtra(EXTRA_SAVE_RAM),
+        hardcore = achievementsOn && intent.getBooleanExtra(EXTRA_HARDCORE, false),
         onResume = ::closeMenu,
         onQuit = ::stopAndFinish,
       ),
@@ -110,6 +122,15 @@ class SessionActivity : ComponentActivity() {
 
   /** Whether the quick menu is open, and the game paused under it. */
   private var menuOpen by mutableStateOf(false)
+
+  /** The toasts over the game, such as unlocked achievements. */
+  private val toasts = ToastState()
+
+  /** Whether the session takes part in RetroAchievements, once it has started. */
+  private var achievementsOn = false
+
+  /** Sends the session's RetroAchievements requests, while it takes part. */
+  private var achievementsClient: RetroAchievementsClient? = null
 
   /**
    * The keys pressed in the menu, including the Start that opened it, so the rest of each press
@@ -126,6 +147,16 @@ class SessionActivity : ComponentActivity() {
       override fun coreQuit() {
         Log.i(TAG, "the core quit")
         runOnUiThread { stopAndFinish() }
+      }
+
+      override fun achievementEvent(event: AchievementEvent) {
+        val toast =
+          when (event) {
+            is AchievementEvent.Unlocked ->
+              unlockedToast(event.achievement.title, event.achievement.points.toInt())
+            is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason)
+          }
+        runOnUiThread { toasts.show(toast) }
       }
     }
 
@@ -163,7 +194,7 @@ class SessionActivity : ComponentActivity() {
     onBackPressedDispatcher.addCallback(this) {
       if (menuOpen) quickMenu.back() else stopAndFinish()
     }
-    lifecycleScope.launch { start(options()) }
+    lifecycleScope.launch { start() }
   }
 
   /**
@@ -178,6 +209,8 @@ class SessionActivity : ComponentActivity() {
     val usableDisplay = display?.takeIf { it.displayId != failedDisplayId }
     val lowerScreen = twoScreens && usableDisplay != null && !lowerUnsupported
     val slots = @Composable { StateSlotsPanel(quickMenu) }
+    // Toasts, such as unlocked achievements, show over the game while it runs.
+    if (!menuOpen) ToastHost(toasts, Modifier.exposeTestTags())
     if (menuOpen) {
       val layout = if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
       ActionInputRoot(inputSettings, heldKeys, Modifier.exposeTestTags()) {
@@ -285,7 +318,15 @@ class SessionActivity : ComponentActivity() {
     if (isFinishing) stopSession()?.let { unreportedSaveError = it }
   }
 
-  private suspend fun start(options: SessionOptions) {
+  private suspend fun start() {
+    val achievements = achievementOptions()
+    val ready = CompletableDeferred<GameSession>()
+    val http = achievements?.let {
+      val client = retroAchievementsClient(this).also { achievementsClient = it }
+      SessionAchievementsHttp(client, lifecycleScope, ready)
+    }
+    achievementsOn = http != null
+    val options = options(achievements)
     // Starting can't be abandoned halfway. If the activity goes meanwhile, withContext throws on
     // the way back and the session it started is closed here, since nothing will show it.
     var unclaimed: GameSession? = null
@@ -293,10 +334,11 @@ class SessionActivity : ComponentActivity() {
       val started =
         try {
           withContext(Dispatchers.IO + NonCancellable) {
-            GameSession.start(options, listener).also { unclaimed = it }
+            GameSession.start(options, listener, http).also { unclaimed = it }
           }
         } catch (e: SessionException) {
           Log.e(TAG, "can't start the session", e)
+          ready.cancel()
           setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_ERROR, e.message ?: e.toString()))
           finish()
           return
@@ -305,12 +347,36 @@ class SessionActivity : ComponentActivity() {
       session = started
       view.session = started
       lowerView?.session = started
+      ready.complete(started)
     } finally {
       unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
     }
   }
 
-  private fun options(): SessionOptions {
+  /**
+   * How the game takes part in RetroAchievements: when the device is signed in and the platform has
+   * achievements, with the account's token and the hardcore setting the launcher passed.
+   */
+  private suspend fun achievementOptions(): AchievementOptions? {
+    val console = intent.getIntExtra(EXTRA_ACHIEVEMENTS_CONSOLE, -1).takeIf { it >= 0 }
+    if (console == null) {
+      Log.i(TAG, "RetroAchievements has no achievements for the game's platform")
+      return null
+    }
+    val account = retroAchievementsStore(this).load()
+    if (account == null) {
+      Log.i(TAG, "not signed in to RetroAchievements")
+      return null
+    }
+    return AchievementOptions(
+      username = account.username,
+      token = account.token,
+      consoleId = console.toUInt(),
+      hardcore = intent.getBooleanExtra(EXTRA_HARDCORE, false),
+    )
+  }
+
+  private fun options(achievements: AchievementOptions?): SessionOptions {
     val intent = intent
     return SessionOptions(
       corePath = intent.getStringExtra(EXTRA_CORE)!!,
@@ -324,6 +390,7 @@ class SessionActivity : ComponentActivity() {
       video = VideoMode.WINDOW,
       lowerScreenWidthShare =
         intent.getFloatExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, 0f).takeIf { twoScreens && it > 0f },
+      achievements = achievements,
     )
   }
 
@@ -379,6 +446,8 @@ class SessionActivity : ComponentActivity() {
     // Closing stops the core and writes its save memory.
     session?.close()
     session = null
+    achievementsClient?.close()
+    achievementsClient = null
     super.onDestroy()
   }
 
@@ -396,6 +465,8 @@ class SessionActivity : ComponentActivity() {
     private const val EXTRA_STACKED_SCREENS_KEYS = "stacked_screens_keys"
     private const val EXTRA_STACKED_SCREENS_VALUES = "stacked_screens_values"
     private const val EXTRA_LOWER_SCREEN_WIDTH_SHARE = "lower_screen_width_share"
+    private const val EXTRA_ACHIEVEMENTS_CONSOLE = "achievements_console"
+    private const val EXTRA_HARDCORE = "hardcore"
 
     /** Why the session couldn't start, in the result of one that couldn't. */
     const val EXTRA_ERROR = "error"
@@ -418,7 +489,9 @@ class SessionActivity : ComponentActivity() {
      * [stackedScreensOptions] are the core's options that draw a two-screen system's screens
      * stacked, for playing on two displays, or none for a one-screen system, and
      * [lowerScreenWidthShare] is the bottom screen's share of that frame's width, centred, or null
-     * when it spans the whole width.
+     * when it spans the whole width. The game takes part in RetroAchievements as console
+     * [achievementsConsole], when it has one and the device is signed in, in hardcore if
+     * [hardcore].
      */
     fun intent(
       context: Context,
@@ -432,6 +505,8 @@ class SessionActivity : ComponentActivity() {
       aButtonPosition: AButtonPosition,
       stackedScreensOptions: Map<String, String> = emptyMap(),
       lowerScreenWidthShare: Float? = null,
+      achievementsConsole: Int? = null,
+      hardcore: Boolean = false,
     ): Intent =
       Intent(context, SessionActivity::class.java)
         .putExtra(EXTRA_CORE, core)
@@ -445,5 +520,7 @@ class SessionActivity : ComponentActivity() {
         .putExtra(EXTRA_STACKED_SCREENS_KEYS, stackedScreensOptions.keys.toTypedArray())
         .putExtra(EXTRA_STACKED_SCREENS_VALUES, stackedScreensOptions.values.toTypedArray())
         .apply { lowerScreenWidthShare?.let { putExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, it) } }
+        .putExtra(EXTRA_ACHIEVEMENTS_CONSOLE, achievementsConsole ?: -1)
+        .putExtra(EXTRA_HARDCORE, hardcore)
   }
 }

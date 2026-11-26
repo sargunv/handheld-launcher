@@ -27,7 +27,9 @@ fn start(dir: &Path) -> std::sync::Arc<GameSession> {
             core_options: HashMap::new(),
             video: VideoMode::Offscreen,
             lower_screen_width_share: None,
+            achievements: None,
         },
+        None,
         None,
     )
     .unwrap()

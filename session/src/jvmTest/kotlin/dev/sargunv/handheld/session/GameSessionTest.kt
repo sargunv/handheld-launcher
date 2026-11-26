@@ -172,6 +172,8 @@ class GameSessionTest {
         override fun coreQuit() {
           heard.put("quit")
         }
+
+        override fun achievementEvent(event: AchievementEvent) {}
       }
     val session = start("events_libretro.so", listener = listener)
     session.setButton(0u, Button.SELECT, true)

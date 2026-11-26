@@ -6,7 +6,7 @@
 #
 # It reads `uiautomator dump --windows`. An element with a test tag (shown as a
 # resource id) or that takes focus is one line, with the text inside it; other
-# text gets a line of its own.
+# text gets a line of its own. A password field's text shows as <password>.
 set -euo pipefail
 
 package=dev.sargunv.handheld
@@ -57,6 +57,8 @@ function line(i,   out, flags) {
   mine = 0
   if (attr("package") == package) {
     rid = attr("resource-id"); t = attr("text"); d = attr("content-desc")
+    # A password field reports the secret typed in it, so it never prints.
+    if (attr("password") == "true" && t != "") t = "<password>"
     isOwner = (rid != "" && rid !~ /^android:/) || attr("focusable") == "true"
     if (isOwner || (owner[depth] == 0 && (t != "" || d != ""))) {
       i = ++n

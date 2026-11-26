@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
@@ -109,6 +110,7 @@ class MainActivity : ComponentActivity() {
     val downloads = downloadManager(this)
     keepDownloadsRunning()
     val launcher = StandalonePlayer(this, credentials).also { player = it }
+    val retroAchievements = retroAchievementsSignIn(this)
     // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
     setContent {
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
         initialSettings = settings,
         saveSettings = settingsFile::write,
         launcher = launcher,
+        retroAchievements = retroAchievements,
         apps = apps,
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {

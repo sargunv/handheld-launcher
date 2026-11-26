@@ -10,6 +10,9 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::achievements::{
+    AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory, HttpClient,
+};
 use crate::audio::AudioSink;
 use crate::content;
 use crate::core::{Core, CoreLoadError};
@@ -74,6 +77,9 @@ pub struct SessionConfig {
     pub input: Arc<InputState>,
     /// Core option values to use instead of the core's defaults, by key.
     pub options: HashMap<String, String>,
+    /// How the session takes part in RetroAchievements, if it does, and what
+    /// sends its requests to the server.
+    pub achievements: Option<(AchievementOptions, Box<dyn HttpClient>)>,
 }
 
 /// What a core says about itself.
@@ -181,6 +187,8 @@ pub enum SessionError {
     Serialize,
     #[error("the core couldn't restore the state")]
     Unserialize,
+    #[error("hardcore mode doesn't allow that")]
+    Hardcore,
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -217,6 +225,9 @@ pub struct Session {
     system_info: SystemInfo,
     initialized: bool,
     game_loaded: bool,
+    /// The game's achievements, while the session takes part in
+    /// RetroAchievements. Dropped before the game unloads.
+    achievements: Option<Achievements>,
     /// Content the core may keep pointers into.
     _content: Option<(CString, Option<Vec<u8>>)>,
     _claim: ActiveClaim,
@@ -274,6 +285,7 @@ impl Session {
             },
             initialized: false,
             game_loaded: false,
+            achievements: None,
             _content: None,
             _claim: claim,
             _thread_bound: PhantomData,
@@ -309,6 +321,10 @@ impl Session {
             .transpose()?;
         session.load_content(content.as_deref())?;
         session.game_loaded = true;
+        if let (Some((options, http)), Some(content)) = (config.achievements, content.as_deref()) {
+            session.achievements = Achievements::start(&options, content, http);
+            session.set_achievement_memory();
+        }
 
         let mut av = ffi::retro_system_av_info::default();
         // SAFETY: called after retro_load_game, as libretro requires.
@@ -488,6 +504,71 @@ impl Session {
         // SAFETY: the game is loaded and no host reference is live.
         unsafe { (self.core.run)() };
         self.host_mut().flush_audio();
+        if let Some(achievements) = &self.achievements {
+            // Some cores only have memory once they've run.
+            if !achievements.has_memory() {
+                self.set_achievement_memory();
+            }
+            achievements.do_frame();
+        }
+    }
+
+    /// Lays out the core's memory for achievements to read.
+    fn set_achievement_memory(&self) {
+        if let Some(achievements) = &self.achievements {
+            let core = CoreMemory {
+                data: self.core.get_memory_data,
+                size: self.core.get_memory_size,
+            };
+            // A copy, as the core's memory functions may call back into the
+            // host.
+            let map = self.host().memory_map.clone();
+            achievements.set_memory(map.as_deref(), core);
+        }
+    }
+
+    /// Lets achievements retry requests and keep the server's session alive
+    /// while the game is paused.
+    pub fn achievements_idle(&self) {
+        if let Some(achievements) = &self.achievements {
+            achievements.idle();
+        }
+    }
+
+    /// Whether the session takes part in RetroAchievements.
+    pub fn has_achievements(&self) -> bool {
+        self.achievements.is_some()
+    }
+
+    /// Hands a RetroAchievements request's response to the session: the HTTP
+    /// status and body, or `None` when the server couldn't be reached.
+    pub fn achievements_response(&self, id: u64, status: Option<u16>, body: &[u8]) {
+        if let Some(achievements) = &self.achievements {
+            achievements.respond(id, status, body);
+        }
+    }
+
+    /// Where the game's achievements stand.
+    pub fn achievement_status(&self) -> AchievementStatus {
+        self.achievements
+            .as_ref()
+            .map_or(AchievementStatus::Off, Achievements::status)
+    }
+
+    /// What happened to the game's achievements since the last call.
+    pub fn take_achievement_events(&self) -> Vec<AchievementEvent> {
+        self.achievements
+            .as_ref()
+            .map(Achievements::take_events)
+            .unwrap_or_default()
+    }
+
+    /// Whether hardcore's rules apply: no loading states and no fast forward,
+    /// while a game with achievements plays in hardcore.
+    pub fn hardcore_restricts(&self) -> bool {
+        self.achievements
+            .as_ref()
+            .is_some_and(Achievements::restricts)
     }
 
     /// Resets the core, like a console's reset button.
@@ -498,6 +579,9 @@ impl Session {
         }
         // SAFETY: the game is loaded and no host reference is live.
         unsafe { (self.core.reset)() };
+        if let Some(achievements) = &self.achievements {
+            achievements.reset();
+        }
     }
 
     /// What the core says about itself.
@@ -750,15 +834,21 @@ impl Session {
         }
     }
 
-    /// Restores a state from [`Session::serialize_state`].
+    /// Restores a state from [`Session::serialize_state`]. Hardcore mode
+    /// doesn't allow it.
     pub fn unserialize_state(&mut self, state: &[u8]) -> Result<(), SessionError> {
+        if self.hardcore_restricts() {
+            return Err(SessionError::Hardcore);
+        }
         // SAFETY: the game is loaded, the core only reads `state`, and no
         // host reference is live.
-        if unsafe { (self.core.unserialize)(state.as_ptr().cast(), state.len()) } {
-            Ok(())
-        } else {
-            Err(SessionError::Unserialize)
+        if !unsafe { (self.core.unserialize)(state.as_ptr().cast(), state.len()) } {
+            return Err(SessionError::Unserialize);
         }
+        if let Some(achievements) = &self.achievements {
+            achievements.state_loaded();
+        }
+        Ok(())
     }
 
     /// Saves the core's state to `path`, replacing the file only once the new
@@ -771,8 +861,12 @@ impl Session {
         Ok(write_atomically(path, &state)?)
     }
 
-    /// Restores a state that [`Session::save_state`] wrote.
+    /// Restores a state that [`Session::save_state`] wrote. Hardcore mode
+    /// doesn't allow it.
     pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        if self.hardcore_restricts() {
+            return Err(SessionError::Hardcore);
+        }
         if !self.host().states_persist() {
             return Err(SessionError::StatesNotPersistent);
         }
@@ -783,6 +877,8 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
+        // The client reads the core's memory until it's gone.
+        self.achievements = None;
         if self.game_loaded {
             let host = self.host_mut();
             let destroy = host.hw_render.and_then(|cb| cb.context_destroy);

@@ -8,6 +8,7 @@
 //! [`GameSession`] is what the app uses: a session on a thread of its own,
 //! with the platform's window and audio output.
 
+mod achievements;
 mod audio;
 mod content;
 mod core;
@@ -24,11 +25,16 @@ mod session;
 mod video;
 mod vulkan;
 
+pub use crate::achievements::{
+    Achievement, AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
+    HttpClient as AchievementsHttpClient, rcheevos_user_agent_clause,
+};
 pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
 pub use crate::gl::{GlError, NativeWindow};
 pub use crate::handle::{
-    GameSession, SessionInfo, SessionListener, SessionOptions, VideoMode, WindowHandle,
+    AchievementsHttp, GameSession, SessionInfo, SessionListener, SessionOptions, VideoMode,
+    WindowHandle,
 };
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
 pub use crate::options::{CoreOption, OptionValue};

@@ -12,8 +12,8 @@ use std::time::Duration;
 
 use common::{Harness, fixture, lock};
 use handheld_session::{
-    AvInfo, Button, GameSession, SessionError, SessionInfo, SessionListener, SessionOptions,
-    VideoMode,
+    AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionInfo, SessionListener,
+    SessionOptions, VideoMode,
 };
 
 const CORE: &str = "events_libretro.so";
@@ -103,6 +103,8 @@ impl SessionListener for Forward {
     fn core_quit(&self) {
         let _ = self.0.lock().unwrap().send(Heard::Quit);
     }
+
+    fn achievement_event(&self, _event: AchievementEvent) {}
 }
 
 fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
@@ -118,8 +120,10 @@ fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
             core_options: HashMap::new(),
             video: VideoMode::Offscreen,
             lower_screen_width_share: None,
+            achievements: None,
         },
         Some(Arc::new(Forward(Mutex::new(heard)))),
+        None,
     )
     .unwrap();
     (session, receiver)
@@ -175,6 +179,8 @@ impl SessionListener for StopOnQuit {
         }
         let _ = self.1.lock().unwrap().send(());
     }
+
+    fn achievement_event(&self, _event: AchievementEvent) {}
 }
 
 #[test]
@@ -194,8 +200,10 @@ fn the_listener_may_stop_the_session() {
             core_options: HashMap::new(),
             video: VideoMode::Offscreen,
             lower_screen_width_share: None,
+            achievements: None,
         },
         Some(listener.clone()),
+        None,
     )
     .unwrap();
     *listener.0.lock().unwrap() = Some(session.clone());

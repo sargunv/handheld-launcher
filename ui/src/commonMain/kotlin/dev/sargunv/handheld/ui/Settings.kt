@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui
 
+import dev.sargunv.handheld.ui.achievements.AchievementSettings
 import dev.sargunv.handheld.ui.game.LaunchSettings
 import dev.sargunv.handheld.ui.home.HomeSettings
 import dev.sargunv.handheld.ui.input.InputSettings
@@ -27,4 +28,5 @@ data class Settings(
    * on devices that let it.
    */
   val closeEmulators: Boolean = false,
+  val achievements: AchievementSettings = AchievementSettings(),
 )

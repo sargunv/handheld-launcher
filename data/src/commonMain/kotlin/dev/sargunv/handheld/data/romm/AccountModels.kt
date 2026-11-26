@@ -39,8 +39,27 @@ data class RommUser(
   /** The scopes the user's role grants. A token may hold fewer. */
   @SerialName("oauth_scopes") val oauthScopes: List<String> = emptyList(),
   @SerialName("current_device_id") val currentDeviceId: String? = null,
+  /** The RetroAchievements account the user linked in RomM, or empty when they haven't. */
+  @SerialName("ra_username") val raUsername: String? = null,
+  /** The user's RetroAchievements progress, which RomM fetches from RetroAchievements. */
+  @SerialName("ra_progression") val raProgression: RommRaProgression? = null,
   @SerialName("created_at") val createdAt: Instant,
   @SerialName("updated_at") val updatedAt: Instant,
+)
+
+/** A user's RetroAchievements progress, game by game, as RomM last fetched it. */
+@Serializable data class RommRaProgression(val results: List<RommRaGameProgression> = emptyList())
+
+/** A user's RetroAchievements progress in one game. */
+@Serializable
+data class RommRaGameProgression(
+  /** RetroAchievements' id for the game, which a ROM's `ra_id` matches. */
+  @SerialName("rom_ra_id") val romRaId: Long? = null,
+  /** How many achievements the game has. */
+  @SerialName("max_possible") val maxPossible: Int? = null,
+  /** How many of them the user has earned, in either mode. */
+  @SerialName("num_awarded") val numAwarded: Int? = null,
+  @SerialName("num_awarded_hardcore") val numAwardedHardcore: Int? = null,
 )
 
 /** What a device tells the server about itself when it asks to pair. */

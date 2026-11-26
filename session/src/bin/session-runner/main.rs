@@ -298,6 +298,7 @@ impl App {
             audio,
             input: self.input.clone(),
             options: self.args.options.iter().cloned().collect::<HashMap<_, _>>(),
+            achievements: None,
         };
         // SAFETY: the user named a libretro core, and the window outlives the
         // session, which `App` drops first.

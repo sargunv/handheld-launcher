@@ -51,6 +51,9 @@ ndk = { version = "0.9.0", default-features = false, features = [
 ] }
 rtrb = "0.4.1"
 
+[build-dependencies]
+cc = "1.11.3"
+
 [dev-dependencies]
 png = "0.18.1"
 sha2 = "0.11.2"

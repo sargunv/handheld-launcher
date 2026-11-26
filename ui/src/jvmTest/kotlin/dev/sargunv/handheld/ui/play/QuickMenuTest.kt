@@ -32,7 +32,11 @@ import kotlinx.coroutines.CompletableDeferred
 private class FakeSession(
   private val saveFailure: String? = null,
   private val loading: CompletableDeferred<Unit>? = null,
+  private val achievements: GameAchievements = GameAchievements.Off,
+  override val hardcore: Boolean = false,
 ) : QuickMenuSession {
+  override suspend fun achievements() = achievements
+
   val calls = mutableListOf<String>()
   val saved = mutableMapOf<Int, Instant>()
 
@@ -209,9 +213,89 @@ class QuickMenuTest {
         Key.DirectionDown,
         Key.DirectionDown,
         Key.DirectionDown,
+        Key.DirectionDown,
         Key.ButtonA,
       ),
     )
     assertEquals(listOf("quit"), session.calls)
+  }
+
+  private val set =
+    GameAchievements.Ready(
+      game = "Super Mario Land",
+      hardcore = false,
+      items =
+        listOf(
+          AchievementItem(1, "Mushroom Man", "Grab a mushroom", 1, unlocked = true),
+          AchievementItem(2, "Pocket Change", "Collect 99 coins", 2, false, progress = "40/99"),
+          AchievementItem(3, "Coin Allergy", "Finish World 1 without coins", 25, false),
+        ),
+    )
+
+  @Test
+  fun listsTheGamesAchievements() = runComposeUiTest {
+    val session = FakeSession(achievements = set)
+    showMenu(session)
+    onNodeWithTag("quick:achievements").assertTextEquals("Achievements", "1 of 3")
+    press(List(4) { Key.DirectionDown } + Key.ButtonA)
+    onNodeWithTag("achievements:note").assertTextEquals("Super Mario Land · 1 of 3 unlocked")
+    onNodeWithTag("achievement:1").assertIsFocused()
+    onNodeWithTag("achievement:1")
+      .assert(expectValue(SemanticsProperties.StateDescription, "Unlocked"))
+    onNodeWithTag("achievement:2")
+      .assert(expectValue(SemanticsProperties.StateDescription, "40/99"))
+    onNodeWithTag("achievement:3")
+      .assert(expectValue(SemanticsProperties.StateDescription, "Locked"))
+    // Back returns to the menu, where the list was opened.
+    press(listOf(Key.ButtonB))
+    onNodeWithTag("quick:achievements").assertIsFocused()
+    assertEquals(emptyList(), session.calls)
+  }
+
+  @Test
+  fun saysWhyThereAreNoAchievements() = runComposeUiTest {
+    showMenu(FakeSession(achievements = GameAchievements.NoSet))
+    onNodeWithTag("quick:achievements").assertTextEquals("Achievements", "None")
+    press(List(4) { Key.DirectionDown } + Key.ButtonA)
+    onNodeWithTag("achievements:note")
+      .assertTextEquals("RetroAchievements has no achievements for this game.")
+    onNodeWithTag("achievements:note").assertIsFocused()
+  }
+
+  @Test
+  fun hardcoreDisablesLoadingAndFastForward() = runComposeUiTest {
+    val session = FakeSession(achievements = set.copy(hardcore = true), hardcore = true)
+    showMenu(session)
+    onNodeWithTag("quick:load").assertTextEquals("Load state", "Not in hardcore")
+    onNodeWithTag("quick:fast-forward").assertTextEquals("Fast forward", "Not in hardcore")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    assertEquals(emptyList(), session.calls)
+    // Saving still works.
+    press(listOf(Key.DirectionUp, Key.DirectionUp, Key.ButtonA, Key.ButtonA))
+    assertEquals(listOf("save 1"), session.calls)
+  }
+
+  @Test
+  fun hardcoreWithoutASetAllowsEverything() = runComposeUiTest {
+    val session = FakeSession(achievements = GameAchievements.NoSet, hardcore = true)
+    showMenu(session)
+    onNodeWithTag("quick:load").assertTextEquals("Load state")
+    onNodeWithTag("quick:fast-forward").assertTextEquals("Fast forward", "Off")
+  }
+
+  @Test
+  fun toastsShowOneAtATime() = runComposeUiTest {
+    mainClock.autoAdvance = false
+    val toasts = ToastState()
+    setContent { ToastHost(toasts) }
+    toasts.show(unlockedToast("Mushroom Man", 1))
+    toasts.show(unlockedToast("Pocket Change", 2))
+    mainClock.advanceTimeByFrame()
+    onNodeWithTag("toast").assertTextEquals("Achievement unlocked: Mushroom Man", "1 point")
+    mainClock.advanceTimeBy(4_100)
+    onNodeWithTag("toast").assertTextEquals("Achievement unlocked: Pocket Change", "2 points")
+    mainClock.advanceTimeBy(4_100)
+    onNodeWithTag("toast").assertDoesNotExist()
   }
 }

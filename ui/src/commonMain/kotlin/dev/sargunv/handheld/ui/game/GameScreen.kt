@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.achievements.RommAchievementProgress
+import dev.sargunv.handheld.data.achievements.achievementProgress
 import dev.sargunv.handheld.data.downloads.Removal
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.formatSize
@@ -394,8 +396,19 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
         state.library.collectionsOf(current.id).mapTo(mutableSetOf()) { it.launchId }
       value = state.launcher.opensIn(current, launch.toRules(), collections)
     }
+  val achievements by
+    produceState<RommAchievementProgress?>(null, current) {
+      value = loadAchievementProgress(state, current.id)
+    }
   val now = remember(history) { Clock.System.now() }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    achievements?.let {
+      Text(
+        achievementSummary(it),
+        color = Placeholder.mutedText,
+        modifier = Modifier.testTag("game:achievements"),
+      )
+    }
     Column(
       Modifier.weight(1f).verticalScroll(rememberScrollState()),
       verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -451,6 +464,33 @@ private fun SaveRow(source: String, details: List<String>) {
   ) {
     Text(source, color = Placeholder.text)
     Text(details.joinToString(" · "), color = Placeholder.mutedText)
+  }
+}
+
+/** The player's RetroAchievements progress in the game, as RomM syncs it, in words. */
+internal fun achievementSummary(progress: RommAchievementProgress): String {
+  val hardcore =
+    if (progress.unlockedHardcore > 0) ", ${progress.unlockedHardcore} in hardcore" else ""
+  return "RetroAchievements: ${progress.unlocked} of ${progress.total} unlocked$hardcore"
+}
+
+/**
+ * The player's RetroAchievements progress in ROM [romId], read from RomM, or null when there's none
+ * to show or RomM is out of reach. It only reads.
+ */
+private suspend fun loadAchievementProgress(
+  state: AppState,
+  romId: Long,
+): RommAchievementProgress? {
+  val credentials = state.credentials.load() ?: return null
+  return try {
+    withContext(Dispatchers.Default) {
+      RommClient(credentials.baseUrl, credentials.token, state.httpEngine()).use {
+        it.achievementProgress(romId)
+      }
+    }
+  } catch (_: RommException) {
+    null
   }
 }
 

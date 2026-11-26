@@ -22,6 +22,8 @@ import dev.sargunv.handheld.data.cache.LibrarySync
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.platformHttpEngine
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.cover.coverImageLoader
 import dev.sargunv.handheld.ui.dialog.Dialogs
 import dev.sargunv.handheld.ui.dialog.LocalDialogs
@@ -70,6 +72,8 @@ import kotlinx.io.files.Path
  * @param device this device, as it introduces itself to the server when it signs in.
  * @param httpEngine makes the HTTP engine for each of the server's clients.
  * @param launcher plays games, on platforms that can.
+ * @param retroAchievements the device's RetroAchievements account, on platforms whose games can
+ *   earn achievements.
  * @param apps the apps on the device that the player can pick to open games in.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
@@ -91,6 +95,7 @@ fun App(
   saveSettings: suspend (Settings) -> Unit = {},
   httpEngine: () -> HttpClientEngine = ::platformHttpEngine,
   launcher: GameLauncher = GameLauncher.Unsupported,
+  retroAchievements: RetroAchievementsSignIn? = null,
   apps: AppCatalog = AppCatalog.None,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
   openRequest: OpenRequest? = null,
@@ -101,9 +106,19 @@ fun App(
   var signedIn by remember { mutableStateOf<Boolean?>(null) }
   LaunchedEffect(credentials) { signedIn = credentials.load() != null }
   val state =
-    remember(library, downloads, launcher, apps, credentials, httpEngine) {
-      AppState(initialSettings, library, downloads, launcher, apps, credentials, httpEngine)
+    remember(library, downloads, launcher, apps, credentials, httpEngine, retroAchievements) {
+      AppState(
+        initialSettings,
+        library,
+        downloads,
+        launcher,
+        apps,
+        credentials,
+        httpEngine,
+        retroAchievements?.let(::RetroAchievementsState),
+      )
     }
+  LaunchedEffect(state) { state.retroAchievements?.load() }
   LaunchedEffect(state) {
     downloads.statuses().collect { state.deviceStates = deviceStates(it) }
   }

@@ -88,9 +88,10 @@ val workspaceDir: Directory = rootProject.layout.projectDirectory
 val hostLibraryName: String = System.mapLibraryName("handheld_session")
 val rustSources =
   files(
-    fileTree("src") { include("**/*.rs") },
+    fileTree("src") { include("**/*.rs", "**/*.h") },
     fileTree("vendor"),
     fileTree("bindgen") { include("Cargo.toml", "src/**") },
+    "build.rs",
     "Cargo.toml",
     "uniffi.toml",
     workspaceDir.file("Cargo.toml"),
