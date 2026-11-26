@@ -69,6 +69,8 @@ pub(crate) struct AudioPipeline {
     /// Interleaved input not yet resampled.
     pending: Vec<f32>,
     output: Vec<f32>,
+    /// The output of one flush, for the sink.
+    batch: Vec<f32>,
 }
 
 impl AudioPipeline {
@@ -94,6 +96,7 @@ impl AudioPipeline {
             resampler,
             pending: Vec::with_capacity(CHUNK_FRAMES * 8),
             output,
+            batch: Vec::new(),
         })
     }
 
@@ -103,8 +106,8 @@ impl AudioPipeline {
             .extend(samples.iter().map(|&s| f32::from(s) / 32768.0));
     }
 
-    /// Resamples every whole chunk queued so far into `sink`, and keeps the
-    /// remainder for the next call. The core runs at `speed` times its own
+    /// Resamples every whole chunk queued so far into `sink`, in one write,
+    /// and keeps the remainder for the next call. The core runs at `speed` times its own
     /// rate, so its audio plays that much slower to keep up.
     pub(crate) fn flush(&mut self, sink: &mut dyn AudioSink, speed: f64) {
         let speed = speed.clamp(1.0 - MAX_SPEED_CHANGE, 1.0 + MAX_SPEED_CHANGE);
@@ -129,7 +132,7 @@ impl AudioPipeline {
             {
                 Ok((read, written)) => {
                     consumed += read * 2;
-                    sink.write(&self.output[..written * 2]);
+                    self.batch.extend_from_slice(&self.output[..written * 2]);
                 }
                 Err(e) => {
                     log::error!("resampling failed, dropping queued audio: {e}");
@@ -139,6 +142,10 @@ impl AudioPipeline {
             }
         }
         self.pending.drain(..consumed);
+        if !self.batch.is_empty() {
+            sink.write(&self.batch);
+            self.batch.clear();
+        }
     }
 }
 
