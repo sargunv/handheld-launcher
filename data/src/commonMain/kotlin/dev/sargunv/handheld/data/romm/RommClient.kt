@@ -8,6 +8,7 @@ import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
+import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
@@ -412,6 +413,82 @@ class RommClient(
   }
 
   /**
+   * Starts uploading a game file named [fileName], of [totalSize] bytes in [totalChunks] chunks,
+   * into the folder of the platform [platformId], and returns the upload's id. The server refuses a
+   * file whose name its platform's folder already holds. Needs the `roms.write` scope.
+   */
+  suspend fun startUpload(
+    platformId: Long,
+    fileName: String,
+    totalSize: Long,
+    totalChunks: Int,
+  ): String {
+    val (response, text) =
+      network {
+        val response = http.request {
+          endpoint(HttpMethod.Post, listOf("roms", "upload", "start"))
+          header("x-upload-platform", platformId.toString())
+          // A header carries only Latin-1, so the body names the file as it is.
+          header(
+            "x-upload-filename",
+            fileName.map { if (it.code in 0x20..0x7e) it else '_' }.joinToString(""),
+          )
+          header("x-upload-total-size", totalSize.toString())
+          header("x-upload-total-chunks", totalChunks.toString())
+          contentType(ContentType.Application.Json)
+          setBody(RommJson.encodeToString(UploadTarget.serializer(), UploadTarget(fileName)))
+        }
+        response to response.bodyAsText()
+      }
+    if (!response.status.isSuccess()) throw errorFor(response, text)
+    return decode(UploadStarted.serializer(), text).uploadId
+  }
+
+  /** Sends chunk [index] of the upload [uploadId]. */
+  suspend fun uploadChunk(uploadId: String, index: Int, bytes: ByteArray) {
+    val (response, text) =
+      network {
+        val response = http.request {
+          endpoint(HttpMethod.Put, listOf("roms", "upload", uploadId))
+          header("x-chunk-index", index.toString())
+          contentType(ContentType.Application.OctetStream)
+          setBody(bytes)
+        }
+        response to response.bodyAsText()
+      }
+    if (!response.status.isSuccess()) throw errorFor(response, text)
+  }
+
+  /** Puts the upload [uploadId]'s chunks together into the game's file on the server. */
+  suspend fun completeUpload(uploadId: String) {
+    val (response, text) = exchange(HttpMethod.Post, listOf("roms", "upload", uploadId, "complete"))
+    if (!response.status.isSuccess()) throw errorFor(response, text)
+  }
+
+  /** Stops the upload [uploadId], and the server drops what it received. */
+  suspend fun cancelUpload(uploadId: String) {
+    val (response, text) = exchange(HttpMethod.Post, listOf("roms", "upload", uploadId, "cancel"))
+    if (!response.status.isSuccess()) throw errorFor(response, text)
+  }
+
+  /**
+   * Asks the server for a quick scan of the platform [platformId], which adds the games new in its
+   * folder to the library, and returns the scan task's id. Needs the `tasks.run` scope.
+   */
+  suspend fun scanPlatform(platformId: Long): String =
+    send(
+        ScanTask.serializer(),
+        HttpMethod.Post,
+        listOf("tasks", "scan"),
+        body = RommJson.encodeToString(ScanRequest.serializer(), ScanRequest(listOf(platformId))),
+      )
+      .taskId
+
+  /** The status of the server's task [taskId], such as `queued`, `started` or `finished`. */
+  suspend fun taskStatus(taskId: String): String =
+    get(ScanTask.serializer(), "tasks", taskId).status
+
+  /**
    * Starts a device sign-in. Show the user [DeviceCode.userCode] and [DeviceCode.verificationUrl],
    * then call [awaitDeviceAuth]. Needs no token.
    */
@@ -657,3 +734,18 @@ private fun detailOf(text: String): String? {
     else -> null
   }
 }
+
+/** The body of an upload's start: the file's name, which a header can't carry outside Latin-1. */
+@Serializable private data class UploadTarget(val filename: String)
+
+@Serializable private data class UploadStarted(@SerialName("upload_id") val uploadId: String)
+
+/** A quick scan of [platforms]. */
+@Serializable private data class ScanRequest(val platforms: List<Long>, val type: String = "quick")
+
+/** A task the server runs, such as a scan. */
+@Serializable
+private data class ScanTask(
+  @SerialName("task_id") val taskId: String,
+  val status: String,
+)
