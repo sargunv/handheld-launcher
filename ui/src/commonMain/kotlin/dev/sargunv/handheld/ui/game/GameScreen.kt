@@ -168,6 +168,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   // How an upload to RomM under way is going, in a few words, such as "Uploading 42%".
   var uploading by remember { mutableStateOf<String?>(null) }
   var upload by remember { mutableStateOf<Job?>(null) }
+  // Whether the server has the whole file, so the upload can't stop any more.
+  var uploadFinishing by remember { mutableStateOf(false) }
   // What the launch is doing before the game starts, such as getting its core.
   var playProgress by remember { mutableStateOf<String?>(null) }
   // What the player should know about the last thing they did here, such as how a play went.
@@ -233,10 +235,15 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               return@launch
             }
         val result = client.use {
-          uploadLocalGame(it, game) { sent, total ->
-            uploading =
-              if (sent < total) "Uploading ${sent * 100 / total.coerceAtLeast(1)}%"
-              else "Adding to your library"
+          uploadLocalGame(
+            it,
+            game,
+            onFinishing = {
+              uploadFinishing = true
+              uploading = "Adding to your library"
+            },
+          ) { sent, total ->
+            if (sent < total) uploading = "Uploading ${sent * 100 / total}%"
           }
         }
         notes =
@@ -256,6 +263,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       } finally {
         uploading = null
         upload = null
+        uploadFinishing = false
       }
     }
   }
@@ -271,7 +279,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     if (currentStatus is RomStatus.OnDevice) play(current, currentStatus.path)
   }
   LaunchedEffect(playing) { if (!playing) confirmLeave = false }
-  LaunchedEffect(uploading) { if (uploading == null) confirmStopUpload = false }
+  // Once the server has the whole file, the upload finishes, so there's nothing to stop.
+  LaunchedEffect(uploading, uploadFinishing) {
+    if (uploading == null || uploadFinishing) confirmStopUpload = false
+  }
   // The system back gesture asks too, as Back does, or cancels a save choice, as Back does there.
   if (playing && LocalNavigationEventDispatcherOwner.current != null) {
     NavigationBackHandler(
@@ -285,7 +296,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   if (uploading != null && LocalNavigationEventDispatcherOwner.current != null) {
     NavigationBackHandler(
       state = rememberNavigationEventState(NavigationEventInfo.None),
-      onBackCompleted = { confirmStopUpload = true },
+      onBackCompleted = { if (!uploadFinishing) confirmStopUpload = true },
     )
   }
   val primary =
@@ -299,7 +310,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         // Leaving would stop the launch, so it asks first.
         action == Action.Back && playing -> confirmLeave = true
         // Back stops an upload, once the player says so.
-        action == Action.Back && uploading != null -> confirmStopUpload = true
+        action == Action.Back && uploading != null -> if (!uploadFinishing) confirmStopUpload = true
         // The main menu waits for the launch or the upload, as it would leave the screen.
         action == Action.MainMenu && (playing || uploading != null) -> Unit
         else -> return@onAction false
@@ -376,7 +387,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       HintBar(
         buildList {
           if (primary?.isAction == true) add(Hint(Action.Confirm, primary.label))
-          add(Hint(Action.Back, if (uploading != null) "Stop upload" else "Back"))
+          when {
+            uploading == null -> add(Hint(Action.Back, "Back"))
+            !uploadFinishing -> add(Hint(Action.Back, "Stop upload"))
+          }
           if (hasMenu) add(Hint(Action.Menu, "Menu"))
           if (!playing && uploading == null) add(Hint(Action.MainMenu, "Main menu"))
         },
@@ -520,8 +534,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             MenuButton("upload:keep", "Keep uploading", onConfirm = keep)
             MenuButton("upload:stop", "Stop upload") {
               keep()
-              upload?.cancel()
-              notes = listOf("The upload stopped.")
+              // The server may have the whole file meanwhile, and then it finishes.
+              if (!uploadFinishing) {
+                upload?.cancel()
+                notes = listOf("The upload stopped.")
+              }
             }
           }
         }

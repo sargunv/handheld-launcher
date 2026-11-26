@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.io.buffered
@@ -31,10 +32,13 @@ enum class UploadResult {
 
 /**
  * Uploads [game]'s file to the server [client] reaches, into its platform's folder under the same
- * name, in chunks of [chunkSize] bytes, and asks the server to scan the platform so the game joins
- * its library. [onProgress] hears the bytes sent of the total after each chunk.
+ * name, in chunks of at most [chunkSize] bytes, and asks the server to scan the platform so the
+ * game joins its library. [onProgress] hears the bytes sent of the total after each chunk, and
+ * [onFinishing] when the last has arrived and the server puts the file together.
  *
- * A canceled or failed upload cancels it on the server too, which drops what it received.
+ * Until then, a canceled or failed upload cancels it on the server too, which drops what it
+ * received. From then on the file is the server's: the upload finishes even when canceled, and a
+ * scan that can't be followed leaves the game for the server's next one.
  *
  * @throws RommException when the server refuses the upload, such as when the account may not upload
  *   games or the platform's folder already holds a file of that name, or can't be reached.
@@ -46,24 +50,33 @@ suspend fun uploadLocalGame(
   chunkSize: Int = UPLOAD_CHUNK_SIZE,
   scanPoll: Duration = 2.seconds,
   scanTimeout: Duration = 3.minutes,
+  onFinishing: () -> Unit = {},
   onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
 ): UploadResult =
   withContext(Dispatchers.IO) {
     val path = Path(game.path)
     val total = SystemFileSystem.metadataOrNull(path)?.size ?: game.sizeBytes
     val chunks = ((total + chunkSize - 1) / chunkSize).toInt()
-    val uploadId = client.startUpload(game.platformId, game.fileName, total, chunks)
+    // The server sizes every chunk but the last alike, as it splits the total among them.
+    val chunkLength = if (chunks == 0) 0L else (total + chunks - 1) / chunks
+    // Once asked, the server holds an upload until it's canceled, so the start is waited for.
+    val uploadId =
+      withContext(NonCancellable) {
+        client.startUpload(game.platformId, game.fileName, total, chunks)
+      }
     try {
+      ensureActive()
       SystemFileSystem.source(path).buffered().use { source ->
         var sent = 0L
         for (index in 0 until chunks) {
-          val bytes = source.readByteArray(minOf(chunkSize.toLong(), total - sent).toInt())
+          val bytes = source.readByteArray(minOf(chunkLength, total - sent).toInt())
           client.uploadChunk(uploadId, index, bytes)
           sent += bytes.size
           onProgress(sent, total)
         }
       }
-      client.completeUpload(uploadId)
+      onFinishing()
+      withContext(NonCancellable) { client.completeUpload(uploadId) }
     } catch (e: Throwable) {
       withContext(NonCancellable) {
         try {
@@ -74,7 +87,12 @@ suspend fun uploadLocalGame(
       }
       throw e
     }
-    scan(client, game.platformId, scanPoll, scanTimeout)
+    try {
+      scan(client, game.platformId, scanPoll, scanTimeout)
+    } catch (_: RommException) {
+      // The file is on the server whether or not its scan can be followed.
+      UploadResult.AwaitingScan
+    }
   }
 
 /** Scans the platform [platformId] on the server, and waits a while for the scan to finish. */

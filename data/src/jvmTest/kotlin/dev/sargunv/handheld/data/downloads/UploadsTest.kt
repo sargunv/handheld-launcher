@@ -153,6 +153,58 @@ class UploadsTest {
   }
 
   @Test
+  fun chunksAreSizedAsTheServerSplitsTheTotal() = runTest {
+    file.writeBytes(content.copyOf(9))
+    val server = server()
+    uploadLocalGame(server.client, game.copy(sizeBytes = 9), chunkSize = 4)
+    // Three chunks of a 9-byte file are 3 bytes each, as the server expects, not 4, 4 and 1.
+    assertEquals(
+      listOf(3, 3, 3),
+      server.requests.filter { it.apiPath == "roms/upload/u1" }.map { it.bytes.size },
+    )
+  }
+
+  @Test
+  fun anUploadCanceledWhileStartingIsCanceledOnTheServer() = runTest {
+    val started = CompletableDeferred<Unit>()
+    val answer = CompletableDeferred<Unit>()
+    val server = MockServer { request ->
+      when (request.apiPath) {
+        "roms/upload/start" -> {
+          started.complete(Unit)
+          answer.await()
+          json("""{"upload_id": "u1"}""", HttpStatusCode.Created)
+        }
+        "roms/upload/u1/cancel" -> respond("", HttpStatusCode.NoContent)
+        else -> error("Nothing else is sent: ${request.apiPath}")
+      }
+    }
+    val upload = async { uploadLocalGame(server.client, game, chunkSize = 4) }
+    started.await()
+    upload.cancel()
+    answer.complete(Unit)
+    upload.join()
+    assertEquals(
+      listOf("roms/upload/start", "roms/upload/u1/cancel"),
+      server.requests.map { it.apiPath },
+    )
+  }
+
+  @Test
+  fun aScanThatCantBeFollowedStillCountsTheUpload() = runTest {
+    val server = MockServer { request ->
+      when (request.apiPath) {
+        "roms/upload/start" -> json("""{"upload_id": "u1"}""", HttpStatusCode.Created)
+        "roms/upload/u1" -> json("{}")
+        "roms/upload/u1/complete" -> respond("", HttpStatusCode.Created)
+        "tasks/scan" -> json(task("queued"), HttpStatusCode.Accepted)
+        else -> json("""{"detail": "Unavailable"}""", HttpStatusCode.ServiceUnavailable)
+      }
+    }
+    assertEquals(UploadResult.AwaitingScan, uploadLocalGame(server.client, game))
+  }
+
+  @Test
   fun anAccountThatCantScanLeavesTheGameForTheServersNextScan() = runTest {
     val server = MockServer { request ->
       when (request.apiPath) {
