@@ -24,7 +24,8 @@ sealed interface GameKey {
 
   /**
    * A [LocalGame], by its file's path. It names the file, not its content, so a choice made for it
-   * stays with the file while it keeps its name and place.
+   * stays with the file while it keeps its name and place. Once the file is a ROM's, what's kept
+   * for it goes to the ROM ([PerGameState]).
    */
   data class Local(val path: String) : GameKey
 }
@@ -61,9 +62,12 @@ data class LocalGame(
   /** The platform whose folder holds the file. */
   override val platformId: Long,
   override val platformSlug: String,
+  /** The size of its file, or of all the files of a disc set. */
   override val sizeBytes: Long,
   /** When the file last changed. */
   override val addedAt: Instant,
+  /** The other files of a disc set, which its playlist or descriptor lists, by path. */
+  val otherFiles: List<String> = emptyList(),
 ) : LibraryGame {
   override val key: GameKey
     get() = GameKey.Local(path)

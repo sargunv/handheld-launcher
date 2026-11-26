@@ -35,6 +35,7 @@ import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.launch.StandalonePlayer
+import dev.sargunv.handheld.launch.builtInSaveFolders
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -115,6 +116,7 @@ class MainActivity : ComponentActivity() {
     val retroAchievements = retroAchievementsSignIn(this)
     // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
+    val gameState = builtInSaveFolders(this)
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
       AppInfo(packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown") {
@@ -156,6 +158,7 @@ class MainActivity : ComponentActivity() {
         openRequest = openRequest,
         homePress = homePress,
         appInfo = appInfo,
+        gameState = gameState,
       )
     }
   }

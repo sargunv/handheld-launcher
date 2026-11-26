@@ -18,10 +18,12 @@ import dev.sargunv.handheld.domain.storage.GameLayout
 import io.ktor.client.engine.HttpClientEngine
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -31,7 +33,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -215,6 +219,23 @@ class DownloadManager(
     if (server == null) null
     else list.firstOrNull { it.state == DownloadState.Queued && (it.server ?: server) == server }
 
+  /** Deletes the staged downloads nothing resumes, once, as the manager starts. */
+  internal val sweep: Job = scope.launch { sweepStaging() }
+
+  init {
+    scope.launch { sweepAsTheLibraryGrows() }
+  }
+
+  /**
+   * Sweeps again as the library changes after [sweep]: a first sync fills it a page at a time, so
+   * the games of later pages are swept as they come.
+   */
+  @OptIn(FlowPreview::class)
+  private suspend fun sweepAsTheLibraryGrows() {
+    sweep.join()
+    library.allRoms().drop(1).debounce(1.seconds).collect { sweepStaging(it) }
+  }
+
   init {
     scope.launch {
       while (true) {
@@ -249,6 +270,67 @@ class DownloadManager(
   }
 
   /**
+   * Deletes the downloads left staged with nothing to resume them, such as when the app's data was
+   * cleared during a download: each `<name>.part` in a platform's folder on a storage target whose
+   * name, less the suffix, is that of a game of the library in that folder, and that no download in
+   * the queue may resume. Nothing else is touched, so other apps' files stay. It waits for the
+   * library to have games.
+   */
+  private suspend fun sweepStaging(of: List<Rom>? = null) {
+    canWrite.first { it }
+    // With app data cleared, the library is empty until the first sync fills it.
+    val roms = of ?: library.allRoms().first { it.isNotEmpty() }
+    val platforms = library.platforms().first()
+    val folders = platforms.associate { it.id to it.fsSlug }
+    fun nameOf(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
+    // The queue changes only under the lock, so no download starts meanwhile.
+    mutex.withLock {
+      val queued = entries.value
+      val romsById = roms.associateBy { it.id }
+      val kept = buildSet {
+        for (download in queued) {
+          download.path?.let { add("$it.part") }
+          val rom = romsById[download.romId] ?: continue
+          for (target in storage()) {
+            add(
+              "${Path(GameLayout.platformFolder(target.root, download.platformFolder), nameOf(rom))}.part",
+            )
+          }
+        }
+      }
+      val names = roms.groupBy({ folders[it.platformId] }, ::nameOf)
+      withContext(Dispatchers.IO) {
+        for (target in storage()) {
+          for ((folder, games) in names) {
+            if (folder == null) continue
+            val parts =
+              games
+                .filter { it.isNotEmpty() && it != "." && it != ".." && '/' !in it }
+                .mapTo(mutableSetOf()) { "$it.part" }
+            val dir = Path(GameLayout.platformFolder(target.root, folder))
+            val entries =
+              try {
+                if (SystemFileSystem.metadataOrNull(dir)?.isDirectory == true) {
+                  SystemFileSystem.list(dir)
+                } else emptyList()
+              } catch (e: IOException) {
+                emptyList()
+              }
+            for (entry in entries) {
+              if (entry.name !in parts || entry.toString() in kept) continue
+              try {
+                deleteRecursively(entry)
+              } catch (e: IOException) {
+                // The next start tries again.
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Checks the platforms' folders again, for games put there or taken away outside the app, such as
    * when the app comes back to the front.
    */
@@ -271,8 +353,9 @@ class DownloadManager(
         path = file.path,
         platformId = file.platformId,
         platformSlug = slug,
-        sizeBytes = file.sizeBytes,
+        sizeBytes = file.totalBytes,
         addedAt = Instant.fromEpochMilliseconds(file.modifiedMillis),
+        otherFiles = file.otherFiles.map { it.path },
       )
     }
   }
@@ -290,13 +373,11 @@ class DownloadManager(
           ?.let {
             return@combine LocalGameState.Local(it)
           }
-        scan.matched.entries
-          .find { it.value == path }
-          ?.let {
-            return@combine LocalGameState.Matched(it.key)
-          }
-        matchedByName(Path(path), platforms, roms)?.let { LocalGameState.Matched(it.id) }
-          ?: LocalGameState.Gone
+        // Of several games on the file, the lowest id, as the device's games pick.
+        val ids =
+          scan.matched.filterValues { it == path }.keys +
+            listOfNotNull(matchedByName(Path(path), platforms, roms)?.id)
+        ids.minOrNull()?.let(LocalGameState::Matched) ?: LocalGameState.Gone
       }
       .distinctUntilChanged()
       .flowOn(Dispatchers.IO)
@@ -316,25 +397,45 @@ class DownloadManager(
   }
 
   /**
-   * Deletes [game]'s file from the device. Only a file the latest scan found matching nothing, at
-   * the size it found, is deleted, so no other file is taken for it.
+   * Deletes [game]'s file from the device, and for a disc set, the files it lists. Only files the
+   * latest scan found matching nothing, at the sizes it found, are deleted, so no other file is
+   * taken for one. The playlist or descriptor goes last, so a removal that fails partway leaves the
+   * game to remove again.
    */
   suspend fun remove(game: LocalGame): Removal =
     // Once begun, a removal finishes even if the screen that asked goes away.
     withContext(NonCancellable + Dispatchers.IO) {
-      val path = Path(game.path)
-      val found =
-        scanned.value.unmatched.any { it.path == game.path && it.sizeBytes == game.sizeBytes }
-      val metadata = SystemFileSystem.metadataOrNull(path)
-      if (!found || metadata?.isRegularFile != true || metadata.size != game.sizeBytes) {
+      val unmatched = scanned.value.unmatched
+      val found = unmatched.find { it.path == game.path && it.totalBytes == game.sizeBytes }
+      // A track another local game's playlist or descriptor also lists stays, for that game.
+      val shared =
+        unmatched
+          .filter { it.path != game.path }
+          .flatMapTo(mutableSetOf()) { other -> other.otherFiles.map { it.path } + other.path }
+      val parts =
+        found
+          ?.let {
+            it.otherFiles.filter { part -> part.path !in shared } + LocalPart(it.path, it.sizeBytes)
+          }
+          .orEmpty()
+          .map {
+            Path(it.path) to it.sizeBytes
+          }
+      val unchanged =
+        parts.isNotEmpty() &&
+          parts.all { (path, size) ->
+            val metadata = SystemFileSystem.metadataOrNull(path)
+            metadata?.isRegularFile == true && metadata.size == size
+          }
+      if (!unchanged) {
         installs.update { it + 1 }
         return@withContext Removal.NotOnDevice
       }
       try {
-        SystemFileSystem.delete(path)
+        for ((path, _) in parts) SystemFileSystem.delete(path)
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: "The game's file couldn't be deleted")
+        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
       } finally {
         installs.update { it + 1 }
       }

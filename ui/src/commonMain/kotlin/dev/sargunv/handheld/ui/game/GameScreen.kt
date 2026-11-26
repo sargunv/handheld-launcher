@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -156,6 +157,12 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   var playing by remember { mutableStateOf(false) }
   val shown = rememberShownGame(state, screen, playing)
   val game = (shown as? ShownGame.Found)?.game
+  // While the game plays, what's kept for it stays where the launch found it.
+  DisposableEffect(playing, game?.key) {
+    val key = game?.key?.takeIf { playing }
+    if (key != null) state.playing = key
+    onDispose { if (key != null && state.playing == key) state.playing = null }
+  }
   val status by
     remember(game) {
         when (game) {
@@ -435,7 +442,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             RomStatus.NotOnDevice,
             null -> Unit
           }
-          if (current is LocalGame) {
+          // A disc set's other files would stay behind, since the upload sends one file.
+          if (current is LocalGame && current.otherFiles.isEmpty()) {
             MenuButton("menu:upload", "Upload to RomM") {
               close()
               notes = emptyList()

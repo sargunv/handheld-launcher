@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.ui
 
 import dev.sargunv.handheld.data.downloads.StorageSettings
+import dev.sargunv.handheld.domain.Adoption
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
 import dev.sargunv.handheld.ui.game.LaunchSettings
 import dev.sargunv.handheld.ui.home.HomeSettings
@@ -13,7 +15,8 @@ import kotlinx.serialization.Serializable
  * menu, and the device-wide ones on the Settings page.
  *
  * Add a setting as a property with a default. The default is also its value on a device that stored
- * its settings before the property existed.
+ * its settings before the property existed. A setting kept per game goes in a map keyed by
+ * [GameKey], which [adopted] hands from a local game to its ROM with nothing more to do.
  */
 @Serializable
 data class Settings(
@@ -30,4 +33,10 @@ data class Settings(
   val achievements: AchievementSettings = AchievementSettings(),
   /** Which storage new downloads go to, and in what order. */
   val storage: StorageSettings = StorageSettings(),
-)
+) {
+  /**
+   * These settings with what each of the [adoptions]' local games keeps handed to its ROM, in every
+   * map keyed by [GameKey]. What the ROM has already stays.
+   */
+  fun adopted(adoptions: List<Adoption>): Settings = adoptedIn(serializer(), this, adoptions)
+}

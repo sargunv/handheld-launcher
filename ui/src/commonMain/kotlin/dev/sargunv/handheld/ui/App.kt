@@ -36,8 +36,12 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
 import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.platformHttpEngine
+import dev.sargunv.handheld.domain.Adoption
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
@@ -108,6 +112,8 @@ import kotlinx.io.files.Path
  * @param homePress the system's HOME, pressed while the app is in front as the home app. It closes
  *   the open dialogs, or when there are none, starts over on Home.
  * @param appInfo what About says about this build: its version and the components it's built from.
+ * @param gameState what the platform keeps per game besides the settings, such as the built-in
+ *   session's saves, which goes to a game's ROM with its settings once its file becomes one.
  */
 @Composable
 fun App(
@@ -130,6 +136,7 @@ fun App(
   openRequest: OpenRequest? = null,
   homePress: HomePress? = null,
   appInfo: AppInfo = AppInfo.Unknown,
+  gameState: PerGameState = PerGameState.None,
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
   val state =
@@ -143,6 +150,7 @@ fun App(
       retroAchievements,
       appInfo,
       romHeaders,
+      gameState,
     ) {
       AppState(
         initialSettings,
@@ -155,12 +163,34 @@ fun App(
         retroAchievements?.let(::RetroAchievementsState),
         appInfo,
         romHeaders,
+        gameState,
       )
     }
   LaunchedEffect(state) { state.signedIn = credentials.load() != null }
   LaunchedEffect(state) { state.retroAchievements?.load() }
   LaunchedEffect(state) {
-    downloads.statuses().collect { state.deviceStates = deviceStates(it) }
+    downloads.statuses().collect { statuses ->
+      state.deviceStates = deviceStates(statuses)
+      state.onDevice = buildMap {
+        // Of several games on one file, the lowest id, as the file's page picks.
+        for ((id, status) in statuses) {
+          if (status is RomStatus.OnDevice) merge(status.path, id, ::minOf)
+        }
+      }
+    }
+  }
+  // A game on the device whose file was a local game takes what was kept for it then.
+  LaunchedEffect(state) {
+    snapshotFlow { state.onDevice to state.playing }
+      .collect { (onDevice, playing) ->
+        state.gameState.adopt(
+          onDevice.mapNotNull { (path, id) ->
+            Adoption(GameKey.Local(path), GameKey.Romm(id)).takeIf {
+              playing != it.local && playing != it.rom
+            }
+          },
+        )
+      }
   }
   LaunchedEffect(state) { downloads.localGames().collect { state.localGames = it } }
   val currentSaveSettings by rememberUpdatedState(saveSettings)

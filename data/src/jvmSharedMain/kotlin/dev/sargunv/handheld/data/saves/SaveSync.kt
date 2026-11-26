@@ -61,6 +61,10 @@ data class GameSave(
 fun builtInGameSave(romId: Long, coreLibrary: String, saveRam: File): GameSave =
   GameSave(romId, BuiltInSaves.emulatorOf(coreLibrary), listOf(saveRam), owner = BUILT_IN_OWNER)
 
+/** What names the ROM [romId]'s built-in saves in the history, whichever core made them. */
+internal fun builtInHistoryKey(romId: Long): String =
+  GameSave(romId, "", emptyList(), owner = BUILT_IN_OWNER).key
+
 /** What keeps the built-in session's saves on this device, for [GameSave.owner]. */
 private const val BUILT_IN_OWNER = "builtin"
 
@@ -378,20 +382,7 @@ class SaveSync(
     origin: SaveCopy,
     name: String,
     bytes: ByteArray,
-  ): File {
-    val folder = File(history, game.key).apply { mkdirs() }
-    val stamp = clock.now().toEpochMilliseconds()
-    val prefix = "$stamp-${origin.name.lowercase()}-"
-    var file = File(folder, prefix + name)
-    var n = 1
-    while (file.exists()) file = File(folder, "$prefix${n++}-$name")
-    Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.SYNC)
-      .use { it.write(bytes) }
-    if (!file.readBytes().contentEquals(bytes)) {
-      throw IOException("Couldn't keep a copy of the save in the history")
-    }
-    return file
-  }
+  ): File = keepInHistory(history, game.key, origin, name, bytes, clock.now())
 
   private fun record(
     game: GameSave,
@@ -420,6 +411,33 @@ class SaveSync(
   /** What the history holds for [game], oldest first. */
   fun history(game: GameSave): List<File> =
     File(history, game.key).listFiles().orEmpty().sortedBy { it.name }
+}
+
+/**
+ * Keeps [bytes], [origin]'s copy of a save named [name], in the history folder [history] of a
+ * [SaveSync], among the copies of the game and save owner [key] names, as kept at [now]. Returns
+ * the file. It fails rather than return before the copy is complete.
+ */
+internal fun keepInHistory(
+  history: File,
+  key: String,
+  origin: SaveCopy,
+  name: String,
+  bytes: ByteArray,
+  now: Instant,
+): File {
+  val folder = File(history, key).apply { mkdirs() }
+  val prefix = "${now.toEpochMilliseconds()}-${origin.name.lowercase()}-"
+  var file = File(folder, prefix + name)
+  var n = 1
+  while (file.exists()) file = File(folder, "$prefix${n++}-$name")
+  Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.SYNC).use {
+    it.write(bytes)
+  }
+  if (!file.readBytes().contentEquals(bytes)) {
+    throw IOException("Couldn't keep a copy of the save in the history")
+  }
+  return file
 }
 
 /**

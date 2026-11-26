@@ -10,6 +10,7 @@ import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.storage.GameLayout
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -388,6 +389,39 @@ class DownloadManagerTest {
     assertEquals(emptyList(), contentRequests())
   }
 
+  // Of two server games on one file, the file's page and the device's games pick the same one.
+  @Test
+  fun aFileOfTwoServerGamesIsTheLowerIds() = runTest {
+    fillLibrary()
+    val file = gameRom.files.single()
+    val hashed =
+      file.copy(
+        crcHash = CRC32().apply { update(game) }.value.toString(16).padStart(8, '0'),
+        sha1Hash = hash("SHA-1", game),
+      )
+    val first =
+      gameRom.copy(id = 21, fileName = "A.gba", files = listOf(hashed.copy(fileName = "A.gba")))
+    val second =
+      gameRom.copy(
+        id = 22,
+        fileName = "B.gba",
+        files = listOf(hashed.copy(id = hashed.id + 1, fileName = "B.gba")),
+      )
+    library.upsertRoms(listOf(second, first))
+    val copied =
+      file("ROMs/gba/my copy.gba").apply {
+        parentFile.mkdirs()
+        writeBytes(game)
+      }
+    val downloads = manager(backgroundScope, server())
+    // Both are on the device, on the one file.
+    waitFor { downloads.localScan.first { it.matched.keys == setOf(21L, 22L) } }
+    assertEquals(
+      LocalGameState.Matched(21),
+      waitFor { downloads.localGame(copied.path).first { it is LocalGameState.Matched } },
+    )
+  }
+
   @Test
   fun aFileThatMatchesNothingIsALocalGameUntilRemoved() = runTest {
     fillLibrary()
@@ -483,6 +517,189 @@ class DownloadManagerTest {
       LocalGameState.Matched(gameRom.id),
       waitFor { downloads.localGame(named.path).first { it is LocalGameState.Matched } },
     )
+  }
+
+  @Test
+  fun aDiscSetCopiedInLooseIsOneLocalGame() = runTest {
+    fillLibrary()
+    val psx = file("ROMs/psx").apply { mkdirs() }
+    val cue =
+      File(psx, "Demo.cue").apply {
+        writeText("FILE \"Demo (Track 1).bin\" BINARY\nFILE \"demo (track 2).bin\" BINARY\n")
+      }
+    val tracks =
+      listOf(File(psx, "Demo (Track 1).bin"), File(psx, "Demo (Track 2).bin")).onEach {
+        it.writeBytes(disc1)
+      }
+    // A playlist's discs, and the tracks their cue sheets list, are its set.
+    val m3u =
+      File(psx, "Trilogy.m3u").apply { writeText("Trilogy (Disc 1).cue\nTrilogy (Disc 2).cue\n") }
+    val discs =
+      (1..2).flatMap { n ->
+        listOf(
+          File(psx, "Trilogy (Disc $n).cue").apply {
+            writeText("FILE \"Trilogy (Disc $n).bin\" BINARY\n")
+          },
+          File(psx, "Trilogy (Disc $n).bin").apply { writeBytes(disc2) },
+        )
+      }
+    // A file no descriptor lists is a game of its own.
+    val stray = File(psx, "Stray.bin").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+
+    val local = waitFor { downloads.localGames().first { it.isNotEmpty() } }.sortedBy { it.path }
+    assertEquals(listOf(cue.path, stray.path, m3u.path), local.map { it.path })
+    assertEquals(tracks.map { it.path }, local[0].otherFiles)
+    assertEquals(cue.length() + 2 * disc1.size, local[0].sizeBytes)
+    assertEquals("Demo", local[0].title)
+    assertEquals(discs.map { it.path }.sorted(), local[2].otherFiles.sorted())
+    // The tracks of a set aren't read, however big they are.
+    val cached = File(dir, "local-content.json").readText()
+    assertTrue(stray.path in cached)
+    for (part in tracks + discs.filter { it.extension == "bin" }) {
+      assertFalse(part.path in cached, part.name)
+    }
+  }
+
+  @Test
+  fun aSetWithAFileThatsAGameOfTheLibraryIsItsFilesEachOnItsOwn() = runTest {
+    fillLibrary()
+    val file = gameRom.files.single()
+    val rom =
+      gameRom.copy(
+        files =
+          listOf(
+            file.copy(crcHash = CRC32().apply { update(game) }.value.toString(16).padStart(8, '0')),
+          ),
+      )
+    library.upsertRoms(listOf(rom))
+    val gba = file("ROMs/gba").apply { mkdirs() }
+    val playlist = File(gba, "Pack.m3u").apply { writeText("copy.gba\nother.gba\n") }
+    // Of a game's size, so the scan reads it.
+    val copy = File(gba, "copy.gba").apply { writeBytes(game) }
+    val other = File(gba, "other.gba").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+
+    waitFor { downloads.status(rom).first { it == RomStatus.OnDevice(copy.path) } }
+    val local = waitFor { downloads.localGames().first { it.size == 2 } }.sortedBy { it.path }
+    assertEquals(listOf(playlist.path, other.path), local.map { it.path })
+    assertEquals(emptyList(), local[0].otherFiles)
+  }
+
+  @Test
+  fun removingADiscSetDeletesEveryFileItListsUnlessOneChanged() = runTest {
+    fillLibrary()
+    val psx = file("ROMs/psx").apply { mkdirs() }
+    val cue = File(psx, "Demo.cue").apply { writeText("FILE \"Demo.bin\" BINARY\n") }
+    val track = File(psx, "Demo.bin").apply { writeBytes(disc1) }
+    val other = File(psx, "Other.bin").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+    val local = waitFor {
+      downloads.localGames().first { games -> games.any { it.path == cue.path } }
+    }
+      .single { it.path == cue.path }
+
+    // A track that changed since the scan isn't the one it found.
+    track.writeBytes(disc2)
+    assertEquals(Removal.NotOnDevice, downloads.remove(local))
+    assertTrue(cue.exists() && track.exists())
+    track.writeBytes(disc1)
+    assertEquals(Removal.Removed, downloads.remove(local))
+    assertFalse(cue.exists())
+    assertFalse(track.exists())
+    assertTrue(other.exists())
+  }
+
+  // Two sheets that list one track: removing one game leaves the track for the other.
+  @Test
+  fun removingADiscSetKeepsATrackAnotherOneLists() = runTest {
+    fillLibrary()
+    val psx = file("ROMs/psx").apply { mkdirs() }
+    val a = File(psx, "A.cue").apply { writeText("FILE \"Shared.bin\" BINARY\n") }
+    val b = File(psx, "B.cue").apply { writeText("FILE \"Shared.bin\" BINARY\n") }
+    val track = File(psx, "Shared.bin").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+    val games = waitFor {
+      downloads.localGames().first { games -> games.count { it.path.endsWith(".cue") } == 2 }
+    }
+    assertEquals(Removal.Removed, downloads.remove(games.single { it.path == a.path }))
+    assertFalse(a.exists())
+    assertTrue(track.exists(), "B's track stays")
+    assertTrue(b.exists())
+  }
+
+  @Test
+  fun deletesStagedDownloadsNothingResumesOfTheLibrarysGamesOnly() = runTest {
+    fillLibrary()
+    val orphan =
+      file("ROMs/gba/Game (USA).gba.part").apply {
+        parentFile.mkdirs()
+        writeBytes(game.copyOf(1000))
+      }
+    val orphanFolder = file("ROMs/psx/Saga (USA).part").apply { mkdirs() }
+    File(orphanFolder, "Saga (USA) (Disc 1).chd").writeBytes(disc1)
+    // Files of other names, or of other apps, stay.
+    val kept =
+      listOf(
+          file("ROMs/gba/Unknown.gba.part"),
+          file("ROMs/gba/Game (USA).gba.tmp"),
+          file("ROMs/gba/Game (USA).gba"),
+          file("ROMs/ps2/3f2a9c1e-5b7d-4e0a-9d1c-2b6e8f4a7c3d.tmp"),
+          // A game's name in another platform's folder isn't that game's.
+          file("ROMs/psx/Game (USA).gba.part"),
+        )
+        .onEach {
+          it.parentFile.mkdirs()
+          it.writeBytes(disc1)
+        }
+    // The app starts with its data cleared: the library fills only with the first sync.
+    val downloads = manager(backgroundScope, server())
+    waitFor { delay(200) }
+    library.upsertRoms(listOf(gameRom, sagaRom))
+    waitFor { downloads.sweep.join() }
+
+    assertFalse(orphan.exists())
+    assertFalse(orphanFolder.exists())
+    for (file in kept) assertTrue(file.exists(), file.path)
+  }
+
+  // A first sync fills the library a page at a time, and a later page's orphan goes too.
+  @Test
+  fun sweepsTheOrphansOfLaterPagesOfTheFirstSync() = runTest {
+    fillLibrary()
+    val name = GameLayout.romName(sagaRom.fileName, sagaRom.files.map { it.fileName })
+    val orphan =
+      file("ROMs/psx/$name.part").apply {
+        parentFile.mkdirs()
+        writeBytes(disc1)
+      }
+    library.upsertRoms(listOf(gameRom))
+    val downloads = manager(backgroundScope, server())
+    waitFor { downloads.sweep.join() }
+    assertTrue(orphan.exists(), "Not a game of the library yet")
+    library.upsertRoms(listOf(sagaRom))
+    waitFor { while (orphan.exists()) delay(50) }
+  }
+
+  @Test
+  fun keepsTheStagedDownloadOfAGameInTheQueue() = runTest {
+    fillLibrary()
+    library.upsertRoms(listOf(gameRom))
+    stopMidDownload(game.copyOf(131_072))
+    val staged = file("ROMs/gba/Game (USA).gba.part")
+    requests.clear()
+
+    // The app starts again, and resumes from what's staged while it sweeps.
+    val stalling =
+      server(content = { request, bytes -> serveFrom(request, bytes) { ByteChannel() } })
+    val downloads = manager(backgroundScope, stalling)
+    waitFor { downloads.sweep.join() }
+    val resumed = waitFor {
+      while (requests.none { "files/content" in it.apiPath }) delay(10)
+      requests.first { "files/content" in it.apiPath }
+    }
+    assertEquals("bytes=131072-", resumed.headers[HttpHeaders.Range])
+    assertEquals(131_072, staged.length())
   }
 
   @Test
