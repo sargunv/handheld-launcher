@@ -322,6 +322,8 @@ class SessionActivity : ComponentActivity() {
       saveRamPath = intent.getStringExtra(EXTRA_SAVE_RAM),
       coreOptions = if (twoScreens) stackedScreensOptions() else emptyMap(),
       video = VideoMode.WINDOW,
+      lowerScreenWidthShare =
+        intent.getFloatExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, 0f).takeIf { twoScreens && it > 0f },
     )
   }
 
@@ -393,6 +395,7 @@ class SessionActivity : ComponentActivity() {
     private const val EXTRA_A_BUTTON_POSITION = "a_button_position"
     private const val EXTRA_STACKED_SCREENS_KEYS = "stacked_screens_keys"
     private const val EXTRA_STACKED_SCREENS_VALUES = "stacked_screens_values"
+    private const val EXTRA_LOWER_SCREEN_WIDTH_SHARE = "lower_screen_width_share"
 
     /** Why the session couldn't start, in the result of one that couldn't. */
     const val EXTRA_ERROR = "error"
@@ -413,7 +416,9 @@ class SessionActivity : ComponentActivity() {
      * saves in [saveDir], its save memory in [saveRam] and its save states in [states], one file
      * per slot, with the gamepad's face buttons where [aButtonPosition] puts them.
      * [stackedScreensOptions] are the core's options that draw a two-screen system's screens
-     * stacked, for playing on two displays, or none for a one-screen system.
+     * stacked, for playing on two displays, or none for a one-screen system, and
+     * [lowerScreenWidthShare] is the bottom screen's share of that frame's width, centred, or null
+     * when it spans the whole width.
      */
     fun intent(
       context: Context,
@@ -426,6 +431,7 @@ class SessionActivity : ComponentActivity() {
       pauseWhenUnfocused: Boolean,
       aButtonPosition: AButtonPosition,
       stackedScreensOptions: Map<String, String> = emptyMap(),
+      lowerScreenWidthShare: Float? = null,
     ): Intent =
       Intent(context, SessionActivity::class.java)
         .putExtra(EXTRA_CORE, core)
@@ -438,5 +444,6 @@ class SessionActivity : ComponentActivity() {
         .putExtra(EXTRA_A_BUTTON_POSITION, aButtonPosition.name)
         .putExtra(EXTRA_STACKED_SCREENS_KEYS, stackedScreensOptions.keys.toTypedArray())
         .putExtra(EXTRA_STACKED_SCREENS_VALUES, stackedScreensOptions.values.toTypedArray())
+        .apply { lowerScreenWidthShare?.let { putExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, it) } }
   }
 }

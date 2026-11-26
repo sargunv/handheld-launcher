@@ -86,6 +86,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         pauseWhenUnfocused = settings.pauseGameWhenUnfocused,
         aButtonPosition = settings.input.aButtonPosition,
         stackedScreensOptions = chosen.stackedScreensOptions,
+        lowerScreenWidthShare = chosen.lowerScreenWidthShare,
       )
     // A failure an earlier session left unreported isn't this one's.
     SessionActivity.takeUnreportedSaveError()

@@ -26,6 +26,7 @@ fn start(dir: &Path) -> std::sync::Arc<GameSession> {
             save_ram_path: Some(dir.join("saves/game.srm").to_string_lossy().into_owned()),
             core_options: HashMap::new(),
             video: VideoMode::Offscreen,
+            lower_screen_width_share: None,
         },
         None,
     )

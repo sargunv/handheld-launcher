@@ -19,7 +19,7 @@ use crate::host::{self, Gpu, Host, VideoTarget};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::{CoreOption, Options, opt_string};
 use crate::save::{back_up, write_atomically};
-use crate::video::{CapturedFrame, PixelFormat, VideoSink};
+use crate::video::{CapturedFrame, PixelFormat, Region, VideoSink};
 use crate::vulkan::{VulkanContext, VulkanError};
 
 /// Where a session's frames go.
@@ -44,6 +44,11 @@ pub enum VideoOutput {
         /// events: a Wayland compositor can hold the refresh back until those
         /// events are handled.
         vsync: bool,
+        /// The bottom screen's share of the frame's width, centred, when a
+        /// two-screen system's core draws it narrower than the top screen
+        /// above it, so a lower window shows only those columns. `None`
+        /// shows the whole width.
+        lower_screen_width_share: Option<f32>,
     },
 }
 
@@ -243,11 +248,13 @@ impl Session {
                     width,
                     height,
                     vsync,
+                    lower_screen_width_share,
                 } => VideoTarget::Window {
                     window,
                     width,
                     height,
                     vsync,
+                    lower: Region::bottom(lower_screen_width_share),
                 },
             },
         ));
@@ -406,6 +413,7 @@ impl Session {
                 width,
                 height,
                 vsync,
+                ..
             } => (
                 Target::Window(window.as_ref().map(|w| (w, *width, *height))),
                 Some(*vsync),
