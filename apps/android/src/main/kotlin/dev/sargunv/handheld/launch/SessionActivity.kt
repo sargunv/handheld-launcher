@@ -23,6 +23,7 @@ import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -70,22 +71,27 @@ class SessionActivity : ComponentActivity() {
   }
 
   private suspend fun start(options: SessionOptions) {
-    val started =
-      try {
-        withContext(Dispatchers.IO) { GameSession.start(options, listener) }
-      } catch (e: SessionException) {
-        Log.e(TAG, "can't start the session", e)
-        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_ERROR, e.message ?: e.toString()))
-        finish()
-        return
-      }
-    // The activity can go while the core loads, and then nothing shows the session.
-    if (isDestroyed) {
-      withContext(Dispatchers.IO) { started.close() }
-      return
+    // Starting can't be abandoned halfway. If the activity goes meanwhile, withContext throws on
+    // the way back and the session it started is closed here, since nothing will show it.
+    var unclaimed: GameSession? = null
+    try {
+      val started =
+        try {
+          withContext(Dispatchers.IO + NonCancellable) {
+            GameSession.start(options, listener).also { unclaimed = it }
+          }
+        } catch (e: SessionException) {
+          Log.e(TAG, "can't start the session", e)
+          setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_ERROR, e.message ?: e.toString()))
+          finish()
+          return
+        }
+      unclaimed = null
+      session = started
+      view.session = started
+    } finally {
+      unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
     }
-    session = started
-    view.session = started
   }
 
   private fun options(): SessionOptions {
