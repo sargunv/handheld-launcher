@@ -1,5 +1,6 @@
 //! The Master System and Game Gear header, the 16 bytes at $7FF0 that start
-//! with `TMR SEGA`. Its region code says which of the two the game is for.
+//! with `TMR SEGA`, or at $3FF0 or $1FF0 in a 16 or 8 KiB ROM. Its region code
+//! says which of the two the game is for.
 //!
 //! - <https://www.smspower.org/Development/ROMHeader>
 
@@ -36,10 +37,30 @@ pub struct Header {
 
 /// Reads a Master System or Game Gear ROM's header.
 pub fn read<R: Read + Seek + ?Sized>(reader: &mut R) -> Result<Header> {
-    let h: [u8; 16] = array_at(reader, 0x7FF0).map_err(Error::short("Master System"))?;
-    if &h[..8] != b"TMR SEGA" {
-        return Err(Error::NotRecognized("Master System"));
+    let mut short = None;
+    let mut found = None;
+    for offset in [0x7FF0, 0x3FF0, 0x1FF0] {
+        match array_at::<16, _>(reader, offset) {
+            Ok(h) if &h[..8] == b"TMR SEGA" => {
+                found = Some(h);
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => short = short.or(Some(e)),
+        }
     }
+    let h = match (found, short) {
+        (Some(h), _) => h,
+        // Too small for even the smallest header.
+        (None, Some(e))
+            if reader
+                .seek(std::io::SeekFrom::End(0))
+                .is_ok_and(|n| n < 0x2000) =>
+        {
+            return Err(Error::short("Master System")(e));
+        }
+        (None, _) => return Err(Error::NotRecognized("Master System")),
+    };
     let extra = h[0x0E] >> 4;
     let product_code = if extra == 0 {
         format!("{:02X}{:02X}", h[0x0D], h[0x0C])
@@ -89,6 +110,15 @@ mod tests {
         assert_eq!(h.region, Region::EXPORT_SMS);
         assert_eq!(h.rom_size, Some(32 * 1024));
         assert_eq!(h.checksum, 0x1234);
+    }
+
+    #[test]
+    fn reads_a_small_roms_header() {
+        let mut rom = vec![0u8; 0x4000];
+        rom[0x3FF0..].copy_from_slice(b"TMR SEGA\0\0\x34\x12\x26\x70\x21\x4B");
+        let h = read(&mut Cursor::new(rom)).unwrap();
+        assert_eq!(h.product_code, "27026");
+        assert_eq!(h.rom_size, Some(16 * 1024));
     }
 
     #[test]

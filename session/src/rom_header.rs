@@ -165,7 +165,8 @@ fn unquote(s: &str) -> String {
     s.trim().trim_matches('"').to_owned()
 }
 
-/// The largest file in a zip, read and seeked as far as 64 MiB in, which it
+/// The largest file in a zip that isn't a known extra, such as a readme,
+/// manual or picture, read and seeked as far as 64 MiB in, which it
 /// decompresses as reads reach it. Its length is the whole file's.
 struct ZipEntry<R> {
     zip: zip::ZipArchive<R>,
@@ -173,6 +174,32 @@ struct ZipEntry<R> {
     size: u64,
     data: Vec<u8>,
     position: u64,
+}
+
+/// Whether a file in a zip is something packed beside the game, not the game.
+fn is_extra(name: &str) -> bool {
+    let extension = name
+        .rsplit_once('.')
+        .map_or("", |(_, e)| e)
+        .to_ascii_lowercase();
+    matches!(
+        extension.as_str(),
+        "txt"
+            | "nfo"
+            | "diz"
+            | "md"
+            | "pdf"
+            | "htm"
+            | "html"
+            | "doc"
+            | "rtf"
+            | "jpg"
+            | "jpeg"
+            | "png"
+            | "gif"
+            | "bmp"
+            | "webp"
+    )
 }
 
 /// How much of a zipped file [`ZipEntry`] decompresses at most.
@@ -184,7 +211,10 @@ impl<R: Read + Seek> ZipEntry<R> {
         let mut largest = None;
         for i in 0..zip.len() {
             let file = zip.by_index_raw(i)?;
-            if file.is_file() && largest.is_none_or(|(_, size)| file.size() > size) {
+            if file.is_file()
+                && !file.name().is_ok_and(|name| is_extra(&name))
+                && largest.is_none_or(|(_, size)| file.size() > size)
+            {
                 largest = Some((i, file.size()));
             }
         }
@@ -516,6 +546,9 @@ mod tests {
         let options = zip::write::SimpleFileOptions::default();
         zip.start_file("readme.txt", options).unwrap();
         zip.write_all(b"hi").unwrap();
+        // A picture larger than the game isn't taken for it.
+        zip.start_file("cover.png", options).unwrap();
+        zip.write_all(&vec![0x89; gba().len() * 2]).unwrap();
         zip.start_file("game.gba", options).unwrap();
         zip.write_all(&gba()).unwrap();
         zip.finish().unwrap();
