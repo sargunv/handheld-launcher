@@ -39,10 +39,16 @@ private sealed interface Status {
 
 /**
  * Runs the core [core] gives with [content] in a game session, for trying the session on a device.
- * F2 saves a state and F4 loads it. Saves and states go in [dir].
+ * F2 saves a state and F4 loads it. Saves and states go in [dir]. The game pauses while the window
+ * lacks focus only with [pauseWhenUnfocused].
  */
 @Composable
-internal fun SessionTestScreen(dir: File, core: suspend () -> File?, content: File?) {
+internal fun SessionTestScreen(
+  dir: File,
+  core: suspend () -> File?,
+  content: File?,
+  pauseWhenUnfocused: Boolean,
+) {
   var status by remember { mutableStateOf<Status>(Status.Loading) }
   var message by remember { mutableStateOf("") }
   LaunchedEffect(core, content) {
@@ -84,6 +90,7 @@ internal fun SessionTestScreen(dir: File, core: suspend () -> File?, content: Fi
           factory = { context ->
             GameSessionView(context).apply {
               session = s.session
+              this.pauseWhenUnfocused = pauseWhenUnfocused
               setOnKeyListener { _, _, event ->
                 handleHotkey(s.session, dir, event)?.let { message = it } != null
               }

@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     }
     forcedLayout = forcedLayout(intent)
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
+    val settingsFile = settingsFile(this)
+    val settings = settingsFile.read()
     setContent {
       val display = rememberSecondaryDisplay()
       var failedDisplayId by remember { mutableStateOf<Int?>(null) }
@@ -50,6 +52,8 @@ class MainActivity : ComponentActivity() {
       App(
         layout = layout,
         heldKeys = heldKeys,
+        initialSettings = settings,
+        saveSettings = settingsFile::write,
         secondaryDisplay = { content ->
           if (usableDisplay != null) {
             SecondaryDisplayContent(

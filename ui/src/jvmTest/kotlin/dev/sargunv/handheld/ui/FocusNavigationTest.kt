@@ -16,9 +16,12 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.ui.demo.DemoLibrary
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
+import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.input.HeldKeys
+import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.input.trackHeldKeys
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -44,10 +47,14 @@ class FocusNavigationTest {
     onNodeWithTag(tag).assertIsFocused()
   }
 
-  private fun ComposeUiTest.launch(layout: DualScreenLayout = DualScreenLayout.Separate) {
+  private fun ComposeUiTest.launch(
+    layout: DualScreenLayout = DualScreenLayout.Separate,
+    settings: Settings = Settings(),
+    saveSettings: suspend (Settings) -> Unit = {},
+  ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
-      App(layout, heldKeys, Modifier.trackHeldKeys(heldKeys))
+      App(layout, heldKeys, Modifier.trackHeldKeys(heldKeys), settings, saveSettings)
     }
     waitForIdle()
   }
@@ -205,6 +212,18 @@ class FocusNavigationTest {
     assertFocused("play")
     press(Key.ButtonA)
     assertFocused(tile(0, 1))
+  }
+
+  @Test
+  fun startsWithTheStoredSettingsAndSavesChanges() = runComposeUiTest {
+    val saved = mutableListOf<Settings>()
+    launch(settings = Settings(InputSettings(ConfirmButton.East)), saveSettings = { saved += it })
+    // B confirms from the first press.
+    press(listOf(Key.ButtonB, Key.DirectionRight, Key.DirectionRight))
+    assertFocused("confirm")
+    assertEquals(emptyList(), saved)
+    press(Key.ButtonB)
+    assertEquals(listOf(Settings(InputSettings(ConfirmButton.South))), saved)
   }
 
   @Test

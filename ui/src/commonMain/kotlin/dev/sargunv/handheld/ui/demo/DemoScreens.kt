@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Game
+import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
@@ -49,10 +50,13 @@ sealed interface DemoScreen {
 
 /** State the demo's two screens share. */
 @Stable
-class DemoState(inputSettings: InputSettings = InputSettings()) {
+class DemoState(settings: Settings = Settings()) {
   val navigator = Navigator<DemoScreen>(DemoScreen.Home)
   var focusedGame: Game? by mutableStateOf(null)
-  var inputSettings: InputSettings by mutableStateOf(inputSettings)
+  var settings: Settings by mutableStateOf(settings)
+
+  val inputSettings: InputSettings
+    get() = settings.input
 
   fun swapConfirmButton() {
     val swapped =
@@ -60,7 +64,7 @@ class DemoState(inputSettings: InputSettings = InputSettings()) {
         ConfirmButton.South -> ConfirmButton.East
         ConfirmButton.East -> ConfirmButton.South
       }
-    inputSettings = inputSettings.copy(confirmButton = swapped)
+    settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
   }
 }
 
