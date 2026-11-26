@@ -143,7 +143,13 @@ private suspend fun platformName(state: AppState, platform: PlatformSlug): Strin
 internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
   val context = rememberOpenWithContext(state, screen.scope)
   val launch = state.settings.launch
-  val level = screen.scope.level
+  // A local game whose file became a server game while the screen was open is that game now, and
+  // its choice is the game's.
+  val level =
+    screen.scope.level.let { level ->
+      val local = (level as? RuleLevel.Game)?.game as? GameKey.Local
+      local?.let { state.onDevice[it.path] }?.let { RuleLevel.Game(GameKey.Romm(it)) } ?: level
+    }
   Column(Modifier.fillMaxSize()) {
     Text(
       when (screen.scope) {

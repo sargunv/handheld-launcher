@@ -24,6 +24,8 @@ import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
+import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.saves.KeptSave
@@ -62,7 +64,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 /**
  * Local games: files in a platform's folder that match none of the server's games. The server has
@@ -72,6 +76,12 @@ import kotlinx.coroutines.runBlocking
 @OptIn(ExperimentalTestApi::class)
 class LocalGameTest {
   private val storage = createTempDirectory("local-storage").toFile()
+
+  /** The app's downloads, once it has started. */
+  private var downloads: DownloadManager? = null
+
+  /** The settings the app saved, last last. */
+  private val saved = mutableListOf<Settings>()
   private val homebrew = File(storage, "ROMs/gb/Homebrew.gb")
   private val demo = File(storage, "ROMs/n64/Demo.z64")
   private val library = LibraryCache.open(path = null)
@@ -190,16 +200,18 @@ class LocalGameTest {
         TestDevice,
         library,
         rememberTestDownloads(
-          library,
-          credentials,
-          listOf(StorageTarget(storage.path, "Test storage")),
-        ),
+            library,
+            credentials,
+            listOf(StorageTarget(storage.path, "Test storage")),
+          )
+          .also { downloads = it },
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
         initialSettings = settings,
         httpEngine = server,
         launcher = launcher,
         openRequest = open,
+        saveSettings = { saved += it },
       )
     }
   }
@@ -377,6 +389,32 @@ class LocalGameTest {
     onNodeWithTag("game:saves-local").assertDoesNotExist()
     onNodeWithText("Homebrew (World)").assertExists()
     onNodeWithTag("primary").assertIsFocused()
+  }
+
+  // A choice made while the file became the server's game is that game's.
+  @Test
+  fun aChoiceMadeAsTheFileBecomesAServerGameIsThatGames() = runComposeUiTest {
+    openHomebrew()
+    awaitText("Opens in Test Emulator")
+    press(Key.ButtonX)
+    awaitTag("menu:open-with")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitText("Open Homebrew with")
+    serverHasHomebrew = true
+    runBlocking {
+      RommClient("https://romm.test", "rmm_token", server()).use { LibrarySync(it, library).sync() }
+    }
+    // The file is the server's game before the choice.
+    runBlocking {
+      withTimeout(5_000) { downloads!!.statuses().first { it[2] is RomStatus.OnDevice } }
+    }
+    waitForIdle()
+    // Built-in is first.
+    press(Key.ButtonA)
+    awaitText("Homebrew (World)")
+    waitUntil(timeoutMillis = 5_000) { saved.isNotEmpty() }
+    val games = saved.last().launch.games
+    assertEquals(setOf<GameKey>(GameKey.Romm(2)), games.keys)
   }
 
   @Test

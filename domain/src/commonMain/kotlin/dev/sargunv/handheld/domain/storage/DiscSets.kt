@@ -49,8 +49,9 @@ object DiscSets {
     if (rest.firstOrNull()?.isWhitespace() != true) return null
     val args = rest.trim()
     if (args.startsWith('"')) return args.drop(1).substringBefore('"').takeIf { it.isNotEmpty() }
-    // Unquoted, the name runs to the type at the end of the line.
-    return args.substringBeforeLast(' ', args).trim().takeIf { it.isNotEmpty() }
+    // Unquoted, the name runs to the type at the end of the line, after a space or a tab.
+    val typeAt = args.indexOfLast { it.isWhitespace() }
+    return (if (typeAt < 0) args else args.take(typeAt)).trim().takeIf { it.isNotEmpty() }
   }
 
   /** A line's fields, split by spaces or tabs, with a quoted field kept whole. */

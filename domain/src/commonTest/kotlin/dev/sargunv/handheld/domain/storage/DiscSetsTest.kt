@@ -51,6 +51,14 @@ class DiscSetsTest {
   }
 
   @Test
+  fun anUnquotedCueFileMayHaveATabBeforeItsType() {
+    assertEquals(
+      listOf("Game (Track 1).bin"),
+      DiscSets.listedFiles("Game.cue", "FILE Game (Track 1).bin\tBINARY\n  TRACK 01 MODE2/2352\n"),
+    )
+  }
+
+  @Test
   fun aGdisFieldsMayBeSeparatedByTabs() {
     val gdi = "2\n1\t0\t4\t2352\ttrack01.bin\t0\n2\t756\t0\t2352\t\"track 02.raw\"\t0\n"
     assertEquals(listOf("track01.bin", "track 02.raw"), DiscSets.listedFiles("Game.gdi", gdi))
