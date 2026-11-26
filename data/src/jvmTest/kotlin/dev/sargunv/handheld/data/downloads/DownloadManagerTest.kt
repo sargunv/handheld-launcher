@@ -610,6 +610,24 @@ class DownloadManagerTest {
     assertTrue(other.exists())
   }
 
+  // Two sheets that list one track: removing one game leaves the track for the other.
+  @Test
+  fun removingADiscSetKeepsATrackAnotherOneLists() = runTest {
+    fillLibrary()
+    val psx = file("ROMs/psx").apply { mkdirs() }
+    val a = File(psx, "A.cue").apply { writeText("FILE \"Shared.bin\" BINARY\n") }
+    val b = File(psx, "B.cue").apply { writeText("FILE \"Shared.bin\" BINARY\n") }
+    val track = File(psx, "Shared.bin").apply { writeBytes(disc1) }
+    val downloads = manager(backgroundScope, server())
+    val games = waitFor {
+      downloads.localGames().first { games -> games.count { it.path.endsWith(".cue") } == 2 }
+    }
+    assertEquals(Removal.Removed, downloads.remove(games.single { it.path == a.path }))
+    assertFalse(a.exists())
+    assertTrue(track.exists(), "B's track stays")
+    assertTrue(b.exists())
+  }
+
   @Test
   fun deletesStagedDownloadsNothingResumesOfTheLibrarysGamesOnly() = runTest {
     fillLibrary()

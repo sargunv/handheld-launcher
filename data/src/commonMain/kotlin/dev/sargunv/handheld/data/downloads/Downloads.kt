@@ -405,11 +405,18 @@ class DownloadManager(
   suspend fun remove(game: LocalGame): Removal =
     // Once begun, a removal finishes even if the screen that asked goes away.
     withContext(NonCancellable + Dispatchers.IO) {
-      val found =
-        scanned.value.unmatched.find { it.path == game.path && it.totalBytes == game.sizeBytes }
+      val unmatched = scanned.value.unmatched
+      val found = unmatched.find { it.path == game.path && it.totalBytes == game.sizeBytes }
+      // A track another local game's playlist or descriptor also lists stays, for that game.
+      val shared =
+        unmatched
+          .filter { it.path != game.path }
+          .flatMapTo(mutableSetOf()) { other -> other.otherFiles.map { it.path } + other.path }
       val parts =
         found
-          ?.let { it.otherFiles + LocalPart(it.path, it.sizeBytes) }
+          ?.let {
+            it.otherFiles.filter { part -> part.path !in shared } + LocalPart(it.path, it.sizeBytes)
+          }
           .orEmpty()
           .map {
             Path(it.path) to it.sizeBytes
