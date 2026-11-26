@@ -59,6 +59,7 @@ fun main(args: Array<String>) {
         credentials = credentials,
         storage = { listOf(StorageTarget(dataDir.toString(), "Data folder")) },
         scope = scope,
+        storageSettings = { settingsFile.read().storage },
       )
     }
     val device = remember {

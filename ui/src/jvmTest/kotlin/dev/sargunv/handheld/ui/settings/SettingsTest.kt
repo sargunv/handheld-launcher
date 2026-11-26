@@ -8,6 +8,7 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -23,6 +24,8 @@ import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.StorageSettings
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestDevice
@@ -43,7 +46,10 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.io.path.createTempDirectory
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -87,6 +93,7 @@ class SettingsTest {
     refuses: Boolean = false,
     store: CredentialStore = credentials,
     apps: AppCatalog = AppCatalog.None,
+    storage: List<StorageTarget> = emptyList(),
     onDownloads: (LibraryCache, DownloadManager) -> Unit = { _, _ -> },
   ) {
     val engine = server(refuses)
@@ -94,7 +101,7 @@ class SettingsTest {
     setContent {
       val heldKeys = remember { HeldKeys() }
       val library = remember { LibraryCache.open(path = null) }
-      val downloads = rememberTestDownloads(library, store)
+      val downloads = rememberTestDownloads(library, store, storage)
       remember { onDownloads(library, downloads) }
       App(
         DualScreenLayout.Frame,
@@ -303,6 +310,58 @@ class SettingsTest {
   }
 
   @Test
+  fun storageTurnsOnAndOffAndMovesFromItsMenu() = runComposeUiTest {
+    val own = StorageTarget(tempDir(), "Device", "primary")
+    val card = StorageTarget(tempDir(), "SD card", "card")
+    launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own, card))
+    awaitFocused("settings:Storage")
+    awaitTag("settings:storage:card")
+    press(Key.DirectionRight)
+    awaitFocused("settings:storage:primary")
+    onNodeWithTag("settings:storage:primary").assertTextContains("On", substring = true)
+
+    // Confirm turns the device's own storage off, which leaves the card on.
+    press(Key.ButtonA)
+    onNodeWithTag("settings:storage:primary").assertTextContains("Off", substring = true)
+    assertEquals(StorageSettings(off = setOf("primary")), saved.last().storage)
+
+    // The card is the last that's on, so it stays on and a note says why.
+    press(Key.DirectionDown)
+    awaitFocused("settings:storage:card")
+    val before = saved.size
+    press(Key.ButtonA)
+    awaitTag("settings:storage:refused")
+    onNodeWithTag("settings:storage:card").assertTextContains("On", substring = true)
+    assertEquals(before, saved.size)
+
+    // Its menu moves it above the device's own storage.
+    press(Key.ButtonX)
+    onNodeWithTag("menu:down").assertDoesNotExist()
+    awaitFocused("menu:up")
+    press(Key.ButtonA)
+    assertEquals(listOf("card", "primary"), saved.last().storage.order)
+    awaitFocused("settings:storage:card")
+    press(Key.DirectionDown)
+    awaitFocused("settings:storage:primary")
+  }
+
+  @Test
+  fun theOnlyStorageCantBeTurnedOffOrMoved() = runComposeUiTest {
+    val own = StorageTarget(tempDir(), "Device", "primary")
+    launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))
+    awaitFocused("settings:Storage")
+    awaitTag("settings:storage:primary")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitTag("settings:storage:refused")
+    onNodeWithTag("settings:storage:primary").assertTextContains("On", substring = true)
+    press(Key.ButtonX)
+    awaitFocused("menu:toggle")
+    onNodeWithTag("menu:up").assertDoesNotExist()
+    onNodeWithTag("menu:down").assertDoesNotExist()
+    assertEquals(StorageSettings(), saved.lastOrNull()?.storage ?: StorageSettings())
+  }
+
+  @Test
   fun theConfirmButtonSwaps() = runComposeUiTest {
     launch(OpenTarget.Settings(SettingsSection.Controls))
     awaitFocused("settings:Controls")
@@ -314,6 +373,14 @@ class SettingsTest {
     onNodeWithTag("settings:confirm").assertTextEquals("Confirm button", "A")
     assertEquals(ConfirmButton.A, saved.last().input.confirmButton)
   }
+
+  private val tempDirs = mutableListOf<File>()
+
+  /** A new, empty directory, deleted after the test. */
+  private fun tempDir() =
+    createTempDirectory("handheld-storage").toFile().also { tempDirs += it }.path
+
+  @AfterTest fun cleanUp() = tempDirs.forEach { it.deleteRecursively() }
 
   private companion object {
     const val Server = "https://romm.test"

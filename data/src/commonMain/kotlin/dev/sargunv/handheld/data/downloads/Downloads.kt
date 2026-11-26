@@ -56,6 +56,11 @@ data class StorageTarget(
   val root: String,
   /** The name to show, such as `Internal shared storage`. */
   val label: String,
+  /**
+   * What names this storage in [StorageSettings], the same each time it's mounted, such as an SD
+   * card's volume UUID.
+   */
+  val id: String = root,
 )
 
 /** How much room a [StorageTarget] has left. */
@@ -127,7 +132,9 @@ sealed interface RomStatus {
  * downloaded again from the start when it doesn't match.
  *
  * @param library finds a platform's folder name.
- * @param storage lists the storage targets in the order to fill them, the device's own first.
+ * @param storage lists the mounted storage targets, the device's own first. Finding games on the
+ *   device looks on all of them.
+ * @param storageSettings which of them new downloads may go to, and in what order.
  * @param scope runs the downloads, for as long as it's active.
  * @param engine makes the HTTP engine for each of the server's clients.
  * @param canWrite whether the app may write to the storage targets now. Downloads wait while it's
@@ -141,6 +148,7 @@ class DownloadManager(
   scope: CoroutineScope,
   private val engine: () -> HttpClientEngine = ::platformHttpEngine,
   private val canWrite: Flow<Boolean> = flowOf(true),
+  private val storageSettings: () -> StorageSettings = { StorageSettings() },
 ) {
   private val file = JsonFile(queueFile, ListSerializer(Download.serializer()))
   private val mutex = Mutex()
@@ -488,19 +496,9 @@ class DownloadManager(
     }
   }
 
-  /** The root of the first storage target with room for [bytes]. */
-  private fun pickStorage(bytes: Long): String {
-    val targets = storage()
-    if (targets.isEmpty()) throw DownloadException("There's no storage to download to")
-    val spaces = targets.map { it to freeBytes(it.root) }
-    spaces
-      .firstOrNull { (_, free) -> free >= bytes }
-      ?.let {
-        return it.first.root
-      }
-    val (target, free) = spaces.maxBy { it.second }
-    throw notEnoughSpace(target, bytes, free)
-  }
+  /** The root of the first storage target that's on with room for [bytes]. */
+  private fun pickStorage(bytes: Long): String =
+    chooseStorage(storage(), storageSettings(), bytes) { freeBytes(it.root) }.root
 
   /**
    * Downloads [file] to [path], resuming what's there. A resumed file that doesn't match the
@@ -590,7 +588,7 @@ private fun playlistName(folder: String) = "${folder.removeSuffix(".m3u")}.m3u"
 /** A download that can't go on until something changes, such as freeing space. */
 class DownloadException(message: String) : Exception(message)
 
-private fun notEnoughSpace(target: StorageTarget, needed: Long, free: Long) =
+internal fun notEnoughSpace(target: StorageTarget, needed: Long, free: Long) =
   DownloadException(
     "Not enough space on ${target.label}: needs ${formatSize(needed)}, ${formatSize(free)} free",
   )

@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui
 
+import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
 import dev.sargunv.handheld.ui.game.LaunchSettings
 import dev.sargunv.handheld.ui.home.HomeSettings
@@ -27,4 +28,6 @@ data class Settings(
    */
   val closeEmulators: Boolean = false,
   val achievements: AchievementSettings = AchievementSettings(),
+  /** Which storage new downloads go to, and in what order. */
+  val storage: StorageSettings = StorageSettings(),
 )
