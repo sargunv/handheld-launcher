@@ -84,6 +84,8 @@ pub(crate) struct Host {
     audio_samples: Vec<i16>,
     /// The rate the session runs frames at, over the core's own.
     pub(crate) audio_speed: f64,
+    /// Whether the core's audio is dropped rather than played.
+    pub(crate) audio_muted: bool,
     pub(crate) video: VideoTarget,
     pub(crate) gpu: Option<Gpu>,
     /// The Vulkan context, for a core that renders with Vulkan.
@@ -135,6 +137,7 @@ impl Host {
             audio_rate: 0.0,
             audio_samples: Vec::new(),
             audio_speed: 1.0,
+            audio_muted: false,
             video,
             gpu: None,
             vulkan: None,
@@ -201,7 +204,9 @@ impl Host {
 
     /// Resamples this frame's audio into the sink.
     pub(crate) fn flush_audio(&mut self) {
-        if let Some(audio) = &mut self.audio {
+        if let Some(audio) = &mut self.audio
+            && !self.audio_muted
+        {
             audio.push(&self.audio_samples);
             audio.flush(self.audio_sink.as_mut(), self.audio_speed);
         }

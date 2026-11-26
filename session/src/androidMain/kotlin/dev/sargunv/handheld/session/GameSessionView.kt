@@ -70,6 +70,8 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     holder.addCallback(this)
     isFocusable = true
     isFocusableInTouchMode = true
+    // The system marks a view focused by a key with a translucent wash, which would cover the game.
+    defaultFocusHighlightEnabled = false
   }
 
   override fun surfaceCreated(holder: SurfaceHolder) {

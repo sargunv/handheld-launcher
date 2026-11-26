@@ -177,6 +177,7 @@ enum Command {
     DetachWindow(Reply<()>),
     Pause(Reply<()>),
     Resume,
+    FastForward(u32),
     Advance(u32, Reply<()>),
     Reset,
     SaveState(PathBuf, Reply<()>),
@@ -266,6 +267,14 @@ impl GameSession {
     /// Runs frames again, at the core's rate.
     pub fn resume(&self) {
         let _ = self.commands.send(Command::Resume);
+    }
+
+    /// Runs the game `speed` times as fast as the core's own rate, without
+    /// sound, from the next frame on, or at its own rate, with sound, for a
+    /// `speed` of 1 or 0. The session runs `speed` frames each time a frame
+    /// is due and shows each of them.
+    pub fn set_fast_forward(&self, speed: u32) {
+        let _ = self.commands.send(Command::FastForward(speed));
     }
 
     /// Runs `frames` frames now, as fast as the core can, if the session is
@@ -470,6 +479,7 @@ fn run(
         window: None,
         save_ram,
         paused: true,
+        speed: 1,
         next_frame: Instant::now(),
         vsync,
         vsyncs: None,
@@ -562,6 +572,9 @@ struct Runner {
     window: Option<PlatformWindow>,
     save_ram: SaveRam,
     paused: bool,
+    /// How many frames run each time one is due: more than one to fast
+    /// forward.
+    speed: u32,
     /// When the next frame is due, while running.
     next_frame: Instant,
     vsync: Option<VsyncClock>,
@@ -657,7 +670,12 @@ impl Runner {
     }
 
     fn run_frame(&mut self) {
-        self.session.run_frame();
+        for _ in 0..self.speed {
+            self.session.run_frame();
+            if self.session.shutdown_requested() {
+                break;
+            }
+        }
         let now = Instant::now();
         let fps = self.session.av_info().fps;
         let vsync = self.vsync();
@@ -718,6 +736,11 @@ impl Runner {
                 let _ = reply.send(self.save_ram.flush(&self.session));
             }
             Command::Resume => self.set_paused(false),
+            Command::FastForward(speed) => {
+                self.speed = speed.max(1);
+                // Audio at the core's rate can't keep up with more frames.
+                self.session.set_audio_muted(self.speed > 1);
+            }
             Command::Advance(frames, reply) => {
                 if self.paused {
                     for _ in 0..frames {

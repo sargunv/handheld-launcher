@@ -610,6 +610,12 @@ impl Session {
         self.host_mut().audio_speed = speed;
     }
 
+    /// Drops the core's audio while `muted`, rather than playing it, as when
+    /// the session runs faster than the audio could keep up with.
+    pub fn set_audio_muted(&mut self, muted: bool) {
+        self.host_mut().audio_muted = muted;
+    }
+
     /// Tells the audio sink whether the session is paused, so it can stop its
     /// output while no audio comes.
     pub fn set_audio_paused(&mut self, paused: bool) {
