@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -154,6 +155,25 @@ class HomeTest {
     assertFocused("primary")
     onNodeWithTag("primary").assert(expectValue(SemanticsProperties.Role, Role.Button))
     onNodeWithText("Game 2").assert(isHeading())
+  }
+
+  @Test
+  fun aScreenReaderPicksAPlaceByItsTab() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    onNodeWithTag("place:Downloads").performSemanticsAction(SemanticsActions.OnClick)
+    onNodeWithTag("place:Downloads").assertIsSelected()
+    onNodeWithText("Nothing is downloading.").assertExists()
+  }
+
+  @Test
+  fun aScreenReaderCantPressWhatsBehindAMenu() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(Key.ButtonStart)
+    awaitTag("quick:confirm")
+    onNodeWithTag("quick:confirm").assertHasClickAction()
+    onNodeWithTag("continue:2").assertHasNoClickAction()
   }
 
   @Test

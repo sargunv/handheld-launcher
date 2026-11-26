@@ -77,7 +77,8 @@ fun Modifier.focusItem(
   stateDescription: String? = null,
   onAction: (Action) -> Boolean = { false },
 ): Modifier {
-  val scope = LocalFocusScope.current?.memory
+  val focusScope = LocalFocusScope.current
+  val scope = focusScope?.memory
   val group = LocalFocusMemory.current
   val requester = remember { FocusRequester() }
   val interactions = remember { MutableInteractionSource() }
@@ -98,7 +99,8 @@ fun Modifier.focusItem(
     .semantics(mergeDescendants = true) {
       role?.let { this.role = it }
       stateDescription?.let { this.stateDescription = it }
-      if (onConfirm != null) {
+      // Only in the active scope: a screen reader can reach items behind a dialog.
+      if (onConfirm != null && focusScope?.isActive != false) {
         onClick {
           requester.requestFocus()
           currentOnConfirm?.invoke()

@@ -162,16 +162,18 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               }
             }
           }
-          for (line in statusLines(status)) {
-            Text(line, color = Placeholder.mutedText, modifier = Modifier.testTag("note"))
-          }
-          // How the last thing the player did here went, such as a play, which a screen reader
-          // says when it appears.
-          for (line in notes) {
+          val lines = statusLines(status)
+          for ((index, line) in (lines + notes).withIndex()) {
+            // A screen reader says how the last thing the player did here went, such as a play,
+            // and a failed download, when they appear. Progress changes too often to announce.
+            val announce = status is RomStatus.Failed || index >= lines.size
             Text(
               line,
               color = Placeholder.mutedText,
-              modifier = Modifier.testTag("note").semantics { liveRegion = LiveRegionMode.Polite },
+              modifier =
+                Modifier.testTag("note").semantics {
+                  if (announce) liveRegion = LiveRegionMode.Polite
+                },
             )
           }
           current?.summary?.let {

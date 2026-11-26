@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.selected
@@ -147,7 +148,12 @@ class AppState(
 
   /** Moves [step] places along, stopping at the ends. */
   fun switchPlace(step: Int) {
-    val next = Place.entries.getOrNull(place.ordinal + step) ?: return
+    showPlace(Place.entries.getOrNull(place.ordinal + step) ?: return)
+  }
+
+  /** Shows [next]. The lower screen describes nothing until something there takes focus. */
+  fun showPlace(next: Place) {
+    if (next == place) return
     place = next
     focused = null
   }
@@ -158,15 +164,14 @@ class AppState(
    */
   suspend fun open(target: OpenTarget) {
     while (navigator.back()) Unit
-    focused = null
     when (target) {
-      is OpenTarget.AtPlace -> place = target.place
+      is OpenTarget.AtPlace -> showPlace(target.place)
       is OpenTarget.Game -> {
         val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
         if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
       }
       is OpenTarget.LibraryShelf -> {
-        place = Place.Library
+        showPlace(Place.Library)
         libraryView.isOpen = false
         val slug = target.platformSlug ?: return
         suspend fun find() = library.platforms().first().find { it.slug == slug }
@@ -315,6 +320,7 @@ private fun PlacesScreen(state: AppState) {
       // Inside a shelf of Library, L and R step between shelves, so the tabs don't name them.
       val queue by state.downloads.queue.collectAsState()
       PlaceTabs(
+        state::showPlace,
         state.place,
         state.sync,
         queue.size,
@@ -339,6 +345,7 @@ private fun PlacesScreen(state: AppState) {
 
 @Composable
 private fun PlaceTabs(
+  onSelect: (Place) -> Unit,
   current: Place,
   sync: SyncStatus,
   downloads: Int,
@@ -376,6 +383,11 @@ private fun PlaceTabs(
             Modifier.testTag("place:${place.name}").semantics {
               role = Role.Tab
               selected = place == current
+              // The shoulder buttons switch places; a screen reader picks a tab instead.
+              onClick {
+                onSelect(place)
+                true
+              }
               if (queued) contentDescription = "${place.title}, $downloads in the queue"
             },
         )
