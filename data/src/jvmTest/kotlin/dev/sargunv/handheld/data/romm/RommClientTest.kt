@@ -36,11 +36,10 @@ class RommClientTest {
   }
 
   @Test
-  fun readsTheUserAndTimestampsWithoutAnOffset() = runTest {
+  fun readsTheUser() = runTest {
     val user = MockServer { json(Fixtures.me) }.client.me()
     assertEquals("player", user.username)
     assertEquals(listOf("me.read", "roms.read"), user.oauthScopes)
-    assertEquals(Instant.parse("2025-01-01T00:00:00Z"), user.createdAt)
   }
 
   @Test
@@ -214,6 +213,6 @@ class RommClientTest {
     assertEquals("saves", server.requests.single().apiPath)
     assertEquals("7", server.requests.single().url.parameters["rom_id"])
     assertEquals("autosave", save.slot)
-    assertTrue(save.deviceSyncs.single().isCurrent)
+    assertEquals("Thor", save.deviceSyncs.single().deviceName)
   }
 }

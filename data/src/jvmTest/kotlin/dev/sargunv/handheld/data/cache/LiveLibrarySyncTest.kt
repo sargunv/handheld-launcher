@@ -5,7 +5,6 @@ import java.nio.file.Files
 import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -35,15 +34,13 @@ class LiveLibrarySyncTest {
 
   private suspend fun check(client: RommClient, cache: LibraryCache) {
     val sync = LibrarySync(client, cache)
-    val first = sync.sync()
-    assertFalse(first.incremental)
-    assertEquals(client.romIds().size.toLong(), first.roms)
-    assertEquals(first.roms, first.romsFetched.toLong())
+    sync.sync()
+    val romCount = cache.romCount()
+    assertEquals(client.romIds().size.toLong(), romCount)
 
     val platforms = cache.platforms().first()
-    assertEquals(first.platforms, platforms.size)
     val roms = platforms.flatMap { cache.romsOnPlatform(it.id).first() }
-    assertEquals(first.roms, roms.size.toLong(), "Every ROM's platform is cached")
+    assertEquals(romCount, roms.size.toLong(), "Every ROM's platform is cached")
     assertEquals(roms.size, roms.map { it.id }.toSet().size)
     for (rom in roms) {
       assertTrue(rom.title.isNotBlank(), "ROM ${rom.id} has a title")
@@ -58,16 +55,13 @@ class LiveLibrarySyncTest {
       )
     }
 
-    val again = sync.sync()
-    assertTrue(again.incremental)
-    assertEquals(first.roms, again.roms)
-    assertTrue(again.romsFetched < first.romsFetched || first.romsFetched == 0)
+    sync.sync()
+    assertEquals(romCount, cache.romCount())
 
     println(
-      "Live sync: ${first.platforms} platforms, ${first.roms} ROMs with " +
+      "Live sync: ${platforms.size} platforms, $romCount ROMs with " +
         "${roms.sumOf { it.files.size }} files (${roms.count { it.hasMultipleFiles }} with several), " +
-        "${first.collections} collections; the incremental re-sync fetched ${again.romsFetched} ROMs " +
-        "and removed ${again.romsRemoved}",
+        "${cache.collections().first().size} collections",
     )
   }
 }

@@ -11,30 +11,22 @@ import kotlinx.serialization.UseSerializers
 @Serializable
 data class RommSave(
   val id: Long,
-  @SerialName("rom_id") val romId: Long,
   @SerialName("file_name") val fileName: String,
   @SerialName("file_size_bytes") val fileSizeBytes: Long,
   val emulator: String? = null,
   /** The slot saves pair on between devices, or null for an archived upload. */
   val slot: String? = null,
   @SerialName("content_hash") val contentHash: String? = null,
-  @SerialName("download_path") val downloadPath: String,
   @SerialName("origin_device_id") val originDeviceId: String? = null,
   @SerialName("device_syncs") val deviceSyncs: List<RommDeviceSync> = emptyList(),
-  @SerialName("created_at") val createdAt: Instant,
   @SerialName("updated_at") val updatedAt: Instant,
 )
 
-/** When a device last synced a save. */
+/** A device that synced a save. */
 @Serializable
 data class RommDeviceSync(
   @SerialName("device_id") val deviceId: String,
   @SerialName("device_name") val deviceName: String? = null,
-  @SerialName("last_synced_at") val lastSyncedAt: Instant,
-  /** Whether the device stopped tracking the save. */
-  @SerialName("is_untracked") val isUntracked: Boolean = false,
-  /** Whether the device has the save's current version. */
-  @SerialName("is_current") val isCurrent: Boolean = false,
 )
 
 /** A request, made on the server's web page, to install a ROM on a device. */

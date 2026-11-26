@@ -18,20 +18,6 @@ import dev.sargunv.handheld.domain.RomFileCategory
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-/** What a [LibrarySync] did. */
-data class LibrarySyncResult(
-  val platforms: Int,
-  /** The ROMs the server sent, which is every ROM on a full sync and the changed ones otherwise. */
-  val romsFetched: Int,
-  /** The ROMs that were gone from the server. */
-  val romsRemoved: Int,
-  /** The ROMs in the cache afterwards. */
-  val roms: Long,
-  val collections: Int,
-  /** Whether the sync fetched only the ROMs that changed since the last one. */
-  val incremental: Boolean,
-)
-
 /** Refreshes a [LibraryCache] from a RomM server. */
 class LibrarySync(
   private val client: RommClient,
@@ -40,38 +26,36 @@ class LibrarySync(
 ) {
   /**
    * Brings the cache up to date with the server. Platforms and collections are small, so they're
-   * fetched whole every time. ROMs are fetched whole the first time, or when [full] is true, and
-   * afterwards only those the server changed since the last sync. The server's list of ROM ids then
-   * tells which ROMs are gone, and which ones the cache lacks, which are fetched one by one. The
-   * user's recently played ROMs are fetched whole too, since playing doesn't change a ROM.
+   * fetched whole every time. ROMs are fetched whole the first time, and afterwards only those the
+   * server changed since the last sync. The server's list of ROM ids then tells which ROMs are
+   * gone, and which ones the cache lacks, which are fetched one by one. The user's recently played
+   * ROMs are fetched whole too, since playing doesn't change a ROM.
    *
    * A sync that fails leaves the cache usable: what it wrote stays, and the next sync fetches the
    * same changes again.
    *
    * @throws RommException when a request fails.
    */
-  suspend fun sync(full: Boolean = false): LibrarySyncResult {
+  suspend fun sync() {
     val server = client.baseUrl.toString()
     if (cache.syncValue(SERVER_KEY) != server) {
       cache.clear()
       cache.setSyncValue(SERVER_KEY, server)
     }
-    val cursor = if (full) null else cache.syncValue(ROM_CURSOR_KEY)?.let(Instant::parse)
+    val cursor = cache.syncValue(ROM_CURSOR_KEY)?.let(Instant::parse)
 
     val platforms = client.platforms().map { it.toDomain() }
     cache.replacePlatforms(platforms)
 
     var newest = cursor
-    var fetched = 0
     val query = RomQuery(updatedAfter = cursor?.minus(CURSOR_OVERLAP), withFiles = true)
     client.allRoms(query, pageSize).collect { page ->
       cache.upsertRoms(page.items.map { it.toDomain(client) })
-      fetched += page.items.size
       val pageNewest = page.items.maxOf { it.updatedAt }
       newest = newest?.let { maxOf(it, pageNewest) } ?: pageNewest
     }
     val serverIds = client.romIds().toSet()
-    val removed = cache.retainRoms(serverIds)
+    cache.retainRoms(serverIds)
     // The server can list a ROM the walk didn't return: one the user unhid, which keeps its old
     // update time, or one that paging by offset skipped.
     for (id in serverIds - cache.romIds()) {
@@ -82,7 +66,6 @@ class LibrarySync(
           continue
         }
       cache.upsertRoms(listOf(rom.toDomain(client)))
-      fetched++
     }
 
     val collections =
@@ -102,14 +85,6 @@ class LibrarySync(
     )
 
     newest?.let { cache.setSyncValue(ROM_CURSOR_KEY, it.toString()) }
-    return LibrarySyncResult(
-      platforms = platforms.size,
-      romsFetched = fetched,
-      romsRemoved = removed,
-      roms = cache.romCount(),
-      collections = collections.size,
-      incremental = cursor != null,
-    )
   }
 
   private companion object {

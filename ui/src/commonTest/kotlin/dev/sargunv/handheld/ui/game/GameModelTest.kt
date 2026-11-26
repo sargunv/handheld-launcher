@@ -66,20 +66,17 @@ class GameModelTest {
   private fun save(id: Long, day: Int, origin: String?, syncs: List<RommDeviceSync> = emptyList()) =
     RommSave(
       id = id,
-      romId = 1,
       fileName = "Game.sav",
       fileSizeBytes = 8192,
       emulator = "mgba",
-      downloadPath = "/api/saves/$id/content",
       originDeviceId = origin,
       deviceSyncs = syncs,
-      createdAt = Instant.parse("2025-01-0${day}T00:00:00Z"),
       updatedAt = Instant.parse("2025-01-0${day}T00:00:00Z"),
     )
 
   @Test
   fun theSaveHistoryNamesEachSavesDeviceNewestFirst() {
-    val deck = RommDeviceSync("deck", "Steam Deck", Instant.parse("2025-01-02T00:00:00Z"))
+    val deck = RommDeviceSync("deck", "Steam Deck")
     assertEquals(
       listOf(
         ServerSave(THIS_DEVICE, "mgba", Instant.parse("2025-01-03T00:00:00Z"), 8192),
