@@ -234,8 +234,10 @@ class SaveSync(
     return SaveSyncResult.Pushed(local, save)
   }
 
+  // A slot upload always becomes the slot's newest save of this emulator, so the record matches the
+  // save the next sync finds.
   private suspend fun upload(game: GameSave, name: String, bytes: ByteArray, slot: String?) =
-    client.uploadSave(game.romId, name, bytes, game.emulator, slot)
+    client.uploadSave(game.romId, name, bytes, game.emulator, slot, overwrite = slot != null)
 
   /** [save]'s bytes, checked against the hash the server lists. */
   private suspend fun download(save: RommSave): ByteArray {

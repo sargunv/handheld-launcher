@@ -153,7 +153,10 @@ class SaveSyncTest {
 
     val result = assertIs<SaveSyncResult.Pushed>(sync.sync(game))
     val upload = server.uploads.single()
-    assertEquals(mapOf("rom_id" to "7", "emulator" to "melonds", "slot" to SAVE_SLOT), upload.query)
+    assertEquals(
+      mapOf("rom_id" to "7", "emulator" to "melonds", "slot" to SAVE_SLOT, "overwrite" to "true"),
+      upload.query,
+    )
     assertEquals("Pokemon Black.sav", upload.fileName)
     assertContentEquals(mine, upload.bytes)
     assertEquals(server.stored.last().id, result.save.id)

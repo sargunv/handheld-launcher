@@ -245,6 +245,9 @@ class RommClient(
    *
    * A save with a [slot] is the slot's newest version, and the server keeps the older ones. A save
    * with no slot stands on its own; one with the same name and [emulator] is replaced.
+   *
+   * Without [overwrite], the server may keep an earlier save in the slot with the same bytes
+   * instead of the upload, even one from another emulator, and return that save.
    */
   suspend fun uploadSave(
     romId: Long,
@@ -252,6 +255,7 @@ class RommClient(
     content: ByteArray,
     emulator: String? = null,
     slot: String? = null,
+    overwrite: Boolean = false,
   ): RommSave {
     val form =
       MultiPartFormDataContent(
@@ -280,6 +284,7 @@ class RommClient(
             append("rom_id", romId.toString())
             emulator?.let { append("emulator", it) }
             slot?.let { append("slot", it) }
+            if (overwrite) append("overwrite", "true")
           }
           setBody(form)
         }
