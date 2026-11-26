@@ -176,6 +176,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   var uploadFinishing by remember { mutableStateOf(false) }
   // What the sign-in may do about uploads, as of the last Upload to RomM.
   var uploadAccess by remember { mutableStateOf<UploadAccess?>(null) }
+  // Whether Upload to RomM is asking what the sign-in may do, while the menu waits for it.
+  var checkingUpload by remember { mutableStateOf(false) }
   // Why signing in again, with uploads allowed, is offered, while the offer shows.
   var allowUploadsReason by remember { mutableStateOf<String?>(null) }
   // What the launch is doing before the game starts, such as getting its core.
@@ -314,7 +316,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   val primary =
     uploading?.let { PrimaryAction.Waiting(it) }
       ?: current?.let { primaryAction(it, status, playing, playProgress) }
-  val hasMenu = current != null && status != null && !playing && uploading == null
+  val hasMenu =
+    current != null && status != null && !playing && uploading == null && !checkingUpload
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
       when {
@@ -436,9 +439,17 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             MenuButton("menu:upload", "Upload to RomM") {
               close()
               notes = emptyList()
+              checkingUpload = true
               scope.launch {
-                val access = state.romm.uploadAccess()
+                val access =
+                  try {
+                    state.romm.uploadAccess()
+                  } finally {
+                    checkingUpload = false
+                  }
                 uploadAccess = access
+                // A game that started meanwhile comes first.
+                if (playing) return@launch
                 when (access) {
                   null -> notes = listOf("Sign in to RomM to upload the game.")
                   UploadAccess.NotRequested -> allowUploadsReason = UPLOADS_NOT_REQUESTED

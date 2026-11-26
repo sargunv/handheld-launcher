@@ -45,7 +45,6 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.formatSize
-import dev.sargunv.handheld.data.romm.UPLOAD_SCOPE
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
@@ -293,7 +292,7 @@ class AppState(
    * Signs out of the server and goes to the sign-in, which offers the same server again. The games
    * on the device, their saves and the library cache stay, but the downloads not yet done leave the
    * queue, since they're games of this server. The next sign-in opens on Home. It asks for
-   * permission to upload games when [allowUploads], or when the sign-in it replaces had it.
+   * permission to upload games when [allowUploads].
    *
    * Once begun, it finishes even if the screen that asked goes away.
    */
@@ -301,7 +300,7 @@ class AppState(
     withContext(NonCancellable) {
       val previous = credentials.load()
       signedOutOf = previous?.baseUrl
-      signInAllowsUploads = allowUploads || previous?.scopes.orEmpty().contains(UPLOAD_SCOPE)
+      signInAllowsUploads = allowUploads
       // Before the credentials go, so the server hears of the canceled installs it asked for.
       for (download in downloads.queue.value) downloads.cancel(download.romId)
       romm.signOut()
