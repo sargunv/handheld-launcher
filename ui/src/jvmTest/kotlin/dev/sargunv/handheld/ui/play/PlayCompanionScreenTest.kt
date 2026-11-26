@@ -1,5 +1,8 @@
 package dev.sargunv.handheld.ui.play
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -51,5 +54,26 @@ class PlayCompanionScreenTest {
       .assertTextEquals("Back to library")
       .performSemanticsAction(SemanticsActions.OnClick)
     assertEquals(1, backs)
+  }
+
+  @Test
+  fun quitsOnlyWhenTheLauncherCan() = runComposeUiTest {
+    var quits = 0
+    var canQuit by mutableStateOf(false)
+    setContent {
+      PlayCompanionScreen(
+        "Taiko",
+        sync = { "" },
+        onBackToLibrary = {},
+        onQuit = if (canQuit) ({ quits++ }) else null,
+      )
+    }
+    onNodeWithTag("companion:quit").assertDoesNotExist()
+
+    canQuit = true
+    waitForIdle()
+    onNodeWithTag("companion:quit").assertTextEquals("Quit").performTouchInput { click() }
+    waitForIdle()
+    assertEquals(1, quits)
   }
 }

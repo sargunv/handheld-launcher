@@ -37,9 +37,15 @@ import kotlinx.coroutines.launch
  * back to the library. It takes no focus, so the controller stays with the game.
  *
  * @param sync syncs the game's save and returns what happened, in plain words.
+ * @param onQuit closes the emulator and goes back to the library, or null when the launcher can't.
  */
 @Composable
-fun PlayCompanionScreen(title: String, sync: suspend () -> String, onBackToLibrary: () -> Unit) {
+fun PlayCompanionScreen(
+  title: String,
+  sync: suspend () -> String,
+  onBackToLibrary: () -> Unit,
+  onQuit: (() -> Unit)? = null,
+) {
   val scope = rememberCoroutineScope()
   var syncing by remember { mutableStateOf(false) }
   var message by remember { mutableStateOf<String?>(null) }
@@ -68,6 +74,7 @@ fun PlayCompanionScreen(title: String, sync: suspend () -> String, onBackToLibra
         }
       }
       TouchButton("companion:back", "Back to library", onBackToLibrary)
+      onQuit?.let { TouchButton("companion:quit", "Quit", it) }
     }
     Text(
       message.orEmpty(),

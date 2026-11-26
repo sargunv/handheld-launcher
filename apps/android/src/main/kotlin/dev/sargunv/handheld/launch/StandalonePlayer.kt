@@ -6,9 +6,11 @@ import androidx.lifecycle.Lifecycle
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.firmware.FirmwareInstall
 import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.data.saves.EmulatorState
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.data.saves.keptSaves
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.launch.CollectionId
@@ -23,11 +25,13 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.storage.GameLayout
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.saves.SaveConflict
+import dev.sargunv.handheld.ui.saves.StillRunning
 import java.io.File
 import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -46,6 +50,8 @@ data class PlayNote(val text: String, val quiet: Boolean = false)
  * @param saveFolders stand in for the emulator's save folders, for testing.
  * @param biosFolders take the firmware instead of the emulator's own folder, for testing.
  * @param saveServer a server to sync the save with, without a token, instead of the signed-in one.
+ * @param closeEmulators whether the player turned on closing emulators: where the device can, the
+ *   launcher checks whether the emulator is running, and offers to close it.
  */
 data class PlayRequest(
   val romPath: String,
@@ -58,6 +64,7 @@ data class PlayRequest(
   val saveFolders: List<String>? = null,
   val biosFolders: List<String>? = null,
   val saveServer: String? = null,
+  val closeEmulators: Boolean = false,
 )
 
 /**
@@ -65,6 +72,11 @@ data class PlayRequest(
  * save syncs with RomM, the emulator's firmware goes in place, and the dispatcher starts it. When
  * the launcher is back in front, the save syncs again, which sends what the game saved. Games the
  * resolver gives the built-in session go to [BuiltInPlayer] instead.
+ *
+ * An emulator stays in memory after the player goes back to the library, and Android doesn't let
+ * the launcher stop it, so each one it starts counts as running until the device shows otherwise
+ * (see [Emulators]). While it may be, the launcher never pulls a save it may hold without asking:
+ * after the game it only sends, and before the next launch it asks the player.
  */
 class StandalonePlayer(
   private val activity: ComponentActivity,
@@ -73,6 +85,10 @@ class StandalonePlayer(
   private val dispatcher = LaunchDispatcher(activity)
   private val saves = PlaySaves(activity, credentials)
   private val builtIn = BuiltInPlayer(activity, saves)
+  private val emulators = Emulators.of(activity)
+
+  override val canCloseEmulators: Boolean
+    get() = emulators.canClose
 
   private var plays = 0
 
@@ -103,6 +119,8 @@ class StandalonePlayer(
     rules: LaunchRules,
     collections: Set<CollectionId>,
     onProgress: (String) -> Unit,
+    closeEmulators: Boolean,
+    askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
     val file =
@@ -117,9 +135,13 @@ class StandalonePlayer(
         rom.id,
         rules,
         collections,
+        closeEmulators = closeEmulators,
       )
     // A sync that fails before the game and again after it says the same thing twice.
-    return play(request, onProgress, chooseSave).filterNot { it.quiet }.map { it.text }.distinct()
+    return play(request, onProgress, askStillRunning, chooseSave)
+      .filterNot { it.quiet }
+      .map { it.text }
+      .distinct()
   }
 
   override suspend fun keptSaves(rom: Rom): List<KeptSave> =
@@ -130,12 +152,17 @@ class StandalonePlayer(
    * game didn't start, with notes on what happened.
    *
    * @param onProgress hears what the launch is doing before the game starts, in a few words.
+   * @param askStillRunning asks what to do when RomM has a newer save but the emulator may still
+   *   hold the game.
    * @param chooseSave asks which copy of the save to keep when both changed. Null cancels the
    *   launch.
    */
   suspend fun play(
     request: PlayRequest,
     onProgress: (String) -> Unit = {},
+    askStillRunning: suspend (StillRunning) -> StillRunningChoice = {
+      StillRunningChoice.QuitFirst
+    },
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<PlayNote> {
     plays++
@@ -199,11 +226,42 @@ class StandalonePlayer(
     if (request.romId != null && game == null) {
       note("${appName(target)}'s saves don't sync yet", quiet = true)
     }
-    if (game != null && !saves.beforeLaunch(request, game, chooseSave, ::note)) return notes
+    val packageName = target.packageName
+    val canClose = request.closeEmulators && emulators.canClose
+    val probe = emulators.probe(useRoot = canClose)
+    if (game != null) {
+      val name = appName(target)
+      val synced =
+        saves.beforeLaunch(
+          request,
+          game,
+          chooseSave,
+          ::note,
+          emulator = emulators.state(packageName, probe),
+          canClose = canClose,
+          askStillRunning = { offerClose ->
+            askStillRunning(StillRunning(request.title, name, offerClose))
+          },
+          close = { emulators.close(packageName) },
+        )
+      if (!synced) return notes
+    }
     // A game launches even when its firmware can't be placed, since some emulators boot without it.
     placeFirmware(target, request, ::note)
+    // Set from the companion's Quit, which brings the launcher to the front.
+    var quit = false
     // The companion goes first, so the emulator, started second, ends up with the focus.
-    PlayCompanion.show(activity, PlaySession(request.title) { syncNow(request, game, target) })
+    PlayCompanion.show(
+      activity,
+      PlaySession(
+        request.title,
+        sync = { syncNow(request, game, target) },
+        quit = if (canClose) ({ quit = true }) else null,
+      ),
+    )
+    // Noted before the launch, so an emulator that starts counts as running even if the launcher
+    // stops before it hears back. A launch that fails errs the same way.
+    emulators.launched(packageName, request.romId, probe)
     try {
       when (val outcome = dispatcher.launch(command)) {
         is LaunchOutcome.Started ->
@@ -226,6 +284,17 @@ class StandalonePlayer(
       PlayCompanion.close()
     }
     note("Back from the game", quiet = true)
+    if (quit) {
+      // The emulator may still be writing its save as it goes to the background.
+      delay(QUIT_DELAY)
+      if (!emulators.close(packageName)) {
+        note("Couldn't close ${appName(target)}. Quit the game from its own menu.")
+      }
+    }
+    when (emulators.state(packageName, probe)) {
+      is EmulatorState.MayBeRunning -> note("${appName(target)} may still be running", quiet = true)
+      is EmulatorState.NotRunning -> note("${appName(target)} isn't running", quiet = true)
+    }
     if (game != null) saves.afterPlay(request, game, ::note)
     return notes
   }
@@ -310,6 +379,7 @@ class StandalonePlayer(
 
   private companion object {
     const val TAG = "Play"
+    val QUIT_DELAY = 1.seconds
   }
 }
 
