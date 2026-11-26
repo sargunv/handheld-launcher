@@ -11,6 +11,31 @@ unsafe extern "C" {
     fn ANativeWindow_release(window: *mut c_void);
 }
 
+unsafe extern "C" {
+    fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
+}
+
+/// `struct timespec` on the 64-bit ABIs the session builds for.
+#[repr(C)]
+struct Timespec {
+    seconds: i64,
+    nanos: i64,
+}
+
+const CLOCK_MONOTONIC: i32 = 1;
+
+/// Now on `CLOCK_MONOTONIC`, the clock of Choreographer's and AAudio's
+/// timestamps, in nanoseconds.
+pub(crate) fn monotonic_nanos() -> i64 {
+    let mut time = Timespec {
+        seconds: 0,
+        nanos: 0,
+    };
+    // SAFETY: `time` is a valid `timespec` on 64-bit Android.
+    unsafe { clock_gettime(CLOCK_MONOTONIC, &mut time) };
+    time.seconds * 1_000_000_000 + time.nanos
+}
+
 /// Sends the session's logs, and its cores', to logcat.
 pub(crate) fn init_logging() {
     android_logger::init_once(

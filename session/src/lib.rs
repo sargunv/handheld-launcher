@@ -16,6 +16,7 @@ mod handle;
 mod host;
 mod input;
 mod options;
+mod pacing;
 mod platform;
 mod save;
 mod session;

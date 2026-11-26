@@ -80,6 +80,8 @@ pub(crate) struct Host {
     /// The core rate `audio` resamples from.
     audio_rate: f64,
     audio_samples: Vec<i16>,
+    /// The rate the session runs frames at, over the core's own.
+    pub(crate) audio_speed: f64,
     pub(crate) video: VideoTarget,
     pub(crate) gpu: Option<Gpu>,
     /// The core's hardware render request, with our callbacks filled in.
@@ -123,6 +125,7 @@ impl Host {
             audio: None,
             audio_rate: 0.0,
             audio_samples: Vec::new(),
+            audio_speed: 1.0,
             video,
             gpu: None,
             hw_render: None,
@@ -188,7 +191,7 @@ impl Host {
     pub(crate) fn flush_audio(&mut self) {
         if let Some(audio) = &mut self.audio {
             audio.push(&self.audio_samples);
-            audio.flush(self.audio_sink.as_mut());
+            audio.flush(self.audio_sink.as_mut(), self.audio_speed);
         }
         self.audio_samples.clear();
     }

@@ -1,22 +1,34 @@
 //! Audio output through AAudio.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use ndk::audio::{
     AudioCallbackResult, AudioDirection, AudioError, AudioFormat, AudioPerformanceMode,
-    AudioSharingMode, AudioStream, AudioStreamBuilder, AudioUsage,
+    AudioSharingMode, AudioStream, AudioStreamBuilder, AudioUsage, Clockid,
 };
 
 use crate::audio::{AudioSink, BufferStatus};
+use crate::platform::android::monotonic_nanos;
 
-/// How much audio the session keeps queued, at most, in seconds. Rate
-/// control keeps the queue half full.
-const QUEUE_SECONDS: f64 = 0.1;
+/// How often a playing sink logs its latency and underruns.
+const STATS_INTERVAL: Duration = Duration::from_secs(60);
 
-/// The ring buffer's size in seconds at the highest rate a device is likely
-/// to pick. The ring is made before the stream says its rate.
-const RING_SAMPLES: usize = 2 * (192_000.0 * QUEUE_SECONDS) as usize;
+/// How much audio, in seconds, rate control keeps queued beyond a burst
+/// when a frame's audio comes: a stream's callback takes a burst at a time,
+/// and frames come a little early or late.
+const MARGIN_SECONDS: f64 = 0.004;
+
+/// How much more than its target the queue holds, in seconds: a few frames'
+/// audio, for frames that come late and then catch up. Audio past that is
+/// dropped rather than added as latency.
+const HEADROOM_SECONDS: f64 = 0.05;
+
+/// The ring buffer's size in samples: room for the queue at the highest rate
+/// and the largest burst a device is likely to have. The ring is made before
+/// the stream says its rate.
+const RING_SAMPLES: usize = 2 * (192_000.0 * 0.2) as usize;
 
 /// Plays the session's audio on the default output, in a low-latency AAudio
 /// stream fed from a lock-free queue.
@@ -27,21 +39,59 @@ pub(crate) struct AAudioSink {
     /// Set by the stream when its device goes away, as when headphones are
     /// unplugged. The next write opens a new stream on the new default.
     disconnected: Arc<AtomicBool>,
-    /// Whether the stream is started. It starts once the queue is half full,
-    /// the level the session keeps it at, so it doesn't underrun at first.
+    /// Whether the stream is started.
     playing: bool,
     paused: bool,
+    /// Callbacks that found the queue short, since the sink opened.
+    underruns: Arc<AtomicU32>,
+    /// The stream's underruns as of the last write. The stream's buffer
+    /// starts at a burst, the least latency it can have, and grows a burst
+    /// whenever the stream underruns.
+    xruns: i32,
+    stats: Stats,
+}
+
+/// Latency and underruns over a stretch of playing, for the log.
+struct Stats {
+    since: Instant,
+    /// Sums and extremes of the latency of the audio as it's queued, in
+    /// milliseconds: in all, and in the stream alone.
+    total: (f64, f64, f64),
+    stream: f64,
+    samples: u32,
+    xruns: i32,
+    underruns: u32,
+}
+
+impl Stats {
+    fn new(xruns: i32, underruns: u32) -> Self {
+        Self {
+            since: Instant::now(),
+            total: (0.0, f64::MAX, f64::MIN),
+            stream: 0.0,
+            samples: 0,
+            xruns,
+            underruns,
+        }
+    }
 }
 
 impl AAudioSink {
     pub(crate) fn new() -> Result<Self, AudioError> {
-        let (stream, queue, disconnected) = open(None)?;
+        let underruns = Arc::new(AtomicU32::new(0));
+        let (stream, queue, disconnected) = open(None, underruns.clone())?;
         let rate = u32::try_from(stream.sample_rate()).unwrap_or(48_000);
+        set_buffer_size(&stream, stream.frames_per_burst());
         log::info!(
-            "audio: AAudio at {rate} Hz, {} frames per burst, {:?}",
+            "audio: AAudio at {rate} Hz, {:?}, {:?}, {} frames per burst, buffer {} of {} frames",
+            stream.sharing_mode(),
+            stream.performance_mode(),
             stream.frames_per_burst(),
-            stream.performance_mode()
+            stream.buffer_size_in_frames(),
+            stream.buffer_capacity_in_frames(),
         );
+        let xruns = stream.x_run_count();
+        let stats = Stats::new(xruns, 0);
         Ok(Self {
             stream,
             queue,
@@ -49,11 +99,101 @@ impl AAudioSink {
             disconnected,
             playing: false,
             paused: false,
+            underruns,
+            xruns,
+            stats,
         })
     }
 
+    /// The latency of the audio queued last, in milliseconds: in all, and in
+    /// the stream alone, from when it leaves the queue. `None` while the
+    /// stream has no timestamp.
+    fn latency(&self) -> Option<(f64, f64)> {
+        let timestamp = self.stream.timestamp(Clockid::Monotonic).ok()?;
+        let now = monotonic_nanos();
+        // Until the stream has played for a moment, its timestamp is stale.
+        if timestamp.frame_position <= 0 || now - timestamp.time_nanoseconds > 1_000_000_000 {
+            return None;
+        }
+        let written = self.stream.frames_written();
+        let ms_until = |frame: i64| {
+            let frames = (frame - timestamp.frame_position) as f64;
+            let at = timestamp.time_nanoseconds as f64 + frames * 1e9 / f64::from(self.rate);
+            (at - now as f64) / 1e6
+        };
+        Some((ms_until(written + self.queued() as i64), ms_until(written)))
+    }
+
+    /// Adds a burst to the stream's buffer if it underran since the last
+    /// write.
+    fn grow_after_underrun(&mut self) {
+        let xruns = self.stream.x_run_count();
+        if xruns <= self.xruns {
+            return;
+        }
+        self.xruns = xruns;
+        let size = self.stream.buffer_size_in_frames();
+        if size < self.stream.buffer_capacity_in_frames() {
+            set_buffer_size(&self.stream, size + self.stream.frames_per_burst());
+            log::info!(
+                "audio: the stream underran; its buffer is now {} frames",
+                self.stream.buffer_size_in_frames()
+            );
+        }
+    }
+
+    fn measure(&mut self) {
+        if let Some((total, stream)) = self.latency() {
+            let s = &mut self.stats;
+            s.total = (
+                s.total.0 + total,
+                s.total.1.min(total),
+                s.total.2.max(total),
+            );
+            s.stream += stream;
+            s.samples += 1;
+        }
+        if self.stats.since.elapsed() >= STATS_INTERVAL {
+            self.log_stats();
+        }
+    }
+
+    /// Logs the stats so far, and starts over.
+    fn log_stats(&mut self) {
+        let xruns = self.stream.x_run_count();
+        let underruns = self.underruns.load(Ordering::Relaxed);
+        let s = &self.stats;
+        let (new_xruns, new_underruns) = (xruns - s.xruns, underruns - s.underruns);
+        if s.samples > 0 || new_xruns > 0 || new_underruns > 0 {
+            let latency = if s.samples > 0 {
+                let n = f64::from(s.samples);
+                format!(
+                    "latency mean {:.1} ms (stream {:.1} ms), min {:.1} ms, max {:.1} ms",
+                    s.total.0 / n,
+                    s.stream / n,
+                    s.total.1,
+                    s.total.2,
+                )
+            } else {
+                "latency unknown".into()
+            };
+            log::info!(
+                "audio: {latency}; {new_xruns} xruns, {new_underruns} queue underruns in {:.1} s; \
+                 buffer {} frames",
+                s.since.elapsed().as_secs_f64(),
+                self.stream.buffer_size_in_frames(),
+            );
+        }
+        self.stats = Stats::new(xruns, underruns);
+    }
+
+    fn target(&self) -> usize {
+        let burst = usize::try_from(self.stream.frames_per_burst()).unwrap_or(0);
+        burst + (f64::from(self.rate) * MARGIN_SECONDS) as usize
+    }
+
     fn capacity(&self) -> usize {
-        (f64::from(self.rate) * QUEUE_SECONDS) as usize
+        self.target() + (f64::from(self.rate) * HEADROOM_SECONDS) as usize
     }
 
     fn queued(&self) -> usize {
@@ -64,22 +204,40 @@ impl AAudioSink {
     /// at the same rate.
     fn reopen(&mut self) {
         log::warn!("audio output disconnected; reopening");
-        match open(i32::try_from(self.rate).ok()) {
+        match open(i32::try_from(self.rate).ok(), self.underruns.clone()) {
             Ok((stream, queue, disconnected)) => {
+                set_buffer_size(&stream, stream.frames_per_burst());
+                self.xruns = stream.x_run_count();
                 self.stream = stream;
                 self.queue = queue;
                 self.disconnected = disconnected;
                 self.playing = false;
+                self.stats = Stats::new(
+                    self.stream.x_run_count(),
+                    self.underruns.load(Ordering::Relaxed),
+                );
             }
             Err(e) => log::error!("can't reopen audio output: {e}"),
         }
     }
 }
 
+/// Sizes the stream's buffer to `frames`, or as near as it allows.
+fn set_buffer_size(stream: &AudioStream, frames: i32) {
+    // The ndk crate takes the size AAudio returns on success for an error
+    // code, so only a negative one is a failure.
+    if let Err(e) = stream.set_buffer_size_in_frames(frames)
+        && stream.buffer_size_in_frames() != frames
+    {
+        log::warn!("can't set the audio buffer's size: {e}");
+    }
+}
+
 /// Opens a stereo float stream whose callback plays what the returned queue
-/// receives, and silence when it runs dry.
+/// receives, and silence when it runs dry, counting it in `underruns`.
 fn open(
     rate: Option<i32>,
+    underruns: Arc<AtomicU32>,
 ) -> Result<(AudioStream, rtrb::Producer<f32>, Arc<AtomicBool>), AudioError> {
     let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new(RING_SAMPLES);
     let disconnected = Arc::new(AtomicBool::new(false));
@@ -104,6 +262,9 @@ fn open(
                 out[a.len()..a.len() + b.len()].copy_from_slice(b);
                 filled = a.len() + b.len();
                 chunk.commit_all();
+            }
+            if filled < len {
+                underruns.fetch_add(1, Ordering::Relaxed);
             }
             out[filled..].fill(0.0);
             AudioCallbackResult::Continue
@@ -131,26 +292,36 @@ impl AudioSink for AAudioSink {
         // Whole frames only, so the callback always reads left then right.
         // Audio past the queue's capacity is dropped rather than added as
         // latency that rate control would take minutes to work off.
-        let room = self.capacity().saturating_sub(self.queued()) * 2;
+        let queued = self.queued();
+        let room = self.capacity().saturating_sub(queued) * 2;
         let n = samples.len().min(room).min(self.queue.slots()) & !1;
         let _ = self.queue.push_partial_slice(&samples[..n]);
-        if !self.playing && !self.paused && self.queued() >= self.capacity() / 2 {
+        // The stream starts once the queue held its target before a frame's
+        // audio, as rate control keeps it, so the frame's audio lasts until
+        // the next frame's.
+        if !self.playing && !self.paused && queued >= self.target() {
             match self.stream.request_start() {
                 Ok(()) => self.playing = true,
                 Err(e) => log::error!("can't start audio output: {e}"),
             }
+        }
+        if self.playing {
+            self.grow_after_underrun();
+            self.measure();
         }
     }
 
     fn buffer_status(&self) -> Option<BufferStatus> {
         Some(BufferStatus {
             queued: self.queued(),
-            capacity: self.capacity(),
+            target: self.target(),
         })
     }
 
     fn set_paused(&mut self, paused: bool) {
         self.paused = paused;
+        // Either way, the stats start over.
+        self.log_stats();
         if paused && self.playing {
             if let Err(e) = self.stream.request_pause() {
                 log::warn!("can't pause audio output: {e}");

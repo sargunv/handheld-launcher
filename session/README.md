@@ -31,6 +31,14 @@ seconds of changing and whenever the session pauses or stops, on a thread of its
 own, replacing the file atomically. A save file whose size differs from the
 core's save memory is copied to a backup beside it before it's replaced.
 
+On Android, frames start on the display's vsync, which a Choreographer thread
+follows, when the core's rate is within 2% of a whole fraction of the display's:
+every second vsync for a 60 fps core on a 120 Hz display. The core then runs
+that much faster or slower, and its audio is resampled to match, with rate
+control keeping AAudio's queue at about a burst. Other cores, and sessions with
+no window, run on a timer at the core's rate. The session logs its frame timing,
+audio latency and underruns to logcat each minute and when it pauses.
+
 ## On a device
 
 Debug builds of the Android app have a screen that runs a core:
