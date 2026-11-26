@@ -77,6 +77,8 @@ class MainActivity : ComponentActivity() {
     val downloads = downloadManager(this)
     keepDownloadsRunning()
     val launcher = StandalonePlayer(this, credentials)
+    // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
+    val apps = InstalledApps(this)
     setContent {
       val display = rememberSecondaryDisplay()
       // The presentation draws over the play companion's activity on the same display.
@@ -97,7 +99,7 @@ class MainActivity : ComponentActivity() {
         initialSettings = settings,
         saveSettings = settingsFile::write,
         launcher = launcher,
-        apps = InstalledApps(this),
+        apps = apps,
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(
