@@ -22,7 +22,9 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -130,6 +132,9 @@ internal fun LibraryPlace(state: AppState) {
       if (shown != null && view.sort == LibrarySort.Name) jumpIndex(shown) else emptyMap()
     }
   SideEffect { view.letters = index.keys.toList() }
+  // The lower screen describes nothing while the grid has no game to focus.
+  val empty = shown.isNullOrEmpty()
+  LaunchedEffect(empty) { if (empty) state.focused = null }
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   val shelfStates = rememberSaveableStateHolder()
 
@@ -350,7 +355,11 @@ private fun LibraryMenu(
     onDismissRequest()
   }
   Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
-    Column(Modifier.widthIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    // It scrolls with focus, so a short screen still reaches the letters.
+    Column(
+      Modifier.widthIn(max = 640.dp).verticalScroll(rememberScrollState()),
+      verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
       Text(title, color = Placeholder.text)
       for (sort in LibrarySort.entries.filter { it != view.sort }) {
         MenuButton("menu:sort:${sort.name}", "Sort by ${sort.title.lowercase()}") {

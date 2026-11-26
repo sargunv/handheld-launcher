@@ -227,6 +227,18 @@ class LibraryTest {
     assertFocused("game:2")
   }
 
+  @Test
+  fun aFilterThatLeavesNothingClearsTheFocusedGame() = runComposeUiTest {
+    openLibrary()
+    assertFocused("game:1")
+    onNodeWithText("Open").assertExists()
+    onNodeWithTag("touch:filter:OnDevice").performClick()
+    waitForIdle()
+    onNodeWithText("No games here match the filter.").assertExists()
+    onNodeWithText("Open").assertDoesNotExist()
+    onNodeWithText("Alpha").assertDoesNotExist()
+  }
+
   private companion object {
     fun platform(id: Int, name: String, roms: Int) =
       """{"id": $id, "slug": "p$id", "fs_slug": "p$id", "name": "$name",
