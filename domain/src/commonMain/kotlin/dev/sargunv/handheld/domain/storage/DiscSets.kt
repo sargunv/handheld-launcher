@@ -53,7 +53,7 @@ object DiscSets {
     return args.substringBeforeLast(' ', args).trim().takeIf { it.isNotEmpty() }
   }
 
-  /** A line's fields, split by spaces, with a quoted field kept whole. */
+  /** A line's fields, split by spaces or tabs, with a quoted field kept whole. */
   private fun tokens(line: String): List<String> {
     val tokens = mutableListOf<String>()
     var rest = line.trim()
@@ -62,8 +62,9 @@ object DiscSets {
         tokens += rest.drop(1).substringBefore('"')
         rest = rest.drop(1).substringAfter('"', "").trim()
       } else {
-        tokens += rest.substringBefore(' ')
-        rest = rest.substringAfter(' ', "").trim()
+        val end = rest.indexOfFirst { it.isWhitespace() }.let { if (it < 0) rest.length else it }
+        tokens += rest.take(end)
+        rest = rest.drop(end).trim()
       }
     }
     return tokens

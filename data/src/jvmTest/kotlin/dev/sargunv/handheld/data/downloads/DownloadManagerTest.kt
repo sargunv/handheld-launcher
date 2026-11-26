@@ -10,6 +10,7 @@ import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.storage.GameLayout
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -388,6 +389,39 @@ class DownloadManagerTest {
     assertEquals(emptyList(), contentRequests())
   }
 
+  // Of two server games on one file, the file's page and the device's games pick the same one.
+  @Test
+  fun aFileOfTwoServerGamesIsTheLowerIds() = runTest {
+    fillLibrary()
+    val file = gameRom.files.single()
+    val hashed =
+      file.copy(
+        crcHash = CRC32().apply { update(game) }.value.toString(16).padStart(8, '0'),
+        sha1Hash = hash("SHA-1", game),
+      )
+    val first =
+      gameRom.copy(id = 21, fileName = "A.gba", files = listOf(hashed.copy(fileName = "A.gba")))
+    val second =
+      gameRom.copy(
+        id = 22,
+        fileName = "B.gba",
+        files = listOf(hashed.copy(id = hashed.id + 1, fileName = "B.gba")),
+      )
+    library.upsertRoms(listOf(second, first))
+    val copied =
+      file("ROMs/gba/my copy.gba").apply {
+        parentFile.mkdirs()
+        writeBytes(game)
+      }
+    val downloads = manager(backgroundScope, server())
+    // Both are on the device, on the one file.
+    waitFor { downloads.localScan.first { it.matched.keys == setOf(21L, 22L) } }
+    assertEquals(
+      LocalGameState.Matched(21),
+      waitFor { downloads.localGame(copied.path).first { it is LocalGameState.Matched } },
+    )
+  }
+
   @Test
   fun aFileThatMatchesNothingIsALocalGameUntilRemoved() = runTest {
     fillLibrary()
@@ -609,6 +643,24 @@ class DownloadManagerTest {
     assertFalse(orphan.exists())
     assertFalse(orphanFolder.exists())
     for (file in kept) assertTrue(file.exists(), file.path)
+  }
+
+  // A first sync fills the library a page at a time, and a later page's orphan goes too.
+  @Test
+  fun sweepsTheOrphansOfLaterPagesOfTheFirstSync() = runTest {
+    fillLibrary()
+    val name = GameLayout.romName(sagaRom.fileName, sagaRom.files.map { it.fileName })
+    val orphan =
+      file("ROMs/psx/$name.part").apply {
+        parentFile.mkdirs()
+        writeBytes(disc1)
+      }
+    library.upsertRoms(listOf(gameRom))
+    val downloads = manager(backgroundScope, server())
+    waitFor { downloads.sweep.join() }
+    assertTrue(orphan.exists(), "Not a game of the library yet")
+    library.upsertRoms(listOf(sagaRom))
+    waitFor { while (orphan.exists()) delay(50) }
   }
 
   @Test

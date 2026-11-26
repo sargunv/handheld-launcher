@@ -51,6 +51,12 @@ class DiscSetsTest {
   }
 
   @Test
+  fun aGdisFieldsMayBeSeparatedByTabs() {
+    val gdi = "2\n1\t0\t4\t2352\ttrack01.bin\t0\n2\t756\t0\t2352\t\"track 02.raw\"\t0\n"
+    assertEquals(listOf("track01.bin", "track 02.raw"), DiscSets.listedFiles("Game.gdi", gdi))
+  }
+
+  @Test
   fun onlyFilesBesideTheDescriptorAreItsSiblings() {
     val names = listOf("Game (Track 1).bin", "Game (Track 2).BIN", "Other.bin", "Game.cue")
     assertEquals(

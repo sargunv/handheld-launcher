@@ -172,7 +172,10 @@ fun App(
     downloads.statuses().collect { statuses ->
       state.deviceStates = deviceStates(statuses)
       state.onDevice = buildMap {
-        for ((id, status) in statuses) if (status is RomStatus.OnDevice) put(status.path, id)
+        // Of several games on one file, the lowest id, as the file's page picks.
+        for ((id, status) in statuses) {
+          if (status is RomStatus.OnDevice) merge(status.path, id, ::minOf)
+        }
       }
     }
   }

@@ -18,10 +18,12 @@ import dev.sargunv.handheld.domain.storage.GameLayout
 import io.ktor.client.engine.HttpClientEngine
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -31,7 +33,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -219,6 +223,20 @@ class DownloadManager(
   internal val sweep: Job = scope.launch { sweepStaging() }
 
   init {
+    scope.launch { sweepAsTheLibraryGrows() }
+  }
+
+  /**
+   * Sweeps again as the library changes after [sweep]: a first sync fills it a page at a time, so
+   * the games of later pages are swept as they come.
+   */
+  @OptIn(FlowPreview::class)
+  private suspend fun sweepAsTheLibraryGrows() {
+    sweep.join()
+    library.allRoms().drop(1).debounce(1.seconds).collect { sweepStaging(it) }
+  }
+
+  init {
     scope.launch {
       while (true) {
         val seen = entries.value to signIns.value
@@ -258,10 +276,10 @@ class DownloadManager(
    * the queue may resume. Nothing else is touched, so other apps' files stay. It waits for the
    * library to have games.
    */
-  private suspend fun sweepStaging() {
+  private suspend fun sweepStaging(of: List<Rom>? = null) {
     canWrite.first { it }
     // With app data cleared, the library is empty until the first sync fills it.
-    val roms = library.allRoms().first { it.isNotEmpty() }
+    val roms = of ?: library.allRoms().first { it.isNotEmpty() }
     val platforms = library.platforms().first()
     val folders = platforms.associate { it.id to it.fsSlug }
     fun nameOf(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
@@ -355,13 +373,11 @@ class DownloadManager(
           ?.let {
             return@combine LocalGameState.Local(it)
           }
-        scan.matched.entries
-          .find { it.value == path }
-          ?.let {
-            return@combine LocalGameState.Matched(it.key)
-          }
-        matchedByName(Path(path), platforms, roms)?.let { LocalGameState.Matched(it.id) }
-          ?: LocalGameState.Gone
+        // Of several games on the file, the lowest id, as the device's games pick.
+        val ids =
+          scan.matched.filterValues { it == path }.keys +
+            listOfNotNull(matchedByName(Path(path), platforms, roms)?.id)
+        ids.minOrNull()?.let(LocalGameState::Matched) ?: LocalGameState.Gone
       }
       .distinctUntilChanged()
       .flowOn(Dispatchers.IO)
