@@ -44,7 +44,7 @@ class KeyMappingTest {
       assertEquals(Action.Search, settings.actionFor(Key.ButtonY))
       assertEquals(Action.PreviousShelf, settings.actionFor(Key.ButtonL1))
       assertEquals(Action.NextShelf, settings.actionFor(Key.ButtonR1))
-      assertEquals(Action.QuickMenu, settings.actionFor(Key.ButtonStart))
+      assertEquals(Action.MainMenu, settings.actionFor(Key.ButtonStart))
       assertEquals(Action.Select, settings.actionFor(Key.ButtonSelect))
       assertEquals(Action.Left, settings.actionFor(Key.DirectionLeft))
       assertNull(settings.actionFor(Key.ButtonL2))

@@ -60,12 +60,15 @@ val LocalDialogs = staticCompositionLocalOf<Dialogs?> { null }
  *
  * @param initialFocus the key of the item to focus first; the first item by default.
  * @param modifier applies to the panel.
+ * @param alignment where the panel sits on the screen: the middle by default, or an edge for a side
+ *   menu.
  */
 @Composable
 fun Dialog(
   onDismissRequest: () -> Unit,
   modifier: Modifier = Modifier,
   initialFocus: String? = null,
+  alignment: Alignment = Alignment.Center,
   content: @Composable BoxScope.() -> Unit,
 ) {
   val dismiss by rememberUpdatedState(onDismissRequest)
@@ -88,7 +91,7 @@ fun Dialog(
     Modifier.fillMaxSize().background(ScrimColor).pointerInput(Unit) {
       detectTapGestures { dismiss() }
     },
-    contentAlignment = Alignment.Center,
+    contentAlignment = alignment,
   ) {
     FocusScope(
       modifier =

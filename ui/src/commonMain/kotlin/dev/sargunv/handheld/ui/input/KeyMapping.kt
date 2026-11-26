@@ -50,7 +50,7 @@ fun keyActionFor(key: Key): Action? =
     Key.Search -> Action.Search
     Key.PageUp -> Action.PreviousShelf
     Key.PageDown -> Action.NextShelf
-    Key.F1 -> Action.QuickMenu
+    Key.F1 -> Action.MainMenu
     Key.F2 -> Action.Select
     else -> null
   }

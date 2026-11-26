@@ -3,16 +3,10 @@ package dev.sargunv.handheld.ui.game
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
-import androidx.compose.ui.test.assert
-import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
-import androidx.compose.ui.test.assertIsNotSelected
-import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -191,6 +185,18 @@ class GameTest {
 
   private fun ComposeUiTest.press(key: Key) = press(listOf(key))
 
+  /** Goes from Home to Settings → Emulators with the main menu, focusing its first setting. */
+  private fun ComposeUiTest.openEmulatorsSettings() {
+    press(Key.ButtonStart)
+    awaitTag("main:Home")
+    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitTag("settings:Controls")
+    // Controls, RomM, then Emulators: the test has no RetroAchievements.
+    press(listOf(Key.DirectionDown, Key.DirectionDown))
+    awaitTag("settings:emulators:gb")
+    press(Key.DirectionRight)
+  }
+
   @Test
   fun playsAGameOnTheDeviceAndSaysHowItWent() = runComposeUiTest {
     val launcher = FakeLauncher()
@@ -273,19 +279,17 @@ class GameTest {
     val launcher = FakeLauncher(stillRunning = "ARMSX2", canCloseEmulators = true)
     openGame(launcher)
 
-    // The setting is off by default, and turning it on explains it first.
+    // The setting, in Settings → Emulators, is off by default, and turning it on explains it first.
     press(Key.ButtonB)
     awaitTag("continue:1")
-    press(Key.ButtonStart)
-    awaitTag("quick:closeEmulators")
-    onNodeWithText("Close emulators: Off").assertExists()
-    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    openEmulatorsSettings()
+    onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "Off")
+    press(Key.ButtonA)
     awaitText("built-in root service")
     // Cancel has focus first, so one press too many leaves it off.
     onNodeWithTag("closeEmulators:cancel").assertIsFocused()
     press(listOf(Key.DirectionUp, Key.ButtonA))
-    press(Key.ButtonStart)
-    awaitText("Close emulators: On")
+    onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "On")
     press(Key.ButtonB)
 
     awaitTag("continue:1")
@@ -304,9 +308,8 @@ class GameTest {
     openGame(FakeLauncher())
     press(Key.ButtonB)
     awaitTag("continue:1")
-    press(Key.ButtonStart)
-    awaitTag("quick:confirm")
-    onNodeWithTag("quick:closeEmulators").assertDoesNotExist()
+    openEmulatorsSettings()
+    onNodeWithTag("settings:closeEmulators").assertDoesNotExist()
   }
 
   @Test
@@ -359,13 +362,9 @@ class GameTest {
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Why it opens in Notes")
     onNodeWithText("→ Platform Game Boy: Built-in session (default) · overridden").assertExists()
-    // The levels are a set of options: a screen reader hears which is picked, not its dot.
-    onNodeWithTag("level:0")
-      .assert(expectValue(SemanticsProperties.Role, Role.RadioButton))
-      .assertIsSelected()
-      .assertContentDescriptionEquals("This game, Notes")
-    onNodeWithTag("level:1").assertIsNotSelected()
-    press(listOf(Key.DirectionRight, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    onNodeWithTag("openWith:current").assertTextEquals("Notes")
+    onNodeWithText("Clearing it opens it in the built-in session.").assertExists()
+    press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)
     waitUntil(timeoutMillis = 5_000) { launcher.rules.size == 2 }

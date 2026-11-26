@@ -1,8 +1,12 @@
 package dev.sargunv.handheld.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -10,13 +14,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import coil3.compose.setSingletonImageLoaderFactory
+import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
 import dev.sargunv.handheld.data.downloads.DownloadManager
@@ -35,15 +51,22 @@ import dev.sargunv.handheld.ui.focus.LocalFocusScopes
 import dev.sargunv.handheld.ui.focus.isDialogOpen
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
+import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
+import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.deviceStates
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.HomePress
+import dev.sargunv.handheld.ui.places.MainMenu
 import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
 import dev.sargunv.handheld.ui.places.OpenRequest
+import dev.sargunv.handheld.ui.places.OpenTarget
+import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.settings.SettingsPage
+import dev.sargunv.handheld.ui.settings.SettingsSecondary
 import dev.sargunv.handheld.ui.signin.SignInPrimary
 import dev.sargunv.handheld.ui.signin.SignInSecondary
 import dev.sargunv.handheld.ui.signin.SignInState
@@ -57,7 +80,7 @@ import kotlinx.io.files.Path
 
 /**
  * The app's root, shared by every platform. It opens on sign-in until [credentials] holds a server,
- * and on Home after that.
+ * and on Home after that. Start opens the main menu on every screen, sign-in included.
  *
  * Once signed in, it syncs [library] with the server when it starts and after each sign-in. The
  * screens show what [library] holds in the meantime, so they work offline.
@@ -78,7 +101,8 @@ import kotlinx.io.files.Path
  * @param apps the apps on the device that the player can pick to open games in.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
- * @param openRequest a screen to show once signed in, for development tools.
+ * @param openRequest a screen to show once signed in, for development tools. Before sign-in, only
+ *   Settings shows.
  * @param homePress the system's HOME, pressed while the app is in front as the home app. It closes
  *   the open dialogs, or when there are none, starts over on Home.
  * @param appInfo what About says about this build: its version and the components it's built from.
@@ -105,9 +129,6 @@ fun App(
   appInfo: AppInfo = AppInfo.Unknown,
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
-  // Null until the stored credentials have been read.
-  var signedIn by remember { mutableStateOf<Boolean?>(null) }
-  LaunchedEffect(credentials) { signedIn = credentials.load() != null }
   val state =
     remember(
       library,
@@ -131,6 +152,7 @@ fun App(
         appInfo,
       )
     }
+  LaunchedEffect(state) { state.signedIn = credentials.load() != null }
   LaunchedEffect(state) { state.retroAchievements?.load() }
   LaunchedEffect(state) {
     downloads.statuses().collect { state.deviceStates = deviceStates(it) }
@@ -139,19 +161,29 @@ fun App(
   LaunchedEffect(state) {
     snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }
   }
-  val signInApi = remember(credentials, httpEngine) { RommSignIn(credentials, httpEngine) }
+  val signedIn = state.signedIn
+  // A new sign-in after each sign-out, starting over on the server signed out of.
   val signIn =
-    remember(signInApi, device) { SignInState(signInApi, device, onSignedIn = { signedIn = true }) }
-  LaunchedEffect(signedIn, state) {
+    remember(state, device, state.signOuts) {
+      SignInState(
+        state.romm,
+        device,
+        onSignedIn = { state.signedIn = true },
+        address = state.signedOutOf.orEmpty(),
+      )
+    }
+  LaunchedEffect(signedIn, state, state.syncRequests) {
     if (signedIn != true) return@LaunchedEffect
     state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
     state.sync =
       try {
         // Reading the server's pages is work too, so it stays off the main thread.
         withContext(Dispatchers.Default) {
-          signInApi.client()?.use { LibrarySync(it, library).sync() }
+          state.romm.client()?.use { LibrarySync(it, library).sync() }
         }
         SyncStatus.Synced
+      } catch (_: RommException.Unauthorized) {
+        SyncStatus.Unauthorized
       } catch (_: RommException) {
         SyncStatus.Failed
       }
@@ -168,19 +200,56 @@ fun App(
     }
   }
   LaunchedEffect(openRequest, signedIn, state) {
-    if (signedIn == true && openRequest != null) state.open(openRequest.target)
-  }
-  val primary: @Composable () -> Unit = {
+    val target = openRequest?.target ?: return@LaunchedEffect
     when (signedIn) {
-      null -> Box(Modifier.fillMaxSize().background(Placeholder.background))
-      false -> SignInPrimary(signIn)
-      true -> MainPrimary(state)
+      true -> state.open(target)
+      // Before sign-in, only Settings can show.
+      false ->
+        if (target is OpenTarget.Settings) {
+          state.settingsOverSignIn = true
+          target.section?.let(state.settingsView::jumpTo)
+        }
+      null -> Unit
+    }
+  }
+  var mainMenuOpen by rememberSaveable { mutableStateOf(false) }
+  // The sign-in's settings close once signed in, so they don't show again after a sign-out.
+  LaunchedEffect(signedIn) { if (signedIn == true) state.settingsOverSignIn = false }
+  val primary: @Composable () -> Unit = {
+    Box(
+      Modifier.fillMaxSize().onAction { action ->
+        if (action == Action.MainMenu && signedIn != null) {
+          mainMenuOpen = true
+          true
+        } else {
+          false
+        }
+      },
+    ) {
+      when (signedIn) {
+        null -> Box(Modifier.fillMaxSize().background(Placeholder.background))
+        false -> {
+          SignInPrimary(signIn)
+          if (state.settingsOverSignIn) SignInSettings(state)
+        }
+        true -> MainPrimary(state)
+      }
+      if (mainMenuOpen) MainMenu(state, onDismissRequest = { mainMenuOpen = false })
     }
   }
   val secondary: @Composable () -> Unit = {
     when (signedIn) {
       null -> Box(Modifier.fillMaxSize().background(Placeholder.secondaryBackground))
-      false -> SignInSecondary(signIn)
+      false ->
+        if (state.settingsOverSignIn) {
+          Box(
+            Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
+          ) {
+            SettingsSecondary(state.settingsView)
+          }
+        } else {
+          SignInSecondary(signIn)
+        }
       true -> MainSecondary(state)
     }
   }
@@ -194,11 +263,55 @@ fun App(
           when {
             scopes?.isDialogOpen == true -> dialogs.closeAll()
             signedIn == true -> state.goHome()
+            signedIn == false -> state.settingsOverSignIn = false
           }
         }
         DualScreen(layout = layout, primary = primary, secondary = secondary)
       }
     }
     if (layout == DualScreenLayout.Separate) secondaryDisplay(secondary)
+  }
+}
+
+/**
+ * Settings over the sign-in, with only what needs no server. Back returns to the sign-in where it
+ * was.
+ */
+@Composable
+private fun SignInSettings(state: AppState) {
+  val close = { state.settingsOverSignIn = false }
+  if (LocalNavigationEventDispatcherOwner.current != null) {
+    NavigationBackHandler(
+      state = rememberNavigationEventState(NavigationEventInfo.None),
+      onBackCompleted = close,
+    )
+  }
+  Box(
+    Modifier.fillMaxSize()
+      .background(Placeholder.background)
+      // The sign-in behind can't be tapped.
+      .pointerInput(Unit) { detectTapGestures {} }
+      .onAction { action ->
+        if (action == Action.Back) {
+          close()
+          true
+        } else {
+          false
+        }
+      },
+  ) {
+    Column(Modifier.fillMaxSize()) {
+      Text(
+        Place.Settings.title,
+        color = Placeholder.text,
+        fontSize = 22.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier =
+          Modifier.padding(horizontal = 48.dp, vertical = 16.dp)
+            .testTag("place:${Place.Settings.name}")
+            .semantics { heading() },
+      )
+      Box(Modifier.fillMaxWidth().weight(1f)) { SettingsPage(state, backHint = "Back") }
+    }
   }
 }

@@ -117,7 +117,7 @@ class LibraryTest {
   ) {
     launch(settings, saveSettings, storage)
     awaitTag("shelf:RecentlyAdded")
-    press(Key.ButtonR1)
+    press(listOf(Key.ButtonStart, Key.DirectionDown, Key.ButtonA))
     awaitTag("library:shelves")
   }
 
@@ -198,15 +198,15 @@ class LibraryTest {
   }
 
   @Test
-  fun shoulderButtonsOnTheListSwitchPlaces() = runComposeUiTest {
+  fun backOnTheListGoesHome() = runComposeUiTest {
     openLibrary()
     assertFocused("library:platform:1")
-    press(Key.ButtonR1)
-    onNodeWithText("Nothing is downloading.").assertExists()
-    press(Key.ButtonL1)
+    // The shoulder buttons don't leave the Library.
+    press(listOf(Key.ButtonR1, Key.ButtonL1))
     assertFocused("library:platform:1")
-    press(Key.ButtonL1)
+    press(Key.ButtonB)
     awaitTag("shelf:RecentlyAdded")
+    onNodeWithTag("place:Home").assertExists()
   }
 
   @Test

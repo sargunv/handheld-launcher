@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
@@ -20,7 +19,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -28,23 +26,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selectableGroup
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
+import androidx.navigationevent.NavigationEventInfo
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.NavigationBackHandler
+import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.CredentialStore
+import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.domain.Collection
@@ -56,31 +52,23 @@ import dev.sargunv.handheld.ui.about.AboutSecondary
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.about.Component
 import dev.sargunv.handheld.ui.about.LicenceScreen
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsPanel
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
-import dev.sargunv.handheld.ui.achievements.summary
 import dev.sargunv.handheld.ui.cover.Cover
-import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.downloads.DownloadsPlace
 import dev.sargunv.handheld.ui.downloads.StorageSummary
-import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
-import dev.sargunv.handheld.ui.focus.isDialogOpen
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.GameScreen
 import dev.sargunv.handheld.ui.game.GameSecondary
+import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.OpenWithScreen
 import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
 import dev.sargunv.handheld.ui.input.AButtonPosition
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ConfirmButton
-import dev.sargunv.handheld.ui.input.Hint
-import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.InputSettings
-import dev.sargunv.handheld.ui.input.PadButton
-import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryPlace
@@ -89,14 +77,18 @@ import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
+import dev.sargunv.handheld.ui.settings.SettingsPage
+import dev.sargunv.handheld.ui.settings.SettingsSecondary
+import dev.sargunv.handheld.ui.settings.SettingsView
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.flow.first
 
-/** The top-level places, switched with L and R. */
+/** The top-level pages, which the main menu goes to. */
 enum class Place(val title: String) {
   Home("Home"),
   Library("Library"),
   Downloads("Downloads"),
+  Settings("Settings"),
 }
 
 /** The screens of the signed-in app. */
@@ -107,8 +99,11 @@ sealed interface Screen {
   /** A game. */
   data class Game(val romId: Long, val title: String) : Screen
 
-  /** The app a game opens in, from the game's menu. */
-  data class OpenWith(val romId: Long, val title: String) : Screen
+  /**
+   * The app games open in, for [scope]: a game, from its menu, or a platform, from Settings.
+   * [title] names the game or the platform.
+   */
+  data class OpenWith(val scope: OpenWithScope, val title: String) : Screen
 
   /** About the app: its version, its licence, and the components it's built from. */
   data object About : Screen
@@ -124,7 +119,14 @@ enum class SyncStatus {
   FirstSync,
   Syncing,
   Synced,
+  /** The server couldn't be reached, or failed. */
   Failed,
+  /** The server refused the device's token, so syncing waits for a new sign-in. */
+  Unauthorized;
+
+  /** Whether the sync has finished, one way or another. */
+  val isDone: Boolean
+    get() = this == Synced || this == Failed || this == Unauthorized
 }
 
 /** What the lower screen describes: the item focused on the upper one. */
@@ -158,6 +160,32 @@ class AppState(
   var focused: Focused? by mutableStateOf(null)
   var sync: SyncStatus by mutableStateOf(SyncStatus.NotStarted)
   val libraryView = LibraryState()
+  val settingsView = SettingsView()
+
+  /** Signs in to the RomM server, and out of it. */
+  val romm = RommSignIn(credentials, httpEngine)
+
+  /**
+   * Whether the device is signed in to a server. Null until the stored credentials have been read.
+   */
+  var signedIn: Boolean? by mutableStateOf(null)
+
+  /**
+   * Whether Settings shows over the sign-in, which offers only the settings that need no server.
+   */
+  var settingsOverSignIn: Boolean by mutableStateOf(false)
+
+  /** Counts the syncs asked for after the first, so each one starts a sync. */
+  var syncRequests: Int by mutableIntStateOf(0)
+    private set
+
+  /** Counts the sign-outs, so the sign-in after each one starts over. */
+  var signOuts: Int by mutableIntStateOf(0)
+    private set
+
+  /** The server the device last signed out of, which the sign-in offers again. */
+  var signedOutOf: String? by mutableStateOf(null)
+    private set
 
   /**
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
@@ -174,11 +202,6 @@ class AppState(
   val inputSettings: InputSettings
     get() = settings.input
 
-  /** Moves [step] places along, stopping at the ends. */
-  fun switchPlace(step: Int) {
-    showPlace(Place.entries.getOrNull(place.ordinal + step) ?: return)
-  }
-
   /** Shows [next]. The lower screen describes nothing until something there takes focus. */
   fun showPlace(next: Place) {
     if (next == place) return
@@ -186,14 +209,41 @@ class AppState(
     focused = null
   }
 
+  /** Goes to [next] from the main menu: the screens over the places close, and [next] shows. */
+  fun goTo(next: Place) {
+    navigator.backToStart()
+    showPlace(next)
+  }
+
   /**
    * Starts over on Home, as the system's HOME does for a launcher: the screens over the places
    * close, and Home shows from its top with focus on its first item.
    */
   fun goHome() {
-    while (navigator.back()) Unit
+    navigator.backToStart()
     showPlace(Place.Home)
     homeResets++
+  }
+
+  /** Syncs the library with the server again, starting over if a sync is under way. */
+  fun syncNow() {
+    syncRequests++
+  }
+
+  /**
+   * Signs out of the server and goes to the sign-in, which offers the same server again. The games
+   * on the device, their saves and the library cache stay. The next sign-in opens on Home.
+   */
+  suspend fun signOut() {
+    signedOutOf = credentials.load()?.baseUrl
+    romm.signOut()
+    navigator.backToStart()
+    place = Place.Home
+    focused = null
+    sync = SyncStatus.NotStarted
+    homeResets++
+    signOuts++
+    signedIn = false
   }
 
   /**
@@ -201,14 +251,13 @@ class AppState(
    * the cache doesn't hold yet shows once the sync under way brings it, if it does.
    */
   suspend fun open(target: OpenTarget) {
-    while (navigator.back()) Unit
+    navigator.backToStart()
     when (target) {
       is OpenTarget.AtPlace -> showPlace(target.place)
       is OpenTarget.Game -> {
         val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
         if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
       }
-      OpenTarget.About -> navigator.push(Screen.About)
       is OpenTarget.LibraryShelf -> {
         showPlace(Place.Library)
         libraryView.isOpen = false
@@ -218,11 +267,15 @@ class AppState(
         libraryView.shelfKey = LibraryShelf.OfPlatform(platform).key
         libraryView.isOpen = true
       }
+      is OpenTarget.Settings -> {
+        showPlace(Place.Settings)
+        target.section?.let(settingsView::jumpTo)
+      }
     }
   }
 
   private suspend fun awaitSync() {
-    snapshotFlow { sync }.first { it == SyncStatus.Synced || it == SyncStatus.Failed }
+    snapshotFlow { sync }.first { it.isDone }
   }
 
   fun swapConfirmButton() {
@@ -266,10 +319,6 @@ fun MainSecondary(state: AppState) {
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    if (state.place == Place.Downloads && state.navigator.current == Screen.Places) {
-      StorageSummary(state.downloads)
-      return@Column
-    }
     val screen = state.navigator.current
     if (screen is Screen.Game) {
       GameSecondary(state, screen)
@@ -285,8 +334,9 @@ fun MainSecondary(state: AppState) {
     }
     val focused = state.focused
     when {
-      state.place == Place.Library && state.navigator.current == Screen.Places ->
-        LibrarySecondary(state)
+      state.place == Place.Downloads -> StorageSummary(state.downloads)
+      state.place == Place.Library -> LibrarySecondary(state)
+      state.place == Place.Settings -> SettingsSecondary(state.settingsView)
       focused is Focused.OnGame -> GameDescription(state, focused.rom)
       focused is Focused.OnCollection -> {
         Text(
@@ -355,263 +405,83 @@ internal fun coverDescription(rom: Rom, state: DeviceState?): String {
   return "${rom.title}, $where"
 }
 
+/**
+ * The top-level places, one at a time under a header that names it. Back on any place but Home goes
+ * to Home; on Home it does nothing.
+ */
 @Composable
 private fun PlacesScreen(state: AppState) {
   val places = rememberSaveableStateHolder()
-  var quickMenu by rememberSaveable { mutableStateOf(false) }
-  var explainCloseEmulators by rememberSaveable { mutableStateOf(false) }
-  Box(
+  // The system back gesture goes Home too, as Back does.
+  if (state.place != Place.Home && LocalNavigationEventDispatcherOwner.current != null) {
+    NavigationBackHandler(
+      state = rememberNavigationEventState(NavigationEventInfo.None),
+      onBackCompleted = { state.showPlace(Place.Home) },
+    )
+  }
+  Column(
     Modifier.fillMaxSize().onAction { action ->
-      when (action) {
-        Action.PreviousShelf -> state.switchPlace(-1)
-        Action.NextShelf -> state.switchPlace(1)
-        Action.QuickMenu -> quickMenu = true
-        else -> return@onAction false
+      if (action == Action.Back && state.place != Place.Home) {
+        state.showPlace(Place.Home)
+        true
+      } else {
+        false
       }
-      true
     },
   ) {
-    Column(Modifier.fillMaxSize()) {
-      // Inside a shelf of Library, L and R step between shelves, so the tabs don't name them.
-      val queue by state.downloads.queue.collectAsState()
-      PlaceTabs(
-        state::showPlace,
-        state.place,
-        state.sync,
-        queue.size,
-        state.inputSettings,
-        showButtons = !(state.place == Place.Library && state.libraryView.isOpen),
-      )
-      Box(Modifier.fillMaxWidth().weight(1f)) {
-        // Each place is a focus scope, which keeps its focus and scroll position while another
-        // place shows.
-        places.SaveableStateProvider(state.place.name) {
-          when (state.place) {
-            // A new key starts Home's state over, focus and scroll positions included.
-            Place.Home -> key(state.homeResets) { HomePlace(state) }
-            Place.Library -> LibraryPlace(state)
-            Place.Downloads -> DownloadsPlace(state.downloads)
-          }
+    PlaceHeader(state.place, state.sync)
+    Box(Modifier.fillMaxWidth().weight(1f)) {
+      // Each place is a focus scope, which keeps its focus and scroll position while another
+      // place shows.
+      places.SaveableStateProvider(state.place.name) {
+        when (state.place) {
+          // A new key starts Home's state over, focus and scroll positions included.
+          Place.Home -> key(state.homeResets) { HomePlace(state) }
+          Place.Library -> LibraryPlace(state)
+          Place.Downloads -> DownloadsPlace(state.downloads)
+          Place.Settings -> SettingsPage(state)
         }
       }
-    }
-    if (quickMenu) {
-      QuickMenu(
-        state,
-        onDismissRequest = { quickMenu = false },
-        onTurnOnCloseEmulators = {
-          quickMenu = false
-          explainCloseEmulators = true
-        },
-        onOpenAbout = {
-          quickMenu = false
-          state.navigator.push(Screen.About)
-        },
-      )
-    }
-    if (explainCloseEmulators) {
-      CloseEmulatorsDialog(
-        onTurnOn = {
-          state.settings = state.settings.copy(closeEmulators = true)
-          explainCloseEmulators = false
-        },
-        onDismissRequest = { explainCloseEmulators = false },
-      )
     }
   }
 }
 
+/** The place's name, and how the sync with the server is going when that's worth saying. */
 @Composable
-private fun PlaceTabs(
-  onSelect: (Place) -> Unit,
-  current: Place,
-  sync: SyncStatus,
-  downloads: Int,
-  settings: InputSettings,
-  showButtons: Boolean,
-) {
-  fun buttonFor(action: Action) =
-    if (showButtons) {
-      PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
-    } else ""
-
+private fun PlaceHeader(place: Place, sync: SyncStatus) {
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 16.dp),
-    horizontalArrangement = Arrangement.spacedBy(24.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    // The buttons that switch places are decoration beside the tabs: a screen reader skips them.
-    val canSelect = !isDialogOpen()
     Text(
-      buttonFor(Action.PreviousShelf),
-      color = Placeholder.mutedText,
-      fontSize = 14.sp,
-      modifier = Modifier.clearAndSetSemantics {},
-    )
-    Row(
-      Modifier.semantics { selectableGroup() },
-      horizontalArrangement = Arrangement.spacedBy(24.dp),
-    ) {
-      for (place in Place.entries) {
-        val queued = place == Place.Downloads && downloads > 0
-        Text(
-          if (queued) "${place.title} $downloads" else place.title,
-          color = if (place == current) Placeholder.text else Placeholder.mutedText,
-          fontWeight = if (place == current) FontWeight.SemiBold else FontWeight.Normal,
-          modifier =
-            Modifier.testTag("place:${place.name}").semantics {
-              role = Role.Tab
-              selected = place == current
-              // The shoulder buttons switch places; a screen reader picks a tab instead.
-              if (canSelect) {
-                onClick {
-                  onSelect(place)
-                  true
-                }
-              }
-              if (queued) contentDescription = "${place.title}, $downloads in the queue"
-            },
-        )
-      }
-    }
-    Text(
-      buttonFor(Action.NextShelf),
-      color = Placeholder.mutedText,
-      fontSize = 14.sp,
-      modifier = Modifier.clearAndSetSemantics {},
+      place.title,
+      color = Placeholder.text,
+      fontSize = 22.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.testTag("place:${place.name}").semantics { heading() },
     )
     Spacer(Modifier.weight(1f))
-    val status =
-      when (sync) {
-        SyncStatus.FirstSync,
-        SyncStatus.Syncing -> "Syncing"
-        SyncStatus.Failed -> "Offline"
-        SyncStatus.NotStarted,
-        SyncStatus.Synced -> null
-      }
-    status?.let {
+    syncLabel(sync)?.let {
       Text(
         it,
         color = Placeholder.mutedText,
         fontSize = 14.sp,
-        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        modifier = Modifier.testTag("sync:status").semantics { liveRegion = LiveRegionMode.Polite },
       )
     }
   }
 }
 
-/** A place that has nothing to show yet. */
-@Composable
-private fun EmptyPlace(text: String) {
-  FocusScope(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
-      Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-        Text(text, color = Placeholder.mutedText)
-      }
-      HintBar(listOf(Hint(Action.QuickMenu, "Quick menu")))
-    }
+/** What the header says about the sync, or null when there's nothing to say. */
+internal fun syncLabel(sync: SyncStatus): String? =
+  when (sync) {
+    SyncStatus.FirstSync,
+    SyncStatus.Syncing -> "Syncing"
+    SyncStatus.Failed -> "Offline"
+    SyncStatus.Unauthorized -> "RomM refused the sign-in · Settings → RomM"
+    SyncStatus.NotStarted,
+    SyncStatus.Synced -> null
   }
-}
-
-/**
- * The global settings, on the quick menu button. Turning on closing emulators asks
- * [onTurnOnCloseEmulators] to explain it first. Its last item opens About, with [onOpenAbout].
- */
-@Composable
-private fun QuickMenu(
-  state: AppState,
-  onDismissRequest: () -> Unit,
-  onTurnOnCloseEmulators: () -> Unit,
-  onOpenAbout: () -> Unit,
-) {
-  var page by rememberSaveable { mutableStateOf(QuickMenuPage.Main) }
-  Dialog(
-    onDismissRequest = {
-      if (page == QuickMenuPage.Main) onDismissRequest() else page = QuickMenuPage.Main
-    },
-    modifier = Modifier.background(Placeholder.dialog).padding(24.dp),
-    initialFocus = if (page == QuickMenuPage.Main) null else "quick:retroachievements",
-  ) {
-    val achievements = state.retroAchievements
-    if (page == QuickMenuPage.RetroAchievements && achievements != null) {
-      // A scope of its own, so the main page gets its focus back on returning.
-      FocusScope {
-        RetroAchievementsPanel(achievements, state.settings.achievements) {
-          state.settings = state.settings.copy(achievements = it)
-        }
-      }
-      return@Dialog
-    }
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text("Quick menu", color = Placeholder.text, modifier = Modifier.semantics { heading() })
-      val confirm =
-        when (state.inputSettings.confirmButton) {
-          ConfirmButton.A -> PadButton.A
-          ConfirmButton.B -> PadButton.B
-        }
-      MenuButton("quick:confirm", "Confirm with ${confirm.label}") { state.swapConfirmButton() }
-      val position =
-        when (state.inputSettings.aButtonPosition) {
-          AButtonPosition.South -> "Bottom"
-          AButtonPosition.East -> "Right"
-        }
-      MenuButton("quick:aButton", "A button: $position") {
-        state.switchAButtonPosition()
-      }
-      // Only on devices with a root service the launcher can close emulators with.
-      if (state.launcher.canCloseEmulators) {
-        val on = state.settings.closeEmulators
-        MenuButton("quick:closeEmulators", "Close emulators: ${if (on) "On" else "Off"}") {
-          if (on) state.settings = state.settings.copy(closeEmulators = false)
-          else onTurnOnCloseEmulators()
-        }
-      }
-      if (achievements != null) {
-        val account = achievements.summary()
-        MenuButton(
-          "quick:retroachievements",
-          if (account.isEmpty()) "RetroAchievements" else "RetroAchievements: $account",
-        ) {
-          page = QuickMenuPage.RetroAchievements
-        }
-      }
-      MenuButton("quick:about", "About", onConfirm = onOpenAbout)
-    }
-  }
-}
-
-/** Explains closing emulators before the player turns it on. */
-@Composable
-private fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> Unit) {
-  Dialog(
-    onDismissRequest,
-    Modifier.widthIn(max = 640.dp).background(Placeholder.dialog).padding(24.dp),
-    initialFocus = "closeEmulators:cancel",
-  ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text("Close emulators", color = Placeholder.text, modifier = Modifier.semantics { heading() })
-      Text(
-        "This device has a built-in root service that any app can use. With this on, the " +
-          "launcher uses it only to check whether an emulator is still running and to close it, " +
-          "so a newer save from RomM can't be overwritten by the emulator's old one.",
-        color = Placeholder.mutedText,
-      )
-      Text(
-        "Closing skips the emulator's own exit, so progress since its last in-game save can be " +
-          "lost. When you can, quit from the emulator's own menu instead.",
-        color = Placeholder.mutedText,
-      )
-      MenuButton("closeEmulators:turnOn", "Turn on", onConfirm = onTurnOn)
-      MenuButton("closeEmulators:cancel", "Cancel", onConfirm = onDismissRequest)
-    }
-  }
-}
-
-/** The quick menu's pages. */
-private enum class QuickMenuPage {
-  Main,
-  RetroAchievements,
-}
 
 /**
  * A button in a menu.

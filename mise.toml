@@ -11,7 +11,6 @@ lockfile_mode = "merge"
 "aqua:koalaman/shellcheck" = "0.11.0"
 "core:java" = "zulu-25.38.201.0"
 "core:rust" = { version = "1.100.0", profile = "minimal", components = "rustfmt,clippy", targets = "aarch64-linux-android,x86_64-linux-android" }
-"github:EmbarkStudios/cargo-about" = "0.9.3"
 "github:jdx/fnox" = "1.50.0"
 
 [env]
@@ -76,7 +75,7 @@ run = 'f="$(mktemp -d)/screen.png" && adb exec-out screencap -p > "$f" && echo "
 
 [tasks."android:action"]
 description = "Send a semantic action to the app on the connected device"
-usage = 'arg "<action>" help="up, down, left, right, confirm, back, menu, search, previous-shelf, next-shelf, quick-menu or select"'
+usage = 'arg "<action>" help="up, down, left, right, confirm, back, menu, search, previous-shelf, next-shelf, main-menu or select"'
 # Keyboard keys mean the same action whichever button confirms.
 run = """
 case "$usage_action" in
@@ -90,7 +89,7 @@ case "$usage_action" in
   search) key=SLASH ;;
   previous-shelf) key=PAGE_UP ;;
   next-shelf) key=PAGE_DOWN ;;
-  quick-menu) key=F1 ;;
+  main-menu | quick-menu) key=F1 ;;
   select) key=F2 ;;
   *) echo "unknown action: $usage_action" >&2; exit 2 ;;
 esac
@@ -99,7 +98,7 @@ adb shell input -d 0 keyevent "KEYCODE_$key"
 
 [tasks."android:open"]
 description = "Show a screen of the debug app on the connected device straight away"
-usage = 'arg "<target>" help="place:home, place:library, place:downloads, game:<romId>, library, library:<platform-slug> or about"'
+usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, library, library:<platform-slug>, settings or settings:<section>"'
 run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$usage_target" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
 
 [tasks."android:ui"]
