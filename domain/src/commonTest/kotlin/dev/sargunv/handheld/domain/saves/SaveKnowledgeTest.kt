@@ -131,4 +131,24 @@ class SaveKnowledgeTest {
     assertEquals("scph5501.bin", BiosKnowledge.libretroNames["490f666e1afb15b7362b406ed1cea246"])
     assertEquals(BiosKnowledge.filesFor(PlatformCatalog.PSX).size, 4)
   }
+
+  @Test
+  fun biosLocationForAGame() {
+    val retroArch =
+      assertNotNull(BiosKnowledge.locationFor(EmulatorId("retroarch"), PlatformCatalog.PSX))
+    assertEquals(
+      "dc/dc_boot.bin",
+      retroArch.targetName("boot.bin", "E10C53C2F8B90BAB96EAD2D368858623"),
+    )
+    assertEquals("boot.bin", retroArch.targetName("boot.bin", null))
+    assertEquals(
+      listOf("/sd/Android/data/dev.eden.fork/files"),
+      assertNotNull(BiosKnowledge.locationFor(EmulatorId("eden"), PlatformCatalog.SWITCH))
+        .folders("/sd", "dev.eden.fork"),
+    )
+    // GB needs no firmware, and DuckStation reads only PlayStation firmware.
+    assertNull(BiosKnowledge.locationFor(EmulatorId("retroarch"), PlatformCatalog.GB))
+    assertNull(BiosKnowledge.locationFor(EmulatorId("duckstation"), PlatformCatalog.PS2))
+    assertNull(BiosKnowledge.locationFor(EmulatorId("ppsspp"), PlatformCatalog.PSP))
+  }
 }
