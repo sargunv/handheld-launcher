@@ -88,7 +88,11 @@ Sections in a list on the left, the focused section's settings on the right:
 - **RetroAchievements:** the account and hardcore mode.
 - **Emulators:** every platform's default app, each opening Open with for that
   platform, and Close emulators where the device allows it.
-- **Storage:** where games go.
+- **Storage:** each storage volume with its free space, turned on or off, in the
+  order new games fill them. Confirm turns one on or off, and its menu moves it
+  up or down. New games go to the first that's on and has room; the last one on
+  can't be turned off. Finding games looks on every volume, so a game on a
+  volume that's off still shows and plays.
 - **About:** the version, the license and source, and the third-party
   components' licenses.
 

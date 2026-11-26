@@ -224,15 +224,18 @@ class DownloadManagerTest {
     engine: () -> MockEngine,
     deviceId: String? = null,
     canWrite: Flow<Boolean> = flowOf(true),
+    targets: List<StorageTarget> = listOf(StorageTarget(storage.path, "Test storage")),
+    storageSettings: StorageSettings = StorageSettings(),
   ) =
     DownloadManager(
       queueFile = queueFile,
       library = library,
       credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", deviceId)),
-      storage = { listOf(StorageTarget(storage.path, "Test storage")) },
+      storage = { targets },
       scope = scope,
       engine = engine,
       canWrite = canWrite,
+      storageSettings = { storageSettings },
     )
 
   private suspend fun DownloadManager.awaitEmpty() = waitFor {
@@ -371,6 +374,34 @@ class DownloadManagerTest {
       File(folder, "Saga (USA).m3u").readText(),
     )
     assertFalse(file("ROMs/psx/Saga (USA).part").exists())
+  }
+
+  @Test
+  fun downloadsSkipStorageThatsOffButStillFindGamesOnIt() = runTest {
+    fillLibrary()
+    library.upsertRoms(listOf(gameRom, sagaRom))
+    val card = File(dir, "card").apply { mkdirs() }
+    val own = StorageTarget(storage.path, "Device", "primary")
+    val sd = StorageTarget(card.path, "SD card", "card")
+    val gba = file("ROMs/gba/Game (USA).gba").apply { parentFile.mkdirs() }
+    gba.writeBytes(game)
+    val downloads =
+      manager(
+        backgroundScope,
+        server(),
+        targets = listOf(own, sd),
+        storageSettings = StorageSettings(off = setOf("primary")),
+      )
+
+    // The game on the device's own storage still counts, though downloads skip it.
+    assertEquals(
+      RomStatus.OnDevice(gba.path),
+      waitFor { downloads.statuses().first { it.isNotEmpty() } }[1L],
+    )
+    assertTrue(downloads.enqueue(sagaRom))
+    downloads.awaitEmpty()
+    assertTrue(File(card, "ROMs/psx/Saga (USA)").isDirectory)
+    assertFalse(file("ROMs/psx").exists())
   }
 
   @Test

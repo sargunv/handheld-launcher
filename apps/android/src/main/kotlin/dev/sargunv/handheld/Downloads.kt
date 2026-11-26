@@ -38,6 +38,8 @@ internal fun downloadManager(context: Context): DownloadManager {
       storage = { storageTargets(app) },
       scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
       canWrite = allFilesAccess,
+      // Read when a download starts, so it follows what Settings stored last.
+      storageSettings = { settingsFile(app).read().storage },
     )
     .also { openDownloads = it }
 }
@@ -53,5 +55,9 @@ private fun storageTargets(context: Context): List<StorageTarget> =
     .storageVolumes
     .filter { it.state == Environment.MEDIA_MOUNTED }
     .mapNotNull { volume ->
-      volume.directory?.let { StorageTarget(it.path, volume.getDescription(context)) }
+      volume.directory?.let {
+        // A card's UUID names it wherever it's mounted; the device's own storage has none.
+        val id = if (volume.isPrimary) "primary" else volume.uuid ?: it.path
+        StorageTarget(it.path, volume.getDescription(context), id)
+      }
     }

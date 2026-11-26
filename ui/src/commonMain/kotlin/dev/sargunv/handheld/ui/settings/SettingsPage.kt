@@ -44,7 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageSpace
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -86,7 +88,10 @@ enum class SettingsSection(val title: String, internal val description: String) 
     "Emulators",
     "The app each platform's games open in, unless a game or a collection chooses another.",
   ),
-  Storage("Storage", "Where downloaded games go, and the room each place has left."),
+  Storage(
+    "Storage",
+    "Where new games download to, in what order, and the room each place has left.",
+  ),
   About("About", "The version, the license and source, and the third-party components' licenses.");
 
   /** The section's item in the list, and its test tag. */
@@ -103,6 +108,9 @@ class SettingsView {
 
   /** What the lower screen says about the focused setting; null describes the section. */
   internal var help: Help? by mutableStateOf(null)
+
+  /** The focused setting, when it has a menu, which the hints then offer. */
+  internal var menuKey: String? by mutableStateOf(null)
 
   /** A section to move focus to once the page shows, for development tools. */
   internal var pendingJump: SettingsSection? by mutableStateOf(null)
@@ -137,6 +145,30 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   if (section != view.section) SideEffect { view.section = section }
   var explainCloseEmulators by rememberSaveable { mutableStateOf(false) }
   var confirmSignOut by rememberSaveable { mutableStateOf(false) }
+  // The storage whose menu is open, by its id.
+  var storageMenu by rememberSaveable { mutableStateOf<String?>(null) }
+  // Whether turning off the last storage that's on was just refused.
+  var storageRefused by remember { mutableStateOf(false) }
+  val storageSpaces by
+    produceState(emptyList<StorageSpace>(), state.downloads, section) {
+      if (section != SettingsSection.Storage) return@produceState
+      // Downloads and other apps change it, so it's read again every few seconds.
+      while (true) {
+        value = state.downloads.storageSpace()
+        delay(5.seconds)
+      }
+    }
+  fun setStorage(change: StorageSettings) {
+    state.settings = state.settings.copy(storage = change)
+  }
+  fun toggleStorage(target: StorageTarget) {
+    val settings = state.settings.storage
+    val mounted = storageSpaces.map { it.target }
+    val changed =
+      if (settings.isOn(target)) settings.turnOff(target, mounted) else settings.turnOn(target)
+    storageRefused = changed == null
+    changed?.let(::setStorage)
+  }
   val scope = rememberCoroutineScope()
   // The section's settings, which Right from the list enters at the top.
   val pane = remember { FocusRequester() }
@@ -167,6 +199,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               onFocus = {
                 view.section = it
                 view.help = null
+                storageRefused = false
               },
               // A section without settings to focus, such as About, keeps focus in the list.
               onRight = { pane.requestFocus(FocusDirection.Enter) || true },
@@ -194,7 +227,14 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               SettingsSection.RetroAchievements -> retroAchievements(state)
               SettingsSection.Emulators ->
                 emulators(state, onTurnOnCloseEmulators = { explainCloseEmulators = true })
-              SettingsSection.Storage -> storage(state)
+              SettingsSection.Storage ->
+                storage(
+                  state,
+                  storageSpaces,
+                  refused = storageRefused,
+                  onToggle = ::toggleStorage,
+                  onMenu = { storageMenu = it.id },
+                )
               SettingsSection.About -> about(state)
             }
           }
@@ -202,10 +242,23 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
       }
       HintBar(
         listOf(
-          Hint(Action.Confirm, "Choose"),
-          Hint(Action.Back, backHint),
-          Hint(Action.MainMenu, "Main menu"),
-        ),
+            Hint(Action.Confirm, "Choose"),
+            Hint(Action.Back, backHint),
+            Hint(Action.Menu, "Menu").takeIf { view.menuKey != null },
+            Hint(Action.MainMenu, "Main menu"),
+          )
+          .filterNotNull(),
+      )
+    }
+    val menuTarget = storageSpaces.find { it.target.id == storageMenu }?.target
+    if (menuTarget != null) {
+      StorageMenu(
+        target = menuTarget,
+        settings = state.settings.storage,
+        mounted = storageSpaces.map { it.target },
+        onMove = ::setStorage,
+        onToggle = { toggleStorage(menuTarget) },
+        onDismissRequest = { storageMenu = null },
       )
     }
     if (explainCloseEmulators) {
@@ -262,6 +315,7 @@ private fun SectionRow(
  *
  * @param enabled whether pressing it does something now. Accessibility services say when it
  *   doesn't; it still takes focus.
+ * @param onMenu opens its menu, when it has one.
  */
 @Composable
 private fun SettingRow(
@@ -271,13 +325,22 @@ private fun SettingRow(
   value: String?,
   help: Help,
   enabled: Boolean = true,
+  onMenu: (() -> Unit)? = null,
   onConfirm: (() -> Unit)? = null,
 ) {
   Row(
     Modifier.fillMaxWidth()
-      .onFocusChanged { if (it.isFocused) view.help = help }
+      .onFocusChanged {
+        if (it.isFocused) view.help = help
+        when {
+          it.isFocused && onMenu != null -> view.menuKey = key
+          it.isFocused || view.menuKey == key -> view.menuKey = null
+        }
+      }
       .then(if (enabled) Modifier else Modifier.semantics { disabled() })
-      .focusItem(key, onConfirm = onConfirm)
+      .focusItem(key, onConfirm = onConfirm) { action ->
+        action == Action.Menu && onMenu?.invoke() != null
+      }
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
     horizontalArrangement = Arrangement.spacedBy(24.dp),
@@ -542,35 +605,97 @@ private fun PlatformRows(state: AppState) {
   }
 }
 
-private fun LazyListScope.storage(state: AppState) {
+/**
+ * The mounted storage, in the order new games fill it, each turned on or off with Confirm and moved
+ * from its menu.
+ *
+ * @param refused whether turning off the last storage that's on was just refused, which a note
+ *   explains.
+ */
+private fun LazyListScope.storage(
+  state: AppState,
+  spaces: List<StorageSpace>,
+  refused: Boolean,
+  onToggle: (StorageTarget) -> Unit,
+  onMenu: (StorageTarget) -> Unit,
+) {
   sectionHeading("Storage")
-  item(key = "volumes") { StorageRows(state) }
+  val settings = state.settings.storage
+  val byId = spaces.associateBy { it.target.id }
+  val view = state.settingsView
+  item(key = "volumes") {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      for (target in settings.arrange(spaces.map { it.target })) {
+        val free = "${formatSize(byId.getValue(target.id).freeBytes)} free"
+        val on = settings.isOn(target)
+        SettingRow(
+          view,
+          "settings:storage:${target.id}",
+          target.label,
+          "$free · ${if (on) "On" else "Off"}",
+          Help(
+            target.label,
+            "$free, at ${target.root}. New games go to the first storage that's on and has " +
+              "room, from the top. Games already on storage that's off still show and play.",
+          ),
+          onMenu = { onMenu(target) },
+          onConfirm = { onToggle(target) },
+        )
+      }
+    }
+  }
+  if (refused) {
+    item(key = "refused") {
+      Text(
+        "One storage stays on, so new games have somewhere to go.",
+        color = Placeholder.text,
+        modifier =
+          Modifier.testTag("settings:storage:refused").semantics {
+            liveRegion = LiveRegionMode.Polite
+          },
+      )
+    }
+  }
   note(
     "settings:storage:note",
-    "Games go to the first of these with room for them, this device's own storage first.",
+    "New games go to the first of these that's on and has room. Confirm turns one on or off, " +
+      "and its menu moves it.",
   )
 }
 
+/**
+ * The menu on a storage: it moves [target] among the [mounted] storage, and turns it on or off.
+ * Each choice closes the menu.
+ */
 @Composable
-private fun StorageRows(state: AppState) {
-  val spaces by
-    produceState(emptyList<StorageSpace>(), state.downloads) {
-      // Downloads and other apps change it, so it's read again every few seconds.
-      while (true) {
-        value = state.downloads.storageSpace()
-        delay(5.seconds)
+private fun StorageMenu(
+  target: StorageTarget,
+  settings: StorageSettings,
+  mounted: List<StorageTarget>,
+  onMove: (StorageSettings) -> Unit,
+  onToggle: () -> Unit,
+  onDismissRequest: () -> Unit,
+) {
+  val shown = settings.arrange(mounted)
+  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text(target.label, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      if (shown.firstOrNull()?.id != target.id) {
+        MenuButton("menu:up", "Move up") {
+          onMove(settings.moveUp(target, mounted))
+          onDismissRequest()
+        }
       }
-    }
-  Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    spaces.forEachIndexed { index, space ->
-      val free = "${formatSize(space.freeBytes)} free"
-      SettingRow(
-        state.settingsView,
-        "settings:storage:$index",
-        space.target.label,
-        free,
-        Help(space.target.label, "$free, at ${space.target.root}."),
-      )
+      if (shown.lastOrNull()?.id != target.id) {
+        MenuButton("menu:down", "Move down") {
+          onMove(settings.moveDown(target, mounted))
+          onDismissRequest()
+        }
+      }
+      MenuButton("menu:toggle", if (settings.isOn(target)) "Turn off" else "Turn on") {
+        onToggle()
+        onDismissRequest()
+      }
     }
   }
 }
