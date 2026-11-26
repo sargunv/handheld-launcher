@@ -5,6 +5,7 @@ import dev.sargunv.handheld.data.romm.MockServer
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommJson
 import dev.sargunv.handheld.data.romm.RommRom
+import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
@@ -287,5 +288,27 @@ class LibrarySyncTest {
     assertNull(other.requests.first { it.apiPath == "roms" }.url.parameters["updated_after"])
     assertEquals(0, cache.romCount())
     assertEquals(emptyList(), cache.platforms().first())
+  }
+
+  @Test
+  fun keepsTheFilesHashes() {
+    val file =
+      RommRomFile(
+        id = 1,
+        romId = 1,
+        fileName = "Game.chd",
+        filePath = "roms/ps2",
+        fileSizeBytes = 100,
+        // RomM sends an empty string for a hash it lacks, and CRCs without leading zeros.
+        crcHash = "ABCDEF",
+        md5Hash = "",
+        sha1Hash = "58DC525550A5A7050CB9940D5D5BFAEE0F2FCE88",
+        updatedAt = Instant.parse("2025-01-01T00:00:00Z"),
+      )
+    val domain = file.toDomain()
+    assertEquals("00abcdef", domain.crcHash)
+    assertNull(domain.md5Hash)
+    assertEquals("58dc525550a5a7050cb9940d5d5bfaee0f2fce88", domain.sha1Hash)
+    assertNull(domain.chdSha1Hash)
   }
 }

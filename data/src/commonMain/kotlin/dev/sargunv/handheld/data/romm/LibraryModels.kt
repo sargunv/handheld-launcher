@@ -118,6 +118,8 @@ data class RommRomFile(
   @SerialName("crc_hash") val crcHash: String? = null,
   @SerialName("md5_hash") val md5Hash: String? = null,
   @SerialName("sha1_hash") val sha1Hash: String? = null,
+  /** The SHA-1 in a CHD's header. RomM 5.4 leaves it null and puts that SHA-1 in [sha1Hash]. */
+  @SerialName("chd_sha1_hash") val chdSha1Hash: String? = null,
   @SerialName("updated_at") val updatedAt: Instant,
 )
 

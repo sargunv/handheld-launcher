@@ -165,7 +165,14 @@ internal fun RommRomFile.toDomain() =
     fileName = fileName,
     sizeBytes = fileSizeBytes,
     category = fileCategory(category),
+    crcHash = normalHash(crcHash)?.padStart(8, '0'),
+    md5Hash = normalHash(md5Hash),
+    sha1Hash = normalHash(sha1Hash),
+    chdSha1Hash = normalHash(chdSha1Hash),
   )
+
+/** A hash as RomM sends it, in lowercase, or null for none, which RomM may send as empty. */
+private fun normalHash(hash: String?): String? = hash?.trim()?.lowercase()?.ifEmpty { null }
 
 internal fun RommCollection.toDomain() =
   Collection(CollectionKind.Regular, id, name, description, romCount, isFavorite)

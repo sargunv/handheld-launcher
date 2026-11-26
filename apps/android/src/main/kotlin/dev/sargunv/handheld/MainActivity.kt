@@ -170,6 +170,8 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     // The user may be back from granting all-files access, which queued downloads wait for.
     allFilesAccess.value = Environment.isExternalStorageManager()
+    // Games may have been copied onto the device, or deleted, while the app was away.
+    if (!showsDebugScreen && !redirected) downloadManager(this).recheck()
   }
 
   override fun onNewIntent(intent: Intent) {

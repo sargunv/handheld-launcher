@@ -177,7 +177,19 @@ private constructor(
       queries.upsertRom(rom.toRow())
       queries.deleteFilesOfRom(rom.id)
       for (file in rom.files) {
-        queries.insertFile(Rom_file(file.id, rom.id, file.fileName, file.sizeBytes, file.category))
+        queries.insertFile(
+          Rom_file(
+            id = file.id,
+            rom_id = rom.id,
+            file_name = file.fileName,
+            size_bytes = file.sizeBytes,
+            category = file.category,
+            crc_hash = file.crcHash,
+            md5_hash = file.md5Hash,
+            sha1_hash = file.sha1Hash,
+            chd_sha1_hash = file.chdSha1Hash,
+          ),
+        )
       }
     }
   }
@@ -286,7 +298,8 @@ private fun withFiles(roms: List<RomRow>, files: List<Rom_file>): List<Rom> {
   return roms.map { it.toDomain(filesByRom[it.id].orEmpty()) }
 }
 
-private fun Rom_file.toDomain() = RomFile(id, file_name, size_bytes, category)
+private fun Rom_file.toDomain() =
+  RomFile(id, file_name, size_bytes, category, crc_hash, md5_hash, sha1_hash, chd_sha1_hash)
 
 private fun PlatformRow.toDomain() = Platform(id, slug, fs_slug, name, rom_count.toInt())
 

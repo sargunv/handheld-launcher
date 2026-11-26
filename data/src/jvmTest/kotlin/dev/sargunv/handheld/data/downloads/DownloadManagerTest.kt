@@ -26,6 +26,7 @@ import io.ktor.utils.io.writeFully
 import java.io.File
 import java.security.MessageDigest
 import java.util.Collections
+import java.util.zip.CRC32
 import kotlin.io.path.createTempDirectory
 import kotlin.random.Random
 import kotlin.test.AfterTest
@@ -70,8 +71,10 @@ class DownloadManagerTest {
   private val disc1 = Random(2).nextBytes(100_000)
   private val disc2 = Random(3).nextBytes(120_000)
 
-  private fun md5(bytes: ByteArray) =
-    MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }
+  private fun md5(bytes: ByteArray) = hash("MD5", bytes)
+
+  private fun hash(algorithm: String, bytes: ByteArray) =
+    MessageDigest.getInstance(algorithm).digest(bytes).joinToString("") { "%02x".format(it) }
 
   private class ServerFile(
     val id: Long,
@@ -292,6 +295,51 @@ class DownloadManagerTest {
       downloads.queue.first { list -> list.firstOrNull()?.bytesDownloaded == sent.size.toLong() }
     }
     scope.coroutineContext[kotlinx.coroutines.Job]!!.cancelAndJoin()
+  }
+
+  @Test
+  fun findsAGameCopiedUnderAnotherName() = runTest {
+    fillLibrary()
+    val file = gameRom.files.single()
+    val rom =
+      gameRom.copy(
+        files =
+          listOf(
+            file.copy(
+              crcHash = CRC32().apply { update(game) }.value.toString(16).padStart(8, '0'),
+              sha1Hash = hash("SHA-1", game),
+            ),
+          ),
+      )
+    library.upsertRoms(listOf(rom))
+    val copied =
+      file("ROMs/gba/my copy.gba").apply {
+        parentFile.mkdirs()
+        writeBytes(game)
+      }
+    val downloads = manager(backgroundScope, server())
+    val onDevice = RomStatus.OnDevice(copied.path)
+
+    waitFor { downloads.statuses().first { it[rom.id] == onDevice } }
+    assertEquals(onDevice, waitFor { downloads.status(rom).first { it is RomStatus.OnDevice } })
+    // The game is on the device, so it isn't downloaded again.
+    assertFalse(downloads.enqueue(rom))
+
+    // A file replaced since the scan isn't the game's any more, so it stays.
+    val modified = copied.lastModified()
+    copied.writeBytes(disc1)
+    copied.setLastModified(modified + 10_000)
+    assertEquals(Removal.NotOnDevice, downloads.remove(rom))
+    assertContentEquals(disc1, copied.readBytes())
+    copied.writeBytes(game)
+    downloads.recheck()
+    waitFor { downloads.status(rom).first { it == onDevice } }
+
+    assertEquals(Removal.Removed, downloads.remove(rom))
+    assertFalse(copied.exists())
+    waitFor { downloads.status(rom).first { it == RomStatus.NotOnDevice } }
+    waitFor { downloads.localScan.first { it.matched.isEmpty() } }
+    assertEquals(emptyList(), contentRequests())
   }
 
   @Test

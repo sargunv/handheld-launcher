@@ -44,12 +44,17 @@ CREATE TABLE recently_played (
   last_played INTEGER AS Instant NOT NULL
 );
 
+-- The hashes are RomM's, of the file's content, which find the game in a file of another name.
 CREATE TABLE rom_file (
   id INTEGER NOT NULL PRIMARY KEY,
   rom_id INTEGER NOT NULL,
   file_name TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
-  category TEXT AS RomFileCategory
+  category TEXT AS RomFileCategory,
+  crc_hash TEXT,
+  md5_hash TEXT,
+  sha1_hash TEXT,
+  chd_sha1_hash TEXT
 );
 
 CREATE INDEX rom_file_by_rom ON rom_file(rom_id);
