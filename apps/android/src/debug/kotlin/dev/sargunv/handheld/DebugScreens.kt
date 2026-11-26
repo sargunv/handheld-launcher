@@ -22,7 +22,11 @@ import kotlinx.io.files.Path
  *   `platform` extra names by slug, through the launch resolver and dispatcher. The optional `app`
  *   extra names a package to launch it in, as a game's own override would. Before the launch, the
  *   emulator's firmware for the platform goes in place from the signed-in RomM server; the optional
- *   `bios_dir` extra, an absolute path, takes it instead of the emulator's own folder.
+ *   `bios_dir` extra, an absolute path, takes it instead of the emulator's own folder. With a
+ *   `rom_id` extra, the game's RomM id, the game's save syncs with the server before the launch and
+ *   again when the launcher is back in front. The optional `save_dir` extra, an absolute path,
+ *   stands in for the emulator's save folders, and the optional `romm_url` extra names a server to
+ *   sync with, without a token, instead of the signed-in one.
  *
  * For example:
  * ```
@@ -36,6 +40,9 @@ import kotlinx.io.files.Path
  * adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen launch \
  *   --es rom "'/storage/emulated/0/ROMs/ps2/Jak II.chd'" --es platform ps2 \
  *   --es app dev.sargunv.pocketgoal
+ * adb shell am start -n dev.sargunv.handheld/.MainActivity --es debug_screen launch \
+ *   --es rom /sdcard/ROMs/nds/game.nds --es platform nds --es rom_id 42 \
+ *   --es save_dir /sdcard/Download/scratch-saves --es romm_url http://localhost:8099
  * ```
  */
 internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
@@ -64,7 +71,11 @@ internal fun debugScreen(activity: Activity): (@Composable () -> Unit)? {
       val platform = intent.getStringExtra("platform")
       val app = intent.getStringExtra("app")
       val biosDir = intent.getStringExtra("bios_dir")
-      ({ LaunchTestScreen(activity, rom, platform, app, biosDir) })
+      val saves =
+        intent.getStringExtra("rom_id")?.toLongOrNull()?.let {
+          SaveSyncOptions(it, intent.getStringExtra("save_dir"), intent.getStringExtra("romm_url"))
+        }
+      ({ LaunchTestScreen(activity, rom, platform, app, biosDir, saves) })
     }
     else -> null
   }

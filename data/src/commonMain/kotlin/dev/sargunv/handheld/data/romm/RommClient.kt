@@ -6,11 +6,15 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
+import io.ktor.client.request.forms.MultiPartFormDataContent
+import io.ktor.client.request.forms.formData
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
+import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.ParametersBuilder
@@ -229,6 +233,61 @@ class RommClient(
     http.download(target, onProgress) {
       endpoint(HttpMethod.Get, listOf("firmware", firmwareId.toString(), "content", fileName))
     }
+
+  /** Downloads a save's file to [target], which must be empty or missing. */
+  suspend fun downloadSave(saveId: Long, target: Path): DownloadResult =
+    http.download(target, onProgress = {}) {
+      endpoint(HttpMethod.Get, listOf("saves", saveId.toString(), "content"))
+    }
+
+  /**
+   * Uploads [content] as a save of the ROM [romId], named [fileName].
+   *
+   * A save with a [slot] is the slot's newest version, and the server keeps the older ones. A save
+   * with no slot stands on its own; one with the same name and [emulator] is replaced.
+   */
+  suspend fun uploadSave(
+    romId: Long,
+    fileName: String,
+    content: ByteArray,
+    emulator: String? = null,
+    slot: String? = null,
+  ): RommSave {
+    val form =
+      MultiPartFormDataContent(
+        formData {
+          append(
+            "saveFile",
+            content,
+            Headers.build {
+              append(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
+              append(
+                HttpHeaders.ContentDisposition,
+                ContentDisposition.File.withParameter(
+                    ContentDisposition.Parameters.FileName,
+                    fileName,
+                  )
+                  .toString(),
+              )
+            },
+          )
+        },
+      )
+    val (response, text) =
+      network {
+        val response = http.request {
+          endpoint(HttpMethod.Post, listOf("saves")) {
+            append("rom_id", romId.toString())
+            emulator?.let { append("emulator", it) }
+            slot?.let { append("slot", it) }
+          }
+          setBody(form)
+        }
+        response to response.bodyAsText()
+      }
+    if (!response.status.isSuccess()) throw errorFor(response, text)
+    return decode(RommSave.serializer(), text)
+  }
 
   /**
    * Starts a device sign-in. Show the user [DeviceCode.userCode] and [DeviceCode.verificationUrl],
