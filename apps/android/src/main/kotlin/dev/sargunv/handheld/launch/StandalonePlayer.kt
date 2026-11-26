@@ -30,6 +30,8 @@ import java.io.IOException
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -72,6 +74,10 @@ class StandalonePlayer(
   private val credentials: CredentialStore,
 ) : GameLauncher {
   private val dispatcher = LaunchDispatcher(activity)
+
+  // The companion's sync and the one after the game share the save's records, so one waits for
+  // the other.
+  private val syncLock = Mutex()
 
   override suspend fun opensIn(rom: Rom): String =
     when (val resolution = resolve(rom.id, PlatformSlug(rom.platformSlug), LaunchRules())) {
@@ -146,26 +152,67 @@ class StandalonePlayer(
     if (game != null && !syncBeforeLaunch(request, game, chooseSave, ::note)) return notes
     // A game launches even when its firmware can't be placed, since some emulators boot without it.
     placeFirmware(target, request, ::note)
-    when (val outcome = dispatcher.launch(command)) {
-      is LaunchOutcome.Started ->
-        note(
-          "Started ${target.packageName} (${resolution.rule}) by ${outcome.method}",
-          quiet = true,
-        )
-      LaunchOutcome.NeedsAllFilesAccess -> {
-        activity.startActivity(dispatcher.allFilesAccessSettings())
-        note("Allow access to all files, then play again.")
-        return notes
+    // The companion goes first, so the emulator, started second, ends up with the focus.
+    PlayCompanion.show(activity, PlaySession(request.title) { syncNow(request, game, target) })
+    try {
+      when (val outcome = dispatcher.launch(command)) {
+        is LaunchOutcome.Started ->
+          note(
+            "Started ${target.packageName} (${resolution.rule}) by ${outcome.method}",
+            quiet = true,
+          )
+        LaunchOutcome.NeedsAllFilesAccess -> {
+          activity.startActivity(dispatcher.allFilesAccessSettings())
+          note("Allow access to all files, then play again.")
+          return notes
+        }
+        is LaunchOutcome.Failed -> {
+          note(outcome.reason)
+          return notes
+        }
       }
-      is LaunchOutcome.Failed -> {
-        note(outcome.reason)
-        return notes
-      }
+      awaitReturn()
+    } finally {
+      PlayCompanion.close()
     }
-    awaitReturn()
     note("Back from the game", quiet = true)
     if (game != null) syncAfterReturn(request, game, ::note)
     return notes
+  }
+
+  /**
+   * Sends [game]'s save to RomM while the game runs, for the companion's Sync button, and says what
+   * happened. It never pulls, since the emulator would write over a pulled save.
+   */
+  private suspend fun syncNow(request: PlayRequest, game: GameSave?, target: LaunchTarget): String {
+    if (game == null) {
+      return "${appName(target)}'s saves don't sync yet, so there's nothing to sync."
+    }
+    val (client, account) = saveClient(request) ?: return "Not signed in, so the save can't sync."
+    return client.use {
+      try {
+        syncLock.withLock {
+          when (saveSync(activity, it, account).push(game)) {
+            SaveSyncResult.NoSave -> "There's no save yet, so there's nothing to sync."
+            is SaveSyncResult.Pushed -> "Sent the save to RomM."
+            is SaveSyncResult.ServerNewer ->
+              "RomM has a newer save, which comes to this device when you're back in the library."
+            is SaveSyncResult.Conflict ->
+              "The save changed on RomM during the game too, so you'll choose which to keep the " +
+                "next time you play."
+            is SaveSyncResult.UpToDate -> "RomM already has this save."
+            // A push never writes to the device or settles a conflict.
+            is SaveSyncResult.Pulled,
+            is SaveSyncResult.NoFolder,
+            is SaveSyncResult.Resolved -> "The save synced."
+          }
+        }
+      } catch (e: RommException) {
+        syncFailed(e)
+      } catch (e: IOException) {
+        syncFailed(e)
+      }
+    }
   }
 
   private suspend fun resolve(gameId: Long, platform: PlatformSlug, rules: LaunchRules) =
@@ -269,7 +316,7 @@ class StandalonePlayer(
         }
     client.use {
       try {
-        when (val result = saveSync(activity, it, account).sync(game)) {
+        when (val result = syncLock.withLock { saveSync(activity, it, account).sync(game) }) {
           // The conflict screen comes before a launch, so the choice waits for the next one.
           is SaveSyncResult.Conflict ->
             note(
@@ -311,6 +358,7 @@ class StandalonePlayer(
           false,
         )
       is SaveSyncResult.Conflict -> note("Both saves changed", true)
+      is SaveSyncResult.ServerNewer -> note("RomM's save is newer", true)
       is SaveSyncResult.Resolved -> {
         val kept = if (result.kept == SaveCopy.Device) "this device's" else "RomM's"
         note("Kept $kept save; the other is in the save history at ${result.history}", true)

@@ -14,6 +14,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +28,7 @@ import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.launch.LaunchDispatcher
+import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.StandalonePlayer
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -77,6 +79,8 @@ class MainActivity : ComponentActivity() {
     val launcher = StandalonePlayer(this, credentials)
     setContent {
       val display = rememberSecondaryDisplay()
+      // The presentation draws over the play companion's activity on the same display.
+      val companionShows = PlayCompanion.session.collectAsState().value != null
       var failedDisplayId by remember { mutableStateOf<Int?>(null) }
       val usableDisplay = display?.takeIf { it.displayId != failedDisplayId }
       val layout =
@@ -94,7 +98,7 @@ class MainActivity : ComponentActivity() {
         saveSettings = settingsFile::write,
         launcher = launcher,
         secondaryDisplay = { content ->
-          if (usableDisplay != null) {
+          if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(
               display = usableDisplay,
               onFailed = { failedDisplayId = usableDisplay.displayId },
