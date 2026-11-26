@@ -12,6 +12,7 @@ class OpenTargetTest {
     assertEquals(OpenTarget.Game(42), OpenTarget.parse("game:42"))
     assertEquals(OpenTarget.LibraryShelf(null), OpenTarget.parse("library"))
     assertEquals(OpenTarget.LibraryShelf("gba"), OpenTarget.parse("library:gba"))
+    assertEquals(OpenTarget.About, OpenTarget.parse("about"))
   }
 
   @Test
@@ -20,6 +21,7 @@ class OpenTargetTest {
     assertNull(OpenTarget.parse("place"))
     assertNull(OpenTarget.parse("game:mario"))
     assertNull(OpenTarget.parse("game"))
+    assertNull(OpenTarget.parse("about:licences"))
     assertNull(OpenTarget.parse("settings"))
   }
 }

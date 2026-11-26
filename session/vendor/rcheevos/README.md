@@ -9,4 +9,5 @@ the MIT license in `LICENSE`.
 `include/` and `src/` are upstream's, without its tests, validator and build
 files. `build.rs` compiles them, and `mise run session:rcheevos-bindings`
 regenerates `src/achievements/ffi.rs` from the headers. To update, replace both
-directories with a newer release's and regenerate the bindings.
+directories with a newer release's, regenerate the bindings, and update the
+version in `session/licences/libraries/rcheevos.json`, which About shows.

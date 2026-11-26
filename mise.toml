@@ -11,6 +11,7 @@ lockfile_mode = "merge"
 "aqua:koalaman/shellcheck" = "0.11.0"
 "core:java" = "zulu-25.38.201.0"
 "core:rust" = { version = "1.100.0", profile = "minimal", components = "rustfmt,clippy", targets = "aarch64-linux-android,x86_64-linux-android" }
+"github:EmbarkStudios/cargo-about" = "0.9.3"
 "github:jdx/fnox" = "1.50.0"
 
 [env]
@@ -98,7 +99,7 @@ adb shell input -d 0 keyevent "KEYCODE_$key"
 
 [tasks."android:open"]
 description = "Show a screen of the debug app on the connected device straight away"
-usage = 'arg "<target>" help="place:home, place:library, place:downloads, game:<romId>, library or library:<platform-slug>"'
+usage = 'arg "<target>" help="place:home, place:library, place:downloads, game:<romId>, library, library:<platform-slug> or about"'
 run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$usage_target" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
 
 [tasks."android:ui"]

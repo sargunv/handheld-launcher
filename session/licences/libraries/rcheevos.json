@@ -1,0 +1,8 @@
+{
+  "uniqueId": "org.retroachievements:rcheevos",
+  "name": "rcheevos",
+  "artifactVersion": "12.5.0",
+  "description": "RetroAchievements' library for clients, which the game session compiles in.",
+  "website": "https://github.com/RetroAchievements/rcheevos",
+  "licenses": ["rcheevos"]
+}

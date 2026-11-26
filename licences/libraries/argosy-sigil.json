@@ -1,0 +1,7 @@
+{
+  "uniqueId": "io.github.rommapp:argosy-sigil",
+  "name": "argosy-sigil",
+  "description": "Parts of the launcher are ported from it: reading the ids that PSP, 3DS, Switch, GameCube and Wii saves are filed under, and where emulators keep saves.",
+  "website": "https://github.com/rommapp/argosy-sigil",
+  "licenses": ["MPL-2.0"]
+}

@@ -60,6 +60,13 @@ The lower screen shows the save-state slots. Standalone emulators get a cut-down
 version (quit and sync) only if an overlay can do that without trading away
 something else.
 
+## About
+
+From the quick menu. The app's version, its licence and where its source is, and
+the third-party components it's built from, each with its version and licence. A
+shows a component's full licence text. The lower screen describes the focused
+component.
+
 ## Save conflicts
 
 Shown before launch, only when both copies changed since the last sync. The

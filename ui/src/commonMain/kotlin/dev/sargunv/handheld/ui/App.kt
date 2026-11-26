@@ -22,6 +22,7 @@ import dev.sargunv.handheld.data.cache.LibrarySync
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.platformHttpEngine
+import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.cover.coverImageLoader
@@ -80,6 +81,7 @@ import kotlinx.io.files.Path
  * @param openRequest a screen to show once signed in, for development tools.
  * @param homePress the system's HOME, pressed while the app is in front as the home app. It closes
  *   the open dialogs, or when there are none, starts over on Home.
+ * @param appInfo what About says about this build: its version and the components it's built from.
  */
 @Composable
 fun App(
@@ -100,13 +102,23 @@ fun App(
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
   openRequest: OpenRequest? = null,
   homePress: HomePress? = null,
+  appInfo: AppInfo = AppInfo.Unknown,
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
   // Null until the stored credentials have been read.
   var signedIn by remember { mutableStateOf<Boolean?>(null) }
   LaunchedEffect(credentials) { signedIn = credentials.load() != null }
   val state =
-    remember(library, downloads, launcher, apps, credentials, httpEngine, retroAchievements) {
+    remember(
+      library,
+      downloads,
+      launcher,
+      apps,
+      credentials,
+      httpEngine,
+      retroAchievements,
+      appInfo,
+    ) {
       AppState(
         initialSettings,
         library,
@@ -116,6 +128,7 @@ fun App(
         credentials,
         httpEngine,
         retroAchievements?.let(::RetroAchievementsState),
+        appInfo,
       )
     }
   LaunchedEffect(state) { state.retroAchievements?.load() }
