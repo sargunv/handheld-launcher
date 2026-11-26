@@ -24,17 +24,19 @@ object GameLayout {
     fileNames.singleOrNull() ?: romName
 
   /**
-   * The discs a playlist (`.m3u`) lists, in order, for a ROM made of [fileNames] on [platform], or
-   * null when the ROM needs none: it isn't a multi-disc game, it brings its own playlist, or the
+   * The discs a playlist (`.m3u`) lists, in order, for a ROM made of [files] on [platform], or null
+   * when the ROM needs none: it isn't a multi-disc game, it brings its own playlist, or the
    * platform's emulators don't read one.
    *
    * A disc is its descriptor file (`.cue`, `.gdi`, ...) when the discs have them, else its image.
+   *
+   * @param files the paths of the ROM's files within its folder, which the playlist lists.
    */
-  fun playlist(platform: PlatformSlug, fileNames: List<String>): List<String>? {
+  fun playlist(platform: PlatformSlug, files: List<String>): List<String>? {
     if (PlatformCatalog.emulatedAs(platform) !in PlaylistPlatforms) return null
-    if (fileNames.any { it.extension() == "m3u" }) return null
-    val descriptors = fileNames.filter { it.extension() in DiscDescriptors }
-    val discs = descriptors.ifEmpty { fileNames.filter { it.extension() in DiscImages } }
+    if (files.any { it.extension() == "m3u" }) return null
+    val descriptors = files.filter { it.extension() in DiscDescriptors }
+    val discs = descriptors.ifEmpty { files.filter { it.extension() in DiscImages } }
     if (discs.size < 2) return null
     return discs.sortedWith(compareBy({ discNumber(it) ?: Int.MAX_VALUE }, { it }))
   }

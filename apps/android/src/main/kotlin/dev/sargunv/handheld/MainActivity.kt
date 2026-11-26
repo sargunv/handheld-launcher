@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
@@ -25,6 +26,7 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadState
+import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -124,8 +126,9 @@ class MainActivity : ComponentActivity() {
 
   /**
    * Starts [DownloadService] whenever the activity shows and there's something to download, so the
-   * queue goes on in the background. An app in the background can't start one. The first time, it
-   * asks to show the download's progress in a notification.
+   * queue goes on in the background. An app in the background can't start one. It asks for
+   * all-files access, which writing games needs, and to show the download's progress in a
+   * notification, when it lacks them.
    */
   private fun keepDownloadsRunning() {
     lifecycleScope.launch {
@@ -136,7 +139,10 @@ class MainActivity : ComponentActivity() {
           .distinctUntilChanged()
           .collect { active ->
             if (!active) return@collect
-            if (
+            // Games go to shared storage, where the app writes only with all-files access.
+            if (!Environment.isExternalStorageManager()) {
+              startActivity(LaunchDispatcher(this@MainActivity).allFilesAccessSettings())
+            } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
                   PackageManager.PERMISSION_GRANTED

@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -281,8 +282,10 @@ class DownloadManager(
     setState(download.romId) { it.copy(state = DownloadState.Downloading, error = null) }
     try {
       val outcome = withContext(Dispatchers.IO) { fetch(download) }
+      // A request from the server may have joined the download while it ran.
+      val current = entries.value.find { it.romId == download.romId } ?: download
       edit { list -> list.filterNot { it.romId == download.romId } }
-      report(download, outcome)
+      report(current, outcome)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -293,7 +296,11 @@ class DownloadManager(
           else it
         }
       }
-      report(download, RommInstallStatus.Failed, error)
+      report(
+        entries.value.find { it.romId == download.romId } ?: download,
+        RommInstallStatus.Failed,
+        error,
+      )
     }
   }
 
@@ -344,7 +351,8 @@ class DownloadManager(
         done += file.fileSizeBytes
       }
       if (multiFile) {
-        GameLayout.playlist(PlatformSlug(rom.platformSlug), files.map { it.fileName })?.let {
+        val paths = files.map { relativePath(rom, it) }
+        GameLayout.playlist(PlatformSlug(rom.platformSlug), paths)?.let {
           SystemFileSystem.sink(Path(staging, "${name.removeSuffix(".m3u")}.m3u")).buffered().use {
             sink ->
             sink.writeString(it.joinToString("\n", postfix = "\n"))
@@ -408,7 +416,11 @@ class DownloadManager(
     val credentials = credentials.load() ?: return
     val deviceId = credentials.deviceId ?: return
     try {
-      client(credentials).use { it.updateInstallRequest(deviceId, requestId, status, reason) }
+      client(credentials).use {
+        // A device reports how a request ended, but cancels one through its own endpoint.
+        if (status == RommInstallStatus.Cancelled) it.cancelInstallRequest(deviceId, requestId)
+        else it.updateInstallRequest(deviceId, requestId, status, reason)
+      }
     } catch (e: RommException) {
       // The request stays taken, and the next poll finds the game on the device or queues it.
     }
@@ -427,8 +439,9 @@ class DownloadManager(
     val before = entries.value
     val after = change(before)
     if (after == before) return@withLock false
+    // Once stored, the change shows, even when the caller is cancelled meanwhile.
+    withContext(Dispatchers.IO + NonCancellable) { file.write(after) }
     entries.value = after
-    withContext(Dispatchers.IO) { file.write(after) }
     true
   }
 }

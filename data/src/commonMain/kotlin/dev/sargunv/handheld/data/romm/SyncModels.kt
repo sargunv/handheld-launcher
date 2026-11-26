@@ -181,3 +181,5 @@ internal data class RommInstallUpdate(
   val status: RommInstallStatus,
   val reason: String? = null,
 )
+
+@Serializable internal data class RommDeviceCapabilities(val capabilities: Map<String, Boolean>)

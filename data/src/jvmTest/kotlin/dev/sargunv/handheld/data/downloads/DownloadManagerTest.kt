@@ -422,4 +422,41 @@ class DownloadManagerTest {
     )
     assertEquals(1, requests.count { it.apiPath.endsWith("claim") })
   }
+
+  @Test
+  fun cancellingAGameSentFromTheServerCancelsItsRequest() = runTest {
+    fillLibrary()
+    val sent =
+      """{"id": "req-1", "user_id": 1, "device_id": "dev-1", "rom_id": 1, "file_ids": [],
+        "status": "taken", "reason": null, "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": "2025-01-01T00:00:00Z"}"""
+    val installs: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData? =
+      { request ->
+        when (request.apiPath) {
+          "devices/dev-1/installs" -> json("[$sent]")
+          "devices/dev-1/installs/req-1" -> json(sent)
+          else -> null
+        }
+      }
+    val engine =
+      server(
+        installs = installs,
+        content = { request, bytes ->
+          serveFrom(request, bytes) {
+            ByteChannel(autoFlush = true).also { channel ->
+              @Suppress("OPT_IN_USAGE")
+              GlobalScope.launch { channel.writeFully(game.copyOf(65_536)) }
+            }
+          }
+        },
+      )
+    val downloads = manager(backgroundScope, engine, deviceId = "dev-1")
+    downloads.takeInstallRequests()
+    waitFor { downloads.queue.first { it.firstOrNull()?.bytesDownloaded == 65_536L } }
+
+    downloads.cancel(1)
+
+    val ended = requests.filter { it.apiPath == "devices/dev-1/installs/req-1" }
+    assertEquals(listOf(HttpMethod.Delete), ended.map { it.method })
+  }
 }

@@ -41,6 +41,7 @@ import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -219,6 +220,28 @@ class RommClient(
           RommInstallUpdate(status, reason?.take(500)),
         ),
     )
+
+  /** Cancels an install request that's pending or taken, which ends it on the server. */
+  suspend fun cancelInstallRequest(deviceId: String, requestId: String): RommInstallRequest =
+    send(
+      RommInstallRequest.serializer(),
+      HttpMethod.Delete,
+      listOf("devices", deviceId, "installs", requestId),
+    )
+
+  /** Declares what this device can do, such as taking games sent from RomM's web page. */
+  suspend fun updateDeviceCapabilities(deviceId: String, capabilities: Map<String, Boolean>) {
+    send(
+      JsonElement.serializer(),
+      HttpMethod.Put,
+      listOf("devices", deviceId),
+      body =
+        RommJson.encodeToString(
+          RommDeviceCapabilities.serializer(),
+          RommDeviceCapabilities(capabilities),
+        ),
+    )
+  }
 
   suspend fun syncSessions(
     deviceId: String? = null,
