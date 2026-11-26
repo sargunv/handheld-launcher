@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use crate::session::Session;
 
 /// Writes `data` to a temporary file beside `path`, flushes it to disk, and
 /// renames it over `path`, so that a crash leaves either the old file or the
@@ -40,7 +42,7 @@ pub(crate) fn write_atomically(path: &Path, data: &[u8]) -> io::Result<()> {
 
 /// Writes `data`, a save file's contents, to a new file beside `path` named
 /// `<name>.<unix time>.bak`, and returns its path.
-pub(crate) fn back_up(path: &Path, data: &[u8]) -> io::Result<PathBuf> {
+fn back_up(path: &Path, data: &[u8]) -> io::Result<PathBuf> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?;
@@ -69,9 +71,99 @@ fn parent_dir(path: &Path) -> &Path {
         .unwrap_or(Path::new("."))
 }
 
+/// How often a running session compares save memory with its file.
+const CHECK_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Keeps the core's save memory in its file: the session's thread compares
+/// save memory with what it last wrote, and a writer thread writes the
+/// changes.
+pub struct SaveRam {
+    writer: SaveWriter,
+    /// Save memory as last handed to the writer, or as loaded.
+    written: Vec<u8>,
+    /// Whether the file needs writing even though save memory hasn't
+    /// changed: it had another size, and a backup now holds it.
+    rewrite: bool,
+    /// When [`SaveRam::write_if_due`] next compares save memory.
+    next_check: Instant,
+}
+
+impl SaveRam {
+    /// Fills the core's save memory from the file at `path`, as a frontend
+    /// does right after loading content, to keep the file up to date from
+    /// then on. It returns `None` if the core has no save memory.
+    ///
+    /// A missing file leaves save memory as the core made it. A file of
+    /// another size fills what fits, but writing save memory back would lose
+    /// the rest, so the file is copied to a backup beside it first, and
+    /// loading fails if that copy can't be made.
+    pub fn load(path: &Path, session: &mut Session) -> io::Result<Option<Self>> {
+        let Some(memory) = session.save_ram_mut() else {
+            return Ok(None);
+        };
+        let rewrite = match fs::read(path) {
+            Ok(data) => {
+                let mismatched = data.len() != memory.len();
+                if mismatched {
+                    let backup = back_up(path, &data)?;
+                    log::warn!(
+                        "save file {} has {} bytes, but the core's save memory has {}; kept a copy at {}",
+                        path.display(),
+                        data.len(),
+                        memory.len(),
+                        backup.display()
+                    );
+                }
+                let n = data.len().min(memory.len());
+                memory[..n].copy_from_slice(&data[..n]);
+                log::info!("loaded save memory from {}", path.display());
+                mismatched
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => false,
+            Err(e) => return Err(e),
+        };
+        Ok(Some(Self {
+            written: memory.to_vec(),
+            writer: SaveWriter::new(path.to_owned())?,
+            rewrite,
+            next_check: Instant::now() + CHECK_INTERVAL,
+        }))
+    }
+
+    /// Hands save memory to the writer if it changed since the last write,
+    /// or the file needs it anyway.
+    fn write_if_changed(&mut self, session: &Session) {
+        let Some(memory) = session.save_ram() else {
+            return;
+        };
+        if self.rewrite || self.writer.failed() || memory != self.written.as_slice() {
+            self.rewrite = false;
+            self.written.clear();
+            self.written.extend_from_slice(memory);
+            self.writer.write(memory.to_vec());
+        }
+    }
+
+    /// Calls [`SaveRam::write_if_changed`] every [`CHECK_INTERVAL`].
+    pub(crate) fn write_if_due(&mut self, session: &Session) {
+        let now = Instant::now();
+        if now >= self.next_check {
+            self.next_check = now + CHECK_INTERVAL;
+            self.write_if_changed(session);
+        }
+    }
+
+    /// Writes save memory if it changed, and waits until every write so far
+    /// is on disk.
+    pub fn flush(&mut self, session: &Session) -> io::Result<()> {
+        self.write_if_changed(session);
+        self.writer.wait()
+    }
+}
+
 /// A thread that writes one save file, so that waiting for the disk never
 /// holds up the thread that hands it data.
-pub(crate) struct SaveWriter {
+struct SaveWriter {
     jobs: Option<Sender<Job>>,
     /// Whether the last write failed, so the caller writes again.
     failed: Arc<AtomicBool>,
@@ -84,7 +176,7 @@ enum Job {
 }
 
 impl SaveWriter {
-    pub(crate) fn new(path: PathBuf) -> io::Result<Self> {
+    fn new(path: PathBuf) -> io::Result<Self> {
         let (jobs, receiver) = mpsc::channel();
         let failed = Arc::new(AtomicBool::new(false));
         let thread_failed = failed.clone();
@@ -99,18 +191,18 @@ impl SaveWriter {
     }
 
     /// Writes `data` over the file, after any writes before it.
-    pub(crate) fn write(&self, data: Vec<u8>) {
+    fn write(&self, data: Vec<u8>) {
         self.send(Job::Write(data));
     }
 
     /// Whether the last write failed.
-    pub(crate) fn failed(&self) -> bool {
+    fn failed(&self) -> bool {
         self.failed.load(Ordering::Acquire)
     }
 
     /// Waits for every write so far, and returns the last one's error, if it
     /// failed.
-    pub(crate) fn wait(&self) -> io::Result<()> {
+    fn wait(&self) -> io::Result<()> {
         let (reply, result) = mpsc::channel();
         self.send(Job::Wait(reply));
         result

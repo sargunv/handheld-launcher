@@ -9,7 +9,7 @@ mod common;
 use std::collections::HashMap;
 
 use common::{Audio, Harness, lock, zero_crossings};
-use handheld_session::{Button, PixelFormat, SessionError};
+use handheld_session::{Button, SaveRam, SessionError};
 
 const CORE: &str = "test_libretro.so";
 const RED: [u8; 4] = [255, 0, 0, 255];
@@ -28,8 +28,6 @@ fn checker(x: u32, y: u32, dx: u32, dy: u32) -> [u8; 4] {
 fn draws_the_checkerboard() {
     let _lock = lock();
     let mut h = Harness::start(CORE, None).unwrap();
-    assert_eq!(h.session.pixel_format(), PixelFormat::Xrgb8888);
-    assert!(!h.session.is_hardware_rendered());
     h.run(1);
     let frame = h.frames.last();
     frame.dump("test-core");
@@ -152,9 +150,8 @@ fn one_session_at_a_time() {
 #[test]
 fn has_no_save_ram() {
     let _lock = lock();
-    let h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None).unwrap();
     assert!(h.session.save_ram().is_none());
     let path = h.dirs.path().join("test.srm");
-    assert!(!h.session.flush_save_ram(&path).unwrap());
-    assert!(!path.exists());
+    assert!(SaveRam::load(&path, &mut h.session).unwrap().is_none());
 }

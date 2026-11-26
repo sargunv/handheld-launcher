@@ -22,8 +22,8 @@ use crate::achievements::{
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, FrameStats, Vsync};
-use crate::save::SaveWriter;
-use crate::session::{AvInfo, SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
+use crate::save::SaveRam;
+use crate::session::{AvInfo, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, Region, VideoSink};
 
 /// What [`GameSession::start`] needs.
@@ -571,14 +571,9 @@ fn run(
             return;
         }
     };
-    let loaded = match &save_ram_path {
-        Some(path) => match session.load_save_ram(path) {
-            Ok(loaded) => {
-                if loaded != SaveRamLoad::Nothing {
-                    log::info!("loaded save memory from {}", path.display());
-                }
-                loaded
-            }
+    let save_ram = match &save_ram_path {
+        Some(path) => match SaveRam::load(path, &mut session) {
+            Ok(save_ram) => save_ram,
             Err(e) => {
                 // Running anyway would replace the file with fresh save
                 // memory the first time the game saves.
@@ -587,14 +582,7 @@ fn run(
                 return;
             }
         },
-        None => SaveRamLoad::Nothing,
-    };
-    let save_ram = match SaveRam::new(save_ram_path, &session, &loaded) {
-        Ok(save_ram) => save_ram,
-        Err(e) => {
-            let _ = started.send(Err(e.into()));
-            return;
-        }
+        None => None,
     };
     let av = session.av_info();
     let info = SessionInfo {
@@ -655,8 +643,6 @@ fn start_session(
             window: None,
             width: 0,
             height: 0,
-            // The session paces frames itself.
-            vsync: false,
             lower_screen_width_share: options.lower_screen_width_share,
         },
         VideoMode::Offscreen => VideoOutput::Sink(Box::new(DiscardFrames)),
@@ -731,7 +717,9 @@ struct Runner {
     events: Events,
     window: Option<PlatformWindow>,
     lower_window: Option<PlatformWindow>,
-    save_ram: SaveRam,
+    /// Keeps save memory's file up to date, if the core has save memory and
+    /// it has a file.
+    save_ram: Option<SaveRam>,
     paused: bool,
     /// How many frames run each time one is due: more than one to fast
     /// forward.
@@ -871,7 +859,9 @@ impl Runner {
         if self.stats.elapsed(now) >= STATS_INTERVAL {
             self.log_stats(now);
         }
-        self.save_ram.write_if_due(&self.session);
+        if let Some(save_ram) = &mut self.save_ram {
+            save_ram.write_if_due(&self.session);
+        }
         let schedule = pacing::next_frame(self.next_frame, now, fps, vsync);
         self.next_frame = schedule.due;
         self.session.set_speed(schedule.speed);
@@ -935,7 +925,7 @@ impl Runner {
             }
             Command::Pause(reply) => {
                 self.set_paused(true);
-                let _ = reply.send(self.save_ram.flush(&self.session));
+                let _ = reply.send(self.flush_save_ram());
             }
             Command::Resume => self.set_paused(false),
             Command::FastForward(speed) => {
@@ -1000,78 +990,12 @@ impl Runner {
 
     fn stop(&mut self) -> Result<(), SessionError> {
         self.set_paused(true);
-        self.save_ram.flush(&self.session)
-    }
-}
-
-/// How often a running session compares save memory with its file.
-const SAVE_RAM_CHECK_INTERVAL: Duration = Duration::from_secs(2);
-
-/// Keeps save memory's file up to date: the session thread compares save
-/// memory with what it last wrote, and a writer thread writes the changes.
-struct SaveRam {
-    /// The writer, if the core has save memory and it has a file.
-    writer: Option<SaveWriter>,
-    /// Save memory as last handed to the writer.
-    written: Vec<u8>,
-    /// When a running session next compares save memory.
-    next_check: Instant,
-}
-
-impl SaveRam {
-    fn new(
-        path: Option<PathBuf>,
-        session: &Session,
-        loaded: &SaveRamLoad,
-    ) -> std::io::Result<Self> {
-        let writer = match (path, session.save_ram()) {
-            (Some(path), Some(_)) => Some(SaveWriter::new(path)?),
-            _ => None,
-        };
-        let written = match loaded {
-            // A file of another size gets rewritten at save memory's size,
-            // now that a backup holds the original.
-            SaveRamLoad::Mismatched { .. } => Vec::new(),
-            SaveRamLoad::Nothing | SaveRamLoad::Loaded => {
-                session.save_ram().map(<[u8]>::to_vec).unwrap_or_default()
-            }
-        };
-        Ok(Self {
-            writer,
-            written,
-            next_check: Instant::now() + SAVE_RAM_CHECK_INTERVAL,
-        })
+        self.flush_save_ram()
     }
 
-    /// Hands save memory to the writer if it changed since the last write,
-    /// or the last write failed.
-    fn write_if_changed(&mut self, session: &Session) {
-        let (Some(writer), Some(memory)) = (&self.writer, session.save_ram()) else {
-            return;
-        };
-        if memory != self.written.as_slice() || writer.failed() {
-            self.written.clear();
-            self.written.extend_from_slice(memory);
-            writer.write(memory.to_vec());
-        }
-    }
-
-    /// Calls [`SaveRam::write_if_changed`] every
-    /// [`SAVE_RAM_CHECK_INTERVAL`].
-    fn write_if_due(&mut self, session: &Session) {
-        let now = Instant::now();
-        if now >= self.next_check {
-            self.next_check = now + SAVE_RAM_CHECK_INTERVAL;
-            self.write_if_changed(session);
-        }
-    }
-
-    /// Writes save memory if it changed, and waits until every write so far
-    /// is on disk.
-    fn flush(&mut self, session: &Session) -> Result<(), SessionError> {
-        self.write_if_changed(session);
-        match &self.writer {
-            Some(writer) => Ok(writer.wait()?),
+    fn flush_save_ram(&mut self) -> Result<(), SessionError> {
+        match &mut self.save_ram {
+            Some(save_ram) => Ok(save_ram.flush(&self.session)?),
             None => Ok(()),
         }
     }

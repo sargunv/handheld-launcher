@@ -88,34 +88,38 @@ fn extension(path: &Path) -> String {
 /// The file that holds a game's data: the file itself, or the one a playlist
 /// names first, a cue sheet's first data track's, or a GD-ROM sheet's
 /// high-density data track's. It follows at most three, so a sheet that names
-/// itself ends.
+/// itself ends. Where domain's `DiscSets` lists every file of a set, this
+/// picks the one with the header.
 fn data_file(path: &Path, depth: u8) -> Option<PathBuf> {
     let sheet = || std::fs::read_to_string(path).ok();
     let folder = path.parent().unwrap_or(Path::new(""));
     let named = match extension(path).as_str() {
         "m3u" | "cue" | "gdi" if depth >= 3 => return None,
-        "m3u" => sheet()?
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty() && !l.starts_with('#'))?
-            .to_owned(),
+        "m3u" => lines(&sheet()?).find(|l| !l.starts_with('#'))?.to_owned(),
         "cue" => cue_data_file(&sheet()?)?,
         "gdi" => gdi_data_file(&sheet()?)?,
         _ => return Some(path.to_owned()),
     };
-    data_file(&folder.join(named), depth + 1)
+    data_file(&folder.join(named.replace('\\', "/")), depth + 1)
+}
+
+/// A sheet's lines, trimmed, without its byte order mark or blank lines.
+fn lines(sheet: &str) -> impl Iterator<Item = &str> {
+    sheet
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
 }
 
 /// The file of a cue sheet's first data track.
 fn cue_data_file(cue: &str) -> Option<String> {
     let mut file = None;
-    for line in cue.lines().map(str::trim) {
-        if let Some(rest) = line.strip_prefix("FILE ") {
-            file = Some(unquote(
-                rest.rsplit_once(' ').map_or(rest, |(name, _)| name),
-            ));
-        } else if let Some(rest) = line.strip_prefix("TRACK ")
-            && !rest.ends_with("AUDIO")
+    for line in lines(cue) {
+        if let Some(args) = cue_command(line, "FILE") {
+            file = cue_file(args);
+        } else if let Some(args) = cue_command(line, "TRACK")
+            && !args.to_ascii_uppercase().ends_with("AUDIO")
         {
             return file;
         }
@@ -123,16 +127,32 @@ fn cue_data_file(cue: &str) -> Option<String> {
     None
 }
 
+/// The arguments of a cue sheet line that runs `command`, in any case.
+fn cue_command<'a>(line: &'a str, command: &str) -> Option<&'a str> {
+    let (word, args) = line.split_once(char::is_whitespace)?;
+    word.eq_ignore_ascii_case(command).then(|| args.trim())
+}
+
+/// The file a cue sheet's `FILE "name" TYPE` line names.
+fn cue_file(args: &str) -> Option<String> {
+    let name = match args.strip_prefix('"') {
+        Some(quoted) => quoted.split_once('"').map_or(quoted, |(name, _)| name),
+        // Unquoted, the name runs to the type at the end of the line.
+        None => args
+            .rsplit_once(char::is_whitespace)
+            .map_or(args, |(name, _)| name.trim()),
+    };
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
 /// The file of a GD-ROM sheet's first data track in the high-density area,
 /// which starts at track 3, else its first data track. Each line after the
 /// count is a track: its number, start, type (4 for data), sector size, file
 /// and offset.
 fn gdi_data_file(gdi: &str) -> Option<String> {
-    let tracks: Vec<(u32, String)> = gdi
-        .lines()
+    let tracks: Vec<(u32, String)> = lines(gdi)
         .skip(1)
         .filter_map(|line| {
-            let line = line.trim();
             let (number, rest) = line.split_once(char::is_whitespace)?;
             let fields: Vec<&str> = rest.split_whitespace().collect();
             if fields.get(1) != Some(&"4") {
@@ -151,10 +171,6 @@ fn gdi_data_file(gdi: &str) -> Option<String> {
         .find(|(number, _)| *number >= 3)
         .or(tracks.first())
         .map(|(_, name)| name.clone())
-}
-
-fn unquote(s: &str) -> String {
-    s.trim().trim_matches('"').to_owned()
 }
 
 /// The largest file in a zip that can be a game of the platform (see
@@ -591,26 +607,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("game.m3u"),
-            "# discs\n\nGame (Disc 1).cue\nGame (Disc 2).cue\n",
+            "\u{feff}# discs\n\nGame (Disc 1).cue\nGame (Disc 2).cue\n",
         )
         .unwrap();
+        std::fs::create_dir(dir.path().join("Disc 1")).unwrap();
         std::fs::write(
             dir.path().join("Game (Disc 1).cue"),
-            "FILE \"Game (Disc 1) (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+            "\u{feff}FILE \"Disc 1\\Game (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
         )
         .unwrap();
         assert_eq!(
             data_file(&dir.path().join("game.m3u"), 0).unwrap(),
-            dir.path().join("Game (Disc 1) (Track 1).bin")
+            dir.path().join("Disc 1/Game (Track 1).bin")
         );
         assert_eq!(
             cue_data_file(
-                "FILE \"a.bin\" BINARY\n TRACK 01 AUDIO\nFILE \"b.bin\" BINARY\n TRACK 02 MODE1/2352\n"
+                "FILE \"a.bin\" BINARY\n TRACK 01 AUDIO\nfile\tb c.bin\tBINARY\n TRACK 02 MODE1/2352\n"
             )
             .as_deref(),
-            Some("b.bin")
+            Some("b c.bin")
         );
-        let gdi = "3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n3 45000 4 2352 \"track 03.bin\" 0\n";
+        let gdi = "\n3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n3\t45000\t4\t2352\t\"track 03.bin\"\t0\n";
         assert_eq!(gdi_data_file(gdi).as_deref(), Some("track 03.bin"));
 
         let looping = dir.path().join("loop.cue");

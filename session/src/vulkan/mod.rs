@@ -79,7 +79,6 @@ pub(crate) struct VulkanContext {
     /// The lower window, which shows the bottom half of each frame while the
     /// main window shows the top half.
     lower_window: Option<Window>,
-    vsync: bool,
     frames: Vec<FrameSlot>,
     readback: Option<Readback>,
     shared: Box<Shared>,
@@ -228,8 +227,6 @@ struct FrameSlot {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Output {
     Main = 0,
-    /// The lower window. Presenting to it doesn't wait for its display's
-    /// refresh, so the main window alone paces the session.
     Lower = 1,
 }
 
@@ -304,7 +301,6 @@ impl VulkanContext {
     pub(crate) fn new(
         negotiation: Option<&Negotiation>,
         target: Target<'_>,
-        vsync: bool,
     ) -> Result<Self, VulkanError> {
         let entry = entry().map_err(VulkanError::Unavailable)?;
         let windowed = matches!(target, Target::Window(_));
@@ -349,7 +345,7 @@ impl VulkanContext {
             }
             e => VulkanError::Vulkan(format!("can't create an instance: {e}")),
         })?;
-        let mut this = Self::with_instance(entry, instance.clone(), negotiation, target, vsync)
+        let mut this = Self::with_instance(entry, instance.clone(), negotiation, target)
             // SAFETY: nothing else has the instance.
             .inspect_err(|_| unsafe { instance.destroy_instance(None) })?;
         // From here on, dropping `this` tears everything down.
@@ -364,7 +360,6 @@ impl VulkanContext {
         instance: ash::Instance,
         negotiation: Option<&Negotiation>,
         target: Target<'_>,
-        vsync: bool,
     ) -> Result<Self, VulkanError> {
         let windowed = matches!(target, Target::Window(_));
         let (mut gpu, mut queue_family) = choose_gpu(&instance)?;
@@ -487,7 +482,6 @@ impl VulkanContext {
             destroy_device,
             window: None,
             lower_window: None,
-            vsync,
             frames: Vec::new(),
             readback: None,
             shared,
@@ -687,8 +681,6 @@ impl VulkanContext {
             self.flush();
             return;
         };
-        // The lower window first, as in GL: it doesn't wait for vsync, so
-        // both show the frame by the main window's next refresh.
         let outputs: &[(Output, Region)] = if self.lower_window.is_some() {
             &[(Output::Lower, lower), (Output::Main, Region::Top)]
         } else {
@@ -1063,15 +1055,11 @@ impl VulkanContext {
                 let modes = surface_fn
                     .get_physical_device_surface_present_modes(self.gpu, window.surface)
                     .map_err(failed("query the surface's present modes"))?;
-                let preferred: &[vk::PresentModeKHR] = if self.vsync && output == Output::Main {
-                    &[]
-                } else {
-                    &[vk::PresentModeKHR::MAILBOX, vk::PresentModeKHR::IMMEDIATE]
-                };
-                let mode = preferred
-                    .iter()
+                // The session paces frames itself, so presenting needn't wait
+                // for the display's refresh.
+                let mode = [vk::PresentModeKHR::MAILBOX, vk::PresentModeKHR::IMMEDIATE]
+                    .into_iter()
                     .find(|m| modes.contains(m))
-                    .copied()
                     .unwrap_or(vk::PresentModeKHR::FIFO);
                 let mut count = caps.min_image_count + 1;
                 if caps.max_image_count > 0 {

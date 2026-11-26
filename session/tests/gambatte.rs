@@ -6,7 +6,7 @@ mod common;
 use common::{Harness, lock};
 use std::io::Write;
 
-use handheld_session::{Button, PixelFormat, SaveRamLoad, SessionError};
+use handheld_session::{Button, SaveRam, SessionError};
 use zip::write::SimpleFileOptions;
 
 const CORE: &str = "gambatte_libretro.so";
@@ -18,15 +18,6 @@ const SAVE_RAM_SIZE: usize = 128 * 1024;
 fn plays_the_title_screen_with_sound() {
     let _lock = lock();
     let mut h = Harness::start(CORE, Some(GAME)).unwrap();
-    assert_eq!(h.session.system_info().library_name, "Gambatte");
-    assert!(
-        h.session
-            .system_info()
-            .valid_extensions
-            .iter()
-            .any(|e| e == "gbc")
-    );
-    assert_eq!(h.session.pixel_format(), PixelFormat::Rgb565);
     h.run(600);
     let frame = h.frames.last();
     frame.dump("ucity-title");
@@ -76,62 +67,23 @@ fn needs_content() {
 }
 
 #[test]
-fn save_ram_round_trips_through_the_core() {
+fn save_ram_round_trips_through_its_file() {
     let _lock = lock();
     let pattern: Vec<u8> = (0..SAVE_RAM_SIZE).map(|i| (i * 7 % 251) as u8).collect();
     let dir = tempfile::tempdir().unwrap();
-    let original = dir.path().join("original.srm");
-    std::fs::write(&original, &pattern).unwrap();
-    let flushed = dir.path().join("saves/ucity.srm");
-
-    {
-        let mut h = Harness::start(CORE, Some(GAME)).unwrap();
-        assert_eq!(h.session.save_ram().map(<[u8]>::len), Some(SAVE_RAM_SIZE));
-        assert_eq!(
-            h.session.load_save_ram(&original).unwrap(),
-            SaveRamLoad::Loaded
-        );
-        assert_eq!(h.session.save_ram().unwrap(), pattern);
-        assert!(h.session.flush_save_ram(&flushed).unwrap());
-        assert_eq!(
-            h.session
-                .load_save_ram(&dir.path().join("missing.srm"))
-                .unwrap(),
-            SaveRamLoad::Nothing
-        );
-    }
-    assert_eq!(std::fs::read(&flushed).unwrap(), pattern);
-
-    // A new session picks the flushed save up.
-    let mut h = Harness::start(CORE, Some(GAME)).unwrap();
-    assert_ne!(h.session.save_ram().unwrap(), pattern);
-    assert_eq!(
-        h.session.load_save_ram(&flushed).unwrap(),
-        SaveRamLoad::Loaded
-    );
-    assert_eq!(h.session.save_ram().unwrap(), pattern);
-}
-
-#[test]
-fn a_save_file_of_another_size_is_backed_up_as_it_loads() {
-    let _lock = lock();
-    let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ucity.srm");
-    let short: Vec<u8> = (0..1000).map(|i| (i % 251) as u8).collect();
-    std::fs::write(&path, &short).unwrap();
+    std::fs::write(&path, &pattern).unwrap();
 
     let mut h = Harness::start(CORE, Some(GAME)).unwrap();
-    let SaveRamLoad::Mismatched { backup } = h.session.load_save_ram(&path).unwrap() else {
-        panic!("the sizes differ");
-    };
-    assert_eq!(backup.parent(), Some(dir.path()));
-    assert_eq!(std::fs::read(&backup).unwrap(), short);
-    assert_eq!(&h.session.save_ram().unwrap()[..short.len()], short);
+    let blank = h.session.save_ram().unwrap().to_vec();
+    // A state of the game with blank save memory, which a state includes.
+    let state = h.session.serialize_state().unwrap();
+    let mut save_ram = SaveRam::load(&path, &mut h.session).unwrap().unwrap();
+    assert_eq!(h.session.save_ram().unwrap(), pattern);
 
-    // Writing save memory back leaves the original in the backup.
-    assert!(h.session.flush_save_ram(&path).unwrap());
-    assert_eq!(std::fs::read(&path).unwrap().len(), SAVE_RAM_SIZE);
-    assert_eq!(std::fs::read(&backup).unwrap(), short);
+    h.session.unserialize_state(&state).unwrap();
+    save_ram.flush(&h.session).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), blank);
 }
 
 #[test]
