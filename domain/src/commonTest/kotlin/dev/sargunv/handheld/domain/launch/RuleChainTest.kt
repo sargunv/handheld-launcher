@@ -1,13 +1,17 @@
 package dev.sargunv.handheld.domain.launch
 
+import dev.sargunv.handheld.domain.launch.LaunchChoice.Companion.BUILT_IN
+import dev.sargunv.handheld.domain.launch.LaunchRule.BuiltInDefault
 import dev.sargunv.handheld.domain.launch.LaunchRule.CollectionOverride
 import dev.sargunv.handheld.domain.launch.LaunchRule.FirstInstalled
 import dev.sargunv.handheld.domain.launch.LaunchRule.GameOverride
 import dev.sargunv.handheld.domain.launch.LaunchRule.PlatformDefault
+import dev.sargunv.handheld.domain.launch.RuleStatus.NoCore
 import dev.sargunv.handheld.domain.launch.RuleStatus.NotInstalled
 import dev.sargunv.handheld.domain.launch.RuleStatus.Outranked
 import dev.sargunv.handheld.domain.launch.RuleStatus.Unset
 import dev.sargunv.handheld.domain.launch.RuleStatus.Wins
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAMECUBE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import kotlin.test.Test
@@ -28,6 +32,7 @@ class RuleChainTest {
         RuleStep(GameOverride, Unset),
         RuleStep(CollectionOverride(jak), Wins, pocketGoal),
         RuleStep(PlatformDefault, Unset),
+        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
         RuleStep(FirstInstalled, Outranked, armsx2),
       ),
       RuleChain.explain(jak1, rules, setOf(armsx2, pocketGoal)),
@@ -46,6 +51,7 @@ class RuleChainTest {
       listOf(
         RuleStep(GameOverride, NotInstalled, pocketGoal),
         RuleStep(PlatformDefault, Wins, armsx2),
+        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
         RuleStep(FirstInstalled, Outranked, armsx2),
       ),
       steps,
@@ -73,6 +79,7 @@ class RuleChainTest {
         RuleStep(CollectionOverride(favorites), Wins, armsx2),
         RuleStep(CollectionOverride(jak), Outranked, pocketGoal),
         RuleStep(PlatformDefault, Unset),
+        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
         RuleStep(FirstInstalled, Outranked, armsx2),
       ),
       RuleChain.explain(jak1, rules, setOf(armsx2, pocketGoal)),
@@ -88,6 +95,59 @@ class RuleChainTest {
     assertEquals(
       RuleStep(FirstInstalled, Unset),
       RuleChain.explain(jak1, LaunchRules(), emptySet()).last(),
+    )
+  }
+
+  @Test
+  fun theBuiltInSessionIsTheDefaultWhereALibretroCoreRunsThePlatform() {
+    val gaia = LaunchSubject(gameId = 2, platform = GBA)
+    val installed = setOf("com.retroarch")
+    assertEquals(
+      listOf(
+        RuleStep(GameOverride, Unset),
+        RuleStep(PlatformDefault, Unset),
+        RuleStep(BuiltInDefault, Wins, BUILT_IN),
+      ),
+      RuleChain.explain(gaia, LaunchRules(), installed),
+    )
+    // A choice of app outranks it.
+    val rules = LaunchRules(gameOverrides = mapOf(2L to LaunchChoice("com.retroarch")))
+    assertEquals(
+      RuleStep(BuiltInDefault, Outranked, BUILT_IN),
+      RuleChain.explain(gaia, rules, installed).last(),
+    )
+  }
+
+  @Test
+  fun anInstalledEmulatorIsTheDefaultWhereItPlaysBetter() {
+    val game = LaunchSubject(gameId = 3, platform = GAMECUBE)
+    assertEquals(
+      RuleStep(FirstInstalled, Wins, "org.dolphinemu.dolphinemu"),
+      RuleChain.explain(game, LaunchRules(), setOf("org.dolphinemu.dolphinemu")).last(),
+    )
+    assertEquals(
+      RuleStep(BuiltInDefault, Wins, BUILT_IN),
+      RuleChain.explain(game, LaunchRules(), emptySet()).last(),
+    )
+  }
+
+  @Test
+  fun aBuiltInChoiceWinsWhereACoreRunsThePlatformAndIsSkippedElsewhere() {
+    val rules =
+      LaunchRules(gameOverrides = mapOf(1L to LaunchChoice.BuiltIn, 2L to LaunchChoice.BuiltIn))
+    val gaia = LaunchSubject(gameId = 2, platform = GBA)
+    assertEquals(
+      RuleStep(GameOverride, Wins, BUILT_IN),
+      RuleChain.explain(gaia, rules, emptySet()).first(),
+    )
+    assertEquals(
+      listOf(
+        RuleStep(GameOverride, NoCore, BUILT_IN),
+        RuleStep(PlatformDefault, Unset),
+        RuleStep(BuiltInDefault, NoCore, BUILT_IN),
+        RuleStep(FirstInstalled, Wins, armsx2),
+      ),
+      RuleChain.explain(jak1.copy(collections = emptySet()), rules, setOf(armsx2)),
     )
   }
 }

@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.game
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.LibretroCores
+import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
 import dev.sargunv.handheld.domain.launch.RuleStatus
 import dev.sargunv.handheld.domain.launch.RuleStep
@@ -26,9 +27,9 @@ fun interface AppCatalog {
 internal data class AppOption(val choice: SavedChoice, val label: String, val known: Boolean)
 
 /**
- * The apps a game on [platform] can open in: the installed known emulators for the platform, best
- * first, then every other app by name. An app that loads a libretro core comes with the platform's
- * known core.
+ * The apps a game on [platform] can open in: the built-in session when a libretro core runs the
+ * platform, then the installed known emulators for the platform, best first, then every other app
+ * by name. An app that loads a libretro core comes with the platform's known core.
  */
 internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<AppOption> {
   val ranking = EmulatorRegistry.forPlatform(platform)
@@ -59,14 +60,34 @@ internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<
     others.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label }).map {
       AppOption(SavedChoice(it.packageName), it.label, false)
     }
-  return knownOptions + otherOptions
+  // The built-in session picks the platform's core when it plays, so the choice doesn't name one.
+  val builtIn = core?.let {
+    AppOption(SavedChoice(LaunchChoice.BUILT_IN), withCore(BUILT_IN_NAME, it.library), true)
+  }
+  return listOfNotNull(builtIn) + knownOptions + otherOptions
 }
+
+/** The built-in session's name in the app list. */
+private const val BUILT_IN_NAME = "Built-in"
+
+/** The built-in session's name as the default in the rule chain. */
+private const val BUILT_IN_SESSION = "Built-in session"
 
 /**
  * The name of [packageName]'s app, with [core] when it names one: its label when it's installed,
- * else the known emulator's name, else the package name.
+ * else the known emulator's name, else the package name. The built-in session, which runs a game on
+ * [platform] in the platform's core unless [core] names one, is "Built-in" with its core.
  */
-internal fun appName(packageName: String, core: String?, apps: List<InstalledApp>): String {
+internal fun appName(
+  packageName: String,
+  core: String?,
+  apps: List<InstalledApp>,
+  platform: PlatformSlug? = null,
+): String {
+  if (packageName == LaunchChoice.BUILT_IN) {
+    val builtInCore = core ?: platform?.let { LibretroCores.recommendedFor(it)?.library }
+    return builtInCore?.let { withCore(BUILT_IN_NAME, it) } ?: BUILT_IN_NAME
+  }
   val name =
     apps.firstOrNull { it.packageName == packageName }?.label
       ?: EmulatorRegistry.forPackage(packageName)?.displayName
@@ -82,7 +103,8 @@ internal data class ChainLine(val text: String, val wins: Boolean = false)
 
 /**
  * The rule chain's lines, most specific first: the game's rule, its collections' rules, and its
- * platform's, which falls back to the best installed emulator. Each says what became of it.
+ * platform's, which falls back to the built-in session and the best installed emulator, in the
+ * order the resolver tries them. Each says what became of it.
  *
  * @param collections the game's collections, which name the collections' rules.
  * @param name names an app by package name and core.
@@ -93,20 +115,29 @@ internal fun chainLines(
   platformName: String,
   name: (String, String?) -> String,
 ): List<ChainLine> {
-  fun line(level: String, step: RuleStep, default: Boolean = false): ChainLine {
-    val app = step.packageName?.let { name(it, step.core) } ?: "none"
+  fun line(
+    level: String?,
+    step: RuleStep,
+    default: Boolean = false,
+    app: String = step.packageName?.let { name(it, step.core) } ?: "none",
+  ): ChainLine {
     val note =
       when (step.status) {
         RuleStatus.Unset -> ""
         RuleStatus.Wins -> " · opens here"
         RuleStatus.NotInstalled -> " · not installed, skipped"
+        RuleStatus.NoCore -> " · no core for $platformName, skipped"
         RuleStatus.Outranked -> " · overridden"
       }
     val defaultNote = if (default) " (default)" else ""
-    return ChainLine("$level: $app$defaultNote$note", step.status == RuleStatus.Wins)
+    val prefix = level?.let { "$it: " } ?: ""
+    return ChainLine("$prefix$app$defaultNote$note", step.status == RuleStatus.Wins)
   }
 
   val platformLevel = "Platform $platformName"
+  val platformRule = steps.first { it.rule == LaunchRule.PlatformDefault }
+  // The platform's own rule decides or is outranked, so its defaults don't matter.
+  val defaultsMatter = platformRule.status in setOf(RuleStatus.Unset, RuleStatus.NotInstalled)
   return buildList {
     for (step in steps) {
       when (val rule = step.rule) {
@@ -121,18 +152,24 @@ internal fun chainLines(
           }
           if (step.status != RuleStatus.Unset) add(line(platformLevel, step))
         }
-        LaunchRule.FirstInstalled -> {
-          val platformRule = steps.first { it.rule == LaunchRule.PlatformDefault }
+        LaunchRule.BuiltInDefault ->
           when {
+            !defaultsMatter -> Unit
+            step.status == RuleStatus.NoCore ->
+              add(line(null, step, default = true, app = BUILT_IN_SESSION))
+            platformRule.status == RuleStatus.Unset ->
+              add(line(platformLevel, step, default = true, app = BUILT_IN_SESSION))
+            else -> add(line("Default for $platformName", step, app = BUILT_IN_SESSION))
+          }
+        LaunchRule.FirstInstalled ->
+          when {
+            !defaultsMatter -> Unit
             platformRule.status == RuleStatus.Unset && step.packageName == null ->
               add(ChainLine("$platformLevel: no emulator installed"))
             platformRule.status == RuleStatus.Unset ->
               add(line(platformLevel, step, default = true))
-            // The platform's own rule decides or is outranked, so its default doesn't matter.
-            platformRule.status != RuleStatus.NotInstalled -> Unit
             step.packageName != null -> add(line("Default for $platformName", step))
           }
-        }
       }
     }
   }

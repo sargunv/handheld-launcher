@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.RuleChain
@@ -70,7 +71,7 @@ private class OpenWithGame(
       apps.mapTo(mutableSetOf()) { it.packageName },
     )
 
-  fun name(packageName: String, core: String?) = appName(packageName, core, apps)
+  fun name(packageName: String, core: String?) = appName(packageName, core, apps, platform)
 }
 
 @Composable
@@ -117,7 +118,16 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           ?: 0
       val level = levels[levelIndex].first
       val current = launch.choiceAt(level)
-      val default = game.chain(launch).last { it.rule == LaunchRule.FirstInstalled }.packageName
+      // The app the platform's defaults pick, which opens the game when no choice applies.
+      val default =
+        game
+          .chain(launch)
+          .firstOrNull {
+            (it.rule == LaunchRule.BuiltInDefault || it.rule == LaunchRule.FirstInstalled) &&
+              it.status != RuleStatus.NoCore &&
+              it.packageName != null
+          }
+          ?.packageName
       fun choose(choice: SavedChoice?) {
         state.settings = state.settings.copy(launch = launch.withChoice(level, choice))
         state.navigator.back()
@@ -212,9 +222,15 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
   val steps = game.chain(state.settings.launch)
   val winner = steps.firstOrNull { it.status == RuleStatus.Wins }
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val winnerApp = winner?.packageName
+    val opensIn =
+      when (winnerApp) {
+        null -> null
+        LaunchChoice.BUILT_IN -> "the built-in session"
+        else -> game.name(winnerApp, winner.core)
+      }
     Text(
-      winner?.packageName?.let { "Why it opens in ${game.name(it, winner.core)}" }
-        ?: "No app on this device can open it",
+      opensIn?.let { "Why it opens in $it" } ?: "No app on this device can open it",
       color = Placeholder.text,
       fontSize = 20.sp,
       fontWeight = FontWeight.SemiBold,

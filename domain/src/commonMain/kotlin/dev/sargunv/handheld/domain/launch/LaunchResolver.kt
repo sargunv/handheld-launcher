@@ -126,15 +126,25 @@ object LaunchResolver {
     if (runsBuiltIn && !standaloneFirst)
       return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
 
-    val known = EmulatorRegistry.forPlatform(subject.platform)
-    for (emulator in known) {
-      val packageName = installedBuildOf(emulator, installedPackages) ?: continue
-      val target = LaunchTarget(packageName, emulator.recipeFor(packageName), emulator)
-      return LaunchResolution.Resolved(target, LaunchRule.FirstInstalled, skipped.toList())
+    firstInstalled(subject.platform, installedPackages)?.let {
+      return LaunchResolution.Resolved(it, LaunchRule.FirstInstalled, skipped.toList())
     }
     if (runsBuiltIn)
       return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
+    val known = EmulatorRegistry.forPlatform(subject.platform)
     return LaunchResolution.NoEmulatorInstalled(subject.platform, known, skipped.toList())
+  }
+
+  /** The best installed known emulator for [platform], or null when none is installed. */
+  internal fun firstInstalled(
+    platform: PlatformSlug,
+    installedPackages: Set<String>,
+  ): LaunchTarget? {
+    for (emulator in EmulatorRegistry.forPlatform(platform)) {
+      val packageName = installedBuildOf(emulator, installedPackages) ?: continue
+      return LaunchTarget(packageName, emulator.recipeFor(packageName), emulator)
+    }
+    return null
   }
 
   private fun targetFor(choice: LaunchChoice): LaunchTarget {
