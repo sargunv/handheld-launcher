@@ -12,7 +12,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
@@ -90,7 +89,11 @@ class HomeTest {
 
   private fun ComposeUiTest.press(keys: List<Key>) {
     for (key in keys) {
-      onRoot().performKeyInput { pressKey(key) }
+      // The key goes up once the screen settles: the test tracks held keys through the focused
+      // element, and a screen change can leave nothing focused for a moment.
+      onRoot().performKeyInput { keyDown(key) }
+      waitForIdle()
+      onRoot().performKeyInput { keyUp(key) }
       waitForIdle()
     }
   }
@@ -120,7 +123,8 @@ class HomeTest {
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
     assertFocused("RecentlyAdded:2")
     press(Key.ButtonR1)
-    onNodeWithText("The library is coming soon.").assertExists()
+    awaitTag("shelf:platform:1")
+    // Library has one platform, so R goes on to Downloads.
     press(Key.ButtonR1)
     onNodeWithText("Downloads are coming soon.").assertExists()
     // Downloads is the last place.

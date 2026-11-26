@@ -2,6 +2,7 @@ package dev.sargunv.handheld.ui
 
 import dev.sargunv.handheld.ui.home.HomeSettings
 import dev.sargunv.handheld.ui.input.InputSettings
+import dev.sargunv.handheld.ui.library.LibrarySettings
 import kotlinx.serialization.Serializable
 
 /**
@@ -17,4 +18,5 @@ data class Settings(
   /** Whether a game in the session pauses while its window lacks focus. */
   val pauseGameWhenUnfocused: Boolean = false,
   val home: HomeSettings = HomeSettings(),
+  val library: LibrarySettings = LibrarySettings(),
 )
