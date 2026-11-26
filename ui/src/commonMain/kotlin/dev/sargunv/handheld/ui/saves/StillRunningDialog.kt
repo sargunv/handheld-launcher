@@ -1,9 +1,7 @@
 package dev.sargunv.handheld.ui.saves
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -34,7 +32,7 @@ data class StillRunning(val gameName: String, val emulatorName: String, val canC
 fun StillRunningDialog(prompt: StillRunning, onChoose: (StillRunningChoice) -> Unit) {
   Dialog(
     onDismissRequest = { onChoose(StillRunningChoice.QuitFirst) },
-    Modifier.widthIn(max = 640.dp).background(Placeholder.dialog).padding(24.dp),
+    Modifier.widthIn(max = 640.dp),
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(

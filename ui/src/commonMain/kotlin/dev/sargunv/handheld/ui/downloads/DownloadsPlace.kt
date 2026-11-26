@@ -107,7 +107,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
     LaunchedEffect(menuDownload == null) { if (menuDownload == null) menuFor = null }
     if (menuDownload != null) {
       val close = { menuFor = null }
-      Dialog(close, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+      Dialog(close) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
           Text(
             menuDownload.title,
