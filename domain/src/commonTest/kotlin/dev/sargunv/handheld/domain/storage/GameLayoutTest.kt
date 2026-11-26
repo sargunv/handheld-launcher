@@ -36,7 +36,7 @@ class GameLayoutTest {
     )
     assertEquals(
       listOf("Game (Disc 1).chd", "Game (Disc 2).chd"),
-      GameLayout.playlist(PlatformSlug("ps1"), listOf("Game (Disc 2).chd", "Game (Disc 1).chd")),
+      GameLayout.playlist(PlatformSlug("psx"), listOf("Game (Disc 2).chd", "Game (Disc 1).chd")),
     )
   }
 

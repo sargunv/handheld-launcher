@@ -356,13 +356,6 @@ object SaveLocations {
         ),
       )
 
-  /** Known emulators whose save locations nobody has mapped yet. */
-  val unmapped: Set<EmulatorId> = setOf(id("ppsspp_legacy"), id("super_zsnes"), id("fbalpha"))
-
-  /**
-   * Where [emulator] keeps [platform]'s saves: its location for that platform, else its location
-   * for every platform; null when neither is known.
-   */
   /**
    * The emulators that keep PS2 saves on PS2 memory cards. A game's saves sync from any of them as
    * the same per-game card, so one's save is another's.
@@ -370,6 +363,10 @@ object SaveLocations {
   val ps2Cards: Set<EmulatorId> =
     all.filter { it.layout is SaveLayout.Ps2MemoryCards }.map { it.emulator }.toSet()
 
+  /**
+   * Where [emulator] keeps [platform]'s saves: its location for that platform, else its location
+   * for every platform; null when neither is known.
+   */
   fun forEmulator(emulator: EmulatorId, platform: PlatformSlug): SaveLocation? {
     val target = PlatformCatalog.emulatedAs(platform)
     val own = all.filter { it.emulator == emulator }

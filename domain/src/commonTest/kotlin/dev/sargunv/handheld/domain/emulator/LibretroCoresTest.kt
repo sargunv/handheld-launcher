@@ -9,8 +9,7 @@ import kotlin.test.assertTrue
 class LibretroCoresTest {
   @Test
   fun everyPlatformHasAnExplicitEntry() {
-    val platforms = PlatformCatalog.all.filter { it.runsAs == null }.map { it.slug }.toSet()
-    assertEquals(platforms, LibretroCores.recommended.keys)
+    assertEquals(EmulatorRegistry.preference.keys, LibretroCores.recommended.keys)
   }
 
   @Test

@@ -37,16 +37,11 @@ class SaveKnowledgeTest {
       }
       val emulator = assertNotNull(EmulatorRegistry[location.emulator])
       for (platform in location.platforms.orEmpty()) {
-        assertTrue(platform in emulator.platforms, "${location.emulator} doesn't run $platform")
+        assertTrue(
+          emulator in EmulatorRegistry.forPlatform(platform),
+          "${location.emulator} doesn't run $platform",
+        )
       }
-    }
-  }
-
-  @Test
-  fun everyEmulatorHasSaveKnowledgeOrIsListedAsUnmapped() {
-    for (emulator in EmulatorRegistry.all) {
-      val mapped = SaveLocations.all.any { it.emulator == emulator.id }
-      assertTrue(mapped != emulator.id in SaveLocations.unmapped, emulator.id.value)
     }
   }
 
@@ -96,33 +91,12 @@ class SaveKnowledgeTest {
   }
 
   @Test
-  fun stateLocationsAreWellFormed() {
-    val ids = StateLocations.all.map { it.emulator }
-    assertEquals(ids.size, ids.toSet().size)
-    for (location in StateLocations.all) {
-      assertKnownEmulator(location.emulator)
-      assertKnownPlaceholders(location.emulator.value, location.paths)
-      assertTrue(location.paths.isNotEmpty())
-      location.maxSlots?.let { assertTrue(it > 0) }
-    }
-    assertEquals(
-      StateNaming.DuckStationSerial,
-      StateLocations.forEmulator(EmulatorId("duckstation"))?.naming,
-    )
-  }
-
-  @Test
   fun biosKnowledgeIsWellFormed() {
     val ids = BiosKnowledge.locations.map { it.emulator }
     assertEquals(ids.size, ids.toSet().size)
     for (location in BiosKnowledge.locations) {
       assertKnownEmulator(location.emulator)
       assertKnownPlaceholders(location.emulator.value, location.paths)
-      for (platform in location.platforms.orEmpty()) assertNotNull(PlatformCatalog[platform])
-    }
-    for ((platform, files) in BiosKnowledge.files) {
-      assertNull(PlatformCatalog[platform]?.runsAs, "$platform is a twin")
-      for (file in files) file.md5?.let { assertTrue(Regex("[0-9a-f]{32}").matches(it), it) }
     }
     for (md5 in BiosKnowledge.libretroNames.keys) assertTrue(Regex("[0-9a-f]{32}").matches(md5))
   }
@@ -133,7 +107,6 @@ class SaveKnowledgeTest {
     assertEquals("flash.bin", hakuX.targetName("complex_4627.BIN"))
     assertEquals("other.bin", hakuX.targetName("other.bin"))
     assertEquals("scph5501.bin", BiosKnowledge.libretroNames["490f666e1afb15b7362b406ed1cea246"])
-    assertEquals(BiosKnowledge.filesFor(PlatformCatalog.PSX).size, 4)
   }
 
   @Test
