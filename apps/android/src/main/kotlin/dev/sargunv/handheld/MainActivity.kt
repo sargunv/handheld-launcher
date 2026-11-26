@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
         initialSettings = settings,
         saveSettings = settingsFile::write,
         launcher = launcher,
+        apps = InstalledApps(this),
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(

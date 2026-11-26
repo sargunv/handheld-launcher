@@ -216,6 +216,14 @@ DELETE FROM rom_file;
 collections:
 SELECT * FROM collection ORDER BY is_favorite DESC, name COLLATE NOCASE, kind, id;
 
+collectionsOfRom:
+SELECT collection.* FROM collection
+JOIN collection_rom
+  ON collection_rom.collection_kind = collection.kind
+  AND collection_rom.collection_id = collection.id
+WHERE collection_rom.rom_id = ?
+ORDER BY collection.is_favorite DESC, collection.name COLLATE NOCASE, collection.kind, collection.id;
+
 insertCollection:
 INSERT INTO collection VALUES ?;
 

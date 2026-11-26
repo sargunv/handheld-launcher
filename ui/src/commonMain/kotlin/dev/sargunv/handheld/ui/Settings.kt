@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui
 
+import dev.sargunv.handheld.ui.game.LaunchSettings
 import dev.sargunv.handheld.ui.home.HomeSettings
 import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.library.LibrarySettings
@@ -19,4 +20,6 @@ data class Settings(
   val pauseGameWhenUnfocused: Boolean = false,
   val home: HomeSettings = HomeSettings(),
   val library: LibrarySettings = LibrarySettings(),
+  /** The apps the user picked to open games in. */
+  val launch: LaunchSettings = LaunchSettings(),
 )

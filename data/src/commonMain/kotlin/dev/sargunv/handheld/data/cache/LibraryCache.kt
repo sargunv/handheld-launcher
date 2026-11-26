@@ -78,6 +78,11 @@ private constructor(
       transaction { query.awaitAsList().map { it.toDomain() } }
     }
 
+  /** The collections [romId] is in, in the order [collections] lists them. */
+  suspend fun collectionsOf(romId: Long): List<Collection> = transaction {
+    queries.collectionsOfRom(romId).awaitAsList().map { it.toDomain() }
+  }
+
   /** Every ROM in the library, in title order. */
   fun allRoms(): Flow<List<Rom>> =
     queries.allRoms().asFlow().map { query ->

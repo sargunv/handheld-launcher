@@ -25,6 +25,10 @@ data class LaunchRecipe(
   val grantRom: Boolean = false,
   val stopBeforeLaunch: Boolean = false,
 ) {
+  /** Whether the app loads a libretro core, which a launch names. */
+  val loadsCore: Boolean
+    get() = extras.values.any { it is ExtraValue.Text && "{core}" in it.template }
+
   companion object {
     const val OCTET_STREAM = "application/octet-stream"
 

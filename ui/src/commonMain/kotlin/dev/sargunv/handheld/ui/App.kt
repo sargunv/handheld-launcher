@@ -25,6 +25,7 @@ import dev.sargunv.handheld.ui.cover.coverImageLoader
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
+import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -62,6 +63,7 @@ import kotlinx.io.files.Path
  * @param device this device, as it introduces itself to the server when it signs in.
  * @param httpEngine makes the HTTP engine for each of the server's clients.
  * @param launcher plays games, on platforms that can.
+ * @param apps the apps on the device that the player can pick to open games in.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
  */
@@ -79,6 +81,7 @@ fun App(
   saveSettings: suspend (Settings) -> Unit = {},
   httpEngine: () -> HttpClientEngine = ::platformHttpEngine,
   launcher: GameLauncher = GameLauncher.Unsupported,
+  apps: AppCatalog = AppCatalog.None,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
@@ -86,8 +89,8 @@ fun App(
   var signedIn by remember { mutableStateOf<Boolean?>(null) }
   LaunchedEffect(credentials) { signedIn = credentials.load() != null }
   val state =
-    remember(library, downloads, launcher, credentials, httpEngine) {
-      AppState(initialSettings, library, downloads, launcher, credentials, httpEngine)
+    remember(library, downloads, launcher, apps, credentials, httpEngine) {
+      AppState(initialSettings, library, downloads, launcher, apps, credentials, httpEngine)
     }
   LaunchedEffect(state) {
     downloads.statuses().collect { state.deviceStates = deviceStates(it) }
