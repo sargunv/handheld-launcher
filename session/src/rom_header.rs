@@ -80,7 +80,7 @@ fn read(platform: HeaderPlatform, path: &Path) -> Option<Header> {
     let path = data_file(path, 0)?;
     let file = BufReader::new(File::open(&path).ok()?);
     if extension(&path) == "zip" {
-        let entry = ZipEntry::open(file).ok()?;
+        let entry = ZipEntry::open(file, platform).ok()?;
         return rom_headers::identify(platform.into(), entry).ok();
     }
     rom_headers::identify(platform.into(), file).ok()
@@ -165,9 +165,9 @@ fn unquote(s: &str) -> String {
     s.trim().trim_matches('"').to_owned()
 }
 
-/// The largest file in a zip that isn't a known extra, such as a readme,
-/// manual or picture, read and seeked as far as 64 MiB in, which it
-/// decompresses as reads reach it. Its length is the whole file's.
+/// The largest file in a zip that can be a game of the platform (see
+/// [`is_game`]), read and seeked as far as 64 MiB in, which it decompresses as
+/// reads reach it. Its length is the whole file's.
 struct ZipEntry<R> {
     zip: zip::ZipArchive<R>,
     index: usize,
@@ -176,43 +176,46 @@ struct ZipEntry<R> {
     position: u64,
 }
 
-/// Whether a file in a zip is something packed beside the game, not the game.
-/// Not `.md`, which is a Mega Drive ROM as often as a document.
-fn is_extra(name: &str) -> bool {
+/// Whether a file named `name` can be a game of `platform`, by its extension:
+/// what a zip's game is chosen among, so a readme, manual or picture packed
+/// beside it never is.
+fn is_game(platform: HeaderPlatform, name: &str) -> bool {
     let extension = name
         .rsplit_once('.')
         .map_or("", |(_, e)| e)
         .to_ascii_lowercase();
-    matches!(
-        extension.as_str(),
-        "txt"
-            | "nfo"
-            | "diz"
-            | "pdf"
-            | "htm"
-            | "html"
-            | "doc"
-            | "rtf"
-            | "jpg"
-            | "jpeg"
-            | "png"
-            | "gif"
-            | "bmp"
-            | "webp"
-    )
+    let extensions: &[&str] = match platform {
+        HeaderPlatform::Nes => &["nes", "unf", "unif"],
+        HeaderPlatform::Snes => &["sfc", "smc", "swc", "fig", "bs", "st"],
+        HeaderPlatform::N64 => &["z64", "n64", "v64"],
+        HeaderPlatform::GameBoy => &["gb", "gbc", "sgb", "cgb", "dmg"],
+        HeaderPlatform::GameBoyAdvance => &["gba", "agb", "mb"],
+        HeaderPlatform::NintendoDs => &["nds", "dsi", "ids", "srl"],
+        HeaderPlatform::Nintendo3ds => &["3ds", "cci", "zcci", "cxi", "z3ds"],
+        HeaderPlatform::GameCube => &["iso", "gcm", "rvz", "wia", "wbfs", "ciso", "gcz"],
+        HeaderPlatform::MasterSystem => &["sms", "gg", "sg"],
+        HeaderPlatform::MegaDrive => &["md", "gen", "smd", "bin", "32x", "68k", "sgd"],
+        HeaderPlatform::MegaCd | HeaderPlatform::Saturn => &["iso", "bin", "img", "chd"],
+        HeaderPlatform::Dreamcast => &["iso", "bin", "img", "chd", "cdi"],
+        HeaderPlatform::PlayStation => &["iso", "bin", "img", "chd", "pbp"],
+        HeaderPlatform::PlayStation2 => &["iso", "bin", "img", "chd", "cso", "zso"],
+        HeaderPlatform::Psp => &["iso", "cso", "chd", "pbp"],
+        HeaderPlatform::Xbox => &["iso", "xiso", "xbe", "chd"],
+    };
+    extensions.contains(&extension.as_str())
 }
 
 /// How much of a zipped file [`ZipEntry`] decompresses at most.
 const ZIP_LIMIT: u64 = 64 << 20;
 
 impl<R: Read + Seek> ZipEntry<R> {
-    fn open(reader: R) -> zip::result::ZipResult<Self> {
+    fn open(reader: R, platform: HeaderPlatform) -> zip::result::ZipResult<Self> {
         let mut zip = zip::ZipArchive::new(reader)?;
         let mut largest = None;
         for i in 0..zip.len() {
             let file = zip.by_index_raw(i)?;
             if file.is_file()
-                && !file.name().is_ok_and(|name| is_extra(&name))
+                && file.name().is_ok_and(|name| is_game(platform, &name))
                 && largest.is_none_or(|(_, size)| file.size() > size)
             {
                 largest = Some((i, file.size()));
@@ -562,9 +565,11 @@ mod tests {
     }
 
     #[test]
-    fn keeps_mega_drive_roms_among_a_zips_files() {
-        assert!(!is_extra("Sonic.md"));
-        assert!(is_extra("manual.PDF"));
+    fn takes_only_the_platforms_files_from_a_zip() {
+        assert!(is_game(HeaderPlatform::MegaDrive, "Sonic.md"));
+        assert!(is_game(HeaderPlatform::GameBoyAdvance, "GAME.GBA"));
+        assert!(!is_game(HeaderPlatform::GameBoyAdvance, "manual.pdf"));
+        assert!(!is_game(HeaderPlatform::GameBoyAdvance, "Sonic.md"));
     }
 
     #[test]
