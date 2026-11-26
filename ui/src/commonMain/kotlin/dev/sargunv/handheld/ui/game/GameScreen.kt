@@ -552,13 +552,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     }
     allowUploadsReason?.let { reason ->
       val close = { allowUploadsReason = null }
-      val queue by state.downloads.queue.collectAsState()
       AllowUploadsDialog(
         reason,
-        queued = queue.isNotEmpty(),
         onSignInAgain = {
           close()
-          scope.launch { state.signOut(allowUploads = true) }
+          scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
         },
         onDismissRequest = close,
       )

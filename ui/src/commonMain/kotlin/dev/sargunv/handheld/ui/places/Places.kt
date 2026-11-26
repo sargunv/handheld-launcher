@@ -290,19 +290,20 @@ class AppState(
 
   /**
    * Signs out of the server and goes to the sign-in, which offers the same server again. The games
-   * on the device, their saves and the library cache stay, but the downloads not yet done leave the
-   * queue, since they're games of this server. The next sign-in opens on Home. It asks for
-   * permission to upload games when [allowUploads].
+   * on the device, their saves and the library cache stay. The downloads not yet done leave the
+   * queue, since they're games of this server, unless [keepQueue], for signing in again to the same
+   * one; a sign-in to another server drops them then (see [afterSignIn]). The next sign-in opens on
+   * Home. It asks for permission to upload games when [allowUploads].
    *
    * Once begun, it finishes even if the screen that asked goes away.
    */
-  suspend fun signOut(allowUploads: Boolean = false) =
+  suspend fun signOut(allowUploads: Boolean = false, keepQueue: Boolean = false) =
     withContext(NonCancellable) {
       val previous = credentials.load()
       signedOutOf = previous?.baseUrl
       signInAllowsUploads = allowUploads
       // Before the credentials go, so the server hears of the canceled installs it asked for.
-      for (download in downloads.queue.value) downloads.cancel(download.romId)
+      if (!keepQueue) for (download in downloads.queue.value) downloads.cancel(download.romId)
       romm.signOut()
       navigator.backToStart()
       place = Place.Home
@@ -312,6 +313,19 @@ class AppState(
       signOuts++
       signedIn = false
     }
+
+  /**
+   * After a sign-in: the downloads a sign-out kept are another server's games when this one isn't
+   * the server signed out of, so they leave the queue, without telling either server.
+   */
+  suspend fun afterSignIn() {
+    val previous = signedOutOf ?: return
+    // Once, for this sign-in: later syncs don't drop what was queued since.
+    signedOutOf = null
+    val server = credentials.load()?.baseUrl ?: return
+    if (server == previous) return
+    for (download in downloads.queue.value) downloads.cancel(download.romId, report = false)
+  }
 
   /**
    * Shows [target], on top of the places, as if the player had gone there. A game or platform that

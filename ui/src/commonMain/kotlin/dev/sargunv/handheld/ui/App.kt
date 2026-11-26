@@ -181,6 +181,7 @@ fun App(
     }
   LaunchedEffect(signedIn, state, state.syncRequests) {
     if (signedIn != true) return@LaunchedEffect
+    state.afterSignIn()
     state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
     state.sync =
       try {

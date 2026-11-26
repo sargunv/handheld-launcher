@@ -278,9 +278,17 @@ class SettingsTest {
     runBlocking {
       credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.read")))
     }
-    launch(OpenTarget.Settings(SettingsSection.RomM))
+    var downloads: DownloadManager? = null
+    var library: LibraryCache? = null
+    launch(OpenTarget.Settings(SettingsSection.RomM)) { l, d ->
+      library = l
+      downloads = d
+    }
     awaitFocused("settings:RomM")
     awaitText("Not allowed by this sign-in")
+    // A download waiting for the same server's sign-in stays in the queue.
+    waitUntil(timeoutMillis = 5_000) { runBlocking { library!!.rom(1) } != null }
+    runBlocking { downloads!!.enqueue(assertNotNull(library!!.rom(1))) }
     press(Key.DirectionRight)
     focusDownTo("settings:romm:allowUploads")
     // It asks first, as signing out does.
@@ -296,6 +304,7 @@ class SettingsTest {
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $Server")
     onNodeWithTag("allowUploads")
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
+    assertEquals(1, downloads!!.queue.value.size)
   }
 
   @Test

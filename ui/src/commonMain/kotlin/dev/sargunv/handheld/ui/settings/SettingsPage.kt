@@ -233,7 +233,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
                   onSignOut = { confirmSignOut = true },
                   onAllowUploads = { confirmAllowUploads = true },
                   onSignInAgain = {
-                    scope.launch { state.signOut() }
+                    scope.launch { state.signOut(keepQueue = true) }
                   },
                 )
               SettingsSection.RetroAchievements -> retroAchievements(state)
@@ -292,13 +292,11 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
       )
     }
     if (confirmAllowUploads) {
-      val queue by state.downloads.queue.collectAsState()
       AllowUploadsDialog(
         UPLOADS_NOT_REQUESTED,
-        queued = queue.isNotEmpty(),
         onSignInAgain = {
           confirmAllowUploads = false
-          scope.launch { state.signOut(allowUploads = true) }
+          scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
         },
         onDismissRequest = { confirmAllowUploads = false },
       )

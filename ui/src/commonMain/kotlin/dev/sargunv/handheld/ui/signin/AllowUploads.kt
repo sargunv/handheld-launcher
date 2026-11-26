@@ -28,13 +28,10 @@ internal const val UPLOADS_NOT_FOR_ACCOUNT =
  * Offers to sign in again, to the same server, asking for permission to upload games. [reason] says
  * why it's offered, such as RomM's refusal of an upload. Not now has focus first, so one press too
  * many signs nothing out.
- *
- * @param queued whether downloads are waiting, which leave the queue with the sign-out.
  */
 @Composable
 internal fun AllowUploadsDialog(
   reason: String,
-  queued: Boolean,
   onSignInAgain: () -> Unit,
   onDismissRequest: () -> Unit,
 ) {
@@ -52,8 +49,7 @@ internal fun AllowUploadsDialog(
       Text(reason, color = Placeholder.text)
       Text(
         "You approve a new code in RomM on another device. Your games, saves and settings stay " +
-          "on this device" +
-          if (queued) ", but the downloads not yet done leave the queue." else ".",
+          "on this device, and downloads carry on once you're signed in again.",
         color = Placeholder.mutedText,
       )
       Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {

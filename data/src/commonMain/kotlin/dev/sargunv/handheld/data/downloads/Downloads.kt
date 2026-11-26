@@ -365,8 +365,11 @@ class DownloadManager(
     }
   }
 
-  /** Stops a download and takes it out of the queue, deleting what it downloaded. */
-  suspend fun cancel(romId: Long) =
+  /**
+   * Stops a download and takes it out of the queue, deleting what it downloaded. With [report], the
+   * server that asked for the game, if one did, hears that it was canceled.
+   */
+  suspend fun cancel(romId: Long, report: Boolean = true) =
     // Once begun, a cancel finishes even if the screen that asked goes away.
     withContext(NonCancellable) {
       val job = mutex.withLock { running?.takeIf { it.first == romId }?.second }
@@ -375,7 +378,7 @@ class DownloadManager(
       val download = entries.value.find { it.romId == romId } ?: return@withContext
       withContext(Dispatchers.IO) { download.path?.let { deleteRecursively(Path("$it.part")) } }
       edit { list -> list.filterNot { it.romId == romId } }
-      report(download, RommInstallStatus.Cancelled)
+      if (report) report(download, RommInstallStatus.Cancelled)
     }
 
   /** Whether [rom] is on the device, or how far its download has got. */
