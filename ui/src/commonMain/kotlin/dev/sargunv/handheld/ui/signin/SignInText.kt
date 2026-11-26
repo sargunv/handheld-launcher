@@ -19,6 +19,18 @@ internal fun serverUrl(input: String): String? {
   return withScheme
 }
 
+/**
+ * A note for a server [url] that isn't encrypted, or null when it is. Plain HTTP is allowed, for a
+ * server on a private network or a tailnet, but the user should know what it means.
+ */
+internal fun unencryptedNote(url: String?): String? =
+  if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
+    "This server isn't encrypted. Your sign-in will be sent in the clear, so use it only on a " +
+      "network you trust."
+  } else {
+    null
+  }
+
 internal enum class SignInMethod {
   Code,
   Token,

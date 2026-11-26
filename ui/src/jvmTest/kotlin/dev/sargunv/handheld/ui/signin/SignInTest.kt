@@ -10,11 +10,14 @@ import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.CredentialStore
@@ -85,6 +88,31 @@ class SignInTest {
     assertEquals("https://example.com/romm", serverUrl("https://example.com/romm"))
     assertNull(serverUrl(""))
     assertNull(serverUrl("ftp://romm.example.com"))
+  }
+
+  @Test
+  fun notesAnUnencryptedServer() {
+    assertEquals(
+      "This server isn't encrypted. Your sign-in will be sent in the clear, so use it only on a " +
+        "network you trust.",
+      unencryptedNote(serverUrl("http://192.168.1.5:8080")),
+    )
+    assertNull(unencryptedNote(serverUrl("romm.example.com")))
+    assertNull(unencryptedNote(serverUrl("https://romm.example.com")))
+    assertNull(unencryptedNote(null))
+  }
+
+  @Test
+  fun notesAnUnencryptedAddressAsItsTyped() = runComposeUiTest {
+    launch(InMemoryCredentialStore())
+    onRoot().performKeyInput { pressKey(Key.ButtonA) }
+    waitForIdle()
+    onNode(hasSetTextAction()).performTextInput("romm.example.com")
+    waitForIdle()
+    onNodeWithText("This server isn't encrypted", substring = true).assertDoesNotExist()
+    onNode(hasSetTextAction()).performTextReplacement("http://192.168.1.5:8080")
+    waitForIdle()
+    onNodeWithText("This server isn't encrypted", substring = true).assertExists()
   }
 
   @Test

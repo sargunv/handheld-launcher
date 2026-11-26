@@ -144,6 +144,7 @@ private fun AddressScreen(state: SignInState) {
         ),
       onSubmit = { next(SignInScreen::Code) },
     )
+    UnencryptedNote(serverUrl(state.address.text.toString()))
     error?.let { Text(it, color = Placeholder.text, modifier = Modifier.announced()) }
     SignInButton(
       state,
@@ -264,6 +265,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       "Create a client API token in RomM on another device, then paste or type it here.",
       color = Placeholder.mutedText,
     )
+    UnencryptedNote(baseUrl)
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
       TextEntry(
         state = state,
@@ -309,6 +311,12 @@ private val TokenHelp =
     "Use an API token",
     "Sign in with a client API token that you create in RomM, instead of approving a code.",
   )
+
+/** Says that the server at [url] isn't encrypted, when it isn't. */
+@Composable
+private fun UnencryptedNote(url: String?) {
+  unencryptedNote(url)?.let { Text(it, color = Placeholder.mutedText) }
+}
 
 @Composable
 private fun ScreenColumn(content: @Composable () -> Unit) {
