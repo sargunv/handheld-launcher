@@ -255,12 +255,14 @@ class DownloadManager(
    * Deletes the downloads left staged with nothing to resume them, such as when the app's data was
    * cleared during a download: each `<name>.part` in a platform's folder on a storage target whose
    * name, less the suffix, is that of a game of the library in that folder, and that no download in
-   * the queue may resume. Nothing else is touched, so other apps' files stay.
+   * the queue may resume. Nothing else is touched, so other apps' files stay. It waits for the
+   * library to have games.
    */
   private suspend fun sweepStaging() {
     canWrite.first { it }
+    // With app data cleared, the library is empty until the first sync fills it.
+    val roms = library.allRoms().first { it.isNotEmpty() }
     val platforms = library.platforms().first()
-    val roms = library.allRoms().first()
     val folders = platforms.associate { it.id to it.fsSlug }
     fun nameOf(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
     // The queue changes only under the lock, so no download starts meanwhile.

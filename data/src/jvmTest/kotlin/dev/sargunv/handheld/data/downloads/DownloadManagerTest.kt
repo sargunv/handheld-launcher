@@ -579,7 +579,6 @@ class DownloadManagerTest {
   @Test
   fun deletesStagedDownloadsNothingResumesOfTheLibrarysGamesOnly() = runTest {
     fillLibrary()
-    library.upsertRoms(listOf(gameRom, sagaRom))
     val orphan =
       file("ROMs/gba/Game (USA).gba.part").apply {
         parentFile.mkdirs()
@@ -601,7 +600,10 @@ class DownloadManagerTest {
           it.parentFile.mkdirs()
           it.writeBytes(disc1)
         }
+    // The app starts with its data cleared: the library fills only with the first sync.
     val downloads = manager(backgroundScope, server())
+    waitFor { delay(200) }
+    library.upsertRoms(listOf(gameRom, sagaRom))
     waitFor { downloads.sweep.join() }
 
     assertFalse(orphan.exists())

@@ -46,10 +46,8 @@ class BuiltInSaveFolders(
       // An empty folder, such as one a launch canceled at the save choice left, holds no saves.
       own.deleteRecursively()
       own.parentFile?.mkdirs()
-      if (!local.renameTo(own)) {
-        local.copyRecursively(own)
-        local.deleteRecursively()
-      }
+      // Both are in the app's files, so the move is one step, or nothing moves.
+      if (!local.renameTo(own)) throw IOException("Couldn't move $local to $own")
     } else {
       val now = clock.now()
       for (file in files) {
