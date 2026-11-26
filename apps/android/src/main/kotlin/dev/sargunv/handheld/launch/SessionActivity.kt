@@ -380,9 +380,8 @@ class SessionActivity : ComponentActivity() {
     )
   }
 
-  private fun options(achievements: AchievementOptions?): SessionOptions {
-    val intent = intent
-    return SessionOptions(
+  private fun options(achievements: AchievementOptions?) =
+    SessionOptions(
       corePath = intent.getStringExtra(EXTRA_CORE)!!,
       contentPath = intent.getStringExtra(EXTRA_CONTENT),
       // A zipped game whose core can't open zips is extracted here.
@@ -396,7 +395,6 @@ class SessionActivity : ComponentActivity() {
         intent.getFloatExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, 0f).takeIf { twoScreens && it > 0f },
       achievements = achievements,
     )
-  }
 
   /** The core options that draw a two-screen system's screens stacked, or none for one screen. */
   private fun stackedScreensOptions(): Map<String, String> {

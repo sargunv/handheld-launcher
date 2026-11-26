@@ -171,8 +171,7 @@ class AndroidGameLauncher(
         is LaunchBuild.Ready -> build.command
       }
     val save = lookUpSave(request, target, note)
-    val canClose = closeEmulators && emulators.canClose
-    val probe = emulators.probe(useRoot = canClose)
+    val probe = emulators.probe(useRoot = closeEmulators)
     if (save != null) {
       val name = appName(target)
       val synced =
@@ -182,7 +181,7 @@ class AndroidGameLauncher(
           chooseSave,
           note,
           emulator = emulators.state(packageName, probe),
-          canClose = canClose,
+          canClose = closeEmulators,
           askStillRunning = { offerClose ->
             askStillRunning(StillRunning(request.title, name, offerClose))
           },
@@ -200,7 +199,7 @@ class AndroidGameLauncher(
       PlaySession(
         request.title,
         sync = { syncNow(save, target) },
-        quit = if (canClose) ({ quit = true }) else null,
+        quit = if (closeEmulators) ({ quit = true }) else null,
       ),
     )
     // Noted before the launch, so an emulator that starts counts as running even if the launcher
