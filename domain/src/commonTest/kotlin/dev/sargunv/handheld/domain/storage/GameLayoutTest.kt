@@ -73,5 +73,10 @@ class GameLayoutTest {
     assertEquals("a.bin", GameLayout.launchFile(listOf("readme.txt", "a.bin")))
     assertEquals("data.pkg", GameLayout.launchFile(listOf("data.pkg", "manual.pdf")))
     assertNull(GameLayout.launchFile(emptyList()))
+    // Discs in subfolders keep their paths.
+    assertEquals(
+      "Disc 1/game.iso",
+      GameLayout.launchFile(listOf("Disc 2/game.iso", "Disc 1/game.iso")),
+    )
   }
 }

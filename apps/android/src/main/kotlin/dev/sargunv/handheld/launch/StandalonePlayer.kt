@@ -366,11 +366,11 @@ class StandalonePlayer(
 
 /**
  * The file to launch for a game at [path]: the path itself for a file, or for a folder, the file an
- * emulator opens among those in it. Null for an empty folder.
+ * emulator opens among those in it and its subfolders. Null for an empty folder.
  */
 private fun launchFile(path: String): String? {
   val folder = File(path)
   if (!folder.isDirectory) return path
-  val files = folder.listFiles().orEmpty().filter { it.isFile }.map { it.name }
+  val files = folder.walkTopDown().filter { it.isFile }.map { it.relativeTo(folder).path }.toList()
   return GameLayout.launchFile(files)?.let { File(folder, it).path }
 }
