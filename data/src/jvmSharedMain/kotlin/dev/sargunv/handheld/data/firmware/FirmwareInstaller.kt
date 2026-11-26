@@ -12,7 +12,14 @@ import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 
@@ -44,8 +51,15 @@ sealed interface FirmwareInstall {
  * Puts a platform's firmware from a RomM server where an emulator reads it. Files download to
  * [staging] first and are checked against the hashes RomM lists. A file already at the target is
  * never replaced, even when it differs from the server's: the emulator may depend on it.
+ *
+ * A download fails when no data arrives for [stallTimeout], so a stalled server can't hold up the
+ * launch that's waiting on it. What arrived stays in [staging], and the next install resumes it.
  */
-class FirmwareInstaller(private val client: RommClient, private val staging: File) {
+class FirmwareInstaller(
+  private val client: RommClient,
+  private val staging: File,
+  private val stallTimeout: Duration = 30.seconds,
+) {
   /**
    * Places the firmware the server has for [platform] in the first of [folders] the launcher can
    * write to, named as [location] says. A folder that doesn't exist yet is created.
@@ -102,9 +116,10 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
   /** Downloads [file] and writes it to [target], unless a file appears there first. */
   private suspend fun place(file: RommFirmware, target: File): Boolean {
     staging.mkdirs()
-    val staged = Files.createTempFile(staging.toPath(), "${file.id}-", ".part").toFile()
+    // The name stays the same from one install to the next, so a broken download resumes.
+    val staged = File(staging, "${file.id}.part")
+    download(file, staged)
     try {
-      client.downloadFirmware(file.id, file.fileName, Path(staged.path))
       mismatchedHash(staged, file)?.let {
         throw IOException("The download doesn't match the server's $it hash")
       }
@@ -127,6 +142,25 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
     } finally {
       staged.delete()
     }
+  }
+
+  /**
+   * Downloads [file] to [staged], resuming from what [staged] already holds, and fails when no data
+   * arrives for [stallTimeout].
+   */
+  private suspend fun download(file: RommFirmware, staged: File) = coroutineScope {
+    val lastProgress = AtomicReference(TimeSource.Monotonic.markNow())
+    val watchdog = launch {
+      while (true) {
+        val idle = lastProgress.get().elapsedNow()
+        if (idle >= stallTimeout) throw IOException("No data arrived for $stallTimeout")
+        delay(stallTimeout - idle)
+      }
+    }
+    client.downloadFirmware(file.id, file.fileName, Path(staged.path)) {
+      lastProgress.set(TimeSource.Monotonic.markNow())
+    }
+    watchdog.cancel()
   }
 
   /** The name of the first hash RomM lists for [file] that [staged] doesn't match, if any. */

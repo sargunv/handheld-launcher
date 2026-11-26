@@ -8,11 +8,16 @@ import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.saves.BiosKnowledge
 import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.writeFully
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
+import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -21,6 +26,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.test.runTest
 
 class FirmwareInstallerTest {
@@ -41,10 +47,16 @@ class FirmwareInstallerTest {
     val md5: String?,
   )
 
+  /** While set, a firmware download sends this many bytes and then stalls. */
+  private var stallAfter: Int? = null
+
   private fun md5(bytes: ByteArray) =
     MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }
 
-  /** A server with PlayStation (id 51) and Dreamcast (id 54) platforms, serving [files]. */
+  /**
+   * A server with PlayStation (id 51) and Dreamcast (id 54) platforms, serving [files] and honoring
+   * ranges.
+   */
   private fun server(vararg files: ServedFile) = MockServer { request ->
     val path = request.apiPath
     when {
@@ -71,7 +83,29 @@ class FirmwareInstallerTest {
       }
       path.startsWith("firmware/") -> {
         val file = files.first { path == "firmware/${it.id}/content/${it.name}" }
-        respond(ByteReadChannel(file.bytes), HttpStatusCode.OK)
+        val start =
+          request.headers[HttpHeaders.Range]?.removePrefix("bytes=")?.removeSuffix("-")?.toInt()
+        val rest = file.bytes.copyOfRange(start ?: 0, file.bytes.size)
+        val stall = stallAfter?.takeIf { it < rest.size }
+        val body =
+          if (stall == null) ByteReadChannel(rest)
+          else
+            ByteChannel().apply {
+              writeFully(rest, 0, stall)
+              flush()
+            }
+        if (start == null) {
+          respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentLength, "${rest.size}"))
+        } else {
+          respond(
+            body,
+            HttpStatusCode.PartialContent,
+            headersOf(
+              HttpHeaders.ContentRange,
+              "bytes $start-${file.bytes.size - 1}/${file.bytes.size}",
+            ),
+          )
+        }
       }
       else -> error("Unexpected request to $path")
     }
@@ -131,6 +165,38 @@ class FirmwareInstallerTest {
     assertEquals(setOf("scph5501.bin"), done.failed.keys)
     assertFalse(File(folder, "scph5501.bin").exists())
     assertTrue(staging.list().orEmpty().isEmpty())
+  }
+
+  @Test
+  fun aStalledDownloadFailsAndResumesNextTime() = runTest {
+    val big = Random(42).nextBytes(200_000)
+    val server =
+      server(
+        ServedFile(1, 51, "scph5501.bin", big, md5(big)),
+        ServedFile(2, 51, "scph1001.bin", bios, md5(bios)),
+      )
+    val installer = FirmwareInstaller(server.client, staging, stallTimeout = 300.milliseconds)
+
+    stallAfter = 100_000
+    val stalled = installer.install(PlatformCatalog.PSX, duckStation, listOf(folder.path))
+    val done = assertIs<FirmwareInstall.Done>(stalled)
+    assertEquals(setOf("scph5501.bin"), done.failed.keys)
+    assertEquals(listOf("scph1001.bin"), done.placed, "The stalled file doesn't hold up the rest")
+    assertFalse(File(folder, "scph5501.bin").exists())
+    val kept = staging.listFiles()!!.single().length()
+    assertTrue(kept in 1..<big.size, "What arrived is kept")
+
+    stallAfter = null
+    assertEquals(
+      FirmwareInstall.Done(folder.path, listOf("scph5501.bin"), listOf("scph1001.bin"), emptyMap()),
+      installer.install(PlatformCatalog.PSX, duckStation, listOf(folder.path)),
+    )
+    assertContentEquals(big, File(folder, "scph5501.bin").readBytes())
+    assertEquals(
+      "bytes=$kept-",
+      server.requests.last { it.apiPath.endsWith("/scph5501.bin") }.headers[HttpHeaders.Range],
+    )
+    assertTrue(staging.list().orEmpty().isEmpty(), "The staged download is cleaned up")
   }
 
   @Test
