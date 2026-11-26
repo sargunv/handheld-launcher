@@ -1,4 +1,8 @@
-// The save areas follow argosy-sigil's layouts (https://github.com/rommapp/argosy-sigil, MPL-2.0,
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. If a copy of
+// the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// The save areas are ported from argosy-sigil's layouts (https://github.com/rommapp/argosy-sigil,
+// MPL-2.0,
 // src/save_layout.c), so a save moves between Argosy and the launcher in the same zip.
 
 package dev.sargunv.handheld.domain.saves
