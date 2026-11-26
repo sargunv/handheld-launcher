@@ -18,6 +18,7 @@ import dev.sargunv.handheld.ui.demo.DemoLibrary
 import dev.sargunv.handheld.ui.demo.DemoPrimary
 import dev.sargunv.handheld.ui.demo.DemoSecondary
 import dev.sargunv.handheld.ui.demo.DemoState
+import dev.sargunv.handheld.ui.demo.tileKey
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
@@ -27,7 +28,6 @@ import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.input.trackHeldKeys
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -36,8 +36,7 @@ class FocusNavigationTest {
   private val shelfB = DemoLibrary.shelves[1]
   private val shelfC = DemoLibrary.shelves[2]
 
-  private fun tile(shelf: Int, index: Int) =
-    "game:${DemoLibrary.shelves[shelf].games[index].rommId}"
+  private fun tile(shelf: Int, index: Int) = tileKey(DemoLibrary.shelves[shelf].tiles[index])
 
   /** Presses each key in turn, letting the UI settle after each. */
   private fun ComposeUiTest.press(keys: List<Key>) {
@@ -92,8 +91,8 @@ class FocusNavigationTest {
     press(Key.DirectionLeft)
     assertFocused(tile(0, 0))
     press(Key.DirectionDown)
-    repeat(shelfB.games.size + 2) { press(Key.DirectionRight) }
-    assertFocused(tile(1, shelfB.games.lastIndex))
+    repeat(shelfB.tiles.size + 2) { press(Key.DirectionRight) }
+    assertFocused(tile(1, shelfB.tiles.lastIndex))
   }
 
   @Test
@@ -113,9 +112,9 @@ class FocusNavigationTest {
   fun longShelfScrollsToKeepFocusInView() = runComposeUiTest {
     launch()
     press(listOf(Key.DirectionDown, Key.DirectionDown))
-    repeat(shelfC.games.lastIndex) { press(Key.DirectionRight) }
-    assertFocused(tile(2, shelfC.games.lastIndex))
-    onNodeWithTag(tile(2, shelfC.games.lastIndex)).assertIsDisplayed()
+    repeat(shelfC.tiles.lastIndex) { press(Key.DirectionRight) }
+    assertFocused(tile(2, shelfC.tiles.lastIndex))
+    onNodeWithTag(tile(2, shelfC.tiles.lastIndex)).assertIsDisplayed()
   }
 
   @Test
@@ -160,7 +159,7 @@ class FocusNavigationTest {
     }
     waitForIdle()
     val focusedTile =
-      shelfA.games.indices.single { index ->
+      shelfA.tiles.indices.single { index ->
         onAllNodes(hasTestTag(tile(0, index)) and isFocused()).fetchSemanticsNodes().isNotEmpty()
       }
     assertTrue(focusedTile > 1, "held right moved $focusedTile tiles")
@@ -207,42 +206,12 @@ class FocusNavigationTest {
   }
 
   @Test
-  fun confirmOnBSwapsConfirmAndBack() = runComposeUiTest {
-    launch()
-    press(Key.ButtonA)
-    press(listOf(Key.DirectionRight, Key.DirectionRight))
-    assertFocused("confirm")
-    // A confirms, so it swaps the setting to B.
-    press(Key.ButtonA)
-    // Now B confirms, and swaps it back to A.
-    press(Key.ButtonB)
-    assertFocused("confirm")
-    // So B goes back again.
-    press(Key.ButtonB)
-    assertFocused(tile(0, 0))
-  }
-
-  @Test
   fun bConfirmOpensWithBAndGoesBackWithA() = runComposeUiTest {
-    launch()
-    press(listOf(Key.ButtonA, Key.DirectionRight, Key.DirectionRight, Key.ButtonA))
-    press(Key.ButtonA)
-    assertFocused(tile(0, 0))
+    launch(state = DemoState(InputSettings(ConfirmButton.B)))
     press(listOf(Key.DirectionRight, Key.ButtonB))
     assertFocused("play")
     press(Key.ButtonA)
     assertFocused(tile(0, 1))
-  }
-
-  @Test
-  fun startsWithTheGivenSettings() = runComposeUiTest {
-    val state = DemoState(Settings(InputSettings(ConfirmButton.B)))
-    launch(state = state)
-    // B confirms from the first press.
-    press(listOf(Key.ButtonB, Key.DirectionRight, Key.DirectionRight))
-    assertFocused("confirm")
-    press(Key.ButtonB)
-    assertEquals(Settings(InputSettings(ConfirmButton.A)), state.settings)
   }
 
   @Test
@@ -263,8 +232,8 @@ class FocusNavigationTest {
     launch()
     press(Key.ButtonA)
     assertFocused("play")
-    // The detail screen's buttons have no menu, search or quick menu. Tab would otherwise move
-    // focus to the next button.
+    // The detail screen's buttons have no menu, and nothing handles the main menu or Select. Tab
+    // would otherwise move focus to the next button.
     press(listOf(Key.Tab, Key.ButtonX, Key.ButtonY, Key.ButtonStart, Key.ButtonSelect))
     assertFocused("play")
   }
