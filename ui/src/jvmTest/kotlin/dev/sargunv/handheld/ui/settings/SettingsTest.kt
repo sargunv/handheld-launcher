@@ -168,7 +168,9 @@ class SettingsTest {
     assertNotNull(runBlocking { credentials.load() })
 
     press(listOf(Key.ButtonA, Key.DirectionUp, Key.ButtonA))
-    awaitTag("address")
+    // The sign-in itself, not the request for Settings shown again over it.
+    awaitFocused("address")
+    onNodeWithTag("settings:Controls").assertDoesNotExist()
     assertNull(runBlocking { credentials.load() })
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $Server")
   }

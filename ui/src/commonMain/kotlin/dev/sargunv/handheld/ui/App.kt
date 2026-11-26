@@ -199,13 +199,20 @@ fun App(
       delay(1.minutes)
     }
   }
+  // Each request shows once, so a sign-in or sign-out after it doesn't show it again.
+  var shownRequest by remember { mutableStateOf<OpenRequest?>(null) }
   LaunchedEffect(openRequest, signedIn, state) {
-    val target = openRequest?.target ?: return@LaunchedEffect
+    if (openRequest == null || openRequest === shownRequest) return@LaunchedEffect
+    val target = openRequest.target
     when (signedIn) {
-      true -> state.open(target)
-      // Before sign-in, only Settings can show.
+      true -> {
+        shownRequest = openRequest
+        state.open(target)
+      }
+      // Before sign-in, only Settings can show; anything else waits for the sign-in.
       false ->
         if (target is OpenTarget.Settings) {
+          shownRequest = openRequest
           state.settingsOverSignIn = true
           target.section?.let(state.settingsView::jumpTo)
         }
