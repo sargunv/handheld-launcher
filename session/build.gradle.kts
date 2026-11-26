@@ -113,7 +113,6 @@ val jnaPlatform: String = run {
   when {
     os.startsWith("linux") -> "linux-$arch"
     os.startsWith("mac") -> "darwin-$arch"
-    os.startsWith("windows") -> "win32-$arch"
     else -> error("unsupported host OS: $os")
   }
 }
@@ -178,11 +177,8 @@ val cargoBuildAndroid =
     val minSdk = libs.versions.android.minSdk.get()
     val ndk = androidComponents.sdkComponents.sdkDirectory.map { it.dir("ndk/$ndkVersion") }
     val hostTag =
-      when {
-        System.getProperty("os.name").lowercase().startsWith("mac") -> "darwin-x86_64"
-        System.getProperty("os.name").lowercase().startsWith("windows") -> "windows-x86_64"
-        else -> "linux-x86_64"
-      }
+      if (System.getProperty("os.name").lowercase().startsWith("mac")) "darwin-x86_64"
+      else "linux-x86_64"
     sources.from(rustSources)
     workspace = workspaceDir
     targets = androidAbis

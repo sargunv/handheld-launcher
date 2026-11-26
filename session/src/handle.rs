@@ -112,8 +112,6 @@ pub struct SessionInfo {
     pub base_height: u32,
     /// The intended display aspect ratio, or 0 for the frame's own.
     pub aspect_ratio: f32,
-    /// Whether the core renders with OpenGL or Vulkan.
-    pub hardware_rendered: bool,
 }
 
 impl SessionInfo {
@@ -241,7 +239,6 @@ enum Command {
     Resume,
     FastForward(u32),
     Advance(u32, Reply<()>),
-    Reset,
     SaveState(PathBuf, Reply<()>),
     LoadState(PathBuf, Reply<()>),
     CaptureFrame(Reply<Option<CapturedFrame>>),
@@ -415,11 +412,6 @@ impl GameSession {
     /// paused. For stepping a frame at a time, and for tests.
     pub fn advance(&self, frames: u32) -> Result<(), SessionError> {
         self.request(|reply| Command::Advance(frames, reply))
-    }
-
-    /// Resets the core, like a console's reset button.
-    pub fn reset(&self) {
-        let _ = self.commands.send(Command::Reset);
     }
 
     /// Presses or releases `button` on controller `port`. Ports past the last
@@ -612,7 +604,6 @@ fn run(
         base_width: av.base_width,
         base_height: av.base_height,
         aspect_ratio: av.aspect_ratio,
-        hardware_rendered: session.is_hardware_rendered(),
     };
     session.set_audio_paused(true);
     let vsync = presents_to_window.then(vsync_clock).flatten();
@@ -970,7 +961,6 @@ impl Runner {
                 }
                 let _ = reply.send(Ok(()));
             }
-            Command::Reset => self.session.reset(),
             Command::SaveState(path, reply) => {
                 let _ = reply.send(self.session.save_state(&path));
             }
@@ -1118,10 +1108,10 @@ mod tests {
             next(&receiver, false, later, None),
             Next::Command(Command::Resume)
         ));
-        commands.send(Command::Reset).unwrap();
+        commands.send(Command::Resume).unwrap();
         assert!(matches!(
             next(&receiver, true, Instant::now(), None),
-            Next::Command(Command::Reset)
+            Next::Command(Command::Resume)
         ));
     }
 

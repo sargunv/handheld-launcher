@@ -3,7 +3,7 @@ package dev.sargunv.handheld.launch
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
-import dev.sargunv.handheld.session.HeaderPlatform
+import dev.sargunv.handheld.session.Platform
 import dev.sargunv.handheld.session.romHeaderFields
 import dev.sargunv.handheld.ui.game.RomHeaderField
 import dev.sargunv.handheld.ui.game.RomHeaders
@@ -24,29 +24,29 @@ object SessionRomHeaders : RomHeaders {
   }
 
   /** The header the games of [slug] carry, or null when the session reads none for it. */
-  internal fun headerPlatform(slug: PlatformSlug): HeaderPlatform? =
+  internal fun headerPlatform(slug: PlatformSlug): Platform? =
     when (PlatformCatalog.emulatedAs(slug)) {
-      PlatformCatalog.NES -> HeaderPlatform.NES
-      PlatformCatalog.SNES -> HeaderPlatform.SNES
-      PlatformCatalog.N64 -> HeaderPlatform.N64
+      PlatformCatalog.NES -> Platform.NES
+      PlatformCatalog.SNES -> Platform.SNES
+      PlatformCatalog.N64 -> Platform.N64
       PlatformCatalog.GB,
-      PlatformCatalog.GBC -> HeaderPlatform.GAME_BOY
-      PlatformCatalog.GBA -> HeaderPlatform.GAME_BOY_ADVANCE
-      PlatformCatalog.NDS -> HeaderPlatform.NINTENDO_DS
-      PlatformCatalog.N3DS -> HeaderPlatform.NINTENDO3DS
+      PlatformCatalog.GBC -> Platform.GAME_BOY
+      PlatformCatalog.GBA -> Platform.GAME_BOY_ADVANCE
+      PlatformCatalog.NDS -> Platform.NINTENDO_DS
+      PlatformCatalog.N3DS -> Platform.NINTENDO3DS
       PlatformCatalog.GAMECUBE,
-      PlatformCatalog.WII -> HeaderPlatform.GAME_CUBE
+      PlatformCatalog.WII -> Platform.GAME_CUBE
       PlatformCatalog.MASTER_SYSTEM,
-      PlatformCatalog.GAME_GEAR -> HeaderPlatform.MASTER_SYSTEM
+      PlatformCatalog.GAME_GEAR -> Platform.MASTER_SYSTEM
       PlatformCatalog.GENESIS,
-      PlatformCatalog.SEGA_32X -> HeaderPlatform.MEGA_DRIVE
-      PlatformCatalog.SEGA_CD -> HeaderPlatform.MEGA_CD
-      PlatformCatalog.SATURN -> HeaderPlatform.SATURN
-      PlatformCatalog.DREAMCAST -> HeaderPlatform.DREAMCAST
-      PlatformCatalog.PSX -> HeaderPlatform.PLAY_STATION
-      PlatformCatalog.PS2 -> HeaderPlatform.PLAY_STATION2
-      PlatformCatalog.PSP -> HeaderPlatform.PSP
-      PlatformCatalog.XBOX -> HeaderPlatform.XBOX
+      PlatformCatalog.SEGA_32X -> Platform.MEGA_DRIVE
+      PlatformCatalog.SEGA_CD -> Platform.MEGA_CD
+      PlatformCatalog.SATURN -> Platform.SATURN
+      PlatformCatalog.DREAMCAST -> Platform.DREAMCAST
+      PlatformCatalog.PSX -> Platform.PLAY_STATION
+      PlatformCatalog.PS2 -> Platform.PLAY_STATION2
+      PlatformCatalog.PSP -> Platform.PSP
+      PlatformCatalog.XBOX -> Platform.XBOX
       else -> null
     }
 }

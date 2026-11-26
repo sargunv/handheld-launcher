@@ -58,8 +58,6 @@ pub struct Achievement {
     /// How far the player has got, such as `3/10`, for an achievement that
     /// measures it, while it's locked.
     pub progress: Option<String>,
-    /// The same progress from 0 to 100, or 0 for none.
-    pub progress_percent: f32,
 }
 
 /// Where the running game's achievements stand.
@@ -352,12 +350,6 @@ impl Achievements {
             // SAFETY: as in `do_frame`.
             unsafe { ffi::rc_client_idle(self.client.as_ptr()) };
         }
-    }
-
-    /// Tells the client the core reset, so achievements start over.
-    pub(crate) fn reset(&self) {
-        // SAFETY: as in `do_frame`.
-        unsafe { ffi::rc_client_reset(self.client.as_ptr()) };
     }
 
     /// Tells the client the core's memory jumped to a state, so progress
@@ -665,11 +657,6 @@ unsafe fn convert(achievement: &ffi::rc_client_achievement_t) -> Achievement {
         points: achievement.points,
         unlocked,
         progress: (!unlocked && !progress.is_empty()).then_some(progress),
-        progress_percent: if unlocked {
-            0.0
-        } else {
-            achievement.measured_percent
-        },
     }
 }
 
