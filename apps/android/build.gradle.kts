@@ -138,6 +138,7 @@ val sessionLicences =
       root.file("Cargo.toml"),
       root.file("Cargo.lock"),
       root.file("session/Cargo.toml"),
+      root.file("rom-headers/Cargo.toml"),
       root.file("session/about.toml"),
       // It pins cargo-about.
       root.file("mise.toml"),

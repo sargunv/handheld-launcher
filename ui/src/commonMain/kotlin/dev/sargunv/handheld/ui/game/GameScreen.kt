@@ -443,7 +443,7 @@ private sealed interface SaveHistoryState {
 
 /**
  * The lower screen for a game: its saves on RomM across devices, the copies save sync kept on this
- * device, and where it opens.
+ * device, what the copy on this device says about itself in its header, and where it opens.
  */
 @Composable
 internal fun GameSecondary(state: AppState, screen: Screen.Game) {
@@ -467,6 +467,13 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
   val achievements by
     produceState<RommAchievementProgress?>(null, current) {
       value = loadAchievementProgress(state, current.id)
+    }
+  val status by remember(current) { state.downloads.status(current) }.collectAsState(null)
+  val path = (status as? RomStatus.OnDevice)?.path
+  // A header that can't be read shows nothing.
+  val header by
+    produceState(emptyList<RomHeaderField>(), current, path) {
+      value = path?.let { state.romHeaders.read(current, it) }.orEmpty()
     }
   val now = remember(history) { Clock.System.now() }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -519,8 +526,29 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
           SaveRow(from, listOf(save.emulator, ago(save.keptAt, now), size(save.sizeBytes)))
         }
       }
+      if (header.isNotEmpty()) {
+        Spacer(Modifier.size(8.dp))
+        ThisCopy(header)
+      }
     }
     opensIn?.let { Text(it, color = Placeholder.mutedText) }
+  }
+}
+
+/** What the copy of the game on this device says about itself in its header. */
+@Composable
+private fun ThisCopy(header: List<RomHeaderField>) {
+  Column(
+    Modifier.testTag("game:header").semantics(mergeDescendants = true) {},
+    verticalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    Text(
+      "This copy",
+      color = Placeholder.text,
+      fontWeight = FontWeight.SemiBold,
+      modifier = Modifier.semantics { heading() },
+    )
+    Text(header.joinToString(" · ") { "${it.label} ${it.value}" }, color = Placeholder.mutedText)
   }
 }
 

@@ -51,6 +51,7 @@ import dev.sargunv.handheld.ui.focus.LocalFocusScopes
 import dev.sargunv.handheld.ui.focus.isDialogOpen
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
+import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -99,6 +100,7 @@ import kotlinx.io.files.Path
  * @param retroAchievements the device's RetroAchievements account, on platforms whose games can
  *   earn achievements.
  * @param apps the apps on the device that the player can pick to open games in.
+ * @param romHeaders reads what a game's file says about itself, for the Game screen.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
  * @param openRequest a screen to show once signed in, for development tools. Before sign-in, only
@@ -123,6 +125,7 @@ fun App(
   launcher: GameLauncher = GameLauncher.Unsupported,
   retroAchievements: RetroAchievementsSignIn? = null,
   apps: AppCatalog = AppCatalog.None,
+  romHeaders: RomHeaders = RomHeaders.None,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
   openRequest: OpenRequest? = null,
   homePress: HomePress? = null,
@@ -139,6 +142,7 @@ fun App(
       httpEngine,
       retroAchievements,
       appInfo,
+      romHeaders,
     ) {
       AppState(
         initialSettings,
@@ -150,6 +154,7 @@ fun App(
         httpEngine,
         retroAchievements?.let(::RetroAchievementsState),
         appInfo,
+        romHeaders,
       )
     }
   LaunchedEffect(state) { state.signedIn = credentials.load() != null }

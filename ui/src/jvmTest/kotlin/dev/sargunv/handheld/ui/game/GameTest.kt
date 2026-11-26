@@ -142,8 +142,9 @@ class GameTest {
   private fun ComposeUiTest.openGame(
     launcher: GameLauncher,
     apps: AppCatalog = AppCatalog.None,
+    romHeaders: RomHeaders = RomHeaders.None,
   ) {
-    launchHome(launcher, apps)
+    launchHome(launcher, apps, romHeaders)
     press(Key.ButtonX)
     onNodeWithTag("menu:game").assertIsFocused()
     press(Key.ButtonA)
@@ -154,6 +155,7 @@ class GameTest {
   private fun ComposeUiTest.launchHome(
     launcher: GameLauncher,
     apps: AppCatalog = AppCatalog.None,
+    romHeaders: RomHeaders = RomHeaders.None,
   ) {
     gameFile.parentFile.mkdirs()
     gameFile.writeText("game")
@@ -179,6 +181,7 @@ class GameTest {
         httpEngine = server,
         launcher = launcher,
         apps = apps,
+        romHeaders = romHeaders,
       )
     }
     awaitTag("continue:1")
@@ -457,6 +460,20 @@ class GameTest {
     onNodeWithText("mgba · 1 day ago · 8 KB", substring = true).assertExists()
     onNodeWithText("This device's copy").assertExists()
     onNodeWithText("Opens in Test Emulator").assertExists()
+    onNodeWithTag("game:header").assertDoesNotExist()
+  }
+
+  @Test
+  fun theLowerScreenShowsWhatTheCopyOnTheDeviceSays() = runComposeUiTest {
+    val read = mutableListOf<String>()
+    val headers = RomHeaders { _, path ->
+      read += path
+      listOf(RomHeaderField("Title", "TIC-TAC-TOE"), RomHeaderField("Region", "Japan"))
+    }
+    openGame(FakeLauncher(), romHeaders = headers)
+    awaitText("This copy")
+    onNodeWithText("Title TIC-TAC-TOE · Region Japan").assertExists()
+    assertEquals(listOf(gameFile.path), read.distinct())
   }
 
   private companion object {

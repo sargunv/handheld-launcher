@@ -26,10 +26,10 @@ runner = [
 
 [dependencies]
 ash = "0.38.0"
-chd = { version = "0.4.0", default-features = false, features = ["std"] }
 glow = "0.18.0"
 libloading = "0.9.1"
 log = "0.4.35"
+rom-headers = { path = "../rom-headers" }
 rubato = { version = "5.1.0", default-features = false }
 ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
 thiserror = "2.0.21"

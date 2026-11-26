@@ -2,123 +2,35 @@
 //! a PS2 disc's serial in its `SYSTEM.CNF`.
 
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
-use chd::Chd;
-
-/// A DVD's units are its 2048-byte sectors.
-const DVD_SECTOR: u64 = 2048;
-/// A CD's units are its raw 2352-byte frames, each followed by 96 bytes of
-/// subcode.
-const CD_FRAME: u64 = 2448;
-/// The sync pattern a raw CD data frame starts with.
-const CD_SYNC: [u8; 12] = [
-    0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0,
-];
+use rom_headers::disc::Disc;
 
 /// Up to `length` bytes of the disc in the CHD file at `path`, from byte
 /// `offset` of its 2048-byte data sectors: a DVD's sectors as they are, and
-/// the user data of a CD's first track. Fewer when the disc ends sooner. Null
-/// when the file can't be read or isn't a CD or DVD image.
+/// the user data of a CD's first data track. Fewer when the disc ends sooner.
+/// Null when the file can't be read or isn't a CD or DVD image.
 #[uniffi::export]
 pub fn chd_disc_read(path: String, offset: u64, length: u32) -> Option<Vec<u8>> {
     let file = BufReader::new(File::open(path).ok()?);
-    let mut disc = Disc::new(Chd::open(file, None).ok()?)?;
+    let mut disc = Disc::open_chd(file, None).ok()?;
+    disc.seek(SeekFrom::Start(offset)).ok()?;
     let mut out = Vec::with_capacity(length as usize);
-    let end = offset + length as u64;
-    let mut at = offset;
-    while at < end {
-        let sector = disc.sector(at / DVD_SECTOR)?;
-        let Some(sector) = sector else { break };
-        let skip = (at % DVD_SECTOR) as usize;
-        let take = ((end - at) as usize).min(sector.len() - skip);
-        out.extend_from_slice(&sector[skip..skip + take]);
-        at += take as u64;
-    }
+    disc.take(u64::from(length)).read_to_end(&mut out).ok()?;
     Some(out)
-}
-
-struct Disc<F: std::io::Read + std::io::Seek> {
-    chd: Chd<F>,
-    unit: u64,
-    hunk_size: u64,
-    logical: u64,
-    cached: Option<(u32, Vec<u8>)>,
-    compressed: Vec<u8>,
-}
-
-impl<F: std::io::Read + std::io::Seek> Disc<F> {
-    fn new(chd: Chd<F>) -> Option<Self> {
-        let header = chd.header();
-        let unit = header.unit_bytes() as u64;
-        if unit != DVD_SECTOR && unit != CD_FRAME {
-            return None;
-        }
-        Some(Self {
-            unit,
-            hunk_size: header.hunk_size() as u64,
-            logical: header.logical_bytes(),
-            chd,
-            cached: None,
-            compressed: Vec::new(),
-        })
-    }
-
-    /// The data of sector `n`: Some(None) past the end of the disc, None when
-    /// it can't be read.
-    fn sector(&mut self, n: u64) -> Option<Option<Vec<u8>>> {
-        let start = n * self.unit;
-        if start + self.unit > self.logical {
-            return Some(None);
-        }
-        let unit = self.read(start, self.unit as usize)?;
-        if self.unit == DVD_SECTOR {
-            return Some(Some(unit));
-        }
-        // A raw frame's user data follows its header: 16 bytes in mode 1, 24
-        // in mode 2 (form 1). A cooked track keeps the data at the start.
-        let skip = if unit[..12] == CD_SYNC {
-            match unit[15] {
-                1 => 16,
-                2 => 24,
-                _ => return None,
-            }
-        } else {
-            0
-        };
-        Some(Some(unit[skip..skip + DVD_SECTOR as usize].to_vec()))
-    }
-
-    /// `length` bytes of the image's logical bytes from `start`.
-    fn read(&mut self, start: u64, length: usize) -> Option<Vec<u8>> {
-        let mut out = Vec::with_capacity(length);
-        let mut at = start;
-        while out.len() < length {
-            let hunk = (at / self.hunk_size) as u32;
-            if self.cached.as_ref().map(|c| c.0) != Some(hunk) {
-                let mut buffer = self.chd.get_hunksized_buffer();
-                self.chd
-                    .hunk(hunk)
-                    .ok()?
-                    .read_hunk_in(&mut self.compressed, &mut buffer)
-                    .ok()?;
-                self.cached = Some((hunk, buffer));
-            }
-            let data = &self.cached.as_ref()?.1;
-            let skip = (at % self.hunk_size) as usize;
-            let take = (length - out.len()).min(data.len() - skip);
-            out.extend_from_slice(&data[skip..skip + take]);
-            at += take as u64;
-        }
-        Some(out)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
-    use super::{CD_FRAME, CD_SYNC, DVD_SECTOR};
+    /// A DVD's sectors.
+    const DVD_SECTOR: u64 = 2048;
+    /// A CD's raw frame and its subcode.
+    const CD_FRAME: u64 = 2448;
+    const CD_SYNC: [u8; 12] = [
+        0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0,
+    ];
 
     /// An uncompressed CHD v5 of `units`, each `unit` bytes, two to a hunk.
     fn chd(unit: u64, units: &[Vec<u8>]) -> tempfile::NamedTempFile {

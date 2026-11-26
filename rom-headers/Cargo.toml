@@ -1,0 +1,29 @@
+[package]
+name = "rom-headers"
+version = "0.1.0"
+description = "Reads the metadata each game platform's own ROM and disc headers carry"
+keywords = ["rom", "emulation", "header", "retro", "game"]
+categories = ["parser-implementations", "emulators"]
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["chd", "deflate", "zstd"]
+# CHD disc images, for the disc platforms.
+chd = ["dep:chd"]
+# Images compressed with deflate: PSP and PS2 CSO, and GameCube and Wii GCZ.
+deflate = ["dep:miniz_oxide"]
+# Images compressed with zstd: the 3DS's Z3DS (.zcci, .zcxi, .zcia).
+zstd = ["dep:ruzstd"]
+
+[dependencies]
+encoding_rs = "0.8.35"
+
+chd = { version = "0.4.0", default-features = false, features = [
+  "std",
+], optional = true }
+miniz_oxide = { version = "0.8.9", optional = true }
+ruzstd = { version = "0.9.1", default-features = false, features = [
+  "std",
+], optional = true }

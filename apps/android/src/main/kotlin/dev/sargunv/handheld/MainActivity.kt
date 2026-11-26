@@ -33,6 +33,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.launch.PlayCompanion
+import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.launch.StandalonePlayer
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.about.AppInfo
@@ -142,6 +143,7 @@ class MainActivity : ComponentActivity() {
         launcher = launcher,
         retroAchievements = retroAchievements,
         apps = apps,
+        romHeaders = SessionRomHeaders,
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(
