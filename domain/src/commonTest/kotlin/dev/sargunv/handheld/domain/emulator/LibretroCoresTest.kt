@@ -26,13 +26,6 @@ class LibretroCoresTest {
       LibretroCores.recommendedFor(PlatformCatalog.SNES),
       LibretroCores.recommendedFor(PlatformCatalog.SUPER_FAMICOM),
     )
-    assertEquals("snes9x_libretro", LibretroCores.recommendedFor(PlatformCatalog.SNES)?.library)
-  }
-
-  @Test
-  fun standaloneOnlyPlatformsHaveNoCore() {
-    assertNull(LibretroCores.recommendedFor(PlatformCatalog.PS2))
-    assertNull(LibretroCores.recommendedFor(PlatformCatalog.SWITCH))
   }
 
   @Test

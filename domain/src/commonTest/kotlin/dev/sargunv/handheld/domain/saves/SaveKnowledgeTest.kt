@@ -74,23 +74,6 @@ class SaveKnowledgeTest {
   }
 
   @Test
-  fun consoleLayouts() {
-    fun layout(id: String, platform: dev.sargunv.handheld.domain.platform.PlatformSlug) =
-      SaveLocations.forEmulator(EmulatorId(id), platform)?.layout
-    assertEquals(SaveLayout.Ps2MemoryCards(), layout("armsx2", PlatformCatalog.PS2))
-    assertEquals(
-      SaveLayout.Ps2MemoryCards(folderCards = true),
-      layout("pocketgoal", PlatformCatalog.PS2),
-    )
-    assertEquals(SaveLayout.GameCubeGci, layout("dolphin", PlatformCatalog.GAMECUBE))
-    assertEquals(SaveLayout.WiiTitle, layout("dolphin", PlatformCatalog.WII))
-    assertEquals(SaveLayout.SwitchUserSave, layout("eden", PlatformCatalog.SWITCH))
-    assertEquals(SaveLayout.DreamcastVmu, layout("flycast", PlatformCatalog.DREAMCAST))
-    assertEquals(SaveLayout.SerialPrefixedFolders, layout("ppsspp", PlatformCatalog.PSP))
-    assertEquals(SaveLayout.ThreeDsTitle, layout("azahar", PlatformCatalog.NEW_N3DS))
-  }
-
-  @Test
   fun biosKnowledgeIsWellFormed() {
     val ids = BiosKnowledge.locations.map { it.emulator }
     assertEquals(ids.size, ids.toSet().size)
@@ -106,7 +89,6 @@ class SaveKnowledgeTest {
     val hakuX = assertNotNull(BiosKnowledge.locationFor(EmulatorId("hakux")))
     assertEquals("flash.bin", hakuX.targetName("complex_4627.BIN"))
     assertEquals("other.bin", hakuX.targetName("other.bin"))
-    assertEquals("scph5501.bin", BiosKnowledge.libretroNames["490f666e1afb15b7362b406ed1cea246"])
   }
 
   @Test

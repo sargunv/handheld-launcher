@@ -18,11 +18,7 @@ data class HomeSettings(
 ) {
   /** The shelves that show, in order. */
   val visible: List<HomeShelf>
-    get() = all.filter { it !in hidden }
-
-  /** Every shelf in order. A shelf missing from [order], such as one added since, goes last. */
-  private val all: List<HomeShelf>
-    get() = (order + HomeShelf.entries).distinct()
+    get() = order.filter { it !in hidden }
 
   fun hide(shelf: HomeShelf) = copy(hidden = hidden + shelf)
 
@@ -43,7 +39,7 @@ data class HomeSettings(
   private fun swap(shelf: HomeShelf, shown: List<HomeShelf>, step: Int): HomeSettings {
     if (shelf !in shown) return this
     val neighbor = shown.getOrNull(shown.indexOf(shelf) + step) ?: return this
-    val reordered = all.map {
+    val reordered = order.map {
       when (it) {
         shelf -> neighbor
         neighbor -> shelf

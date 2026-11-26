@@ -84,35 +84,30 @@ fun MainSecondary(state: AppState) {
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    val screen = state.navigator.current
-    if (screen is Screen.Game) {
-      GameSecondary(state, screen)
-      return@Column
-    }
-    if (screen is Screen.OpenWith) {
-      OpenWithSecondary(state, screen)
-      return@Column
-    }
-    if (screen == Screen.About || screen is Screen.Licence) {
-      AboutSecondary(state, screen)
-      return@Column
-    }
-    val focused = state.focused
-    when {
-      state.place == Place.Downloads -> StorageSummary(state.downloads)
-      state.place == Place.Library -> LibrarySecondary(state)
-      state.place == Place.Settings -> SettingsSecondary(state.settingsView)
-      focused is Focused.OnGame -> GameDescription(state, focused.game)
-      focused is Focused.OnCollection -> {
-        Text(
-          focused.collection.name,
-          color = Placeholder.text,
-          fontSize = 24.sp,
-          modifier = Modifier.semantics { heading() },
-        )
-        Text(gameCount(focused.collection.romCount), color = Placeholder.mutedText)
-        if (focused.collection.description.isNotBlank()) {
-          Text(focused.collection.description, color = Placeholder.mutedText)
+    when (val screen = state.navigator.current) {
+      is Screen.Game -> GameSecondary(state, screen)
+      is Screen.OpenWith -> OpenWithSecondary(state, screen)
+      Screen.About,
+      is Screen.Licence -> AboutSecondary(state, screen)
+      Screen.Places -> {
+        val focused = state.focused
+        when {
+          state.place == Place.Downloads -> StorageSummary(state.downloads)
+          state.place == Place.Library -> LibrarySecondary(state)
+          state.place == Place.Settings -> SettingsSecondary(state.settingsView)
+          focused is Focused.OnGame -> GameDescription(state, focused.game)
+          focused is Focused.OnCollection -> {
+            Text(
+              focused.collection.name,
+              color = Placeholder.text,
+              fontSize = 24.sp,
+              modifier = Modifier.semantics { heading() },
+            )
+            Text(gameCount(focused.collection.romCount), color = Placeholder.mutedText)
+            if (focused.collection.description.isNotBlank()) {
+              Text(focused.collection.description, color = Placeholder.mutedText)
+            }
+          }
         }
       }
     }
