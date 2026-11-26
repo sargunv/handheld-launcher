@@ -221,16 +221,25 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       changed += card
     }
 
-    // Everything is checked before anything is written.
+    // Everything is checked before anything is written, and each file card again just before.
     val writes = changed.map { card ->
       if (card.folder) folderWrite(card) else fileWrite(card, placed[card].orEmpty())
     }
+    for (card in changed.filter { !it.folder }) checkUnchanged(card)
     for (write in writes) write()
+  }
+
+  /** Fails when the file card [card] isn't what was read, so a save written since isn't lost. */
+  private fun checkUnchanged(card: Card) {
+    val now = if (card.file.isFile) card.file.readBytes() else null
+    val unchanged =
+      card.bytes?.let { now?.contentEquals(it) == true } ?: (now == null || holdsNothing(now))
+    if (!unchanged) throw IOException("${card.file.path} changed while the launcher was writing it")
   }
 
   /**
    * The file card [card]'s new image, checked to hold [placed], as a write that first checks the
-   * file is still what was read, so a save the emulator wrote since isn't lost.
+   * file is still what was read.
    */
   private fun fileWrite(card: Card, placed: List<Ps2Save>): () -> Unit {
     val image = card.card.image()
@@ -239,11 +248,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       throw IOException("The saves didn't read back from the new ${card.file.name}")
     }
     return {
-      val now = if (card.file.isFile) card.file.readBytes() else null
-      val unchanged =
-        card.bytes?.let { now?.contentEquals(it) == true } ?: (now == null || holdsNothing(now))
-      if (!unchanged)
-        throw IOException("${card.file.path} changed while the launcher was writing it")
+      checkUnchanged(card)
       val temp = File(card.file.parentFile, ".${card.file.name}.handheld-part")
       temp.writeBytes(image)
       try {

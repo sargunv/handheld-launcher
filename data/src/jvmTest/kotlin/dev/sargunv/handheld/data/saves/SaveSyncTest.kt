@@ -1123,6 +1123,25 @@ class SaveSyncTest {
   // PS2
 
   @Test
+  fun beforeLaunchAsksBeforePullingToCardsTheEmulatorHoldsForAnotherGame() = runTest {
+    val server = FakeRomm()
+    val cards = File(root, "armsx2/memcards").apply { mkdirs() }
+    val ps2 =
+      GameSave(7, "armsx2", emptyList(), cards = Ps2CardRoots(listOf(cards), JAK, "Jak.ps2"))
+    server.push(
+      "Jak.ps2",
+      sigilUnit(JAK),
+      Instant.parse("2025-04-01T00:00:00Z"),
+      emulator = "armsx2",
+    )
+    val prompts = Prompts(StillRunningChoice.QuitFirst)
+
+    assertEquals(BeforeLaunch.QuitFirst, prompts.run(sync(server), ps2, holdsAnotherGame, false))
+    assertEquals(listOf(false), prompts.asked)
+    assertTrue(cards.list()!!.isEmpty(), "Nothing was written to the cards")
+  }
+
+  @Test
   fun aPs2GameSyncsAsOneCardBetweenAFileCardAndAFolderCard() = runTest {
     val server = FakeRomm()
     // This device keeps a file card, holding Ace Combat's saves and another game's.
