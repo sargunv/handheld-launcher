@@ -33,5 +33,13 @@ class BuiltInSaves(private val root: String) {
 
     /** The picture of the game as the state at [statePath] was saved. */
     fun thumbnailOf(statePath: String): String = "$statePath.png"
+
+    /**
+     * The emulator RomM files the built-in session's saves under, when [coreLibrary] made them,
+     * such as `builtin-mgba_libretro`. The prefix keeps them apart from saves a standalone
+     * emulator, or RetroArch with the same core, made. A colon would read better, but RomM takes
+     * the name as a folder name and refuses one.
+     */
+    fun emulatorOf(coreLibrary: String): String = "builtin-$coreLibrary"
   }
 }

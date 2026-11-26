@@ -4,6 +4,7 @@ import dev.sargunv.handheld.data.cores.JsonFile
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommSave
+import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import java.io.File
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
@@ -33,6 +34,14 @@ data class GameSave(val romId: Long, val emulator: String, val candidates: List<
   internal val key: String
     get() = "$romId-${emulator.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
 }
+
+/**
+ * The save memory at [saveRam] of the ROM [romId], as the built-in session keeps it when the core
+ * [coreLibrary] runs the game. Only that file syncs: the save states beside it stay on this device,
+ * and so do the backups the session and its quick menu keep there as `<name>.<time>.bak`.
+ */
+fun builtInGameSave(romId: Long, coreLibrary: String, saveRam: File): GameSave =
+  GameSave(romId, BuiltInSaves.emulatorOf(coreLibrary), listOf(saveRam))
 
 /** The save file on this device, as it was when the conflict was found. */
 data class DeviceSave(val file: File, val sizeBytes: Long, val modifiedAt: Instant)

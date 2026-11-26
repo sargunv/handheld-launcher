@@ -106,8 +106,14 @@ class SaveSyncTest {
 
     val client = server.client
 
-    fun push(name: String, bytes: ByteArray, at: Instant, hash: String? = md5(bytes)): Stored {
-      val save = Stored(nextId++, name, bytes, SAVE_SLOT, "melonds", at, hash)
+    fun push(
+      name: String,
+      bytes: ByteArray,
+      at: Instant,
+      hash: String? = md5(bytes),
+      emulator: String = "melonds",
+    ): Stored {
+      val save = Stored(nextId++, name, bytes, SAVE_SLOT, emulator, at, hash)
       stored += save
       return save
     }
@@ -389,6 +395,159 @@ class SaveSyncTest {
         Stored(2, "b.sav", v2, null, "melonds", Instant.parse("2025-01-01T00:00:00Z")),
       )
     assertEquals(SaveSyncResult.NoSave, sync(server).sync(game))
+  }
+
+  // The built-in session's save memory, as BuiltInPlayer syncs it: one file in the game's folder,
+  // beside the session's save states and the backups it keeps.
+
+  private val gameFolder = File(root, "files/saves/7")
+  private val saveRam = File(gameFolder, "Pokemon Gaia.srm")
+  private val builtIn = builtInGameSave(romId = 7, "mgba_libretro", saveRam)
+
+  /** Writes what a session leaves beside the save memory: states, their pictures and backups. */
+  private fun sessionLeavesItsOtherFiles(backup: ByteArray) {
+    File(gameFolder, "Pokemon Gaia.state1").writeBytes("a state".encodeToByteArray())
+    File(gameFolder, "Pokemon Gaia.state1.png").writeBytes("a picture".encodeToByteArray())
+    File(gameFolder, "Pokemon Gaia.srm.1764130000.bak").writeBytes(backup)
+  }
+
+  /** A server and a session folder that both hold [v1] as the built-in game's save, synced. */
+  private suspend fun builtInSynced(): Pair<FakeRomm, SaveSync> {
+    val server = FakeRomm()
+    server.push(
+      "Pokemon Gaia.srm",
+      v1,
+      Instant.parse("2025-01-01T00:00:00Z"),
+      emulator = "builtin-mgba_libretro",
+    )
+    gameFolder.mkdirs()
+    saveRam.writeBytes(v1)
+    val sync = sync(server)
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(builtIn))
+    return server to sync
+  }
+
+  @Test
+  fun builtInPullsBeforeLaunchIntoTheGamesFolder() = runTest {
+    val server = FakeRomm()
+    server.push(
+      "Pokemon Gaia.srm",
+      v1,
+      Instant.parse("2025-01-01T00:00:00Z"),
+      emulator = "builtin-mgba_libretro",
+    )
+    // BuiltInPlayer makes the game's folder before it syncs.
+    gameFolder.mkdirs()
+    val sync = sync(server)
+
+    val first = assertIs<SaveSyncResult.Pulled>(sync.sync(builtIn))
+    assertEquals(saveRam, first.file)
+    assertNull(first.previous)
+    assertContentEquals(v1, saveRam.readBytes())
+
+    server.push(
+      "Pokemon Gaia.srm",
+      v2,
+      Instant.parse("2025-02-01T00:00:00Z"),
+      emulator = "builtin-mgba_libretro",
+    )
+    val second = assertIs<SaveSyncResult.Pulled>(sync.sync(builtIn))
+    assertContentEquals(v2, saveRam.readBytes())
+    assertContentEquals(v1, assertNotNull(second.previous).readBytes(), "The old save is kept")
+    assertTrue(server.uploads.isEmpty())
+  }
+
+  @Test
+  fun builtInPushesOnlyTheSaveMemoryAfterTheSession() = runTest {
+    val (server, sync) = builtInSynced()
+    saveRam.writeBytes(mine)
+    sessionLeavesItsOtherFiles(backup = v1)
+
+    val result = assertIs<SaveSyncResult.Pushed>(sync.sync(builtIn))
+    assertEquals(saveRam, result.file)
+    val upload = server.uploads.single()
+    assertEquals(
+      mapOf(
+        "rom_id" to "7",
+        "emulator" to "builtin-mgba_libretro",
+        "slot" to SAVE_SLOT,
+        "overwrite" to "true",
+      ),
+      upload.query,
+    )
+    assertEquals("Pokemon Gaia.srm", upload.fileName)
+    assertContentEquals(mine, upload.bytes)
+    assertIs<SaveSyncResult.UpToDate>(sync.sync(builtIn), "The push was recorded")
+  }
+
+  @Test
+  fun builtInDoesNothingWhenNothingChanged() = runTest {
+    val (server, sync) = builtInSynced()
+    // A load from the quick menu backs the save up, and a state saves, but the save didn't change.
+    sessionLeavesItsOtherFiles(backup = mine)
+    val before = server.server.requests.size
+
+    assertEquals(SaveSyncResult.UpToDate(saveRam), sync.sync(builtIn))
+    val requests = server.server.requests.drop(before)
+    assertEquals(listOf("saves"), requests.map { it.apiPath }, "Only the list is read")
+    assertContentEquals(v1, saveRam.readBytes())
+  }
+
+  @Test
+  fun builtInAsksWhenBothCopiesChanged() = runTest {
+    val (server, sync) = builtInSynced()
+    val newer =
+      server.push(
+        "Pokemon Gaia.srm",
+        v2,
+        Instant.parse("2025-02-01T00:00:00Z"),
+        emulator = "builtin-mgba_libretro",
+      )
+    saveRam.writeBytes(mine)
+
+    val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(builtIn))
+    assertEquals(saveRam, conflict.device.file)
+    assertEquals(newer.id, conflict.server.id)
+    assertContentEquals(mine, saveRam.readBytes(), "Nothing is written before the player chooses")
+    assertTrue(server.uploads.isEmpty())
+
+    val resolved = sync.resolve(builtIn, conflict, SaveCopy.Server)
+    assertContentEquals(v2, saveRam.readBytes())
+    assertContentEquals(mine, resolved.history.readBytes(), "The losing copy is in the history")
+    assertEquals(
+      listOf("builtin-mgba_libretro"),
+      keptSaves(File(root, "history"), romId = 7).map { it.emulator },
+    )
+  }
+
+  @Test
+  fun builtInIgnoresTheBackupsBesideTheSave() = runTest {
+    val server = FakeRomm()
+    gameFolder.mkdirs()
+    sessionLeavesItsOtherFiles(backup = mine)
+    val sync = sync(server)
+
+    assertEquals(SaveSyncResult.NoSave, sync.sync(builtIn), "A backup alone isn't a save")
+    assertTrue(server.uploads.isEmpty())
+
+    val (synced, syncedSync) = builtInSynced()
+    File(gameFolder, "Pokemon Gaia.srm.1764130001.bak").apply {
+      writeBytes(v2)
+      setLastModified(saveRam.lastModified() + 60_000)
+    }
+    assertIs<SaveSyncResult.UpToDate>(syncedSync.sync(builtIn), "A newer backup isn't a change")
+    assertTrue(synced.uploads.isEmpty())
+  }
+
+  @Test
+  fun builtInIgnoresStandaloneEmulatorsSaves() = runTest {
+    val server =
+      FakeRomm(
+        Stored(1, "a.srm", v1, SAVE_SLOT, "retroarch", Instant.parse("2025-01-01T00:00:00Z")),
+        Stored(2, "b.srm", v2, SAVE_SLOT, "mgba_libretro", Instant.parse("2025-01-01T00:00:00Z")),
+      )
+    gameFolder.mkdirs()
+    assertEquals(SaveSyncResult.NoSave, sync(server).sync(builtIn))
   }
 }
 
