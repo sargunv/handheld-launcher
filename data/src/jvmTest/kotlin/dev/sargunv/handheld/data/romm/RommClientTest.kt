@@ -20,21 +20,18 @@ import kotlinx.io.IOException
 class RommClientTest {
   @Test
   fun sendsTheTokenToTheServersApi() = runTest {
-    val server = MockServer("$TEST_SERVER/romm/") { json(Fixtures.heartbeat) }
-    val heartbeat = server.client.heartbeat()
+    val server = MockServer("$TEST_SERVER/romm/") { json("[]") }
+    server.client.platforms()
 
-    assertEquals("5.4.1", heartbeat.system.version)
-    assertTrue(heartbeat.frontend.disableUserPassLogin)
-    assertTrue(heartbeat.oidc.enabled)
     val request = server.requests.single()
-    assertEquals("$TEST_SERVER/romm/api/heartbeat", request.url.toString())
+    assertEquals("$TEST_SERVER/romm/api/platforms", request.url.toString())
     assertEquals("Bearer rmm_test", request.headers[HttpHeaders.Authorization])
   }
 
   @Test
   fun sendsNoTokenWithoutOne() = runTest {
-    val server = MockServer(token = null) { json(Fixtures.heartbeat) }
-    server.client.heartbeat()
+    val server = MockServer(token = null) { json("[]") }
+    server.client.platforms()
     assertNull(server.requests.single().headers[HttpHeaders.Authorization])
   }
 
@@ -86,12 +83,7 @@ class RommClientTest {
       val total = if (request.url.parameters["with_total"] == "true") roms.size else null
       json(Fixtures.page(roms.drop(offset).take(limit), total, limit, offset))
     }
-    val query =
-      RomQuery(
-        platformIds = listOf(1, 2),
-        updatedAfter = Instant.parse("2025-01-01T00:00:00Z"),
-        withFiles = true,
-      )
+    val query = RomQuery(updatedAfter = Instant.parse("2025-01-01T00:00:00Z"), withFiles = true)
     val pages = server.client.allRoms(query, pageSize = 2).toList()
 
     assertEquals(
@@ -104,7 +96,6 @@ class RommClientTest {
       server.requests.map { it.url.parameters["with_total"] },
     )
     val params = server.requests.first().url.parameters
-    assertEquals(listOf("1", "2"), params.getAll("platform_ids"))
     assertEquals("2025-01-01T00:00:00Z", params["updated_after"])
     assertEquals("true", params["with_files"])
     assertEquals("id", params["order_by"])
@@ -128,7 +119,6 @@ class RommClientTest {
     val pages = server.client.allRoms(pageSize = 2).toList()
     assertEquals(1, pages.size)
     assertEquals(2, server.requests.size)
-    assertTrue("platform_ids" !in server.requests.first().url.encodedQuery)
   }
 
   @Test
@@ -204,71 +194,26 @@ class RommClientTest {
   }
 
   @Test
-  fun readsSavesStatesDevicesAndSyncSessions() = runTest {
-    val server = MockServer { request ->
-      when (request.apiPath) {
-        "saves" ->
-          json(
-            """
-            [{"id": 3, "rom_id": 7, "user_id": 1, "file_name": "game.srm",
-              "file_name_no_tags": "game", "file_name_no_ext": "game", "file_extension": "srm",
-              "file_path": "saves/7", "file_size_bytes": 8192, "full_path": "saves/7/game.srm",
-              "download_path": "/api/saves/3/content", "missing_from_fs": false,
-              "created_at": "2025-01-01T00:00:00+00:00", "updated_at": "2025-01-02T00:00:00+00:00",
-              "emulator": "retroarch", "slot": "autosave", "content_hash": "abc", "screenshot": null,
-              "device_syncs": [{"device_id": "d1", "device_name": "Thor",
-                "last_synced_at": "2025-01-02T00:00:00+00:00", "is_untracked": false, "is_current": true}]}]
-            """,
-          )
-        "states" -> json("[]")
-        "devices" ->
-          json(
-            """
-            [{"id": "d1", "user_id": 1, "name": "Thor", "platform": "android", "client": "handheld",
-              "client_version": "0.1.0", "ip_address": null, "mac_address": null, "hostname": null,
-              "client_device_identifier": "install-1", "sync_mode": "carrier_pigeon",
-              "sync_enabled": true, "sync_config": null, "capabilities": null, "last_seen": null,
-              "created_at": "2025-01-01T00:00:00+00:00", "updated_at": "2025-01-01T00:00:00+00:00"}]
-            """,
-          )
-        "sync/sessions" ->
-          json(
-            """
-            [{"id": 9, "device_id": "d1", "user_id": 1, "status": "completed",
-              "initiated_at": "2025-01-01T00:00:00+00:00", "completed_at": "2025-01-01T00:01:00+00:00",
-              "operations_planned": 2, "operations_completed": 2, "operations_failed": 0,
-              "error_message": null, "created_at": "2025-01-01T00:00:00+00:00",
-              "updated_at": "2025-01-01T00:01:00+00:00"}]
-            """,
-          )
-        else -> respondError(HttpStatusCode.NotFound)
-      }
+  fun readsSaves() = runTest {
+    val server = MockServer {
+      json(
+        """
+        [{"id": 3, "rom_id": 7, "user_id": 1, "file_name": "game.srm",
+          "file_name_no_tags": "game", "file_name_no_ext": "game", "file_extension": "srm",
+          "file_path": "saves/7", "file_size_bytes": 8192, "full_path": "saves/7/game.srm",
+          "download_path": "/api/saves/3/content", "missing_from_fs": false,
+          "created_at": "2025-01-01T00:00:00+00:00", "updated_at": "2025-01-02T00:00:00+00:00",
+          "emulator": "retroarch", "slot": "autosave", "content_hash": "abc", "screenshot": null,
+          "device_syncs": [{"device_id": "d1", "device_name": "Thor",
+            "last_synced_at": "2025-01-02T00:00:00+00:00", "is_untracked": false, "is_current": true}]}]
+        """,
+      )
     }
 
     val save = server.client.saves(romId = 7).single()
-    assertEquals("7", server.requests.last().url.parameters["rom_id"])
+    assertEquals("saves", server.requests.single().apiPath)
+    assertEquals("7", server.requests.single().url.parameters["rom_id"])
     assertEquals("autosave", save.slot)
     assertTrue(save.deviceSyncs.single().isCurrent)
-    assertEquals(emptyList(), server.client.states())
-    val device = server.client.devices().single()
-    assertEquals("install-1", device.clientDeviceIdentifier)
-    assertNull(device.syncMode)
-    assertEquals(2, server.client.syncSessions(deviceId = "d1").single().operationsCompleted)
-  }
-
-  @Test
-  fun readsANegotiatedSyncPlan() {
-    val response =
-      RommJson.decodeFromString(
-        SyncNegotiateResponse.serializer(),
-        """
-        {"session_id": 4, "total_upload": 1, "total_download": 0, "total_conflict": 0,
-         "total_no_op": 0, "total_delete": 0,
-         "operations": [{"action": "upload", "rom_id": 7, "save_id": null, "file_name": "game.srm",
-           "slot": "autosave", "emulator": null, "reason": "Only on the device",
-           "server_updated_at": null, "server_content_hash": null}]}
-        """,
-      )
-    assertEquals(SyncAction.Upload, response.operations.single().action)
   }
 }

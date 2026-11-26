@@ -2,6 +2,7 @@ package dev.sargunv.handheld.data.auth
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import dev.sargunv.handheld.data.cores.writeAtomically
 import java.io.File
 import java.security.GeneralSecurityException
 import java.security.KeyStore
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.io.files.Path
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 
@@ -53,12 +55,7 @@ internal class KeystoreFile<T : Any>(
     cipher.init(Cipher.ENCRYPT_MODE, key())
     val plain = json.encodeToString(serializer, value).encodeToByteArray()
     // The Keystore picks the IV; it goes first, so the file reads back on its own.
-    val bytes = cipher.iv + cipher.doFinal(plain)
-    file.parentFile?.mkdirs()
-    // Write a sibling and move it over the old file, so a crash never leaves half a file.
-    val temp = File(file.path + ".tmp")
-    temp.writeBytes(bytes)
-    check(temp.renameTo(file)) { "Couldn't replace $file" }
+    writeAtomically(Path(file.path), cipher.iv + cipher.doFinal(plain))
   }
 
   suspend fun clear() {

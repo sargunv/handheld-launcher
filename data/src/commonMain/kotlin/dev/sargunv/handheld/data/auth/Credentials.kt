@@ -2,18 +2,15 @@
 
 package dev.sargunv.handheld.data.auth
 
+import dev.sargunv.handheld.data.cores.JsonFile
 import dev.sargunv.handheld.data.romm.RommInstantSerializer
 import kotlin.time.Instant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.readString
-import kotlinx.io.writeString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
-import kotlinx.serialization.json.Json
 
 /** How this device signs in to a RomM server. */
 @Serializable
@@ -62,27 +59,14 @@ class InMemoryCredentialStore(private var credentials: RommCredentials? = null) 
  * unencrypted, so anything that can read the file can use it.
  */
 class FileCredentialStore(private val path: Path) : CredentialStore {
+  private val file = JsonFile(path, RommCredentials.serializer())
   private val mutex = Mutex()
 
-  override suspend fun load(): RommCredentials? = mutex.withLock {
-    if (!SystemFileSystem.exists(path)) return null
-    val text = SystemFileSystem.source(path).buffered().use { it.readString() }
-    json.decodeFromString(RommCredentials.serializer(), text)
-  }
+  override suspend fun load(): RommCredentials? = mutex.withLock { file.read() }
 
   override suspend fun save(credentials: RommCredentials) = mutex.withLock {
-    path.parent?.let { SystemFileSystem.createDirectories(it) }
-    // Write a sibling and move it over the old file, so a crash never leaves half a file.
-    val temp = Path("$path.tmp")
-    SystemFileSystem.sink(temp).buffered().use {
-      it.writeString(json.encodeToString(RommCredentials.serializer(), credentials))
-    }
-    SystemFileSystem.atomicMove(temp, path)
+    file.write(credentials)
   }
 
   override suspend fun clear() = mutex.withLock { SystemFileSystem.delete(path, mustExist = false) }
-
-  private companion object {
-    val json = Json { ignoreUnknownKeys = true }
-  }
 }

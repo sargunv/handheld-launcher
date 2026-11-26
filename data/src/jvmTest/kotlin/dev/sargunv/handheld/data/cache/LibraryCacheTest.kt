@@ -1,16 +1,12 @@
 package dev.sargunv.handheld.data.cache
 
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import androidx.sqlite.execSQL
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
 import dev.sargunv.handheld.domain.RomFileCategory
-import java.io.File
 import kotlin.coroutines.EmptyCoroutineContext
-import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,43 +52,11 @@ class LibraryCacheTest {
     )
 
   @Test
-  fun migratesACacheFromBeforeFileHashes() = runTest {
-    val dir = createTempDirectory("library-cache-test").toFile()
-    try {
-      val path = File(dir, "library.db").path
-      // The cache as the first version left it: a ROM, and where the next sync starts.
-      LibraryCache.open(path, EmptyCoroutineContext).use { old ->
-        old.upsertRoms(listOf(rom(1, "Game")))
-        old.setSyncValue("server", "https://romm.test/")
-        old.setSyncValue("rom_cursor", "2025-01-01T00:00:00Z")
-      }
-      BundledSQLiteDriver().open(path).use { db ->
-        for (column in listOf("crc_hash", "md5_hash", "sha1_hash", "chd_sha1_hash")) {
-          db.execSQL("ALTER TABLE rom_file DROP COLUMN $column")
-        }
-        db.execSQL("PRAGMA user_version = 1")
-      }
-
-      LibraryCache.open(path, EmptyCoroutineContext).use { migrated ->
-        assertEquals(listOf(10L), migrated.rom(1)?.files?.map { it.id })
-        // The next sync fetches every ROM again, for their files' hashes.
-        assertNull(migrated.syncValue("rom_cursor"))
-        assertEquals("https://romm.test/", migrated.syncValue("server"))
-        val hashed = RomFile(20, "Hashed.bin", 100, null, "0000abcd", "md5", "sha1", "chd sha1")
-        migrated.upsertRoms(listOf(rom(2, "Hashed", files = listOf(hashed))))
-        assertEquals(listOf(hashed), migrated.rom(2)?.files)
-      }
-    } finally {
-      dir.deleteRecursively()
-    }
-  }
-
-  @Test
   fun readsBackWhatItStored() = runTest {
     val discs =
       listOf(
         RomFile(20, "Disc Game (Disc 2).chd", 200, RomFileCategory.Game),
-        RomFile(21, "Disc Game (Disc 1).chd", 100, RomFileCategory.Game),
+        RomFile(21, "Disc Game (Disc 1).chd", 100, RomFileCategory.Game, "0000abcd", "md5", "sha1"),
         RomFile(22, "readme.txt", 1, null),
       )
     val roms =

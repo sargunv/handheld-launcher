@@ -1,8 +1,7 @@
 package dev.sargunv.handheld.data.romm
 
-import io.ktor.client.HttpClient
+import dev.sargunv.handheld.data.httpClient
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
@@ -39,17 +38,14 @@ import kotlinx.io.files.Path
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.builtins.nullable
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.serializer
 
 /**
  * A client for a RomM server's API.
@@ -71,15 +67,10 @@ class RommClient(
   val baseUrl: Url = Url(baseUrl.trimEnd('/'))
 
   private val http =
-    HttpClient(engine) {
-      expectSuccess = false
+    httpClient(engine) {
       install(ContentEncoding) {
         gzip()
         deflate()
-      }
-      install(HttpTimeout) {
-        connectTimeoutMillis = 15_000
-        socketTimeoutMillis = 60_000
       }
     }
 
@@ -119,27 +110,14 @@ class RommClient(
       .buildString()
   }
 
-  private val noRedirectsMade = lazy {
-    HttpClient(engine) {
-      expectSuccess = false
-      followRedirects = false
-      install(HttpTimeout) {
-        connectTimeoutMillis = 15_000
-        socketTimeoutMillis = 60_000
-      }
-    }
-  }
+  private val noRedirectsMade = lazy { httpClient(engine) { followRedirects = false } }
   private val noRedirects by noRedirectsMade
-
-  /** The server's version and public configuration. Needs no sign-in. */
-  suspend fun heartbeat(): RommHeartbeat = get(RommHeartbeat.serializer(), "heartbeat")
 
   /** The user the token belongs to. */
   suspend fun me(): RommUser =
-    get(RommUser.serializer().nullable, "users", "me") ?: throw RommException.Unauthorized(null)
+    get<RommUser?>("users", "me") ?: throw RommException.Unauthorized(null)
 
-  suspend fun platforms(): List<RommPlatform> =
-    get(ListSerializer(RommPlatform.serializer()), "platforms")
+  suspend fun platforms(): List<RommPlatform> = get("platforms")
 
   /** One page of the ROMs that match [query]. */
   suspend fun roms(
@@ -167,17 +145,10 @@ class RommClient(
   }
 
   private suspend fun romPage(query: RomQuery, limit: Int, offset: Int, withTotal: Boolean) =
-    get(RommPage.serializer(RommRom.serializer()), "roms") {
-      // An empty list would still add the name, which the server reads as an empty id.
-      if (query.platformIds.isNotEmpty()) {
-        appendAll("platform_ids", query.platformIds.map { it.toString() })
-      }
-      query.collectionId?.let { append("collection_id", it.toString()) }
-      query.smartCollectionId?.let { append("smart_collection_id", it.toString()) }
-      query.search?.let { append("search_term", it) }
+    get<RommPage<RommRom>>("roms") {
       query.updatedAfter?.let { append("updated_after", it.toString()) }
       query.lastPlayed?.let { append("last_played", it.toString()) }
-      append("order_by", query.orderBy?.apiName ?: "")
+      append("order_by", query.orderBy.apiName)
       append("order_dir", if (query.descending) "desc" else "asc")
       append("with_files", query.withFiles.toString())
       append("with_total", withTotal.toString())
@@ -190,63 +161,34 @@ class RommClient(
     }
 
   /** The ids of every ROM the user can see. */
-  suspend fun romIds(): List<Long> = get(ListSerializer(Long.serializer()), "roms", "identifiers")
+  suspend fun romIds(): List<Long> = get("roms", "identifiers")
 
-  suspend fun rom(id: Long): RommRom = get(RommRom.serializer(), "roms", id.toString())
+  suspend fun rom(id: Long): RommRom = get("roms", id.toString())
 
-  /** One ROM file, by the file's id. */
-  suspend fun romFile(fileId: Long): RommRomFile =
-    get(RommRomFile.serializer(), "roms", fileId.toString(), "files")
+  suspend fun collections(): List<RommCollection> = get("collections")
 
-  suspend fun collections(): List<RommCollection> =
-    get(ListSerializer(RommCollection.serializer()), "collections")
-
-  suspend fun smartCollections(): List<RommSmartCollection> =
-    get(ListSerializer(RommSmartCollection.serializer()), "collections", "smart")
+  suspend fun smartCollections(): List<RommSmartCollection> = get("collections", "smart")
 
   /** The firmware the server has, for one platform or for all of them. */
   suspend fun firmware(platformId: Long? = null): List<RommFirmware> =
-    get(ListSerializer(RommFirmware.serializer()), "firmware") {
+    get("firmware") {
       platformId?.let { append("platform_id", it.toString()) }
     }
 
-  /** The user's saves, optionally narrowed to a ROM, a platform or the device that wrote them. */
-  suspend fun saves(
-    romId: Long? = null,
-    platformId: Long? = null,
-    deviceId: String? = null,
-  ): List<RommSave> =
-    get(ListSerializer(RommSave.serializer()), "saves") {
-      romId?.let { append("rom_id", it.toString()) }
-      platformId?.let { append("platform_id", it.toString()) }
-      deviceId?.let { append("device_id", it) }
-    }
-
-  /** The user's save states, optionally narrowed to a ROM or a platform. */
-  suspend fun states(romId: Long? = null, platformId: Long? = null): List<RommState> =
-    get(ListSerializer(RommState.serializer()), "states") {
-      romId?.let { append("rom_id", it.toString()) }
-      platformId?.let { append("platform_id", it.toString()) }
-    }
-
-  suspend fun devices(): List<RommDevice> = get(ListSerializer(RommDevice.serializer()), "devices")
-
-  suspend fun device(id: String): RommDevice = get(RommDevice.serializer(), "devices", id)
+  /** The user's saves, optionally narrowed to a ROM. */
+  suspend fun saves(romId: Long? = null): List<RommSave> =
+    get("saves") { romId?.let { append("rom_id", it.toString()) } }
 
   /** The install requests for a device that are pending or that it has taken, oldest first. */
   suspend fun installRequests(deviceId: String): List<RommInstallRequest> =
-    get(ListSerializer(RommInstallRequest.serializer()), "devices", deviceId, "installs")
+    get("devices", deviceId, "installs")
 
   /**
    * Takes every pending install request for a device, and returns all the requests it has taken,
    * oldest first. The device then reports how each ended with [updateInstallRequest].
    */
   suspend fun claimInstallRequests(deviceId: String): List<RommInstallRequest> =
-    send(
-      ListSerializer(RommInstallRequest.serializer()),
-      HttpMethod.Post,
-      listOf("devices", deviceId, "installs", "claim"),
-    )
+    send(HttpMethod.Post, listOf("devices", deviceId, "installs", "claim"))
 
   /** Reports how an install request the device took ended, which ends it on the server. */
   suspend fun updateInstallRequest(
@@ -255,76 +197,21 @@ class RommClient(
     status: RommInstallStatus,
     reason: String? = null,
   ): RommInstallRequest =
-    send(
-      RommInstallRequest.serializer(),
-      HttpMethod.Put,
-      listOf("devices", deviceId, "installs", requestId),
-      body =
-        RommJson.encodeToString(
-          RommInstallUpdate.serializer(),
-          // The server keeps at most 500 characters of the reason.
-          RommInstallUpdate(status, reason?.take(500)),
-        ),
-    )
+    send(HttpMethod.Put, listOf("devices", deviceId, "installs", requestId)) {
+      // The server keeps at most 500 characters of the reason.
+      jsonBody(RommInstallUpdate(status, reason?.take(500)))
+    }
 
   /** Cancels an install request that's pending or taken, which ends it on the server. */
   suspend fun cancelInstallRequest(deviceId: String, requestId: String): RommInstallRequest =
-    send(
-      RommInstallRequest.serializer(),
-      HttpMethod.Delete,
-      listOf("devices", deviceId, "installs", requestId),
-    )
+    send(HttpMethod.Delete, listOf("devices", deviceId, "installs", requestId))
 
   /** Declares what this device can do, such as taking games sent from RomM's web page. */
   suspend fun updateDeviceCapabilities(deviceId: String, capabilities: Map<String, Boolean>) {
-    send(
-      JsonElement.serializer(),
-      HttpMethod.Put,
-      listOf("devices", deviceId),
-      body =
-        RommJson.encodeToString(
-          RommDeviceCapabilities.serializer(),
-          RommDeviceCapabilities(capabilities),
-        ),
-    )
+    request(HttpMethod.Put, listOf("devices", deviceId)) {
+      jsonBody(RommDeviceCapabilities(capabilities))
+    }
   }
-
-  suspend fun syncSessions(
-    deviceId: String? = null,
-    limit: Int = 50,
-    offset: Int = 0,
-  ): List<RommSyncSession> =
-    get(ListSerializer(RommSyncSession.serializer()), "sync", "sessions") {
-      deviceId?.let { append("device_id", it) }
-      append("limit", limit.toString())
-      append("offset", offset.toString())
-    }
-
-  suspend fun syncSession(id: Long): RommSyncSession =
-    get(RommSyncSession.serializer(), "sync", "sessions", id.toString())
-
-  /**
-   * Downloads a ROM to [target], resuming from what [target] already holds.
-   *
-   * A ROM with several files downloads as a zip named [fileName], with an `.m3u` playlist when it's
-   * a multi-disc game. RomM lists each file's hashes, for checking the result: a resume doesn't
-   * detect a file that changed on the server in between.
-   *
-   * @param fileName the ROM's file name, or the zip's name for a ROM with several files.
-   * @param fileIds the files to include, or all of them when empty.
-   */
-  suspend fun downloadRom(
-    romId: Long,
-    fileName: String,
-    target: Path,
-    fileIds: List<Long> = emptyList(),
-    onProgress: (DownloadProgress) -> Unit = {},
-  ): DownloadResult =
-    http.download(target, onProgress) {
-      endpoint(HttpMethod.Get, listOf("roms", romId.toString(), "content", fileName)) {
-        if (fileIds.isNotEmpty()) append("file_ids", fileIds.joinToString(","))
-      }
-    }
 
   /**
    * Downloads one file of a ROM to [target], resuming from what [target] already holds. RomM lists
@@ -395,21 +282,18 @@ class RommClient(
           )
         },
       )
-    val (response, text) =
-      network {
-        val response = http.request {
-          endpoint(HttpMethod.Post, listOf("saves")) {
-            append("rom_id", romId.toString())
-            emulator?.let { append("emulator", it) }
-            slot?.let { append("slot", it) }
-            if (overwrite) append("overwrite", "true")
-          }
-          setBody(form)
-        }
-        response to response.bodyAsText()
-      }
-    if (!response.status.isSuccess()) throw errorFor(response, text)
-    return decode(RommSave.serializer(), text)
+    return send(
+      HttpMethod.Post,
+      listOf("saves"),
+      params = {
+        append("rom_id", romId.toString())
+        emulator?.let { append("emulator", it) }
+        slot?.let { append("slot", it) }
+        if (overwrite) append("overwrite", "true")
+      },
+    ) {
+      setBody(form)
+    }
   }
 
   /**
@@ -422,53 +306,37 @@ class RommClient(
     fileName: String,
     totalSize: Long,
     totalChunks: Int,
-  ): String {
-    val (response, text) =
-      network {
-        val response = http.request {
-          endpoint(HttpMethod.Post, listOf("roms", "upload", "start"))
-          header("x-upload-platform", platformId.toString())
-          // A header carries only Latin-1, so the body names the file as it is.
-          header(
-            "x-upload-filename",
-            fileName.map { if (it.code in 0x20..0x7e) it else '_' }.joinToString(""),
-          )
-          header("x-upload-total-size", totalSize.toString())
-          header("x-upload-total-chunks", totalChunks.toString())
-          contentType(ContentType.Application.Json)
-          setBody(RommJson.encodeToString(UploadTarget.serializer(), UploadTarget(fileName)))
-        }
-        response to response.bodyAsText()
+  ): String =
+    send<UploadStarted>(HttpMethod.Post, listOf("roms", "upload", "start")) {
+        header("x-upload-platform", platformId.toString())
+        // A header carries only Latin-1, so the body names the file as it is.
+        header(
+          "x-upload-filename",
+          fileName.map { if (it.code in 0x20..0x7e) it else '_' }.joinToString(""),
+        )
+        header("x-upload-total-size", totalSize.toString())
+        header("x-upload-total-chunks", totalChunks.toString())
+        jsonBody(UploadTarget(fileName))
       }
-    if (!response.status.isSuccess()) throw errorFor(response, text)
-    return decode(UploadStarted.serializer(), text).uploadId
-  }
+      .uploadId
 
   /** Sends chunk [index] of the upload [uploadId]. */
   suspend fun uploadChunk(uploadId: String, index: Int, bytes: ByteArray) {
-    val (response, text) =
-      network {
-        val response = http.request {
-          endpoint(HttpMethod.Put, listOf("roms", "upload", uploadId))
-          header("x-chunk-index", index.toString())
-          contentType(ContentType.Application.OctetStream)
-          setBody(bytes)
-        }
-        response to response.bodyAsText()
-      }
-    if (!response.status.isSuccess()) throw errorFor(response, text)
+    request(HttpMethod.Put, listOf("roms", "upload", uploadId)) {
+      header("x-chunk-index", index.toString())
+      contentType(ContentType.Application.OctetStream)
+      setBody(bytes)
+    }
   }
 
   /** Puts the upload [uploadId]'s chunks together into the game's file on the server. */
   suspend fun completeUpload(uploadId: String) {
-    val (response, text) = exchange(HttpMethod.Post, listOf("roms", "upload", uploadId, "complete"))
-    if (!response.status.isSuccess()) throw errorFor(response, text)
+    request(HttpMethod.Post, listOf("roms", "upload", uploadId, "complete"))
   }
 
   /** Stops the upload [uploadId], and the server drops what it received. */
   suspend fun cancelUpload(uploadId: String) {
-    val (response, text) = exchange(HttpMethod.Post, listOf("roms", "upload", uploadId, "cancel"))
-    if (!response.status.isSuccess()) throw errorFor(response, text)
+    request(HttpMethod.Post, listOf("roms", "upload", uploadId, "cancel"))
   }
 
   /**
@@ -476,17 +344,13 @@ class RommClient(
    * folder to the library, and returns the scan task's id. Needs the `tasks.run` scope.
    */
   suspend fun scanPlatform(platformId: Long): String =
-    send(
-        ScanTask.serializer(),
-        HttpMethod.Post,
-        listOf("tasks", "scan"),
-        body = RommJson.encodeToString(ScanRequest.serializer(), ScanRequest(listOf(platformId))),
-      )
+    send<ScanTask>(HttpMethod.Post, listOf("tasks", "scan")) {
+        jsonBody(ScanRequest(listOf(platformId)))
+      }
       .taskId
 
   /** The status of the server's task [taskId], such as `queued`, `started` or `finished`. */
-  suspend fun taskStatus(taskId: String): String =
-    get(ScanTask.serializer(), "tasks", taskId).status
+  suspend fun taskStatus(taskId: String): String = get<ScanTask>("tasks", taskId).status
 
   /**
    * Starts a device sign-in. Show the user [DeviceCode.userCode] and [DeviceCode.verificationUrl],
@@ -494,12 +358,9 @@ class RommClient(
    */
   suspend fun startDeviceAuth(request: DeviceAuthRequest): DeviceCode {
     val response =
-      send(
-        DeviceAuthInitResponse.serializer(),
-        HttpMethod.Post,
-        listOf("auth", "device", "init"),
-        body = RommJson.encodeToString(DeviceAuthRequest.serializer(), request),
-      )
+      send<DeviceAuthInitResponse>(HttpMethod.Post, listOf("auth", "device", "init")) {
+        jsonBody(request)
+      }
     return DeviceCode(
       deviceCode = response.deviceCode,
       userCode = response.userCode,
@@ -540,9 +401,10 @@ class RommClient(
   }
 
   private suspend fun pollDeviceAuth(deviceCode: String): DeviceAuthPoll {
-    val body =
-      RommJson.encodeToString(DeviceAuthPollRequest.serializer(), DeviceAuthPollRequest(deviceCode))
-    val (response, text) = exchange(HttpMethod.Post, listOf("auth", "device", "token"), body)
+    val (response, text) =
+      exchange(HttpMethod.Post, listOf("auth", "device", "token")) {
+        jsonBody(DeviceAuthPollRequest(deviceCode))
+      }
     if (response.status.isSuccess()) {
       return DeviceAuthPoll.Approved(decode(DeviceToken.serializer(), text))
     }
@@ -571,38 +433,48 @@ class RommClient(
       .buildString()
   }
 
-  private suspend fun <T> get(
-    serializer: KSerializer<T>,
+  private suspend inline fun <reified T> get(
     vararg path: String,
-    params: ParametersBuilder.() -> Unit = {},
-  ): T = send(serializer, HttpMethod.Get, path.toList(), params = params)
+    noinline params: ParametersBuilder.() -> Unit = {},
+  ): T = send(HttpMethod.Get, path.toList(), params)
 
-  private suspend fun <T> send(
-    serializer: KSerializer<T>,
+  /** Sends a request to the API's [path], and decodes the response's body. */
+  private suspend inline fun <reified T> send(
     method: HttpMethod,
     path: List<String>,
-    body: String? = null,
+    noinline params: ParametersBuilder.() -> Unit = {},
+    noinline configure: HttpRequestBuilder.() -> Unit = {},
+  ): T = decode(serializer<T>(), request(method, path, params, configure))
+
+  /** Sends a request to the API's [path], and returns the response's body. */
+  private suspend fun request(
+    method: HttpMethod,
+    path: List<String>,
     params: ParametersBuilder.() -> Unit = {},
-  ): T {
-    val (response, text) = exchange(method, path, body, params)
+    configure: HttpRequestBuilder.() -> Unit = {},
+  ): String {
+    val (response, text) = exchange(method, path, params, configure)
     if (!response.status.isSuccess()) throw errorFor(response, text)
-    return decode(serializer, text)
+    return text
   }
 
+  /** Sends a request to the API's [path], and returns the response with its body, even an error. */
   private suspend fun exchange(
     method: HttpMethod,
     path: List<String>,
-    body: String? = null,
     params: ParametersBuilder.() -> Unit = {},
+    configure: HttpRequestBuilder.() -> Unit = {},
   ): Pair<HttpResponse, String> = network {
     val response = http.request {
       endpoint(method, path, params)
-      if (body != null) {
-        contentType(ContentType.Application.Json)
-        setBody(body)
-      }
+      configure()
     }
     response to response.bodyAsText()
+  }
+
+  private inline fun <reified T> HttpRequestBuilder.jsonBody(body: T) {
+    contentType(ContentType.Application.Json)
+    setBody(RommJson.encodeToString(body))
   }
 
   private fun HttpRequestBuilder.endpoint(
@@ -627,27 +499,18 @@ class RommClient(
 
 /** Filters and order for listing ROMs. */
 data class RomQuery(
-  /** ROMs on any of these platforms, or on all platforms when empty. */
-  val platformIds: List<Long> = emptyList(),
-  val collectionId: Long? = null,
-  val smartCollectionId: Long? = null,
-  /** ROMs whose names match these words. */
-  val search: String? = null,
   /** ROMs the server changed after this time. */
   val updatedAfter: Instant? = null,
   /** ROMs the signed-in user has played (true) or hasn't (false), or all ROMs when null. */
   val lastPlayed: Boolean? = null,
   /** Whether to include each ROM's files. */
   val withFiles: Boolean = false,
-  /** The order, or null for the server's default, which ranks a search by relevance. */
-  val orderBy: RomOrder? = RomOrder.Id,
+  val orderBy: RomOrder = RomOrder.Id,
   val descending: Boolean = false,
 )
 
 enum class RomOrder(internal val apiName: String) {
   Id("id"),
-  Name("name"),
-  UpdatedAt("updated_at"),
   /** When the signed-in user last played the ROM. */
   LastPlayed("last_played"),
 }

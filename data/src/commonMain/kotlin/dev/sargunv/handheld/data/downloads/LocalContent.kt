@@ -119,14 +119,16 @@ internal class ContentScanner(
     // Platforms that share a folder share its files.
     for ((folderName, sharing) in platforms.groupBy { it.fsSlug }) {
       val folderRoms = sharing.flatMap { romsByPlatform[it.id].orEmpty() }
-      val names = folderRoms.mapTo(mutableSetOf(), ::romName)
+      val names = folderRoms.mapNotNullTo(mutableSetOf(), GameLayout::romName)
       val entries = targets.flatMap {
         entriesOf(Path(GameLayout.platformFolder(it.root, folderName)))
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
       // Each target's files in name order, the targets in the order they fill.
       val loose = entries.filterNot { it.name in names || skipped(it.name) }
-      val candidates = folderRoms.filter { it.files.size == 1 && romName(it) !in present }
+      val candidates = folderRoms.filter {
+        it.files.size == 1 && GameLayout.romName(it) !in present
+      }
       val sizes = candidates.mapTo(mutableSetOf()) { it.files.single().sizeBytes }
       // A set's files are read only where that's quick, or where one could be a game by its size.
       // A set with a file that's a game of the library is its files, each on its own.
@@ -312,8 +314,6 @@ private fun ByteArray.readInt(offset: Int): Int =
 
 private fun ByteArray.toHex(): String =
   joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-
-private fun romName(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
 
 /**
  * The disc sets copied in loose among [files], the entries of platforms' folders: each playlist or
