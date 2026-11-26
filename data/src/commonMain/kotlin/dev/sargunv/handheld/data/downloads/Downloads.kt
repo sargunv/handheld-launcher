@@ -343,15 +343,15 @@ class DownloadManager(
         if (folder != null) {
           put(rom.id, RomStatus.OnDevice(Path(folder, name).toString()))
         } else {
-          matchedFile(rom)?.let { put(rom.id, RomStatus.OnDevice(it.toString())) }
+          matchedFile(rom.id)?.let { put(rom.id, RomStatus.OnDevice(it.toString())) }
         }
       }
     }
   }
 
-  /** The file the scan matched to [rom] by content, while it's still there. */
-  private fun matchedFile(rom: Rom): Path? =
-    scanned.value.matched[rom.id]?.let(::Path)?.takeIf {
+  /** The file the scan matched to the ROM [romId] by content, while it's still there. */
+  private fun matchedFile(romId: Long): Path? =
+    scanned.value.matched[romId]?.let(::Path)?.takeIf {
       SystemFileSystem.metadataOrNull(it)?.isRegularFile == true
     }
 
@@ -365,12 +365,16 @@ class DownloadManager(
     // Once begun, a removal finishes even if the screen that asked goes away.
     withContext(NonCancellable + Dispatchers.IO) {
       val folder = library.platform(rom.platformId)?.fsSlug
-      val path = folder?.let { locate(rom, it) } ?: return@withContext Removal.NotOnDevice
-      // A file matched by content is read again first, in case it changed since the scan.
-      if (path.toString() == scanned.value.matched[rom.id] && !scanner.stillMatches(path, rom)) {
-        installs.update { it + 1 }
-        return@withContext Removal.NotOnDevice
-      }
+      val path =
+        folder?.let { locateByName(rom, it) }
+          ?: matchedFile(rom.id)?.also {
+            // A file matched by content is read again first, in case it changed since the scan.
+            if (!scanner.stillMatches(it, rom)) {
+              installs.update { count -> count + 1 }
+              return@withContext Removal.NotOnDevice
+            }
+          }
+          ?: return@withContext Removal.NotOnDevice
       try {
         if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
           // A file is the game's while no more files have its name than the game has, so a stray
@@ -451,14 +455,18 @@ class DownloadManager(
    * Where [rom] is on the device, if it's on any storage target: by its server name, else in a file
    * the scan matched by content.
    */
-  private fun locate(rom: Rom, platformFolder: String): Path? {
+  private fun locate(rom: Rom, platformFolder: String): Path? =
+    locateByName(rom, platformFolder) ?: matchedFile(rom.id)
+
+  /** Where [rom] is on the device by its server name, if it's on any storage target. */
+  private fun locateByName(rom: Rom, platformFolder: String): Path? {
     val name = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
     // A name that isn't one entry of the platform's folder never matches, so nothing outside the
     // game's own place is taken for it, or deleted with it.
-    if (name.isEmpty() || name == "." || name == ".." || '/' in name) return matchedFile(rom)
+    if (name.isEmpty() || name == "." || name == ".." || '/' in name) return null
     return storage()
       .map { Path(GameLayout.platformFolder(it.root, platformFolder), name) }
-      .firstOrNull { SystemFileSystem.exists(it) } ?: matchedFile(rom)
+      .firstOrNull { SystemFileSystem.exists(it) }
   }
 
   private suspend fun run(download: Download) {
@@ -504,6 +512,8 @@ class DownloadManager(
       if (files.isEmpty()) throw DownloadException("The server has no files for this game")
       val name = GameLayout.romName(rom.fsName, rom.files.map { it.fileName })
       val totalBytes = files.sumOf { it.fileSizeBytes }
+      // The scan found the game in a file of another name meanwhile.
+      if (matchedFile(download.romId) != null) return RommInstallStatus.AlreadyInstalled
 
       val (root, target) =
         if (download.storageRoot != null && download.path != null) {
@@ -520,9 +530,7 @@ class DownloadManager(
           }
           root to target
         }
-      if (SystemFileSystem.exists(target) || scanned.value.matched[download.romId] != null) {
-        return RommInstallStatus.AlreadyInstalled
-      }
+      if (SystemFileSystem.exists(target)) return RommInstallStatus.AlreadyInstalled
       val staging = Path("$target.part")
       val multiFile = rom.files.size > 1
       val targets = files.map {
