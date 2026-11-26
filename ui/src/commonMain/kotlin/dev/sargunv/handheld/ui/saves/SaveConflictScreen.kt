@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -20,6 +21,8 @@ import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
+import dev.sargunv.handheld.ui.input.Hint
+import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -63,39 +66,45 @@ fun SaveConflictScreen(
       },
     initialFocus = conflict.newer.name,
   ) {
-    Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-      Text(
-        "Which save do you want to play?",
-        color = Placeholder.text,
-        fontSize = 28.sp,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(
-        "${conflict.gameName} was saved on this device and on RomM since they last synced. " +
-          "The save you don't choose is kept in the game's save history.",
-        color = Placeholder.mutedText,
-      )
-      Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-        for (copy in listOf(SaveCopy.Device, SaveCopy.Server)) {
-          val version = if (copy == SaveCopy.Device) conflict.device else conflict.server
-          Column(
-            Modifier.width(280.dp)
-              .focusItem(copy.name, onConfirm = { onChoose(copy) })
-              .background(Placeholder.tile)
-              .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-          ) {
-            Text(
-              if (copy == SaveCopy.Device) "This device" else "RomM",
-              color = Placeholder.text,
-              fontSize = 22.sp,
-            )
-            Text("Saved ${ago(version.changedAt, now)}", color = Placeholder.text)
-            Text(size(version.sizeBytes), color = Placeholder.mutedText)
-            if (copy == conflict.newer) Text("Newer", color = Placeholder.mutedText)
+    Column(Modifier.fillMaxSize()) {
+      Column(
+        Modifier.fillMaxWidth().weight(1f).padding(48.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+      ) {
+        Text(
+          "Which save do you want to play?",
+          color = Placeholder.text,
+          fontSize = 28.sp,
+          modifier = Modifier.semantics { heading() },
+        )
+        Text(
+          "${conflict.gameName} was saved on this device and on RomM since they last synced. " +
+            "The save you don't choose is kept in the game's save history.",
+          color = Placeholder.mutedText,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+          for (copy in listOf(SaveCopy.Device, SaveCopy.Server)) {
+            val version = if (copy == SaveCopy.Device) conflict.device else conflict.server
+            Column(
+              Modifier.width(280.dp)
+                .focusItem(copy.name, onConfirm = { onChoose(copy) })
+                .background(Placeholder.tile)
+                .padding(24.dp),
+              verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              Text(
+                if (copy == SaveCopy.Device) "This device" else "RomM",
+                color = Placeholder.text,
+                fontSize = 22.sp,
+              )
+              Text("Saved ${ago(version.changedAt, now)}", color = Placeholder.text)
+              Text(size(version.sizeBytes), color = Placeholder.mutedText)
+              if (copy == conflict.newer) Text("Newer", color = Placeholder.mutedText)
+            }
           }
         }
       }
+      HintBar(listOf(Hint(Action.Confirm, "Play with this save"), Hint(Action.Back, "Don't play")))
     }
   }
 }

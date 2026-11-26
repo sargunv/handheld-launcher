@@ -184,6 +184,15 @@ class LibraryCacheTest {
       cache.romsInCollection(CollectionKind.Smart, 1).first().first().files.map { it.id / 10 },
     )
     assertEquals(listOf("Adventures", "Couch"), cache.collectionsOf(1).map { it.name })
+    // Each collection's games, leaving out the ones the cache doesn't hold.
+    assertEquals(
+      mapOf(
+        (CollectionKind.Regular to 1L) to setOf(1L, 3L),
+        (CollectionKind.Regular to 2L) to setOf(2L),
+        (CollectionKind.Smart to 1L) to setOf(1L, 2L, 3L),
+      ),
+      cache.collectionRoms().first(),
+    )
 
     cache.replaceCollections(emptyList())
     assertEquals(emptyList(), cache.collections().first())

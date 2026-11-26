@@ -263,9 +263,9 @@ class SettingsTest {
 
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitText("Open Game Boy games with")
-    awaitText("Why Game Boy games open in the built-in session")
+    awaitText("Why Game Boy games open in Built-in · Gambatte")
     // A game's own choice doesn't apply to the platform, so the chain starts at the platform.
-    onNodeWithText("Platform Game Boy: Built-in session (default) · opens here").assertExists()
+    onNodeWithText("Platform Game Boy: Built-in (default) · opens here").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Nothing chosen")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
 
@@ -276,7 +276,7 @@ class SettingsTest {
 
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
-    awaitText("Clearing it opens them in the built-in session.")
+    awaitText("Clearing it opens them in Built-in · Gambatte.")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Built-in · Gambatte")

@@ -99,7 +99,7 @@ adb shell input -d 0 keyevent "KEYCODE_$key"
 
 [tasks."android:open"]
 description = "Show a screen of the debug app on the connected device straight away"
-usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, library, library:<platform-slug>, settings or settings:<section>"'
+usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, library, library:tab:<tab>, library:<platform-slug>, library:collection:<id>, library:collection:smart:<id>, settings or settings:<section>"'
 run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$usage_target" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
 
 [tasks."android:ui"]

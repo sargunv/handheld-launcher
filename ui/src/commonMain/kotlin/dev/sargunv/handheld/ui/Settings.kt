@@ -17,8 +17,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class Settings(
   val input: InputSettings = InputSettings(),
-  /** Whether a game in the session pauses while its window lacks focus. */
-  val pauseGameWhenUnfocused: Boolean = false,
   val home: HomeSettings = HomeSettings(),
   val library: LibrarySettings = LibrarySettings(),
   /** The apps the user picked to open games in. */

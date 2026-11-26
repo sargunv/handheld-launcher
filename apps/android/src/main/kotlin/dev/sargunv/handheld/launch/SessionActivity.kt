@@ -175,7 +175,6 @@ class SessionActivity : ComponentActivity() {
       stackedScreensOptions().isNotEmpty() &&
         getSystemService(DisplayManager::class.java).secondaryDisplay() != null
     view = GameSessionView(this)
-    view.pauseWhenUnfocused = intent.getBooleanExtra(EXTRA_PAUSE_WHEN_UNFOCUSED, false)
     view.faceKeyCodes =
       AButtonPosition.valueOf(intent.getStringExtra(EXTRA_A_BUTTON_POSITION)!!).faceKeyCodes()
     // The menu draws over the game's surface, which shows through where it's clear.
@@ -456,7 +455,6 @@ class SessionActivity : ComponentActivity() {
     private const val EXTRA_SAVE_DIR = "save_dir"
     private const val EXTRA_SAVE_RAM = "save_ram"
     private const val EXTRA_STATES = "states"
-    private const val EXTRA_PAUSE_WHEN_UNFOCUSED = "pause_when_unfocused"
     private const val EXTRA_A_BUTTON_POSITION = "a_button_position"
     private const val EXTRA_STACKED_SCREENS_KEYS = "stacked_screens_keys"
     private const val EXTRA_STACKED_SCREENS_VALUES = "stacked_screens_values"
@@ -497,7 +495,6 @@ class SessionActivity : ComponentActivity() {
       saveDir: String,
       saveRam: String,
       states: List<String>,
-      pauseWhenUnfocused: Boolean,
       aButtonPosition: AButtonPosition,
       stackedScreensOptions: Map<String, String> = emptyMap(),
       lowerScreenWidthShare: Float? = null,
@@ -511,7 +508,6 @@ class SessionActivity : ComponentActivity() {
         .putExtra(EXTRA_SAVE_DIR, saveDir)
         .putExtra(EXTRA_SAVE_RAM, saveRam)
         .putExtra(EXTRA_STATES, states.toTypedArray())
-        .putExtra(EXTRA_PAUSE_WHEN_UNFOCUSED, pauseWhenUnfocused)
         .putExtra(EXTRA_A_BUTTON_POSITION, aButtonPosition.name)
         .putExtra(EXTRA_STACKED_SCREENS_KEYS, stackedScreensOptions.keys.toTypedArray())
         .putExtra(EXTRA_STACKED_SCREENS_VALUES, stackedScreensOptions.values.toTypedArray())

@@ -50,6 +50,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 
 @OptIn(ExperimentalTestApi::class)
 class GameTest {
@@ -67,7 +69,10 @@ class GameTest {
     val conflict: SaveConflict? = null,
     val stillRunning: String? = null,
     override val canCloseEmulators: Boolean = false,
+    /** Holds the launch, saying it's getting the core, until it completes. */
+    val hold: CompletableDeferred<Unit>? = null,
   ) : GameLauncher {
+    var canceled = false
     val played = mutableListOf<String>()
     val rules = mutableListOf<LaunchRules>()
     var chosen: SaveCopy? = null
@@ -87,6 +92,15 @@ class GameTest {
       askStillRunning: suspend (StillRunning) -> StillRunningChoice,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> {
+      if (hold != null) {
+        onProgress("Getting the core 40%")
+        try {
+          hold.await()
+        } catch (e: CancellationException) {
+          canceled = true
+          throw e
+        }
+      }
       if (conflict != null) {
         chosen = chooseSave(conflict) ?: return emptyList()
       }
@@ -124,8 +138,20 @@ class GameTest {
     }
   }
 
-  /** Launches with the game on the device, and opens it from Home. */
+  /** Launches with the game on the device, and opens its page from Home. */
   private fun ComposeUiTest.openGame(
+    launcher: GameLauncher,
+    apps: AppCatalog = AppCatalog.None,
+  ) {
+    launchHome(launcher, apps)
+    press(Key.ButtonX)
+    onNodeWithTag("menu:game").assertIsFocused()
+    press(Key.ButtonA)
+    awaitText("Play")
+  }
+
+  /** Launches with the game on the device, on Home. */
+  private fun ComposeUiTest.launchHome(
     launcher: GameLauncher,
     apps: AppCatalog = AppCatalog.None,
   ) {
@@ -156,8 +182,10 @@ class GameTest {
       )
     }
     awaitTag("continue:1")
-    press(Key.ButtonA)
-    awaitText("Play")
+    // Home knows the game is on the device once its folder has been read.
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(hasTestTag("hint:Confirm") and hasText("Play")).fetchSemanticsNodes().isNotEmpty()
+    }
   }
 
   private fun ComposeUiTest.awaitTag(tag: String) {
@@ -206,6 +234,58 @@ class GameTest {
     press(Key.ButtonA)
     awaitText("Couldn't sync the save with RomM: Forbidden.")
     assertEquals(listOf(gameFile.path), launcher.played)
+    onNodeWithTag("primary").assertIsFocused()
+  }
+
+  @Test
+  fun confirmOnTheGameBeingPlayedPlaysIt() = runComposeUiTest {
+    val launcher = FakeLauncher()
+    launchHome(launcher)
+    press(Key.ButtonA)
+    // It plays on the game's page, which says how it went.
+    awaitText("Couldn't sync the save with RomM: Forbidden.")
+    assertEquals(listOf(gameFile.path), launcher.played)
+    onNodeWithTag("primary").assertIsFocused()
+    press(Key.ButtonB)
+    awaitTag("continue:1")
+  }
+
+  @Test
+  fun backWhileALaunchIsUnderWayAsksFirst() = runComposeUiTest {
+    val hold = CompletableDeferred<Unit>()
+    val launcher = FakeLauncher(hold = hold)
+    openGame(launcher)
+    press(Key.ButtonA)
+    awaitText("Getting the core 40%")
+    // The menu waits for the launch, since what it opens would leave the screen.
+    onNodeWithTag("hint:Menu").assertDoesNotExist()
+    press(Key.ButtonB)
+    // Staying has focus first, so one press too many keeps the launch going.
+    onNodeWithTag("leave:stay").assertIsFocused()
+    press(Key.ButtonA)
+    onNodeWithTag("leave:stay").assertDoesNotExist()
+    assertFalse(launcher.canceled)
+    onNodeWithText("Getting the core 40%").assertExists()
+    // Leaving stops the launch.
+    press(Key.ButtonB)
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitTag("continue:1")
+    assertTrue(launcher.canceled)
+    assertTrue(launcher.played.isEmpty())
+  }
+
+  @Test
+  fun aLaunchThatFinishesClosesTheQuestion() = runComposeUiTest {
+    val hold = CompletableDeferred<Unit>()
+    val launcher = FakeLauncher(hold = hold)
+    openGame(launcher)
+    press(Key.ButtonA)
+    awaitText("Getting the core 40%")
+    press(Key.ButtonB)
+    onNodeWithTag("leave:stay").assertIsFocused()
+    hold.complete(Unit)
+    awaitText("Couldn't sync the save")
+    onNodeWithTag("leave:stay").assertDoesNotExist()
     onNodeWithTag("primary").assertIsFocused()
   }
 
@@ -292,9 +372,8 @@ class GameTest {
     onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "On")
     press(Key.ButtonB)
 
+    // Confirm on the game being played plays it.
     awaitTag("continue:1")
-    press(Key.ButtonA)
-    awaitText("Play")
     press(Key.ButtonA)
     awaitText("ARMSX2 may still be running")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
@@ -346,8 +425,8 @@ class GameTest {
     onNodeWithText("Built-in · Gambatte").assertExists()
     onNodeWithText("Game Boy default").assertExists()
     onNodeWithTag("app:com.retroarch:gambatte_libretro").assertExists()
-    awaitText("Why it opens in the built-in session")
-    onNodeWithText("→ Platform Game Boy: Built-in session (default) · opens here").assertExists()
+    awaitText("Why it opens in Built-in · Gambatte")
+    onNodeWithText("→ Platform Game Boy: Built-in (default) · opens here").assertExists()
 
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Play")
@@ -361,9 +440,9 @@ class GameTest {
     // Back on Open with, the game's choice is current, and clearing it goes back to the default.
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Why it opens in Notes")
-    onNodeWithText("→ Platform Game Boy: Built-in session (default) · overridden").assertExists()
+    onNodeWithText("→ Platform Game Boy: Built-in (default) · overridden").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Notes")
-    onNodeWithText("Clearing it opens it in the built-in session.").assertExists()
+    onNodeWithText("Clearing it opens it in Built-in · Gambatte.").assertExists()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)

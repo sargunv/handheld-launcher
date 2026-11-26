@@ -103,6 +103,19 @@ private constructor(
       transaction { query.awaitAsList().associate { it.id to it.platform_id } }
     }
 
+  /** The ids of each collection's ROMs, by the collection's kind and id. */
+  fun collectionRoms(): Flow<Map<Pair<CollectionKind, Long>, Set<Long>>> =
+    queries.collectionRoms().asFlow().map { query ->
+      transaction {
+        query
+          .awaitAsList()
+          .groupBy({ it.collection_kind to it.collection_id }, { it.rom_id })
+          .mapValues {
+            it.value.toSet()
+          }
+      }
+    }
+
   /** The ROMs in a collection, in title order. */
   fun romsInCollection(kind: CollectionKind, id: Long): Flow<List<Rom>> =
     queries.romsInCollection(kind, id).asFlow().map { query ->

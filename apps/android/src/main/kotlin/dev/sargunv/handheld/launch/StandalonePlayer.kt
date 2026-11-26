@@ -109,7 +109,7 @@ class StandalonePlayer(
         resolve(LaunchSubject(rom.id, PlatformSlug(rom.platformSlug), collections), rules)
     ) {
       is LaunchResolution.Resolved -> "Opens in ${appName(resolution.target)}"
-      is LaunchResolution.BuiltIn -> "Opens in the built-in player"
+      is LaunchResolution.BuiltIn -> "Opens in Built-in"
       is LaunchResolution.NoEmulatorInstalled -> noEmulator(resolution)
     }
 
@@ -362,7 +362,7 @@ class StandalonePlayer(
         note("Opens in ${appName(resolution.target)}", true)
         lookUpSave(request, resolution.target, ::note)
       }
-      is LaunchResolution.BuiltIn -> note("Opens in the built-in player", true)
+      is LaunchResolution.BuiltIn -> note("Opens in Built-in", true)
       is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution), false)
     }
     return notes

@@ -40,7 +40,9 @@ common ones:
   and Library marks the games on the device with an `onDevice:<romId>` element.
 - `mise run android:open <target>`: show a screen of the debug app straight
   away: `place:home`, `place:library`, `place:downloads`, `place:settings`,
-  `game:<romId>`, `library`, `library:<platform-slug>`, `settings` or
+  `game:<romId>`, `library` (on its last tab), `library:tab:<tab>` (`on-device`,
+  `platforms`, `collections`, `all-games`), `library:<platform-slug>`,
+  `library:collection:<id>`, `library:collection:smart:<id>`, `settings` or
   `settings:<section>` (`controls`, `romm`, `retroachievements`, `emulators`,
   `storage`, `about`). Before sign-in, only the `settings` targets show. It's
   the `open` extra of the launch intent, so

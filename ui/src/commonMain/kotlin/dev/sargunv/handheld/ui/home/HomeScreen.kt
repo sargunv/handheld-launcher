@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -36,11 +37,14 @@ import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.DeviceState
+import dev.sargunv.handheld.ui.library.LibraryTab
+import dev.sargunv.handheld.ui.library.collectionShelfKey
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.MenuButton
@@ -55,6 +59,9 @@ private const val SHELF_SIZE = 20
 /**
  * Home: the game the user was last playing, focused first, then the shelves in the order the user
  * set. It shows what the library cache holds, and updates as syncs change it.
+ *
+ * Confirm on the game being played plays it, and its menu goes to its page. A collection opens its
+ * games in the Library, and Back there comes back here.
  */
 @Composable
 internal fun HomePlace(state: AppState) {
@@ -64,8 +71,10 @@ internal fun HomePlace(state: AppState) {
   val added by remember(library) { library.recentlyAdded(SHELF_SIZE) }.collectAsState(null)
   val collections by remember(library) { library.collections() }.collectAsState(null)
   var menuOpen by rememberSaveable { mutableStateOf(false) }
+  var gameMenuOpen by rememberSaveable { mutableStateOf(false) }
   var focusedShelf by rememberSaveable { mutableStateOf<HomeShelf?>(null) }
-  var focusedGame by remember { mutableStateOf(false) }
+  // Whether the game being played has focus, rather than something on a shelf.
+  var focusedContinue by remember { mutableStateOf(false) }
 
   val settings = state.settings.home
   val playedNow = played.orEmpty()
@@ -86,13 +95,30 @@ internal fun HomePlace(state: AppState) {
   val menuShelf = focusedShelf?.takeIf { hasItems && it in shown }
   val hasMenu = !syncing && (menuShelf != null || settings.hidden.isNotEmpty())
 
+  val continueRom = playedNow.firstOrNull()
+  // The game being played plays at once when it's on the device; otherwise its page opens, which
+  // the Game screen decides once it knows.
+  val continuePlays =
+    continueRom != null && state.deviceStates[continueRom.id] == DeviceState.OnDevice
+
   fun openGame(rom: Rom) = state.navigator.push(Screen.Game(rom.id, rom.title))
+  fun playGame(rom: Rom) = state.navigator.push(Screen.Game(rom.id, rom.title, play = true))
+  fun openCollection(collection: Collection) =
+    state.openShelf(
+      LibraryTab.Collections,
+      collectionShelfKey(collection.kind, collection.id),
+      fromHome = true,
+    )
   fun onFocusGame(rom: Rom) {
-    focusedGame = true
+    focusedContinue = false
+    state.focused = Focused.OnGame(rom)
+  }
+  fun onFocusContinue(rom: Rom) {
+    focusedContinue = true
     state.focused = Focused.OnGame(rom)
   }
   fun onFocusCollection(collection: Collection) {
-    focusedGame = false
+    focusedContinue = false
     state.focused = Focused.OnCollection(collection)
   }
 
@@ -106,12 +132,13 @@ internal fun HomePlace(state: AppState) {
   key(continueKey) {
     FocusScope(
       Modifier.fillMaxSize().onAction { action ->
-        if (action == Action.Menu && hasMenu) {
-          menuOpen = true
-          true
-        } else {
-          false
+        when {
+          action != Action.Menu -> return@onAction false
+          hasItems && focusedContinue && continueRom != null -> gameMenuOpen = true
+          hasMenu -> menuOpen = true
+          else -> return@onAction false
         }
+        true
       },
       initialFocus = continueKey,
     ) {
@@ -150,8 +177,8 @@ internal fun HomePlace(state: AppState) {
                       deviceState = state.deviceStates[rom.id],
                       key = "continue:${rom.id}",
                       modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
-                      onFocus = ::onFocusGame,
-                      onOpen = ::openGame,
+                      onFocus = ::onFocusContinue,
+                      onOpen = ::playGame,
                     )
                   }
                 }
@@ -179,7 +206,12 @@ internal fun HomePlace(state: AppState) {
                         ::openGame,
                       )
                     HomeShelf.Collections ->
-                      CollectionShelf(collectionsNow, onFocusShelf, ::onFocusCollection)
+                      CollectionShelf(
+                        collectionsNow,
+                        onFocusShelf,
+                        ::onFocusCollection,
+                        ::openCollection,
+                      )
                   }
                 }
               }
@@ -188,10 +220,21 @@ internal fun HomePlace(state: AppState) {
         }
         HintBar(
           buildList {
-            if (hasItems && focusedGame) add(Hint(Action.Confirm, "Open"))
-            if (hasMenu) add(Hint(Action.Menu, "Menu"))
+            if (hasItems) {
+              add(Hint(Action.Confirm, if (focusedContinue && continuePlays) "Play" else "Open"))
+            }
+            if (hasMenu || (hasItems && focusedContinue)) add(Hint(Action.Menu, "Menu"))
             add(Hint(Action.MainMenu, "Main menu"))
           },
+        )
+      }
+      if (gameMenuOpen && continueRom != null) {
+        GameMenu(
+          state = state,
+          rom = continueRom,
+          settings = settings,
+          onShowShelf = { state.settings = state.settings.copy(home = settings.show(it)) },
+          onDismissRequest = { gameMenuOpen = false },
         )
       }
       if (menuOpen) {
@@ -283,6 +326,7 @@ private fun CollectionShelf(
   collections: List<Collection>,
   onFocusShelf: () -> Unit,
   onFocusCollection: (Collection) -> Unit,
+  onOpen: (Collection) -> Unit,
 ) {
   ShelfColumn(
     HomeShelf.Collections.title,
@@ -295,17 +339,56 @@ private fun CollectionShelf(
     ) {
       items(collections, key = { "${it.kind}:${it.id}" }) { collection ->
         val key = "collection:${collection.kind}:${collection.id}"
-        // Opening a collection waits for the library screen.
         Column(
           Modifier.onFocusChanged { if (it.isFocused) onFocusCollection(collection) }
-            .focusItem(key)
+            .focusItem(
+              key,
+              onConfirm = { onOpen(collection) },
+              description = "${collection.name}, ${gameCount(collection.romCount)}",
+            )
             .size(200.dp, 100.dp)
             .background(Placeholder.tile)
             .padding(12.dp),
           verticalArrangement = Arrangement.Bottom,
         ) {
-          Text(collection.name, color = Placeholder.text)
-          Text(gameCount(collection.romCount), color = Placeholder.mutedText)
+          // The tile's description says all of this once.
+          Column(Modifier.clearAndSetSemantics {}) {
+            Text(collection.name, color = Placeholder.text)
+            Text(gameCount(collection.romCount), color = Placeholder.mutedText)
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The menu on the game being played: its page and Open with, and the hidden shelves, which this
+ * menu shows again too, since the game may be all that Home shows. Each choice closes the menu.
+ */
+@Composable
+private fun GameMenu(
+  state: AppState,
+  rom: Rom,
+  settings: HomeSettings,
+  onShowShelf: (HomeShelf) -> Unit,
+  onDismissRequest: () -> Unit,
+) {
+  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text(rom.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      MenuButton("menu:game", "Go to game page") {
+        onDismissRequest()
+        state.navigator.push(Screen.Game(rom.id, rom.title))
+      }
+      MenuButton("menu:open-with", "Open with") {
+        onDismissRequest()
+        state.navigator.push(Screen.OpenWith(OpenWithScope.Game(rom.id), rom.title))
+      }
+      for (hidden in HomeShelf.entries.filter { it in settings.hidden }) {
+        MenuButton("menu:show:${hidden.name}", "Show “${hidden.title}”") {
+          onShowShelf(hidden)
+          onDismissRequest()
         }
       }
     }

@@ -35,12 +35,14 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
@@ -231,17 +233,36 @@ class HomeTest {
 
   @Test
   fun anOpenRequestForAPlatformOpensItsLibraryShelf() = runComposeUiTest {
-    launch(open = OpenRequest(OpenTarget.LibraryShelf("gb")))
+    launch(open = OpenRequest(OpenTarget.LibraryPlatform("gb")))
     // The shelf's games, rather than the list of shelves.
     awaitTag("shelf:platform:1")
     onNodeWithTag("place:Library").assertExists()
+    // Back goes to the platforms.
+    press(Key.ButtonB)
+    awaitFocused("library:platform:1")
   }
 
   @Test
-  fun anOpenRequestForLibraryShowsItsShelves() = runComposeUiTest {
-    launch(open = OpenRequest(OpenTarget.LibraryShelf(null)))
+  fun anOpenRequestForACollectionOpensItsLibraryShelf() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.LibraryCollection(CollectionKind.Regular, 1)))
+    awaitTag("shelf:collection:Regular:1")
+    press(Key.ButtonB)
+    awaitFocused("library:collection:Regular:1")
+  }
+
+  @Test
+  fun anOpenRequestForLibraryShowsItsTab() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.Library(null)))
     awaitTag("library:shelves")
     onNodeWithTag("place:Library").assertExists()
+    onNodeWithTag("library:tab:Platforms").assertIsSelected()
+  }
+
+  @Test
+  fun anOpenRequestForALibraryTabShowsIt() = runComposeUiTest {
+    launch(open = OpenRequest(OpenTarget.Library(LibraryTab.AllGames)))
+    awaitTag("library:grid")
+    onNodeWithTag("library:tab:AllGames").assertIsSelected()
   }
 
   @Test
@@ -285,9 +306,10 @@ class HomeTest {
     press(Key.ButtonStart)
     onNodeWithTag("main:Library").assertDoesNotExist()
     assertFocused("library:platform:1")
-    // L and R no longer switch places.
+    // L and R switch the Library's tabs, not places.
     press(Key.ButtonR1)
     onNodeWithTag("place:Library").assertExists()
+    onNodeWithTag("library:tab:Collections").assertIsSelected()
     // Back goes Home, with focus where it was.
     press(Key.ButtonB)
     onNodeWithTag("place:Home").assertExists()
@@ -320,6 +342,8 @@ class HomeTest {
   fun aGameOpensItsScreenAndBackComesHome() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
+    // The game being played isn't on the device, so Confirm opens its page rather than playing.
+    onNodeWithTag("hint:Confirm").assertTextEquals("A", "Open")
     press(Key.ButtonA)
     // The primary action has focus first.
     awaitTag("primary")
@@ -327,6 +351,46 @@ class HomeTest {
     onNode(hasTestTag("primary") and hasText("Download (1.0 KB)")).assertExists()
     press(Key.ButtonB)
     assertFocused("continue:2")
+  }
+
+  @Test
+  fun theMenuOnTheGameBeingPlayedGoesToItsPage() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    onNodeWithTag("hint:Menu").assertExists()
+    press(Key.ButtonX)
+    assertFocused("menu:game")
+    onNodeWithTag("menu:open-with").assertExists()
+    press(Key.ButtonA)
+    awaitTag("primary")
+    onNodeWithText("Game 2").assert(isHeading())
+    press(Key.ButtonB)
+    awaitFocused("continue:2")
+  }
+
+  @Test
+  fun aCollectionOpensItsGamesAndBackComesHome() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(listOf(Key.DirectionDown, Key.DirectionDown))
+    assertFocused("collection:Regular:1")
+    onNodeWithTag("collection:Regular:1")
+      .assertContentDescriptionEquals("Favourites, 2 games")
+      .assertHasClickAction()
+    onNodeWithTag("hint:Confirm").assertTextEquals("A", "Open")
+    press(Key.ButtonA)
+    awaitTag("shelf:collection:Regular:1")
+    onNodeWithTag("place:Library").assertExists()
+    awaitFocused("game:1")
+    onNodeWithTag("game:3").assertDoesNotExist()
+    onNodeWithTag("hint:Back").assertTextEquals("B", "Home")
+    press(Key.ButtonB)
+    onNodeWithTag("place:Home").assertExists()
+    awaitFocused("collection:Regular:1")
+    // The Library shows the collection's tab, with it focused.
+    goFromHome(Place.Library)
+    onNodeWithTag("library:tab:Collections").assertIsSelected()
+    awaitFocused("library:collection:Regular:1")
   }
 
   @Test
@@ -400,13 +464,17 @@ class HomeTest {
   }
 
   @Test
-  fun aGameQueuesFromItsMenuAndDownloadsCancelsIt() = runComposeUiTest {
+  fun aGameQueuesAndDownloadsOpensAndCancelsIt() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
     press(Key.ButtonA)
     awaitTag("primary")
+    // Download is the primary action, so the menu doesn't repeat it.
     press(Key.ButtonX)
-    assertFocused("menu:download")
+    assertFocused("menu:open-with")
+    onNodeWithTag("menu:download").assertDoesNotExist()
+    press(Key.ButtonB)
+    assertFocused("primary")
     press(listOf(Key.ButtonA, Key.ButtonB))
     // The main menu counts the queue.
     press(Key.ButtonStart)
@@ -416,6 +484,13 @@ class HomeTest {
     awaitTag("download:2")
     // The test server doesn't serve the game, so the download fails and waits for a retry.
     awaitText("The server didn't find it")
+    // Confirm opens the game's page.
+    onNodeWithTag("hint:Confirm").assertTextEquals("A", "Open")
+    press(Key.ButtonA)
+    awaitTag("primary")
+    onNodeWithText("Game 2").assert(isHeading())
+    press(Key.ButtonB)
+    awaitFocused("download:2")
     press(Key.ButtonX)
     assertFocused("menu:retry")
     press(listOf(Key.DirectionDown, Key.ButtonA))
@@ -433,9 +508,11 @@ class HomeTest {
     onNodeWithTag("shelf:Collections").assertDoesNotExist()
     assertEquals(setOf(HomeShelf.Collections), saved.last().home.hidden)
 
-    // Focus went back to the first game, which isn't on a shelf, so the menu only shows shelves.
+    // Focus went back to the game being played, whose menu shows the hidden shelves too.
     assertFocused("continue:2")
     press(Key.ButtonX)
+    assertFocused("menu:game")
+    press(listOf(Key.DirectionDown, Key.DirectionDown))
     assertFocused("menu:show:Collections")
     press(Key.ButtonA)
     awaitTag("shelf:Collections")

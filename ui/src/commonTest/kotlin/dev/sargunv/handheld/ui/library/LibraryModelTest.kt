@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.ui.library
 
 import dev.sargunv.handheld.data.downloads.RomStatus
+import dev.sargunv.handheld.domain.Collection
+import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import kotlin.test.Test
@@ -35,36 +37,39 @@ class LibraryModelTest {
       createdAt = Instant.parse("2025-01-${addedDay.toString().padStart(2, '0')}T00:00:00Z"),
     )
 
+  private val couch = Collection(CollectionKind.Regular, 1, "Couch", "", 3, isFavorite = false)
+  private val emptyCollection =
+    Collection(CollectionKind.Smart, 1, "Nothing", "", 0, isFavorite = false)
+
   @Test
-  fun listsPlatformsWithGamesAndAllGamesOnlyWhenOn() {
+  fun listsThePlatformsAndCollectionsWithGames() {
     assertEquals(
       listOf("platform:1", "platform:2"),
-      libraryShelves(listOf(gb, nes, empty), allGames = false).map { it.key },
+      platformShelves(listOf(gb, nes, empty)).map { it.key },
     )
     assertEquals(
-      listOf("all", "platform:1", "platform:2"),
-      libraryShelves(listOf(gb, nes, empty), allGames = true).map { it.key },
+      listOf("collection:Regular:1"),
+      collectionShelves(listOf(couch, emptyCollection)).map { it.key },
     )
   }
 
   @Test
   fun stepsBetweenShelvesAndStopsAtTheEnds() {
-    val shelves = libraryShelves(listOf(gb, nes), allGames = true)
-    assertEquals("platform:1", shelves.step("all", 1)?.key)
+    val shelves = platformShelves(listOf(gb, nes))
     assertEquals("platform:2", shelves.step("platform:1", 1)?.key)
     assertNull(shelves.step("platform:2", 1))
-    assertNull(shelves.step("all", -1))
-    // A shelf that went away, such as "All games" once it's off, counts as the first one.
-    val withoutAll = libraryShelves(listOf(gb, nes), allGames = false)
-    assertEquals("platform:1", withoutAll.shelfAt("all")?.key)
-    assertEquals("platform:2", withoutAll.step("all", 1)?.key)
+    assertNull(shelves.step("platform:1", -1))
+    // A shelf that went away counts as the first one.
+    assertEquals("platform:1", shelves.shelfAt("platform:9")?.key)
+    assertEquals("platform:2", shelves.step("platform:9", 1)?.key)
     assertNull(emptyList<LibraryShelf>().shelfAt(null))
   }
 
   @Test
   fun countsEachShelfsGamesOnTheDevice() {
-    val shelves = libraryShelves(listOf(gb, nes), allGames = true)
+    val shelves = platformShelves(listOf(gb, nes)) + collectionShelves(listOf(couch))
     val romPlatforms = mapOf(1L to 1L, 2L to 1L, 3L to 2L, 4L to 2L)
+    val collectionRoms = mapOf((CollectionKind.Regular to 1L) to setOf(1L, 2L, 4L))
     val states =
       mapOf(
         1L to DeviceState.OnDevice,
@@ -72,11 +77,45 @@ class LibraryModelTest {
         4L to DeviceState.Downloading(0f),
       )
     assertEquals(
-      listOf(Triple("all", 5, 2), Triple("platform:1", 3, 1), Triple("platform:2", 2, 1)),
-      shelfSummaries(shelves, romPlatforms, states).map {
+      listOf(
+        Triple("platform:1", 3, 1),
+        Triple("platform:2", 2, 1),
+        Triple("collection:Regular:1", 3, 1),
+      ),
+      shelfSummaries(shelves, romPlatforms, collectionRoms, states).map {
         Triple(it.shelf.key, it.games, it.onDevice)
       },
     )
+  }
+
+  @Test
+  fun aCollectionsPlatformsAreThoseOfItsGames() {
+    val romPlatforms = mapOf(1L to 1L, 2L to 1L, 3L to 2L)
+    assertEquals(
+      listOf(gb, nes),
+      collectionPlatforms(
+        couch,
+        listOf(gb, nes, empty),
+        romPlatforms,
+        mapOf((CollectionKind.Regular to 1L) to setOf(3L, 1L)),
+      ),
+    )
+    assertEquals(
+      listOf(nes),
+      collectionPlatforms(
+        couch,
+        listOf(gb, nes),
+        romPlatforms,
+        mapOf((CollectionKind.Regular to 1L) to setOf(3L)),
+      ),
+    )
+  }
+
+  @Test
+  fun onDeviceKeepsTheGamesOnTheDeviceOrOnTheirWay() {
+    val roms = listOf(rom(1, "a"), rom(2, "b"), rom(3, "c"))
+    val states = mapOf(1L to DeviceState.OnDevice, 3L to DeviceState.Downloading(0.5f))
+    assertEquals(listOf(1L, 3L), roms.onDevice(states).map { it.id })
   }
 
   @Test

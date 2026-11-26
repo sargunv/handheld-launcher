@@ -75,6 +75,7 @@ import dev.sargunv.handheld.ui.library.LibraryPlace
 import dev.sargunv.handheld.ui.library.LibrarySecondary
 import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
+import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsPage
@@ -98,12 +99,13 @@ sealed interface Screen {
   /** The top-level places. */
   data object Places : Screen
 
-  /** A game. */
-  data class Game(val romId: Long, val title: String) : Screen
+  /** A game, which plays as it opens when [play] asks and the game is on the device. */
+  data class Game(val romId: Long, val title: String, val play: Boolean = false) : Screen
 
   /**
-   * The app games open in, for [scope]: a game, from its menu, or a platform, from Settings.
-   * [title] names the game or the platform.
+   * The app games open in, for [scope]: a game, from its menu, a platform, from its menu or
+   * Settings, or a collection's games on one platform, from the collection's menu. [title] names
+   * the game, the platform or the collection.
    */
   data class OpenWith(val scope: OpenWithScope, val title: String) : Screen
 
@@ -204,10 +206,38 @@ class AppState(
   val inputSettings: InputSettings
     get() = settings.input
 
-  /** Shows [next]. The lower screen describes nothing until something there takes focus. */
+  /** The Library tab that shows, which stays between launches. */
+  var libraryTab: LibraryTab
+    get() = settings.library.tab
+    set(value) {
+      if (value != libraryTab)
+        settings = settings.copy(library = settings.library.copy(tab = value))
+    }
+
+  /**
+   * Shows [next]. The lower screen describes nothing until something there takes focus. Leaving the
+   * Library closes a shelf that Home opened, since Back on it would go Home.
+   */
   fun showPlace(next: Place) {
     if (next == place) return
+    if (place == Place.Library && libraryView.returnsHome) {
+      libraryView.isOpen = false
+      libraryView.returnsHome = false
+    }
     place = next
+    focused = null
+  }
+
+  /**
+   * Opens the games of the shelf with [shelfKey] on Library's [tab], as if the player had opened it
+   * there. When [fromHome], Back on it goes Home.
+   */
+  fun openShelf(tab: LibraryTab, shelfKey: String, fromHome: Boolean = false) {
+    showPlace(Place.Library)
+    libraryTab = tab
+    libraryView.focusShelf(tab, shelfKey)
+    libraryView.isOpen = true
+    libraryView.returnsHome = fromHome
     focused = null
   }
 
@@ -266,14 +296,26 @@ class AppState(
         val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
         if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
       }
-      is OpenTarget.LibraryShelf -> {
+      is OpenTarget.Library -> {
         showPlace(Place.Library)
         libraryView.isOpen = false
-        val slug = target.platformSlug ?: return
-        suspend fun find() = library.platforms().first().find { it.slug == slug }
+        libraryView.returnsHome = false
+        target.tab?.let { libraryTab = it }
+      }
+      is OpenTarget.LibraryPlatform -> {
+        showPlace(Place.Library)
+        libraryView.isOpen = false
+        suspend fun find() = library.platforms().first().find { it.slug == target.slug }
         val platform = find() ?: awaitSync().let { find() } ?: return
-        libraryView.shelfKey = LibraryShelf.OfPlatform(platform).key
-        libraryView.isOpen = true
+        openShelf(LibraryTab.Platforms, LibraryShelf.OfPlatform(platform).key)
+      }
+      is OpenTarget.LibraryCollection -> {
+        showPlace(Place.Library)
+        libraryView.isOpen = false
+        suspend fun find() =
+          library.collections().first().find { it.kind == target.kind && it.id == target.id }
+        val collection = find() ?: awaitSync().let { find() } ?: return
+        openShelf(LibraryTab.Collections, LibraryShelf.OfCollection(collection).key)
       }
       is OpenTarget.Settings -> {
         showPlace(Place.Settings)
@@ -446,7 +488,10 @@ private fun PlacesScreen(state: AppState) {
           // A new key starts Home's state over, focus and scroll positions included.
           Place.Home -> key(state.homeResets) { HomePlace(state) }
           Place.Library -> LibraryPlace(state)
-          Place.Downloads -> DownloadsPlace(state.downloads)
+          Place.Downloads ->
+            DownloadsPlace(state.downloads) {
+              state.navigator.push(Screen.Game(it.romId, it.title))
+            }
           Place.Settings -> SettingsPage(state)
         }
       }
