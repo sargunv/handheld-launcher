@@ -22,6 +22,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -138,12 +142,18 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           current?.let { it.coverLargeUrl ?: it.coverSmallUrl },
           screen.title,
           Modifier.size(240.dp, 320.dp),
+          description = null,
         )
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text(screen.title, color = Placeholder.text, fontSize = 28.sp)
+          Text(
+            screen.title,
+            color = Placeholder.text,
+            fontSize = 28.sp,
+            modifier = Modifier.semantics { heading() },
+          )
           current?.let { GameFacts(state, it) }
           if (current != null && primary != null) {
-            MenuButton("primary", primary.label) {
+            MenuButton("primary", primary.label, enabled = primary.isAction) {
               when (primary) {
                 is PrimaryAction.Download -> scope.launch { state.downloads.enqueue(current) }
                 PrimaryAction.Retry -> scope.launch { state.downloads.retry(current.id) }
@@ -152,8 +162,17 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               }
             }
           }
-          for (line in statusLines(status) + notes) {
+          for (line in statusLines(status)) {
             Text(line, color = Placeholder.mutedText, modifier = Modifier.testTag("note"))
+          }
+          // How the last thing the player did here went, such as a play, which a screen reader
+          // says when it appears.
+          for (line in notes) {
+            Text(
+              line,
+              color = Placeholder.mutedText,
+              modifier = Modifier.testTag("note").semantics { liveRegion = LiveRegionMode.Polite },
+            )
           }
           current?.summary?.let {
             Text(it, color = Placeholder.mutedText, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -172,7 +191,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       val close = { menuOpen = false }
       Dialog(close, Modifier.background(Placeholder.dialog).padding(24.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text(current.title, color = Placeholder.text)
+          Text(current.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
           when (status) {
             RomStatus.NotOnDevice ->
               MenuButton("menu:download", PrimaryAction.Download(current.sizeBytes).label) {
@@ -208,13 +227,17 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         initialFocus = "remove:cancel",
       ) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text("Remove ${current.title} from this device?", color = Placeholder.text)
+          Text(
+            "Remove ${current.title} from this device?",
+            color = Placeholder.text,
+            modifier = Modifier.semantics { heading() },
+          )
           Text(
             "Its saves stay, here and on RomM, and you can download it again.",
             color = Placeholder.mutedText,
           )
           Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            MenuButton("remove:cancel", "Cancel", close)
+            MenuButton("remove:cancel", "Cancel", onConfirm = close)
             MenuButton("remove:confirm", "Remove") {
               close()
               scope.launch {
@@ -342,7 +365,13 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
       Modifier.weight(1f).verticalScroll(rememberScrollState()),
       verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-      Text("Saves", color = Placeholder.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+      Text(
+        "Saves",
+        color = Placeholder.text,
+        fontSize = 20.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.semantics { heading() },
+      )
       when (val shown = history) {
         SaveHistoryState.Loading -> Text("Loading saves from RomM", color = Placeholder.mutedText)
         is SaveHistoryState.Failed -> Text(shown.reason, color = Placeholder.mutedText)
@@ -363,7 +392,12 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
       }
       if (kept.isNotEmpty()) {
         Spacer(Modifier.size(8.dp))
-        Text("Kept on this device", color = Placeholder.text, fontWeight = FontWeight.SemiBold)
+        Text(
+          "Kept on this device",
+          color = Placeholder.text,
+          fontWeight = FontWeight.SemiBold,
+          modifier = Modifier.semantics { heading() },
+        )
         for (save in kept) {
           val from = if (save.copy == SaveCopy.Device) "This device's copy" else "RomM's copy"
           SaveRow(from, listOf(save.emulator, ago(save.keptAt, now), size(save.sizeBytes)))
@@ -376,7 +410,10 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
 
 @Composable
 private fun SaveRow(source: String, details: List<String>) {
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+  Row(
+    Modifier.semantics(mergeDescendants = true) {},
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
     Text(source, color = Placeholder.text)
     Text(details.joinToString(" · "), color = Placeholder.mutedText)
   }

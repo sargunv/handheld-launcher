@@ -32,7 +32,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -115,7 +119,12 @@ private fun AddressScreen(state: SignInState) {
     if (url != null) state.navigator.push(screen(url))
   }
   ScreenColumn {
-    Text("Sign in to RomM", color = Placeholder.text, fontSize = 28.sp)
+    Text(
+      "Sign in to RomM",
+      color = Placeholder.text,
+      fontSize = 28.sp,
+      modifier = Modifier.semantics { heading() },
+    )
     TextEntry(
       state = state,
       key = "address",
@@ -135,7 +144,7 @@ private fun AddressScreen(state: SignInState) {
         ),
       onSubmit = { next(SignInScreen::Code) },
     )
-    error?.let { Text(it, color = Placeholder.text) }
+    error?.let { Text(it, color = Placeholder.text, modifier = Modifier.announced()) }
     SignInButton(
       state,
       "continue",
@@ -166,10 +175,16 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
     }
   }
   ScreenColumn {
-    Text("Approve this device", color = Placeholder.text, fontSize = 28.sp)
+    Text(
+      "Approve this device",
+      color = Placeholder.text,
+      fontSize = 28.sp,
+      modifier = Modifier.semantics { heading() },
+    )
     val shown = code
     when {
-      error != null -> Text(error.orEmpty(), color = Placeholder.text)
+      error != null ->
+        Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
       shown == null -> Text("Asking $baseUrl for a code…", color = Placeholder.mutedText)
       else -> {
         Text(
@@ -178,7 +193,15 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
         )
         Text(shown.verificationUrl, color = Placeholder.text)
         Text("Check that it shows this code, then approve it:", color = Placeholder.mutedText)
-        Text(shown.userCode, color = Placeholder.text, fontSize = 48.sp, letterSpacing = 6.sp)
+        Text(
+          shown.userCode,
+          color = Placeholder.text,
+          fontSize = 48.sp,
+          letterSpacing = 6.sp,
+          // Spelled out, a character at a time, the way it's typed.
+          modifier =
+            Modifier.semantics { contentDescription = shown.userCode.toList().joinToString(" ") },
+        )
         Text("Waiting for approval…", color = Placeholder.mutedText)
       }
     }
@@ -231,7 +254,12 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
     }
   }
   ScreenColumn {
-    Text("Sign in with an API token", color = Placeholder.text, fontSize = 28.sp)
+    Text(
+      "Sign in with an API token",
+      color = Placeholder.text,
+      fontSize = 28.sp,
+      modifier = Modifier.semantics { heading() },
+    )
     Text(
       "Create a client API token in RomM on another device, then paste or type it here.",
       color = Placeholder.mutedText,
@@ -267,7 +295,8 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
     }
     when {
       checking -> Text("Checking the token with $baseUrl…", color = Placeholder.mutedText)
-      error != null -> Text(error.orEmpty(), color = Placeholder.text)
+      error != null ->
+        Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
     }
     SignInButton(state, "sign-in", "Sign in", Help("Sign in", "Check the token, then sign in.")) {
       submit()
@@ -312,14 +341,23 @@ private fun TextEntry(
     itemRequester.requestFocus()
     editing = false
   }
+  val text = field.text
+  // Shown text that a screen reader would read as dots, or as a placeholder, says nothing; the
+  // label names the field and says what it holds.
+  val value =
+    when {
+      text.isEmpty() -> "empty"
+      secure -> "entered"
+      else -> text.toString()
+    }
   Box(
     modifier
-      .testTag(key)
       .onFocusChanged { if (it.hasFocus) state.help = help }
       .focusRequester(itemRequester)
       .focusItem(
         key,
         onConfirm = { if (editing) stopEditing() else editing = true },
+        description = if (editing) null else "${help.title}: $value",
         onAction = { action ->
           if (action == Action.Back && editing) {
             stopEditing()
@@ -369,7 +407,6 @@ private fun TextEntry(
       }
       LaunchedEffect(Unit) { fieldRequester.requestFocus() }
     } else {
-      val text = field.text
       Text(
         when {
           text.isEmpty() -> placeholder
@@ -393,8 +430,7 @@ private fun SignInButton(
   onConfirm: () -> Unit,
 ) {
   Box(
-    Modifier.testTag(key)
-      .onFocusChanged { if (it.isFocused) state.help = help }
+    Modifier.onFocusChanged { if (it.isFocused) state.help = help }
       .focusItem(key, onConfirm = onConfirm)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
@@ -402,3 +438,6 @@ private fun SignInButton(
     Text(label, color = Placeholder.text)
   }
 }
+
+/** Makes text that a screen reader says as soon as it appears, such as an error. */
+private fun Modifier.announced() = semantics { liveRegion = LiveRegionMode.Polite }

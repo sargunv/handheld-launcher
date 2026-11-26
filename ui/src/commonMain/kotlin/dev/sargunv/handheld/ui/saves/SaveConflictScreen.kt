@@ -10,7 +10,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
@@ -63,7 +64,12 @@ fun SaveConflictScreen(
     initialFocus = conflict.newer.name,
   ) {
     Column(Modifier.padding(48.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-      Text("Which save do you want to play?", color = Placeholder.text, fontSize = 28.sp)
+      Text(
+        "Which save do you want to play?",
+        color = Placeholder.text,
+        fontSize = 28.sp,
+        modifier = Modifier.semantics { heading() },
+      )
       Text(
         "${conflict.gameName} was saved on this device and on RomM since they last synced. " +
           "The save you don't choose is kept in the game's save history.",
@@ -74,7 +80,6 @@ fun SaveConflictScreen(
           val version = if (copy == SaveCopy.Device) conflict.device else conflict.server
           Column(
             Modifier.width(280.dp)
-              .testTag(copy.name)
               .focusItem(copy.name, onConfirm = { onChoose(copy) })
               .background(Placeholder.tile)
               .padding(24.dp),

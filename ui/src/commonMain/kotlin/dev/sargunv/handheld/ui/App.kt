@@ -33,6 +33,7 @@ import dev.sargunv.handheld.ui.library.deviceStates
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
+import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.signin.SignInPrimary
 import dev.sargunv.handheld.ui.signin.SignInSecondary
@@ -66,6 +67,7 @@ import kotlinx.io.files.Path
  * @param apps the apps on the device that the player can pick to open games in.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
+ * @param openRequest a screen to show once signed in, for development tools.
  */
 @Composable
 fun App(
@@ -83,6 +85,7 @@ fun App(
   launcher: GameLauncher = GameLauncher.Unsupported,
   apps: AppCatalog = AppCatalog.None,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
+  openRequest: OpenRequest? = null,
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
   // Null until the stored credentials have been read.
@@ -126,6 +129,9 @@ fun App(
       }
       delay(1.minutes)
     }
+  }
+  LaunchedEffect(openRequest, signedIn, state) {
+    if (signedIn == true && openRequest != null) state.open(openRequest.target)
   }
   val primary: @Composable () -> Unit = {
     when (signedIn) {

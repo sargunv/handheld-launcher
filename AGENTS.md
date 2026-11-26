@@ -32,7 +32,20 @@ common ones:
 - `mise run android:screenshot`: save the device's screen to a temp file and
   print its path.
 - `mise run android:action <action>`: send a semantic action (`confirm`, `back`,
-  `up`, `menu`, ...) to the app as a key event.
+  `up`, `menu`, ...) to the app as a key event, on display 0.
+- `mise run android:ui`: print where the app is, on every display, without a
+  screenshot: the focused element first, then each visible element with its test
+  tag, text, accessibility label and bounds. Confirming on a game that isn't on
+  the device downloads it, so check first: Home's covers say so in their label,
+  and Library marks the games on the device with an `onDevice:<romId>` element.
+- `mise run android:open <target>`: show a screen of the debug app straight
+  away: `place:home`, `place:library`, `place:downloads`, `game:<romId>`,
+  `library` or `library:<platform-slug>`. It's the `open` extra of the launch
+  intent, so
+  `adb shell am start -n dev.sargunv.handheld/.MainActivity --es open game:42`
+  does the same.
+- `mise run android:lock -- <command>`: run a command while holding the device's
+  lock (below).
 - `mise run session:fixtures`: build the cores and fetch the content the
   session's tests run. `mise run test` runs it first.
 - `mise run session:run -- <core> [content]`: run a core in the session's
@@ -48,6 +61,16 @@ desktop that exposes adb. The Android tasks and Gradle's install use
 devices may be connected. Innkeeper has one display, so use
 `HANDHELD_LAYOUT=frame` to see both screens. Don't set `overlay_display_devices`
 to simulate a second display: it crashes Innkeeper's system_server.
+
+Agents and people often share one device. Hold its lock,
+`/tmp/handheld-device-$ANDROID_SERIAL.lock`, while you install or drive it, and
+keep holds short. `mise run run:android` takes it around installing and
+launching, and waits while someone else holds it. For your own device work, run
+it under `mise run android:lock -- <command>`, which releases the lock when the
+command ends, even when it fails. It also takes the older
+`/tmp/handheld-thor.lock` that earlier agents used. The lock is a directory: a
+holder that was killed outright leaves it behind, so remove it once nobody is
+using the device.
 
 ## Secrets
 

@@ -24,7 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
@@ -102,7 +103,11 @@ internal fun DownloadsPlace(downloads: DownloadManager) {
       val close = { menuFor = null }
       Dialog(close, Modifier.background(Placeholder.dialog).padding(24.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text(menuDownload.title, color = Placeholder.text)
+          Text(
+            menuDownload.title,
+            color = Placeholder.text,
+            modifier = Modifier.semantics { heading() },
+          )
           if (menuDownload.state == DownloadState.Failed) {
             MenuButton("menu:retry", "Retry") {
               scope.launch { downloads.retry(menuDownload.romId) }
@@ -123,7 +128,7 @@ internal fun DownloadsPlace(downloads: DownloadManager) {
 private fun DownloadRow(download: Download, modifier: Modifier) {
   val key = "download:${download.romId}"
   Column(
-    modifier.testTag(key).focusItem(key).fillMaxWidth().background(Placeholder.tile).padding(16.dp),
+    modifier.focusItem(key).fillMaxWidth().background(Placeholder.tile).padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(download.title, color = Placeholder.text)
@@ -160,9 +165,17 @@ internal fun StorageSummary(downloads: DownloadManager) {
       }
     }
   Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-    Text("Storage", color = Placeholder.text, fontSize = 24.sp)
+    Text(
+      "Storage",
+      color = Placeholder.text,
+      fontSize = 24.sp,
+      modifier = Modifier.semantics { heading() },
+    )
     for (space in spaces) {
-      Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+      Column(
+        Modifier.semantics(mergeDescendants = true) {},
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
         Text(space.target.label, color = Placeholder.text)
         Text(
           "${formatSize(space.freeBytes)} free · ${space.target.root}",
