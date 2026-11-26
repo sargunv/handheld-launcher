@@ -296,7 +296,6 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
           listOf(
             Hint(Action.Confirm, "Select"),
             Hint(Action.Back, "Resume"),
-            Hint(Action.QuickMenu, "Start in game"),
           )
         SlotAction.Save -> listOf(Hint(Action.Confirm, "Save"), Hint(Action.Back, "Back"))
         SlotAction.Load -> listOf(Hint(Action.Confirm, "Load"), Hint(Action.Back, "Back"))
