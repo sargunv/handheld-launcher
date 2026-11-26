@@ -13,7 +13,7 @@ plugins {
  * Writes the About screen's entries for what the game session builds in, in AboutLibraries' config
  * format, beside the entries every app shares: the Rust crates its Android library links, as
  * cargo-about finds them, each with the licence text from its own source, and the vendored C code,
- * with the licence texts from its files.
+ * whose entries are checked in, with rcheevos' text read from its LICENSE.
  */
 abstract class SessionLicences @Inject constructor(private val exec: ExecOperations) :
   DefaultTask() {

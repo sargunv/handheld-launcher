@@ -32,11 +32,13 @@ add the compressed ones.
 ```rust,no_run
 use rom_headers::{Header, Platform, identify};
 
-let mut file = std::fs::File::open("Super Mario World.sfc")?;
-if let Header::Snes(header) = identify(Platform::Snes, &mut file)? {
-    println!("{} ({})", header.title, header.destination);
+fn main() -> Result<(), rom_headers::Error> {
+    let mut file = std::fs::File::open("Super Mario World.sfc")?;
+    if let Header::Snes(header) = identify(Platform::Snes, &mut file)? {
+        println!("{} ({})", header.title, header.destination);
+    }
+    Ok(())
 }
-# Ok::<(), rom_headers::Error>(())
 ```
 
 It's ported from the format parsers of

@@ -20,11 +20,11 @@ bindings generated from it.
 ## From Kotlin
 
 The directory is also the `:session` Gradle module, a Kotlin Multiplatform
-library for Android and the JVM. Its build runs cargo for the host, whose
-library the JVM loads and the UniFFI Kotlin bindings are generated from, and for
-each Android ABI, with the NDK that `gradle/libs.versions.toml` pins.
+library for Android and the JVM. Its build runs cargo to make the host library,
+for the JVM and for UniFFI's Kotlin bindings, which aren't checked in, and one
+library per Android ABI with the NDK that `gradle/libs.versions.toml` pins.
 `-Phandheld.session.abis=x86_64` builds one ABI, for quicker work on an
-emulator. The Kotlin bindings are generated at build time and aren't checked in.
+emulator.
 
 ## Achievements
 
@@ -78,7 +78,8 @@ directory to see the frames the tests check, as PNGs.
 ## Desktop runner
 
 `mise run session:run -- <core> [content]` runs a core in a window, for working
-on the session; `--help` lists its options. It builds with the crate's `runner`
-feature, which needs the ALSA and libudev development libraries
-(`alsa-lib-devel systemd-devel` on Fedora, `libasound2-dev libudev-dev` on
-Debian and Ubuntu).
+on the session; `--help` lists its options. Vulkan cores need `--present cpu`,
+since the session presents Vulkan frames only to Android windows. It builds with
+the crate's `runner` feature, which needs the ALSA and libudev development
+libraries (`alsa-lib-devel systemd-devel` on Fedora,
+`libasound2-dev libudev-dev` on Debian and Ubuntu).
