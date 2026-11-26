@@ -22,9 +22,10 @@ bindings generated from it.
 The directory is also the `:session` Gradle module, a Kotlin Multiplatform
 library for Android and the JVM. Its build runs cargo: the host's library, for
 the JVM and for generating the UniFFI Kotlin bindings, and a release build for
-each Android ABI with the NDK that `gradle/libs.versions.toml` pins. Nothing
-generated is checked in. `-Phandheld.session.abis=x86_64` builds one ABI, for
-quicker work on an emulator.
+each Android ABI with the NDK that `gradle/libs.versions.toml` pins. The Kotlin
+bindings aren't checked in, unlike the Rust bindings to libretro and rcheevos.
+`-Phandheld.session.abis=x86_64` builds one ABI, for quicker work on an
+emulator.
 
 `GameSession` is the app's way in: a session on a thread of its own, which runs
 the core at its frame rate between the app's commands. It starts paused. On
