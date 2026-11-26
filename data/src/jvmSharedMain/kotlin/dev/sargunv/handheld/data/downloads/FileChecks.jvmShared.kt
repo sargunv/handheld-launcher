@@ -31,7 +31,9 @@ internal actual fun matchesServerHashes(
       ZipFile(file)
     } catch (e: ZipException) {
       // Not a zip. RomM hashes other archives' content too, which this check can't read.
-      return if (file.extension.lowercase() in OtherArchives) null else false
+      // A file still downloading has a `.part` suffix after its own extension.
+      val extension = file.name.removeSuffix(".part").substringAfterLast('.', "").lowercase()
+      return if (extension in OtherArchives) null else false
     }
   // A ROM that's one zip has the hash of its members' content in name order, and a zip among a
   // ROM's files has the hash of its largest member.

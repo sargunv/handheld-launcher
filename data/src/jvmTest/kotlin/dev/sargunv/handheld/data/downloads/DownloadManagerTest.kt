@@ -459,4 +459,45 @@ class DownloadManagerTest {
     val ended = requests.filter { it.apiPath == "devices/dev-1/installs/req-1" }
     assertEquals(listOf(HttpMethod.Delete), ended.map { it.method })
   }
+
+  @Test
+  fun aGameSentAgainAfterItFailedDownloadsAgain() = runTest {
+    fillLibrary()
+    val updates = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    var sent = "req-1"
+    var fits = false
+    fun request(id: String) =
+      """{"id": "$id", "user_id": 1, "device_id": "dev-1", "rom_id": 1, "file_ids": [],
+        "status": "taken", "reason": null, "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": "2025-01-01T00:00:00Z"}"""
+    val installs: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData? =
+      { request ->
+        val path = request.apiPath
+        when {
+          path == "devices/dev-1/installs" -> json("[${request(sent)}]")
+          path.startsWith("devices/dev-1/installs/") && request.method == HttpMethod.Put -> {
+            val id = path.substringAfterLast('/')
+            updates += id to (request.body as TextContent).text
+            json(request(id))
+          }
+          else -> null
+        }
+      }
+    val tooBig = server(sizeOverride = 1L shl 60, installs = installs)
+    val fitting = server(installs = installs)
+    val downloads = manager(backgroundScope, { if (fits) fitting() else tooBig() }, "dev-1")
+
+    downloads.takeInstallRequests()
+    waitFor { downloads.queue.first { it.firstOrNull()?.state == DownloadState.Failed } }
+
+    // Sent again from the web page once there's room.
+    sent = "req-2"
+    fits = true
+    downloads.takeInstallRequests()
+    downloads.awaitEmpty()
+    waitFor { while (updates.none { it.first == "req-2" }) delay(10) }
+
+    assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
+    assertEquals(listOf("req-2" to """{"status":"done"}"""), updates.filter { it.first == "req-2" })
+  }
 }

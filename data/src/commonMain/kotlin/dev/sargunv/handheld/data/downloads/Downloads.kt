@@ -8,7 +8,6 @@ import dev.sargunv.handheld.data.cores.JsonFile
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommInstallStatus
-import dev.sargunv.handheld.data.romm.RommRom
 import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.domain.Rom
@@ -144,11 +143,13 @@ class DownloadManager(
   init {
     scope.launch {
       while (true) {
-        val next = entries.first { list -> list.any { it.state == DownloadState.Queued } }
-        val download = next.first { it.state == DownloadState.Queued }
-        val job = mutex.withLock {
-          scope.launch { run(download) }.also { running = download.romId to it }
-        }
+        entries.first { list -> list.any { it.state == DownloadState.Queued } }
+        // Pick under the lock, so a game canceled meanwhile isn't started.
+        val job =
+          mutex.withLock {
+            val download = entries.value.firstOrNull { it.state == DownloadState.Queued }
+            download?.let { scope.launch { run(it) }.also { job -> running = it.romId to job } }
+          } ?: continue
         job.join()
         mutex.withLock { running = null }
       }
@@ -257,9 +258,14 @@ class DownloadManager(
         val rom = remote.toDomain(client)
         val queued = edit { list ->
           list.map {
-            if (it.romId == rom.id && it.installRequestId == null) {
-              it.copy(installRequestId = request.id)
-            } else it
+            when {
+              it.romId != rom.id -> it
+              // Sent again after it failed: this request takes it over and tries again.
+              it.state == DownloadState.Failed ->
+                it.copy(installRequestId = request.id, state = DownloadState.Queued, error = null)
+              it.installRequestId == null -> it.copy(installRequestId = request.id)
+              else -> it
+            }
           }
         }
         if (queued) continue
@@ -338,7 +344,9 @@ class DownloadManager(
       if (SystemFileSystem.exists(target)) return RommInstallStatus.AlreadyInstalled
       val staging = Path("$target.part")
       val multiFile = rom.files.size > 1
-      val targets = files.map { if (multiFile) Path(staging, relativePath(rom, it)) else staging }
+      val targets = files.map {
+        if (multiFile) Path(staging, relativePath(rom.files, it)) else staging
+      }
       val needed = totalBytes - targets.sumOf { SystemFileSystem.metadataOrNull(it)?.size ?: 0L }
       val storage = storage().find { it.root == root } ?: StorageTarget(root, root)
       val free = freeBytes(root)
@@ -354,7 +362,7 @@ class DownloadManager(
         done += file.fileSizeBytes
       }
       if (multiFile) {
-        val paths = files.map { relativePath(rom, it) }
+        val paths = files.map { relativePath(rom.files, it) }
         GameLayout.playlist(PlatformSlug(rom.platformSlug), paths)?.let {
           SystemFileSystem.sink(Path(staging, "${name.removeSuffix(".m3u")}.m3u")).buffered().use {
             sink ->
@@ -463,8 +471,8 @@ private fun notEnoughSpace(target: StorageTarget, needed: Long, free: Long) =
  * Where [file] goes within the folder of a ROM with several files: its path below the ROM's folder
  * on the server. A name that would climb out of the folder fails the download.
  */
-private fun relativePath(rom: RommRom, file: RommRomFile): String {
-  val romFolder = rom.files.firstOrNull { it.isTopLevel }?.filePath ?: file.filePath
+internal fun relativePath(files: List<RommRomFile>, file: RommRomFile): String {
+  val romFolder = files.firstOrNull { it.isTopLevel }?.filePath ?: commonFolder(files)
   val subfolder = file.filePath.removePrefix(romFolder).trim('/')
   val path = if (subfolder.isEmpty()) file.fileName else "$subfolder/${file.fileName}"
   if (path.split('/').any { it.isEmpty() || it == "." || it == ".." }) {
@@ -472,6 +480,13 @@ private fun relativePath(rom: RommRom, file: RommRomFile): String {
   }
   return path
 }
+
+/** The deepest folder that holds all of [files], so files nested in it keep their subfolders. */
+private fun commonFolder(files: List<RommRomFile>): String =
+  files
+    .map { it.filePath.split('/') }
+    .reduce { common, path -> common.zip(path).takeWhile { (a, b) -> a == b }.map { it.first } }
+    .joinToString("/")
 
 /** A size in bytes as people read it, such as `1.4 GB`. */
 fun formatSize(bytes: Long): String {

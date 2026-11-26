@@ -67,4 +67,11 @@ class FileChecksTest {
     val file = File(dir, "game.7z").apply { writeBytes(byteArrayOf(1, 2, 3)) }
     assertNull(check(file, md5(byteArrayOf(9))))
   }
+
+  @Test
+  fun leavesAnotherArchiveStillDownloadingUnchecked() {
+    // RomM hashes a 7z's content, which this check can't read, so it can't say the file is wrong.
+    val file = File(dir, "game.7z.part").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+    assertNull(check(file, md5(byteArrayOf(9))))
+  }
 }
