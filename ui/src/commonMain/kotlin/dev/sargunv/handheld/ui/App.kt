@@ -18,6 +18,7 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
+import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.ui.cover.coverImageLoader
@@ -35,7 +36,9 @@ import dev.sargunv.handheld.ui.signin.SignInPrimary
 import dev.sargunv.handheld.ui.signin.SignInSecondary
 import dev.sargunv.handheld.ui.signin.SignInState
 import io.ktor.client.engine.HttpClientEngine
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOf
@@ -52,6 +55,8 @@ import kotlinx.io.files.Path
  * @param layout how the two screens' content shares the hardware.
  * @param heldKeys the main window's held keys, which the platform keeps up to date.
  * @param library the library cache, which the app keeps open for as long as it runs.
+ * @param downloads the download queue. While signed in, the app takes the games sent to this device
+ *   from RomM's web page into it when it starts and every minute after.
  * @param coverCacheDir where covers are kept once fetched.
  * @param initialSettings the stored settings, which the app reads once, when it first composes.
  * @param saveSettings stores the settings each time they change, in the order they changed.
@@ -69,6 +74,7 @@ fun App(
   credentials: CredentialStore,
   device: DeviceDescription,
   library: LibraryCache,
+  downloads: DownloadManager,
   coverCacheDir: Path,
   modifier: Modifier = Modifier,
   initialSettings: Settings = Settings(),
@@ -81,7 +87,7 @@ fun App(
   // Null until the stored credentials have been read.
   var signedIn by remember { mutableStateOf<Boolean?>(null) }
   LaunchedEffect(credentials) { signedIn = credentials.load() != null }
-  val state = remember(library) { AppState(initialSettings, library) }
+  val state = remember(library, downloads) { AppState(initialSettings, library, downloads) }
   LaunchedEffect(state, deviceStates) { deviceStates.collect { state.deviceStates = it } }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
   LaunchedEffect(state) {
@@ -103,6 +109,17 @@ fun App(
       } catch (_: RommException) {
         SyncStatus.Failed
       }
+  }
+  LaunchedEffect(signedIn, downloads) {
+    if (signedIn != true) return@LaunchedEffect
+    while (true) {
+      try {
+        downloads.takeInstallRequests()
+      } catch (_: RommException) {
+        // The server is out of reach; the next poll tries again.
+      }
+      delay(1.minutes)
+    }
   }
   val primary: @Composable () -> Unit = {
     when (signedIn) {

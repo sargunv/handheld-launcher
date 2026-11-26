@@ -1,12 +1,15 @@
 package dev.sargunv.handheld
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
@@ -16,15 +19,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.KeystoreCredentialStore
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DownloadState
+import dev.sargunv.handheld.launch.LaunchDispatcher
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
-import java.io.File
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
 
 class MainActivity : ComponentActivity() {
@@ -37,7 +45,7 @@ class MainActivity : ComponentActivity() {
 
   private var showsDebugScreen = false
 
-  private val credentials by lazy { KeystoreCredentialStore(File(filesDir, "credentials")) }
+  private val credentials by lazy { credentialStore(this) }
 
   private val device by lazy {
     DeviceDescription(
@@ -63,6 +71,9 @@ class MainActivity : ComponentActivity() {
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
     val settingsFile = settingsFile(this)
     val settings = settingsFile.read()
+    val downloads = downloadManager(this)
+    keepDownloadsRunning()
+    enqueueDebugDownload(intent)
     setContent {
       val display = rememberSecondaryDisplay()
       var failedDisplayId by remember { mutableStateOf<Int?>(null) }
@@ -76,6 +87,7 @@ class MainActivity : ComponentActivity() {
         credentials = credentials,
         device = device,
         library = libraryCache(this),
+        downloads = downloads,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = settingsFile::write,
@@ -99,13 +111,69 @@ class MainActivity : ComponentActivity() {
     super.onDestroy()
   }
 
+  override fun onResume() {
+    super.onResume()
+    // The user may be back from granting all-files access, which queued downloads wait for.
+    allFilesAccess.value = Environment.isExternalStorageManager()
+  }
+
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)
     // The activity picks a debug screen when it's created, so a launch that opens, leaves or
     // changes one recreates it. That also closes a game session the old screen was running.
-    if (showsDebugScreen || debugScreen(this) != null) recreate()
-    else forcedLayout = forcedLayout(intent)
+    if (showsDebugScreen || debugScreen(this) != null) {
+      recreate()
+    } else {
+      forcedLayout = forcedLayout(intent)
+      enqueueDebugDownload(intent)
+    }
+  }
+
+  /**
+   * Starts [DownloadService] whenever the activity shows and there's something to download, so the
+   * queue goes on in the background. An app in the background can't start one. It asks for
+   * all-files access, which writing games needs, and to show the download's progress in a
+   * notification, when it lacks them.
+   */
+  private fun keepDownloadsRunning() {
+    lifecycleScope.launch {
+      repeatOnLifecycle(Lifecycle.State.STARTED) {
+        downloadManager(this@MainActivity)
+          .queue
+          .map { queue -> queue.any { it.state != DownloadState.Failed } }
+          .distinctUntilChanged()
+          .collect { active ->
+            if (!active) return@collect
+            // Games go to shared storage, where the app writes only with all-files access.
+            if (!Environment.isExternalStorageManager()) {
+              startActivity(LaunchDispatcher(this@MainActivity).allFilesAccessSettings())
+            } else if (
+              Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                  PackageManager.PERMISSION_GRANTED
+            ) {
+              requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+            }
+            DownloadService.start(this@MainActivity)
+          }
+      }
+    }
+  }
+
+  /**
+   * Queues the game the `download_rom` extra names by its RomM id, which debuggable builds accept
+   * until the game screen can start a download: `am start -n ... --el download_rom 42`.
+   */
+  private fun enqueueDebugDownload(intent: Intent) {
+    if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+    val romId = intent.getLongExtra("download_rom", -1)
+    if (romId < 0) return
+    lifecycleScope.launch {
+      libraryCache(this@MainActivity).rom(romId)?.let {
+        downloadManager(this@MainActivity).enqueue(it)
+      }
+    }
   }
 
   // The window sees every key, even while nothing in its content has focus. Activity's
@@ -146,7 +214,7 @@ private var openLibrary: LibraryCache? = null
  * so an activity that's recreated doesn't open a second connection to it.
  */
 @Synchronized
-private fun libraryCache(context: Context): LibraryCache =
+internal fun libraryCache(context: Context): LibraryCache =
   openLibrary
     ?: LibraryCache.open(
         context.getDatabasePath("library.db").also { it.parentFile?.mkdirs() }.path,

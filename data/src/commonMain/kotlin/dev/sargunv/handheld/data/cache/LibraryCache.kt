@@ -69,6 +69,10 @@ private constructor(
       transaction { query.awaitAsList().map { it.toDomain() } }
     }
 
+  suspend fun platform(id: Long): Platform? = transaction {
+    queries.platform(id).awaitAsOneOrNull()?.toDomain()
+  }
+
   fun collections(): Flow<List<Collection>> =
     queries.collections().asFlow().map { query ->
       transaction { query.awaitAsList().map { it.toDomain() } }

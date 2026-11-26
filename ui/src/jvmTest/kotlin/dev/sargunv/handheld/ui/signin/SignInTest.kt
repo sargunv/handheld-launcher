@@ -20,6 +20,7 @@ import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.rememberTestDownloads
 import dev.sargunv.handheld.ui.testCoverDir
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,12 +32,14 @@ class SignInTest {
   private fun androidx.compose.ui.test.ComposeUiTest.launch(store: CredentialStore) {
     setContent {
       val heldKeys = remember { HeldKeys() }
+      val library = remember { LibraryCache.open(path = null) }
       App(
         DualScreenLayout.Separate,
         heldKeys,
         store,
         TestDevice,
-        remember { LibraryCache.open(path = null) },
+        library,
+        rememberTestDownloads(library, store),
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
       )

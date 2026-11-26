@@ -9,7 +9,9 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,6 +53,7 @@ class RommSignInTest {
               """{"access_token": "rmm_issued", "device_id": "d1", "scopes": ["roms.read"],
                   "expires_at": "2026-01-01T00:00:00+00:00"}""",
             )
+          path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
           path == "/api/users/me" && token == "Bearer rmm_good" -> json(Fixtures.me)
           path == "/api/users/me" ->
             json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
@@ -80,6 +83,11 @@ class RommSignInTest {
     )
     assertEquals(credentials, store.load())
     assertEquals(2, polls)
+    // The device says it takes games sent from the server's web page.
+    val update = requests.single { it.method == HttpMethod.Put }
+    assertEquals("/api/devices/d1", update.url.encodedPath)
+    assertEquals("Bearer rmm_issued", update.headers[HttpHeaders.Authorization])
+    assertEquals("""{"capabilities":{"remote_install":true}}""", (update.body as TextContent).text)
   }
 
   @Test

@@ -58,6 +58,15 @@ class RommSignIn(
         onCode(code)
         client.awaitDeviceAuth(code)
       }
+    // The server's web page offers to send games only to a device that says it takes them. Without
+    // it, the device still signs in.
+    try {
+      RommClient(baseUrl, token.accessToken, engine()).use {
+        it.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
+      }
+    } catch (e: RommException) {
+      // The token may lack the scope; sending games from the web page then stays off.
+    }
     val credentials =
       RommCredentials(
         baseUrl = baseUrl,

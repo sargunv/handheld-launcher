@@ -16,7 +16,9 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -29,12 +31,17 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.RomStatus
+import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.dialog.Dialog
+import dev.sargunv.handheld.ui.downloads.DownloadsPlace
+import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.home.HomePlace
@@ -52,6 +59,8 @@ import dev.sargunv.handheld.ui.library.LibrarySecondary
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 
 /** The top-level places, switched with L and R. */
 enum class Place(val title: String) {
@@ -89,7 +98,7 @@ sealed interface Focused {
 
 /** State the app's two screens share. */
 @Stable
-class AppState(settings: Settings, val library: LibraryCache) {
+class AppState(settings: Settings, val library: LibraryCache, val downloads: DownloadManager) {
   var settings: Settings by mutableStateOf(settings)
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
@@ -129,7 +138,7 @@ fun MainPrimary(state: AppState) {
     screen ->
     when (screen) {
       Screen.Places -> NavEntry(screen) { PlacesScreen(state) }
-      is Screen.Game -> NavEntry(screen) { GameScreen(screen) }
+      is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
     }
   }
 }
@@ -141,6 +150,10 @@ fun MainSecondary(state: AppState) {
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
+    if (state.place == Place.Downloads && state.navigator.current == Screen.Places) {
+      StorageSummary(state.downloads)
+      return@Column
+    }
     val focused = state.focused
     when {
       state.place == Place.Library && state.navigator.current == Screen.Places ->
@@ -200,9 +213,11 @@ private fun PlacesScreen(state: AppState) {
   ) {
     Column(Modifier.fillMaxSize()) {
       // Inside Library, L and R step between its shelves first, so the tabs don't name them.
+      val queue by state.downloads.queue.collectAsState()
       PlaceTabs(
         state.place,
         state.sync,
+        queue.size,
         state.inputSettings,
         showButtons = state.place != Place.Library,
       )
@@ -213,7 +228,7 @@ private fun PlacesScreen(state: AppState) {
           when (state.place) {
             Place.Home -> HomePlace(state)
             Place.Library -> LibraryPlace(state)
-            Place.Downloads -> EmptyPlace("Downloads are coming soon.")
+            Place.Downloads -> DownloadsPlace(state.downloads)
           }
         }
       }
@@ -226,6 +241,7 @@ private fun PlacesScreen(state: AppState) {
 private fun PlaceTabs(
   current: Place,
   sync: SyncStatus,
+  downloads: Int,
   settings: InputSettings,
   showButtons: Boolean,
 ) {
@@ -242,7 +258,7 @@ private fun PlaceTabs(
     Text(buttonFor(Action.PreviousShelf), color = Placeholder.mutedText, fontSize = 14.sp)
     for (place in Place.entries) {
       Text(
-        place.title,
+        if (place == Place.Downloads && downloads > 0) "${place.title} $downloads" else place.title,
         color = if (place == current) Placeholder.text else Placeholder.mutedText,
         fontWeight = if (place == current) FontWeight.SemiBold else FontWeight.Normal,
         modifier = Modifier.testTag("place:${place.name}"),
@@ -291,20 +307,69 @@ private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
   }
 }
 
-/** A game. A placeholder until the game screen exists. */
+/**
+ * A game. A placeholder until the game screen exists; for now its menu starts the game's download.
+ */
 @Composable
-private fun GameScreen(screen: Screen.Game) {
-  Column(Modifier.fillMaxSize()) {
-    Column(
-      Modifier.fillMaxWidth().weight(1f).padding(48.dp),
-      verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-      Text(screen.title, color = Placeholder.text, fontSize = 28.sp)
-      Text("The game screen is coming soon.", color = Placeholder.mutedText)
+private fun GameScreen(state: AppState, screen: Screen.Game) {
+  val rom by produceState<Rom?>(null, screen.romId) { value = state.library.rom(screen.romId) }
+  val status by
+    remember(rom) { rom?.let { state.downloads.status(it) } ?: flowOf(null) }.collectAsState(null)
+  var menuOpen by rememberSaveable { mutableStateOf(false) }
+  val canDownload = status == RomStatus.NotOnDevice
+  val scope = rememberCoroutineScope()
+  // The screen is a focus scope of its own, so its menu opens while it has nothing to focus.
+  FocusScope(
+    Modifier.fillMaxSize().onAction { action ->
+      if (action == Action.Menu && canDownload) {
+        menuOpen = true
+        true
+      } else {
+        false
+      }
+    },
+  ) {
+    Column(Modifier.fillMaxSize()) {
+      Column(
+        Modifier.fillMaxWidth().weight(1f).padding(48.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+      ) {
+        Text(screen.title, color = Placeholder.text, fontSize = 28.sp)
+        Text("The game screen is coming soon.", color = Placeholder.mutedText)
+        status?.let { Text(downloadStatusText(it), color = Placeholder.mutedText) }
+      }
+      HintBar(
+        buildList {
+          add(Hint(Action.Back, "Back"))
+          if (canDownload) add(Hint(Action.Menu, "Menu"))
+        },
+      )
     }
-    HintBar(listOf(Hint(Action.Back, "Back")))
+    val current = rom
+    if (menuOpen && current != null) {
+      val close = { menuOpen = false }
+      Dialog(close, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+          Text(current.title, color = Placeholder.text)
+          MenuButton("menu:download", "Download (${formatSize(current.sizeBytes)})") {
+            scope.launch { state.downloads.enqueue(current) }
+            close()
+          }
+        }
+      }
+    }
   }
 }
+
+private fun downloadStatusText(status: RomStatus): String =
+  when (status) {
+    RomStatus.NotOnDevice -> "Not on this device"
+    RomStatus.Queued -> "Queued to download"
+    is RomStatus.Downloading ->
+      "Downloading: ${formatSize(status.bytesDownloaded)} of ${formatSize(status.totalBytes)}"
+    is RomStatus.Failed -> "The download failed: ${status.error}"
+    is RomStatus.OnDevice -> "On this device: ${status.path}"
+  }
 
 /** A button in a menu. */
 @Composable

@@ -22,6 +22,7 @@ import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.rememberTestDownloads
 import dev.sargunv.handheld.ui.testCoverDir
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -65,12 +66,17 @@ class HomeTest {
   ) {
     setContent {
       val heldKeys = remember { HeldKeys() }
+      val library = remember { LibraryCache.open(path = null) }
+      val credentials = remember {
+        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token"))
+      }
       App(
         DualScreenLayout.Separate,
         heldKeys,
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token")),
+        credentials,
         TestDevice,
-        remember { LibraryCache.open(path = null) },
+        library,
+        rememberTestDownloads(library, credentials),
         remember { testCoverDir() },
         Modifier.trackHeldKeys(heldKeys),
         initialSettings = settings,
@@ -126,10 +132,10 @@ class HomeTest {
     awaitTag("shelf:platform:1")
     // Library has one platform, so R goes on to Downloads.
     press(Key.ButtonR1)
-    onNodeWithText("Downloads are coming soon.").assertExists()
+    onNodeWithText("Nothing is downloading.").assertExists()
     // Downloads is the last place.
     press(Key.ButtonR1)
-    onNodeWithText("Downloads are coming soon.").assertExists()
+    onNodeWithText("Nothing is downloading.").assertExists()
     press(listOf(Key.ButtonL1, Key.ButtonL1))
     assertFocused("RecentlyAdded:2")
   }
@@ -142,6 +148,32 @@ class HomeTest {
     onNodeWithText("The game screen is coming soon.").assertExists()
     press(Key.ButtonB)
     assertFocused("continue:2")
+  }
+
+  private fun ComposeUiTest.awaitText(text: String) {
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
+    }
+    waitForIdle()
+  }
+
+  @Test
+  fun aGameQueuesFromItsMenuAndDownloadsCancelsIt() = runComposeUiTest {
+    launch()
+    awaitTag("continue:2")
+    press(Key.ButtonA)
+    awaitText("Not on this device")
+    press(Key.ButtonX)
+    assertFocused("menu:download")
+    press(listOf(Key.ButtonA, Key.ButtonB, Key.ButtonR1, Key.ButtonR1))
+    awaitTag("download:2")
+    onNodeWithText("Downloads 1").assertExists()
+    // The test server doesn't serve the game, so the download fails and waits for a retry.
+    awaitText("The server didn't find it")
+    press(Key.ButtonX)
+    assertFocused("menu:retry")
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    awaitText("Nothing is downloading.")
   }
 
   @Test
