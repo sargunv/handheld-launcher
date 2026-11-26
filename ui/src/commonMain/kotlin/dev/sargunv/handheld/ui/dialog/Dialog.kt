@@ -65,6 +65,7 @@ fun Dialog(
             action.direction == null
           },
       initialFocus = initialFocus,
+      isModal = true,
       content = content,
     )
   }

@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.focus
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -17,6 +18,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
+import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.input.TestActionInputRoot
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
@@ -65,5 +67,38 @@ class FocusScopeTest {
     waitForIdle()
     assertEquals("home", navigator.current)
     onNodeWithTag("open").assertIsFocused()
+  }
+
+  @Test
+  fun aScreenRecreatedUnderADialogLeavesFocusInTheDialog() = runComposeUiTest {
+    var screenKey by mutableStateOf(0)
+    var dialogOpen by mutableStateOf(true)
+    setContent {
+      TestActionInputRoot {
+        FocusRoot {
+          Box {
+            key(screenKey) {
+              FocusScope { Box(Modifier.size(40.dp).testTag("screen").focusItem("screen")) }
+            }
+            if (dialogOpen) {
+              Dialog(onDismissRequest = { dialogOpen = false }) {
+                Box(Modifier.size(40.dp).testTag("dialog").focusItem("dialog"))
+              }
+            }
+          }
+        }
+      }
+    }
+    waitForIdle()
+    onNodeWithTag("dialog").assertIsFocused()
+
+    screenKey++
+    waitForIdle()
+    onNodeWithTag("dialog").assertIsFocused()
+
+    // Back still reaches the dialog, and closing it hands focus to the new screen.
+    onRoot().performKeyInput { pressKey(Key.ButtonB) }
+    waitForIdle()
+    onNodeWithTag("screen").assertIsFocused()
   }
 }
