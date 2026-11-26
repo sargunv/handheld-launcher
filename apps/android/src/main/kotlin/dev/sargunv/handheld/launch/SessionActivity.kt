@@ -23,6 +23,7 @@ import dev.sargunv.handheld.session.SessionInfo
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -121,6 +122,8 @@ class SessionActivity : ComponentActivity() {
     return SessionOptions(
       corePath = intent.getStringExtra(EXTRA_CORE)!!,
       contentPath = intent.getStringExtra(EXTRA_CONTENT),
+      // A zipped game whose core can't open zips is extracted here.
+      contentCacheDir = File(cacheDir, "session-content").path,
       systemDir = intent.getStringExtra(EXTRA_SYSTEM_DIR)!!,
       saveDir = intent.getStringExtra(EXTRA_SAVE_DIR)!!,
       saveRamPath = intent.getStringExtra(EXTRA_SAVE_RAM),

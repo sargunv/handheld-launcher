@@ -4,7 +4,10 @@
 mod common;
 
 use common::{Harness, lock};
+use std::io::Write;
+
 use handheld_session::{Button, PixelFormat, SaveRamLoad, SessionError};
+use zip::write::SimpleFileOptions;
 
 const CORE: &str = "gambatte_libretro.so";
 const GAME: &str = "ucity.gbc";
@@ -35,6 +38,32 @@ fn plays_the_title_screen_with_sound() {
     );
     let peak = h.audio.samples().iter().fold(0f32, |a, s| a.max(s.abs()));
     assert!(peak > 0.05, "title music peaks at {peak}");
+}
+
+#[test]
+fn plays_the_game_from_a_zip() {
+    let _lock = lock();
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("ucity.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+    zip.start_file("readme.txt", SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"not the game").unwrap();
+    zip.start_file("µCity/ucity.gbc", SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(&std::fs::read(common::fixture(GAME)).unwrap())
+        .unwrap();
+    zip.finish().unwrap();
+
+    let mut h = Harness::start(CORE, Some(archive.to_str().unwrap())).unwrap();
+    let extracted = h.dirs.path().join("content/ucity.gbc");
+    assert!(extracted.exists());
+    h.run(600);
+    assert_eq!(
+        h.frames.last().sha256(),
+        "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
+        "the zipped game shows the same title screen"
+    );
 }
 
 #[test]

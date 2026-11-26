@@ -111,6 +111,7 @@ fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
         SessionOptions {
             core_path: fixture(CORE).to_string_lossy().into_owned(),
             content_path: None,
+            content_cache_dir: None,
             system_dir: dir.join("system").to_string_lossy().into_owned(),
             save_dir: dir.join("saves").to_string_lossy().into_owned(),
             save_ram_path: None,
@@ -185,6 +186,7 @@ fn the_listener_may_stop_the_session() {
         SessionOptions {
             core_path: fixture(CORE).to_string_lossy().into_owned(),
             content_path: None,
+            content_cache_dir: None,
             system_dir: dir.path().join("system").to_string_lossy().into_owned(),
             save_dir: dir.path().join("saves").to_string_lossy().into_owned(),
             save_ram_path: None,

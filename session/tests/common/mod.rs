@@ -4,7 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -171,7 +171,15 @@ impl Harness {
         let dirs = tempfile::tempdir().unwrap();
         let config = SessionConfig {
             core: fixture(core),
-            content: content.map(fixture),
+            // A fixture, or a path of the test's own.
+            content: content.map(|c| {
+                if Path::new(c).is_absolute() {
+                    PathBuf::from(c)
+                } else {
+                    fixture(c)
+                }
+            }),
+            content_cache: Some(dirs.path().join("content")),
             system_dir: dirs.path().join("system"),
             save_dir: dirs.path().join("saves"),
             video: VideoOutput::Sink(Box::new(frames.clone())),

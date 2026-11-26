@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::audio::AudioSink;
+use crate::content;
 use crate::core::{Core, CoreLoadError};
 use crate::ffi;
 use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
@@ -52,6 +53,11 @@ pub struct SessionConfig {
     pub core: PathBuf,
     /// The content to load, or `None` for cores that run without content.
     pub content: Option<PathBuf>,
+    /// Where a zipped game is extracted when the core can't open the zip.
+    /// The session owns the directory: it empties it before extracting, so it
+    /// holds only the last game extracted. `None` passes zips to the core as
+    /// they are.
+    pub content_cache: Option<PathBuf>,
     /// Where the core looks for BIOS and other system files.
     pub system_dir: PathBuf,
     /// Where the core may write its own save files. The session creates it
@@ -146,6 +152,10 @@ pub enum SessionError {
     ReadContent(#[source] io::Error),
     #[error("the core couldn't load the content")]
     LoadGame,
+    #[error("can't open the archive")]
+    Archive(#[from] zip::result::ZipError),
+    #[error("the archive has no file the core opens")]
+    NoContentInArchive,
     #[error("can't read the save memory file")]
     ReadSaveRam(#[source] io::Error),
     #[error("can't set up OpenGL")]
@@ -283,7 +293,14 @@ impl Session {
             session.system_info.library_version
         );
 
-        session.load_content(config.content.as_deref())?;
+        let content = config
+            .content
+            .as_deref()
+            .map(|path| {
+                content::prepare(path, &session.system_info, config.content_cache.as_deref())
+            })
+            .transpose()?;
+        session.load_content(content.as_deref())?;
         session.game_loaded = true;
 
         let mut av = ffi::retro_system_av_info::default();

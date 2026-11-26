@@ -20,6 +20,7 @@ fn start(dir: &Path) -> std::sync::Arc<GameSession> {
                 .to_string_lossy()
                 .into_owned(),
             content_path: Some(fixture("ucity.gbc").to_string_lossy().into_owned()),
+            content_cache_dir: None,
             system_dir: dir.join("system").to_string_lossy().into_owned(),
             save_dir: dir.join("saves").to_string_lossy().into_owned(),
             save_ram_path: Some(dir.join("saves/game.srm").to_string_lossy().into_owned()),
