@@ -60,6 +60,12 @@ enum class GameIdKind {
 
   /** A GameCube or Wii disc's game code, four characters such as `GZLE`. */
   Disc,
+
+  /**
+   * A PS2 disc's serial as its save folders carry it, such as `SLUS-20152`. Its saves are folders
+   * on shared memory cards, not folders [SaveFolders.forGame] names.
+   */
+  Ps2,
 }
 
 /** Where the emulators that keep a game's save as folders keep each game's. */
@@ -76,14 +82,15 @@ object SaveFolders {
 
   /**
    * The id [location]'s saves of [platform]'s games are filed under, or null when the launcher
-   * doesn't sync that layout as folders: it keeps one file per game, every game's saves share a
-   * memory card, or the launcher can't read the id yet.
+   * doesn't sync that layout by the game's id: it keeps one file per game, every game's saves share
+   * a memory card the launcher can't read, or the launcher can't read the id yet.
    */
   fun idKind(location: SaveLocation, platform: PlatformSlug): GameIdKind? {
     if (location.requiresRoot || !location.syncable) return null
     val target = PlatformCatalog.emulatedAs(platform)
     return when (location.layout) {
       SaveLayout.SerialPrefixedFolders -> GameIdKind.Psp.takeIf { target == PlatformCatalog.PSP }
+      is SaveLayout.Ps2MemoryCards -> GameIdKind.Ps2.takeIf { target == PlatformCatalog.PS2 }
       SaveLayout.ThreeDsTitle -> GameIdKind.N3ds
       SaveLayout.SwitchUserSave -> GameIdKind.Switch
       SaveLayout.GameCubeGci,
@@ -94,11 +101,12 @@ object SaveFolders {
 
   /**
    * The folders that hold the save of the game [id] where [location] keeps it, an id of the kind
-   * [idKind] names. Null when [idKind] is, or [id] isn't one.
+   * [idKind] names. Null when [idKind] is null or [GameIdKind.Ps2], or [id] isn't one.
    */
   fun forGame(location: SaveLocation, platform: PlatformSlug, id: String): FolderSave? =
     when (idKind(location, platform)) {
-      null -> null
+      null,
+      GameIdKind.Ps2 -> null
       GameIdKind.Psp ->
         id
           .takeIf { PSP_SERIAL.matches(it) }

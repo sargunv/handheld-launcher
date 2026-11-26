@@ -82,7 +82,11 @@ class SaveKnowledgeTest {
   fun consoleLayouts() {
     fun layout(id: String, platform: dev.sargunv.handheld.domain.platform.PlatformSlug) =
       SaveLocations.forEmulator(EmulatorId(id), platform)?.layout
-    assertEquals(SaveLayout.Ps2MemoryCards, layout("armsx2", PlatformCatalog.PS2))
+    assertEquals(SaveLayout.Ps2MemoryCards(), layout("armsx2", PlatformCatalog.PS2))
+    assertEquals(
+      SaveLayout.Ps2MemoryCards(folderCards = true),
+      layout("pocketgoal", PlatformCatalog.PS2),
+    )
     assertEquals(SaveLayout.GameCubeGci, layout("dolphin", PlatformCatalog.GAMECUBE))
     assertEquals(SaveLayout.WiiTitle, layout("dolphin", PlatformCatalog.WII))
     assertEquals(SaveLayout.SwitchUserSave, layout("eden", PlatformCatalog.SWITCH))

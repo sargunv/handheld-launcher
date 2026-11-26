@@ -2,7 +2,7 @@
 // the MPL was not distributed with this file, You can obtain one at https://mozilla.org/MPL/2.0/.
 //
 // Ported from argosy-sigil (https://github.com/rommapp/argosy-sigil, MPL-2.0): src/psp.c,
-// src/threeds.c, src/switch_nsp.c, src/switch_xci.c and src/wii.c.
+// src/threeds.c, src/switch_nsp.c, src/switch_xci.c, src/wii.c, src/ps2.c and src/cnf_parser.c.
 
 package dev.sargunv.handheld.data.saves
 
@@ -23,8 +23,16 @@ fun interface Zstd {
 }
 
 /**
- * Reads the id a game's saves are filed under from its file, without the emulator: a PSP disc's
- * serial, a 3DS title id, a Switch application id, or a GameCube or Wii game code.
+ * Reads a CHD disc image's 2048-byte data sectors from an offset, as far as a length, for discs
+ * kept as `.chd`. Fewer bytes when the disc ends sooner; null when it can't.
+ */
+fun interface Chd {
+  fun read(file: File, offset: Long, length: Int): ByteArray?
+}
+
+/**
+ * Reads the id a game's saves are filed under from its file, without the emulator: a PSP or PS2
+ * disc's serial, a 3DS title id, a Switch application id, or a GameCube or Wii game code.
  */
 object GameIds {
   /**
@@ -33,8 +41,15 @@ object GameIds {
    *
    * @param switchKeys the emulator's `prod.keys`, which opens a Switch game that carries no ticket.
    * @param zstd opens a compressed 3DS image.
+   * @param chd opens a PS2 disc kept as a CHD image.
    */
-  fun read(file: File, kind: GameIdKind, switchKeys: File? = null, zstd: Zstd? = null): String? =
+  fun read(
+    file: File,
+    kind: GameIdKind,
+    switchKeys: File? = null,
+    zstd: Zstd? = null,
+    chd: Chd? = null,
+  ): String? =
     try {
       RandomAccessFile(file, "r").use { raf ->
         val image = FileImage(raf)
@@ -43,6 +58,7 @@ object GameIds {
           GameIdKind.N3ds -> threeDs(file, image, zstd)
           GameIdKind.Switch -> switch(image, switchKeys?.let(::headerKey))
           GameIdKind.Disc -> disc(image)
+          GameIdKind.Ps2 -> ps2(file, image, chd)
         }
       }
     } catch (e: java.io.IOException) {
@@ -92,6 +108,79 @@ object GameIds {
       if (name == key) return b.cString(data + b.le32(entry + 12), b.le32(entry + 4))
     }
     return null
+  }
+
+  // PS2
+
+  /** The serial in a PS2 disc's `SYSTEM.CNF`, as `SLUS-20152`, from an ISO, CSO or CHD. */
+  private fun ps2(file: File, raw: Image, chd: Chd?): String? {
+    val image =
+      when {
+        raw.ascii(0, 8) == "MComprHD" -> ChdImage(file, chd ?: return null)
+        raw.ascii(0, 4) == "CISO" -> Cso(raw)
+        else -> raw
+      }
+    val (offset, size) = Iso(image).find("SYSTEM.CNF") ?: return null
+    return bootSerial(image.bytes(offset, minOf(size, SECTOR)))
+  }
+
+  /**
+   * The serial on the `BOOT2` line of a `SYSTEM.CNF`: four letters, a separator, then five digits
+   * with at most one dot among them. `cdrom0:\SLUS_201.52;1` gives `SLUS-20152`. Retail discs also
+   * write `slus_005.94`, `SLUS_00.220` and `SCUS-941.02`, and some boot from a subfolder.
+   */
+  internal fun bootSerial(cnf: ByteArray): String? {
+    val text = String(cnf, Charsets.ISO_8859_1)
+    var from = 0
+    while (true) {
+      var pos = text.indexOf("BOOT2", from).takeIf { it >= 0 }?.plus(5) ?: return null
+      from = pos
+      if (pos >= text.length || text[pos] !in " \t=") continue
+      while (pos < text.length && text[pos] in " \t") pos++
+      if (pos >= text.length || text[pos] != '=') continue
+      pos++
+      while (pos < text.length && text[pos] in " \t") pos++
+      pos += listOf("cdrom0:", "cdrom:").firstOrNull { text.startsWith(it, pos) }?.length ?: 0
+      if (pos < text.length && text[pos] == '\\') pos++
+      var end = pos
+      while (end < text.length && text[end] != '\n' && text[end] != '\r') end++
+      for (i in pos until end) {
+        if (i > pos && (text[i - 1].isAsciiLetter() || text[i - 1] in '0'..'9')) continue
+        return serialAt(text, i, end) ?: continue
+      }
+    }
+  }
+
+  private fun Char.isAsciiLetter() = uppercaseChar() in 'A'..'Z'
+
+  private fun serialAt(text: String, start: Int, end: Int): String? {
+    if (end - start < 10) return null
+    if (!(0 until 4).all { text[start + it].isAsciiLetter() }) return null
+    val separator = text[start + 4]
+    if (separator !in "_.-" && !separator.isAsciiLetter()) return null
+    val digits = StringBuilder()
+    var dot = false
+    var i = start + 5
+    while (i < end && digits.length < 5) {
+      val c = text[i]
+      when {
+        c in '0'..'9' -> digits.append(c)
+        c == '.' && !dot && digits.isNotEmpty() -> dot = true
+        else -> return null
+      }
+      i++
+    }
+    if (digits.length < 5 || (i < end && text[i] in '0'..'9')) return null
+    return text.substring(start, start + 4).uppercase() + "-" + digits
+  }
+
+  /** A CHD image, read through [chd]. */
+  private class ChdImage(private val file: File, private val chd: Chd) : Image {
+    override fun bytes(offset: Long, length: Int): ByteArray {
+      val read = chd.read(file, offset, length)
+      if (read == null || read.size < length) throw java.io.IOException("The image ends early")
+      return read
+    }
   }
 
   /** An ISO 9660 image, enough to find a file by path. */

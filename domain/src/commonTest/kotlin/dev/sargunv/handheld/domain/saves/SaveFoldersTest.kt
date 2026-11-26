@@ -13,10 +13,13 @@ class SaveFoldersTest {
     assertNotNull(SaveLocations.forEmulator(EmulatorId(id), platform))
 
   @Test
-  fun ps2MemoryCardsDontSyncPerGame() {
+  fun ps2SavesAreFiledByTheDiscsSerialOnSharedCards() {
     val armsx2 = location("armsx2", PlatformCatalog.PS2)
-    assertNull(SaveFolders.idKind(armsx2, PlatformCatalog.PS2))
-    assertNull(SaveFolders.forGame(armsx2, PlatformCatalog.PS2, "SLUS20152"))
+    assertEquals(GameIdKind.Ps2, SaveFolders.idKind(armsx2, PlatformCatalog.PS2))
+    val pocketGoal = location("pocketgoal", PlatformCatalog.PS2)
+    assertEquals(GameIdKind.Ps2, SaveFolders.idKind(pocketGoal, PlatformCatalog.PS2))
+    // The saves are folders inside the cards, not folders of their own.
+    assertNull(SaveFolders.forGame(armsx2, PlatformCatalog.PS2, "SLUS-20152"))
     assertNull(
       SaveFiles.candidates(armsx2, "/roms/Jak II.chd", SaveRoots("/s", packageName = "com.armsx2")),
     )

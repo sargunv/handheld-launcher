@@ -26,6 +26,7 @@ runner = [
 
 [dependencies]
 ash = "0.38.0"
+chd = { version = "0.4.0", default-features = false, features = ["std"] }
 glow = "0.18.0"
 libloading = "0.9.1"
 log = "0.4.35"

@@ -135,7 +135,7 @@ object SaveLocations {
     )
 
   private fun ps2(id: String, packageName: String) =
-    inAppData(id, packageName, "memcards", SaveLayout.Ps2MemoryCards)
+    inAppData(id, packageName, "memcards", SaveLayout.Ps2MemoryCards())
 
   private fun ppsspp(id: String, packageName: String) =
     SaveLocation(
@@ -280,6 +280,12 @@ object SaveLocations {
         ps2("armsx2", "com.armsx2"),
         ps2("armsx2_play", "come.nanodata.armsx2"),
         ps2("pcsx2", "net.pcsx2.emulator"),
+        inAppData(
+          "pocketgoal",
+          "dev.sargunv.pocketgoal",
+          "memcards",
+          SaveLayout.Ps2MemoryCards(folderCards = true),
+        ),
         inAppData(
             "psx2",
             "com.izzy2lost.psx2",

@@ -31,18 +31,21 @@ class GameIdsTest {
   // PSP
 
   /** An ISO 9660 image whose root holds UMD_DATA.BIN with [umd]. */
-  private fun pspIso(umd: String): ByteArray =
+  private fun pspIso(umd: String): ByteArray = iso("UMD_DATA.BIN", umd)
+
+  /** An ISO 9660 image whose root holds one file, [file], with [content]. */
+  private fun iso(file: String, content: String): ByteArray =
     image(20 * 2048) {
       // The volume descriptor's root directory record: sector 18.
       put(16 * 2048, 1).ascii(16 * 2048 + 1, "CD001")
       putInt(16 * 2048 + 156 + 2, 18).putInt(16 * 2048 + 156 + 10, 2048)
       // The root directory: one record for the file, at sector 19.
       val record = 18 * 2048
-      val name = "UMD_DATA.BIN;1"
+      val name = "$file;1"
       put(record, (33 + name.length).toByte())
-      putInt(record + 2, 19).putInt(record + 10, umd.length)
+      putInt(record + 2, 19).putInt(record + 10, content.length)
       put(record + 32, name.length.toByte()).ascii(record + 33, name)
-      ascii(19 * 2048, umd)
+      ascii(19 * 2048, content)
     }
 
   @Test
@@ -85,6 +88,40 @@ class GameIdsTest {
   fun refusesAPspImageWithoutASerial() {
     assertNull(GameIds.read(file("game.iso", pspIso("nothing here")), GameIdKind.Psp))
     assertNull(GameIds.read(file("short.iso", ByteArray(100)), GameIdKind.Psp))
+  }
+
+  // PS2
+
+  private val systemCnf = "BOOT2 = cdrom0:\\SLUS_201.52;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n"
+
+  @Test
+  fun readsAPs2SerialFromAnIso() {
+    val iso = file("game.iso", iso("SYSTEM.CNF", systemCnf))
+    assertEquals("SLUS-20152", GameIds.read(iso, GameIdKind.Ps2))
+    assertNull(GameIds.read(file("other.iso", iso("OTHER.CNF", systemCnf)), GameIdKind.Ps2))
+  }
+
+  @Test
+  fun readsAPs2SerialFromAChdThroughTheReaderItsGiven() {
+    val disc = iso("SYSTEM.CNF", systemCnf)
+    val chd = file("game.chd", "MComprHD".encodeToByteArray() + ByteArray(120))
+    val reader = Chd { _, offset, length ->
+      disc.copyOfRange(offset.toInt(), minOf(disc.size, offset.toInt() + length))
+    }
+    assertEquals("SLUS-20152", GameIds.read(chd, GameIdKind.Ps2, chd = reader))
+    assertNull(GameIds.read(chd, GameIdKind.Ps2), "Without a reader, a CHD's id can't be read")
+  }
+
+  @Test
+  fun readsTheBootLinesRetailDiscsWrite() {
+    fun serial(cnf: String) = GameIds.bootSerial(cnf.encodeToByteArray())
+    assertEquals("SLUS-20152", serial("BOOT2 = cdrom0:\\SLUS_201.52;1"))
+    assertEquals("SLUS-00594", serial("BOOT2=cdrom0:\\slus_005.94;1"))
+    assertEquals("SLUS-00220", serial("BOOT2 = cdrom0:\\SLUS_00.220;1"))
+    assertEquals("SCUS-94102", serial("BOOT2 = cdrom0:\\SCUS-941.02;1"))
+    assertEquals("SLUS-01073", serial("BOOT2 = cdrom0:\\MARL\\SLUS_010.73;1"))
+    assertNull(serial("BOOT = cdrom:\\SLUS_005.94;1"), "A PS1 disc's BOOT line isn't BOOT2")
+    assertNull(serial("BOOT2 = cdrom0:\\MAIN.ELF;1"))
   }
 
   // 3DS

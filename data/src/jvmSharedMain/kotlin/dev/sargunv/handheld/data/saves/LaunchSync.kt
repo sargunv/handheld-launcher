@@ -47,7 +47,7 @@ sealed interface BeforeLaunch {
  * or the player choosing RomM's copy in a conflict, asks [askStillRunning] first, which offers to
  * close the emulator when [canClose]. [close] closes it and returns whether it's gone. When the
  * emulator may be running with another game, a pull goes ahead but remembers the copy it replaced,
- * for [SaveSync.sync]'s check.
+ * for [SaveSync.sync]'s check, unless the save is on shared PS2 cards, which any game holds.
  *
  * @param chooseSave asks which copy to keep when both changed. Null cancels the launch.
  * @throws RommException when the server can't be reached or refuses a call.
@@ -62,7 +62,9 @@ suspend fun SaveSync.beforeLaunch(
   close: suspend () -> Boolean,
 ): BeforeLaunch {
   val mayRun = emulator is EmulatorState.MayBeRunning
-  val holds = emulator is EmulatorState.MayBeRunning && emulator.holds(game.romId)
+  // Shared PS2 cards hold every game's saves, so an emulator running any game holds them.
+  val holds =
+    emulator is EmulatorState.MayBeRunning && (emulator.holds(game.romId) || game.cards != null)
 
   // Pulls with [pull], asking first when the emulator holds the game.
   suspend fun guarded(found: SaveSyncResult, pull: suspend () -> BeforeLaunch): BeforeLaunch {

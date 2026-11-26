@@ -33,8 +33,8 @@ class LaunchResolverTest {
   private fun resolved(resolution: LaunchResolution): LaunchResolution.Resolved =
     assertIs<LaunchResolution.Resolved>(resolution)
 
-  // The vision's first acceptance test. PocketGOAL is an app the registry doesn't know, and it
-  // still beats the platform's known default at either level.
+  // The vision's first acceptance test. PocketGOAL plays only the Jak games, so nothing picks it
+  // for a PS2 game, but a rule naming it beats the platform's default at either level.
   @Test
   fun jakGamesOpenInPocketGoalAndOtherPs2GamesInArmsx2() {
     val installed = setOf(armsx2, pocketGoal, "xyz.aethersx2.android")
@@ -53,7 +53,7 @@ class LaunchResolverTest {
       val viaCollection = resolved(LaunchResolver.resolve(game, byCollection, installed))
       assertEquals(pocketGoal, viaCollection.target.packageName)
       assertEquals(LaunchRule.CollectionOverride(jak), viaCollection.rule)
-      assertNull(viaCollection.target.emulator)
+      assertEquals(EmulatorId("pocketgoal"), viaCollection.target.emulator?.id)
       assertEquals(LaunchRecipe.ViewRom, viaCollection.target.recipe)
 
       val viaGame = resolved(LaunchResolver.resolve(game, byGame, installed))

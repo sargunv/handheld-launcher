@@ -71,7 +71,8 @@ class EmulatorRegistryTest {
     for (platform in PlatformCatalog.all.filter { it.runsAs == null }) {
       val ranked = EmulatorRegistry.preference[platform.slug].orEmpty()
       assertEquals(ranked.size, ranked.toSet().size, "${platform.slug} ranks an emulator twice")
-      val running = emulators.filter { platform.slug in it.platforms }.map { it.id }.toSet()
+      val running =
+        emulators.filter { platform.slug in it.platforms && it.ranked }.map { it.id }.toSet()
       assertEquals(running, ranked.toSet(), "${platform.slug} ranking")
     }
     for (slug in EmulatorRegistry.preference.keys) assertNotNull(PlatformCatalog[slug])
@@ -93,7 +94,10 @@ class EmulatorRegistryTest {
     )
     assertEquals(EmulatorId("dolphin"), EmulatorRegistry.forPackage("org.dolphinemu.mmjr")?.id)
     assertEquals(EmulatorId("azahar"), EmulatorRegistry.forPackage("io.github.lime3ds.android")?.id)
-    assertNull(EmulatorRegistry.forPackage("dev.sargunv.pocketgoal"))
+    assertEquals(
+      EmulatorId("pocketgoal"),
+      EmulatorRegistry.forPackage("dev.sargunv.pocketgoal")?.id,
+    )
   }
 
   @Test
