@@ -1,7 +1,5 @@
 package dev.sargunv.handheld.ui.about
 
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -15,22 +13,10 @@ import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
-import dev.sargunv.handheld.data.auth.RommCredentials
-import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.ui.App
-import dev.sargunv.handheld.ui.TestDevice
-import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
-import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.trackHeldKeys
-import dev.sargunv.handheld.ui.rememberTestDownloads
-import dev.sargunv.handheld.ui.testCoverDir
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respondError
-import io.ktor.http.HttpStatusCode
+import dev.sargunv.handheld.ui.awaitFocused
+import dev.sargunv.handheld.ui.launchApp
+import dev.sargunv.handheld.ui.press
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
@@ -53,52 +39,13 @@ class AboutTest {
     }
     """
 
-  /** Signs in to a server that's out of reach, so the places show nothing to focus. */
-  private fun ComposeUiTest.launch() {
-    setContent {
-      val heldKeys = remember { HeldKeys() }
-      val library = remember { LibraryCache.open(path = null) }
-      val credentials = remember {
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token"))
-      }
-      App(
-        DualScreenLayout.Frame,
-        heldKeys,
-        credentials,
-        TestDevice,
-        library,
-        rememberTestDownloads(library, credentials),
-        remember { testCoverDir() },
-        Modifier.trackHeldKeys(heldKeys),
-        httpEngine = { MockEngine { respondError(HttpStatusCode.NotFound) } },
-        appInfo = remember { AppInfo("1.2.3") { components } },
-      )
-    }
-  }
-
-  private fun ComposeUiTest.awaitFocused(tag: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
-    }
-  }
-
-  private fun ComposeUiTest.press(keys: List<Key>) {
-    for (key in keys) {
-      onRoot().performKeyInput { keyDown(key) }
-      waitForIdle()
-      onRoot().performKeyInput { keyUp(key) }
-      waitForIdle()
-    }
-  }
-
-  private fun ComposeUiTest.press(key: Key) = press(listOf(key))
-
   private fun ComposeUiTest.isFocused(tag: String) =
     onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
 
   @Test
   fun opensFromSettingsAndShowsEachComponentsLicence() = runComposeUiTest {
-    launch()
+    // The server is out of reach, so the places show nothing to focus.
+    launchApp(appInfo = AppInfo("1.2.3") { components })
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasText("Offline")).fetchSemanticsNodes().isNotEmpty()
     }

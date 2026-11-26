@@ -1,12 +1,11 @@
 package dev.sargunv.handheld.ui.signin
 
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher.Companion.expectValue
 import androidx.compose.ui.test.assert
@@ -17,31 +16,20 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
-import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
-import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.romm.RommException
-import dev.sargunv.handheld.ui.App
-import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
-import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.trackHeldKeys
-import dev.sargunv.handheld.ui.rememberTestDownloads
-import dev.sargunv.handheld.ui.testCoverDir
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
+import dev.sargunv.handheld.ui.fakeRomm
+import dev.sargunv.handheld.ui.json
+import dev.sargunv.handheld.ui.launchApp
+import dev.sargunv.handheld.ui.press
 import io.ktor.client.engine.mock.respondError
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
-import io.ktor.http.headersOf
 import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,49 +44,30 @@ class SignInTest {
   private val pairings = Collections.synchronizedList(mutableListOf<String>())
 
   /** A server that hands out a code, and never approves it. */
-  private val server = {
-    MockEngine { request ->
-      if (request.url.encodedPath != "/api/auth/device/init") {
-        return@MockEngine respondError(HttpStatusCode.NotFound)
-      }
-      pairings += (request.body as TextContent).text
-      respond(
-        """{"device_code": "secret", "user_code": "ABCD2345", "verification_path": "/pair/device",
-        "verification_path_complete": "/pair/device?user_code=ABCD2345", "expires_in": 600,
-        "interval": 5}""",
-        HttpStatusCode.Created,
-        headersOf(HttpHeaders.ContentType, "application/json"),
-      )
-    }
+  private val server = fakeRomm { path, request ->
+    if (path != "auth/device/init") return@fakeRomm respondError(HttpStatusCode.NotFound)
+    pairings += (request.body as TextContent).text
+    json(
+      """{"device_code": "secret", "user_code": "ABCD2345", "verification_path": "/pair/device",
+      "verification_path_complete": "/pair/device?user_code=ABCD2345", "expires_in": 600,
+      "interval": 5}""",
+      HttpStatusCode.Created,
+    )
   }
 
-  private fun androidx.compose.ui.test.ComposeUiTest.launch(store: CredentialStore) {
-    setContent {
-      val heldKeys = remember { HeldKeys() }
-      val library = remember { LibraryCache.open(path = null) }
-      App(
-        DualScreenLayout.Separate,
-        heldKeys,
-        store,
-        TestDevice,
-        library,
-        rememberTestDownloads(library, store),
-        remember { testCoverDir() },
-        Modifier.trackHeldKeys(heldKeys),
-        httpEngine = server,
-      )
-    }
+  /** Shows the app signed out. */
+  private fun ComposeUiTest.launch() {
+    launchApp(server, credentials = InMemoryCredentialStore(), layout = DualScreenLayout.Separate)
     waitForIdle()
   }
 
   /** Enters an address, and asks it for a code, with uploads allowed when [allowUploads]. */
-  private fun androidx.compose.ui.test.ComposeUiTest.pair(allowUploads: Boolean): String {
-    launch(InMemoryCredentialStore())
+  private fun ComposeUiTest.pair(allowUploads: Boolean): String {
+    launch()
     onNodeWithTag("allowUploads")
       .assert(expectValue(SemanticsProperties.ToggleableState, ToggleableState.Off))
       .assert(expectValue(SemanticsProperties.Role, Role.Switch))
-    onRoot().performKeyInput { pressKey(Key.ButtonA) }
-    waitForIdle()
+    press(Key.ButtonA)
     onNode(hasSetTextAction()).performTextReplacement("romm.example.com")
     if (allowUploads) {
       onNodeWithTag("allowUploads").performSemanticsAction(SemanticsActions.OnClick)
@@ -129,13 +98,13 @@ class SignInTest {
 
   @Test
   fun opensOnTheServerAddressWithoutCredentials() = runComposeUiTest {
-    launch(InMemoryCredentialStore())
+    launch()
     onNodeWithTag("address").assertIsFocused()
   }
 
   @Test
   fun fieldsSayWhatTheyAreAndWhatTheyHold() = runComposeUiTest {
-    launch(InMemoryCredentialStore())
+    launch()
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: empty")
     onNodeWithText("Sign in to RomM").assert(isHeading())
     onNodeWithTag("continue").assert(expectValue(SemanticsProperties.Role, Role.Button))
@@ -143,13 +112,12 @@ class SignInTest {
 
   @Test
   fun eachScreenShowsItsButtonHints() = runComposeUiTest {
-    launch(InMemoryCredentialStore())
+    launch()
     onNodeWithTag("hint:Confirm").assertTextEquals("A", "Choose")
     onNodeWithTag("hint:MainMenu").assertTextEquals("Start", "Main menu")
     // The first screen has nothing to go back to.
     onNodeWithTag("hint:Back").assertDoesNotExist()
-    onRoot().performKeyInput { pressKey(Key.ButtonA) }
-    waitForIdle()
+    press(Key.ButtonA)
     onNode(hasSetTextAction()).performTextReplacement("romm.example.com")
     onNodeWithTag("token").performSemanticsAction(SemanticsActions.OnClick)
     waitForIdle()
@@ -160,15 +128,12 @@ class SignInTest {
 
   @Test
   fun asksForAnAddressBeforeGoingOn() = runComposeUiTest {
-    launch(InMemoryCredentialStore())
-    onRoot().performKeyInput { pressKey(Key.DirectionDown) }
-    waitForIdle()
+    launch()
+    press(Key.DirectionDown)
     onNodeWithTag("allowUploads").assertIsFocused()
-    onRoot().performKeyInput { pressKey(Key.DirectionDown) }
-    waitForIdle()
+    press(Key.DirectionDown)
     onNodeWithTag("continue").assertIsFocused()
-    onRoot().performKeyInput { pressKey(Key.ButtonA) }
-    waitForIdle()
+    press(Key.ButtonA)
     onNodeWithText("Enter the address", substring = true).assertExists()
   }
 
@@ -195,9 +160,8 @@ class SignInTest {
 
   @Test
   fun notesAnUnencryptedAddressAsItsTyped() = runComposeUiTest {
-    launch(InMemoryCredentialStore())
-    onRoot().performKeyInput { pressKey(Key.ButtonA) }
-    waitForIdle()
+    launch()
+    press(Key.ButtonA)
     onNode(hasSetTextAction()).performTextInput("romm.example.com")
     waitForIdle()
     onNodeWithText("This address isn't encrypted", substring = true).assertDoesNotExist()

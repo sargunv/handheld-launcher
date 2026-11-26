@@ -79,14 +79,13 @@ interface QuickMenuSession {
   fun setFastForward(on: Boolean)
 
   /** Where the game's achievements stand, with the list of them once they've loaded. */
-  suspend fun achievements(): GameAchievements = GameAchievements.Off
+  suspend fun achievements(): GameAchievements
 
   /**
    * Whether the game plays in RetroAchievements' hardcore mode, which doesn't allow loading states
    * or fast forward while the game has achievements, or may have them once they've loaded.
    */
   val hardcore: Boolean
-    get() = false
 
   /** Closes the menu and runs the game again. */
   fun resume()

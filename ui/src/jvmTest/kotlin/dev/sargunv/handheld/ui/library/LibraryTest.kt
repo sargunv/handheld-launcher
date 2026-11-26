@@ -1,7 +1,5 @@
 package dev.sargunv.handheld.ui.library
 
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -11,37 +9,30 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertContentDescriptionEquals
-import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
-import dev.sargunv.handheld.data.auth.RommCredentials
-import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.TestDevice
-import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
-import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.trackHeldKeys
-import dev.sargunv.handheld.ui.rememberTestDownloads
-import dev.sargunv.handheld.ui.testCoverDir
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
+import dev.sargunv.handheld.ui.assertFocused
+import dev.sargunv.handheld.ui.awaitTag
+import dev.sargunv.handheld.ui.awaitText
+import dev.sargunv.handheld.ui.collection
+import dev.sargunv.handheld.ui.fakeRomm
+import dev.sargunv.handheld.ui.json
+import dev.sargunv.handheld.ui.lastPlayed
+import dev.sargunv.handheld.ui.launchApp
+import dev.sargunv.handheld.ui.page
+import dev.sargunv.handheld.ui.platform
+import dev.sargunv.handheld.ui.press
+import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
@@ -54,69 +45,35 @@ class LibraryTest {
    * Zulu, with Zulu added first and Bravo last. On the NES: Contra and Metroid. With [collections],
    * three collections: Couch holds Bravo and Contra, Solo holds Alpha, and Zero holds nothing.
    */
-  private fun server(collections: Boolean = true) = {
-    MockEngine { request ->
-      val body =
-        when (request.url.encodedPath.substringAfter("/api/")) {
-          "platforms" ->
-            "[${platform(1, "Game Boy", 3)}, ${platform(2, "NES", 2)}, ${platform(3, "N64", 0)}]"
-          "roms" ->
-            if (request.url.parameters["last_played"] == "true") page(emptyList())
-            else {
-              page(
-                listOf(
-                  rom(1, 1, "Alpha", day = 2),
-                  rom(2, 1, "Bravo", day = 3),
-                  rom(3, 1, "Zulu", day = 1),
-                  rom(4, 2, "Contra", day = 4),
-                  rom(5, 2, "Metroid", day = 5),
-                ),
-              )
-            }
-          "roms/identifiers" -> "[1, 2, 3, 4, 5]"
-          "collections" ->
-            if (collections)
-              "[${collection(1, "Couch", listOf(2, 4))}, ${collection(2, "Solo", listOf(1))}, " +
-                "${collection(3, "Zero", emptyList())}]"
-            else "[]"
-          "collections/smart" -> "[]"
-          else -> return@MockEngine respondError(HttpStatusCode.NotFound)
-        }
-      respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
-    }
-  }
-
-  private fun ComposeUiTest.launch(
-    settings: Settings = Settings(),
-    saveSettings: suspend (Settings) -> Unit = {},
-    storage: File? = null,
-    collections: Boolean = true,
-  ) {
-    val engine = server(collections)
-    setContent {
-      val heldKeys = remember { HeldKeys() }
-      val credentials = remember {
-        InMemoryCredentialStore(RommCredentials("https://romm.test", "rmm_token"))
-      }
-      val library = remember { LibraryCache.open(path = null) }
-      App(
-        DualScreenLayout.Frame,
-        heldKeys,
-        credentials,
-        TestDevice,
-        library,
-        rememberTestDownloads(
-          library,
-          credentials,
-          listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
-        ),
-        remember { testCoverDir() },
-        Modifier.trackHeldKeys(heldKeys),
-        initialSettings = settings,
-        saveSettings = saveSettings,
-        httpEngine = engine,
-      )
-    }
+  private fun server(collections: Boolean = true) = fakeRomm { path, request ->
+    json(
+      when (path) {
+        "platforms" ->
+          "[${platform(1, "p1", "Game Boy", 3)}, ${platform(2, "p2", "NES", 2)}, " +
+            "${platform(3, "p3", "N64", 0)}]"
+        "roms" ->
+          if (request.lastPlayed) page(emptyList())
+          else {
+            page(
+              listOf(
+                game(1, 1, "Alpha", day = 2),
+                game(2, 1, "Bravo", day = 3),
+                game(3, 1, "Zulu", day = 1),
+                game(4, 2, "Contra", day = 4),
+                game(5, 2, "Metroid", day = 5),
+              ),
+            )
+          }
+        "roms/identifiers" -> "[1, 2, 3, 4, 5]"
+        "collections" ->
+          if (collections)
+            "[${collection(1, "Couch", listOf(2, 4))}, ${collection(2, "Solo", listOf(1))}, " +
+              "${collection(3, "Zero", emptyList())}]"
+          else "[]"
+        "collections/smart" -> "[]"
+        else -> return@fakeRomm respondError(HttpStatusCode.NotFound)
+      },
+    )
   }
 
   /** Launches and goes to the Library once the sync has filled it. */
@@ -126,7 +83,12 @@ class LibraryTest {
     storage: File? = null,
     collections: Boolean = true,
   ) {
-    launch(settings, saveSettings, storage, collections)
+    launchApp(
+      server(collections),
+      storage = listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
+      settings = settings,
+      saveSettings = saveSettings,
+    )
     awaitTag("shelf:RecentlyAdded")
     press(listOf(Key.ButtonStart, Key.DirectionDown, Key.ButtonA))
     awaitTag("place:Library")
@@ -138,38 +100,6 @@ class LibraryTest {
     assertFocused("library:platform:1")
     press(Key.ButtonA)
     awaitTag("shelf:platform:1")
-  }
-
-  private fun ComposeUiTest.awaitTag(tag: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.press(key: Key) = press(listOf(key))
-
-  private fun ComposeUiTest.press(keys: List<Key>) {
-    for (key in keys) {
-      // The key goes up once the screen settles: the test tracks held keys through the focused
-      // element, and a screen change can leave nothing focused for a moment.
-      onRoot().performKeyInput { keyDown(key) }
-      waitForIdle()
-      onRoot().performKeyInput { keyUp(key) }
-      waitForIdle()
-    }
-  }
-
-  private fun ComposeUiTest.awaitText(text: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.assertFocused(tag: String) {
-    awaitTag(tag)
-    onNodeWithTag(tag).assertIsFocused()
   }
 
   @Test
@@ -442,25 +372,7 @@ class LibraryTest {
     fun onDevice(state: String) =
       SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, state)
 
-    fun platform(id: Int, name: String, roms: Int) =
-      """{"id": $id, "slug": "p$id", "fs_slug": "p$id", "name": "$name",
-      "display_name": "$name", "rom_count": $roms, "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    fun rom(id: Int, platform: Int, name: String, day: Int) =
-      """{"id": $id, "platform_id": $platform, "platform_slug": "p$platform",
-      "platform_fs_slug": "p$platform", "platform_display_name": "P$platform", "name": "$name",
-      "fs_name": "$name.bin", "fs_name_no_tags": "$name", "fs_name_no_ext": "$name",
-      "fs_extension": "bin", "fs_size_bytes": 1024, "path_cover_small": "", "url_cover": "",
-      "created_at": "2024-01-0${day}T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    fun collection(id: Int, name: String, roms: List<Int>) =
-      """{"id": $id, "name": "$name", "rom_ids": $roms, "rom_count": ${roms.size}, "user_id": 1,
-      "owner_username": "me", "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    fun page(items: List<String>) =
-      """{"items": [${items.joinToString()}], "total": ${items.size}, "limit": 200, "offset": 0}"""
+    fun game(id: Int, platform: Int, name: String, day: Int) =
+      rom(id, name, platform, "p$platform", "$name.bin", added = "2024-01-0$day")
   }
 }

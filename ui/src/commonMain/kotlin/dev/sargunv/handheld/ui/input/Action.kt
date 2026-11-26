@@ -17,8 +17,7 @@ enum class Action {
   PreviousShelf,
   NextShelf,
   /** Opens the main menu (the Start button), which goes to the top-level pages. */
-  MainMenu,
-  Select;
+  MainMenu;
 
   /** Whether holding the input repeats this action. Only movement repeats. */
   val repeats: Boolean
@@ -92,12 +91,12 @@ data class InputSettings(
       PadButton.L1 -> Action.PreviousShelf
       PadButton.R1 -> Action.NextShelf
       PadButton.Start -> Action.MainMenu
-      PadButton.Select -> Action.Select
       PadButton.DpadUp -> Action.Up
       PadButton.DpadDown -> Action.Down
       PadButton.DpadLeft -> Action.Left
       PadButton.DpadRight -> Action.Right
       PadButton.Y,
+      PadButton.Select,
       PadButton.L2,
       PadButton.R2,
       PadButton.ThumbLeft,

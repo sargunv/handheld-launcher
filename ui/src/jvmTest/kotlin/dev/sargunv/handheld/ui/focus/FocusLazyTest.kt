@@ -17,12 +17,10 @@ import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import dev.sargunv.handheld.ui.input.TestActionInputRoot
+import dev.sargunv.handheld.ui.press
 import kotlin.test.Test
 
 @OptIn(ExperimentalTestApi::class)
@@ -30,13 +28,6 @@ class FocusLazyTest {
   private fun ComposeUiTest.show(content: @Composable () -> Unit) {
     setContent { TestActionInputRoot { FocusRoot { FocusScope { content() } } } }
     waitForIdle()
-  }
-
-  private fun ComposeUiTest.press(key: Key, times: Int = 1) {
-    repeat(times) {
-      onRoot().performKeyInput { pressKey(key) }
-      waitForIdle()
-    }
   }
 
   @Composable
@@ -58,14 +49,14 @@ class FocusLazyTest {
   @Test
   fun rowEndsAreWallsByDefault() = runComposeUiTest {
     show { RowBesideItem(HorizontalWalls) }
-    press(Key.DirectionRight, times = 3)
+    press(List(3) { Key.DirectionRight })
     onNodeWithTag("c").assertIsFocused()
   }
 
   @Test
   fun rowEndsOpenWithoutWalls() = runComposeUiTest {
     show { RowBesideItem(emptySet()) }
-    press(Key.DirectionRight, times = 3)
+    press(List(3) { Key.DirectionRight })
     onNodeWithTag("beside").assertIsFocused()
   }
 
@@ -79,7 +70,7 @@ class FocusLazyTest {
         Item("beside")
       }
     }
-    press(Key.DirectionRight, times = 4)
+    press(List(4) { Key.DirectionRight })
     onNodeWithTag("g3").assertIsFocused()
     press(Key.DirectionDown)
     onNodeWithTag("g6").assertIsFocused()
@@ -89,7 +80,7 @@ class FocusLazyTest {
   fun focusMovesToTheFirstItemWhenTheFocusedOneGoesAway() = runComposeUiTest {
     val keys = mutableStateListOf("a", "b", "c")
     show { FocusLazyRow { items(keys, key = { it }) { Item(it) } } }
-    press(Key.DirectionRight, times = 2)
+    press(List(2) { Key.DirectionRight })
     onNodeWithTag("c").assertIsFocused()
     keys.remove("c")
     waitForIdle()
