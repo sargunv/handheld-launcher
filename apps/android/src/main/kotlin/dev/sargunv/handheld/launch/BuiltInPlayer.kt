@@ -85,6 +85,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         states = saves.statesOf(request.gameId, request.romPath),
         pauseWhenUnfocused = settings.pauseGameWhenUnfocused,
         aButtonPosition = settings.input.aButtonPosition,
+        stackedScreensOptions = chosen.stackedScreensOptions,
       )
     val result = awaitResult(intent)
     val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)

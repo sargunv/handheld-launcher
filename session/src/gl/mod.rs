@@ -11,7 +11,7 @@ use glow::HasContext;
 
 use egl::*;
 
-use crate::video::fit;
+use crate::video::{Region, fit};
 
 pub(crate) use egl::Egl;
 
@@ -133,6 +133,9 @@ struct Handles {
     context: EGLContext,
     /// The attached window's surface, or [`EGL_NO_SURFACE`].
     window_surface: EGLSurface,
+    /// The lower window's surface, or [`EGL_NO_SURFACE`]: a second screen
+    /// that shows the bottom half of a two-screen system's frame.
+    lower_surface: EGLSurface,
     /// The surface the context is current on without a window: a small
     /// pbuffer, or [`EGL_NO_SURFACE`] where EGL allows surfaceless contexts.
     idle_surface: EGLSurface,
@@ -227,6 +230,7 @@ impl GlContext {
             config,
             context,
             window_surface: EGL_NO_SURFACE,
+            lower_surface: EGL_NO_SURFACE,
             idle_surface: EGL_NO_SURFACE,
             wayland_window: None,
             vsync: true,
@@ -305,6 +309,58 @@ impl GlContext {
         !self.handles.window_surface.is_null()
     }
 
+    /// Replaces the lower window, which shows the bottom half of each frame
+    /// while the main window shows the top half, or detaches it with `None`.
+    /// On an error, the context has no lower window. As with
+    /// [`GlContext::set_window`], the old window's surface is gone when this
+    /// returns.
+    ///
+    /// Presenting to the lower window doesn't wait for its display's refresh,
+    /// so the main window alone paces the session.
+    pub(crate) fn set_lower_window(
+        &mut self,
+        window: Option<WindowRef<'_>>,
+    ) -> Result<(), GlError> {
+        let h = &mut self.handles;
+        h.destroy_lower_surface();
+        let Some((window, width, height)) = window else {
+            return h.make_current();
+        };
+        if matches!(window.kind, WindowKind::Wayland { .. }) {
+            // A second wl_egl_window would need tracking of its own.
+            return Err(GlError::Egl(
+                "a lower window can't be a Wayland surface".into(),
+            ));
+        }
+        h.lower_surface = match h.create_window_surface(window, width, height) {
+            Ok(surface) => surface,
+            Err(e) => {
+                h.make_current()?;
+                return Err(e);
+            }
+        };
+        let result = h.make_current_on(h.lower_surface).map(|()| {
+            // SAFETY: the context is current on the lower surface.
+            if unsafe { (h.egl.swap_interval)(h.display, 0) } == EGL_FALSE {
+                log::warn!(
+                    "can't stop the lower window waiting for vsync: {}",
+                    h.egl.error()
+                );
+            }
+        });
+        if let Err(e) = result {
+            h.destroy_lower_surface();
+            h.make_current()?;
+            return Err(e);
+        }
+        h.make_current()
+    }
+
+    /// Whether the context has a lower window.
+    pub(crate) fn has_lower_window(&self) -> bool {
+        !self.handles.lower_surface.is_null()
+    }
+
     /// Sets whether swapping buffers waits for the display's next refresh,
     /// now and for windows attached later.
     pub(crate) fn set_vsync(&mut self, vsync: bool) {
@@ -312,27 +368,6 @@ impl GlContext {
         if self.has_window() {
             self.handles.apply_vsync();
         }
-    }
-
-    /// Shows the window surface's back buffer.
-    pub(crate) fn swap_buffers(&self) {
-        let h = &self.handles;
-        // SAFETY: the display and surface belong together.
-        if unsafe { (h.egl.swap_buffers)(h.display, h.window_surface) } == EGL_FALSE {
-            log::warn!("can't present: {}", h.egl.error());
-        }
-    }
-
-    /// The window surface's size in pixels.
-    pub(crate) fn surface_size(&self) -> (u32, u32) {
-        let h = &self.handles;
-        let (mut width, mut height) = (0, 0);
-        // SAFETY: the display and surface belong together.
-        unsafe {
-            (h.egl.query_surface)(h.display, h.window_surface, EGL_WIDTH, &mut width);
-            (h.egl.query_surface)(h.display, h.window_surface, EGL_HEIGHT, &mut height);
-        }
-        (width.max(0) as u32, height.max(0) as u32)
     }
 
     /// Tells the surface its window's new size. Only Wayland needs it; other
@@ -354,6 +389,23 @@ impl GlContext {
 }
 
 impl Handles {
+    fn swap(&self, surface: EGLSurface) {
+        // SAFETY: the display and surface belong together.
+        if unsafe { (self.egl.swap_buffers)(self.display, surface) } == EGL_FALSE {
+            log::warn!("can't present: {}", self.egl.error());
+        }
+    }
+
+    fn size(&self, surface: EGLSurface) -> (u32, u32) {
+        let (mut width, mut height) = (0, 0);
+        // SAFETY: the display and surface belong together.
+        unsafe {
+            (self.egl.query_surface)(self.display, surface, EGL_WIDTH, &mut width);
+            (self.egl.query_surface)(self.display, surface, EGL_HEIGHT, &mut height);
+        }
+        (width.max(0) as u32, height.max(0) as u32)
+    }
+
     fn create_window_surface(
         &mut self,
         window: &NativeWindow,
@@ -412,6 +464,25 @@ impl Handles {
         self.destroy_wayland_window();
     }
 
+    /// Destroys the lower window's surface, leaving the context current on
+    /// no surface if it was there.
+    fn destroy_lower_surface(&mut self) {
+        if self.lower_surface.is_null() {
+            return;
+        }
+        // SAFETY: as in `destroy_window_surface`.
+        unsafe {
+            (self.egl.make_current)(
+                self.display,
+                EGL_NO_SURFACE,
+                EGL_NO_SURFACE,
+                ptr::null_mut(),
+            );
+            (self.egl.destroy_surface)(self.display, self.lower_surface);
+        }
+        self.lower_surface = EGL_NO_SURFACE;
+    }
+
     fn destroy_wayland_window(&mut self) {
         if let (Some(window), Ok(wl)) = (self.wayland_window.take(), WaylandEgl::get()) {
             // SAFETY: the window came from wl_egl_window_create, and no EGL
@@ -436,6 +507,10 @@ impl Handles {
         } else {
             self.window_surface
         };
+        self.make_current_on(surface)
+    }
+
+    fn make_current_on(&self, surface: EGLSurface) -> Result<(), GlError> {
         // SAFETY: the display, surface and context belong together.
         let ok = unsafe { (self.egl.make_current)(self.display, surface, surface, self.context) };
         if ok == EGL_FALSE {
@@ -450,6 +525,7 @@ impl Handles {
 
 impl Drop for Handles {
     fn drop(&mut self) {
+        self.destroy_lower_surface();
         self.destroy_window_surface();
         // SAFETY: the handles came from this display, and nothing uses them
         // after this.
@@ -761,9 +837,11 @@ impl Framebuffer {
 
 /// Draws the `width` by `height` region at `source`'s origin to the window,
 /// scaled to fit at `aspect` (width over height) and centered on black, then
-/// presents it. Without a window, it does nothing. `top_row_first` says the region's first row (GL's lowest) is
-/// the image's top, as with uploaded frames and cores that render with a
-/// top-left origin.
+/// presents it. With a lower window, the main window shows the region's top
+/// half and the lower window its bottom half, both from the one frame.
+/// Without a window, it does nothing. `top_row_first` says the region's first
+/// row (GL's lowest) is the image's top, as with uploaded frames and cores
+/// that render with a top-left origin.
 pub(crate) fn present(
     context: &GlContext,
     source: &Framebuffer,
@@ -772,17 +850,68 @@ pub(crate) fn present(
     aspect: f32,
     top_row_first: bool,
 ) {
-    if !context.has_window() {
-        return;
+    let h = &context.handles;
+    let draw = |region: Region, surface: EGLSurface| {
+        let (win_w, win_h) = h.size(surface);
+        log::trace!("presenting {region:?} of {width}x{height} to a {win_w}x{win_h} surface");
+        blit(
+            &context.gl,
+            source,
+            width,
+            height,
+            region,
+            aspect,
+            top_row_first,
+            (win_w, win_h),
+        );
+        h.swap(surface);
+    };
+    if context.has_lower_window() {
+        // The lower window first: it doesn't wait for vsync, so both show the
+        // frame by the main window's next refresh.
+        if h.make_current_on(h.lower_surface).is_ok() {
+            draw(Region::Bottom, h.lower_surface);
+        }
+        if let Err(e) = h.make_current() {
+            log::warn!("can't go back to the main window: {e}");
+            return;
+        }
+        if context.has_window() {
+            draw(Region::Top, h.window_surface);
+        }
+    } else if context.has_window() {
+        draw(Region::Whole, h.window_surface);
     }
-    let gl = &context.gl;
-    let (win_w, win_h) = context.surface_size();
-    log::trace!("presenting {width}x{height} to a {win_w}x{win_h} surface");
-    let (x, y, w, h) = fit(width, height, aspect, win_w, win_h);
-    let (dst_y0, dst_y1) = if top_row_first {
-        (y + h, y)
+    drain_errors(&context.gl, "presenting");
+}
+
+/// Draws `region` of the `width` by `height` image at `source`'s origin to
+/// the current surface, `window` pixels in size, scaled to fit at the
+/// region's share of `aspect` and centered on black.
+#[allow(clippy::too_many_arguments)]
+fn blit(
+    gl: &glow::Context,
+    source: &Framebuffer,
+    width: u32,
+    height: u32,
+    region: Region,
+    aspect: f32,
+    top_row_first: bool,
+    (win_w, win_h): (u32, u32),
+) {
+    let (first, rows) = region.rows(height);
+    let (x, y, w, h) = fit(
+        width,
+        rows,
+        region.aspect(width, height, aspect),
+        win_w,
+        win_h,
+    );
+    // GL counts rows from the bottom of the framebuffer.
+    let (src_y0, src_y1, dst_y0, dst_y1) = if top_row_first {
+        (first, first + rows, y + h, y)
     } else {
-        (y, y + h)
+        (height - first - rows, height - first, y, y + h)
     };
     // SAFETY: the context is current, and every binding it changes is
     // restored.
@@ -796,9 +925,9 @@ pub(crate) fn present(
         gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(source.fbo));
         gl.blit_framebuffer(
             0,
-            0,
+            src_y0 as i32,
             width as i32,
-            height as i32,
+            src_y1 as i32,
             x,
             dst_y0,
             x + w,
@@ -808,8 +937,6 @@ pub(crate) fn present(
         );
         saved.restore(gl);
     }
-    context.swap_buffers();
-    drain_errors(gl, "presenting");
 }
 
 /// Logs and clears pending GL errors.

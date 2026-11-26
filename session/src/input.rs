@@ -1,7 +1,7 @@
 //! Controller state that the platform layer fills in and the core reads, in
-//! libretro's RetroPad layout.
+//! libretro's RetroPad layout, and the touchscreen, as libretro's pointer.
 
-use std::sync::atomic::{AtomicI16, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU16, AtomicU32, Ordering};
 
 use crate::ffi;
 
@@ -90,14 +90,20 @@ impl InputState {
         &self.ports[index]
     }
 
-    /// The buttons pressed on each port since the last call, which the
-    /// session takes as a frame starts.
-    pub(crate) fn take_presses(&self) -> [u16; MAX_PORTS] {
-        std::array::from_fn(|i| self.ports[i].presses.swap(0, Ordering::Relaxed))
+    /// The buttons pressed on each port since the last call, and whether its
+    /// pointer touched down, as [`Button::mask`] bits and [`POINTER_PRESS`],
+    /// which the session takes as a frame starts.
+    pub(crate) fn take_presses(&self) -> [u32; MAX_PORTS] {
+        std::array::from_fn(|i| {
+            let port = &self.ports[i];
+            let buttons = u32::from(port.presses.swap(0, Ordering::Relaxed));
+            let pointer = port.pointer_touched.swap(false, Ordering::Relaxed);
+            buttons | if pointer { POINTER_PRESS } else { 0 }
+        })
     }
 
     /// The state the core sees, with the frame's `presses` held down.
-    pub(crate) fn snapshot(&self, presses: &[u16; MAX_PORTS]) -> [PortSnapshot; MAX_PORTS] {
+    pub(crate) fn snapshot(&self, presses: &[u32; MAX_PORTS]) -> [PortSnapshot; MAX_PORTS] {
         std::array::from_fn(|i| self.ports[i].snapshot(presses[i]))
     }
 }
@@ -112,6 +118,11 @@ pub struct Port {
     sticks: [AtomicI16; 4],
     /// L2 and R2, for cores that read them as analog triggers.
     triggers: [AtomicI16; 2],
+    /// Where the pointer last was, x in the high half and y in the low.
+    pointer_position: AtomicU32,
+    pointer_pressed: AtomicBool,
+    /// Whether the pointer touched down since the session last took it.
+    pointer_touched: AtomicBool,
 }
 
 impl Port {
@@ -164,18 +175,41 @@ impl Port {
         self.triggers[index].store(value.max(0), Ordering::Relaxed);
     }
 
-    fn snapshot(&self, presses: u16) -> PortSnapshot {
+    /// Touches the pointer down at (`x`, `y`), or moves it there, or lifts it
+    /// there when `pressed` is false. Each axis runs from -32767 to 32767,
+    /// across the core's whole frame, with positive `y` down, as libretro's
+    /// pointer does. A touch lifted before the next frame still reaches the
+    /// core, as touching for that frame.
+    pub fn set_pointer(&self, x: i16, y: i16, pressed: bool) {
+        let position = (u32::from(x as u16) << 16) | u32::from(y as u16);
+        self.pointer_position.store(position, Ordering::Relaxed);
+        self.pointer_pressed.store(pressed, Ordering::Relaxed);
+        if pressed {
+            self.pointer_touched.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Lifts the pointer where it is.
+    pub fn release_pointer(&self) {
+        self.pointer_pressed.store(false, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self, presses: u32) -> PortSnapshot {
         let triggers: [i16; 2] = std::array::from_fn(|i| self.triggers[i].load(Ordering::Relaxed));
-        let mut buttons = self.buttons() | presses;
+        let mut buttons = self.buttons() | presses as u16;
         for (value, button) in triggers.iter().zip([Button::L2, Button::R2]) {
             if *value > TRIGGER_PRESSED {
                 buttons |= button.mask();
             }
         }
+        let position = self.pointer_position.load(Ordering::Relaxed);
         PortSnapshot {
             buttons,
             sticks: std::array::from_fn(|i| self.sticks[i].load(Ordering::Relaxed)),
             triggers,
+            pointer: [(position >> 16) as u16 as i16, position as u16 as i16],
+            pointer_pressed: self.pointer_pressed.load(Ordering::Relaxed)
+                || presses & POINTER_PRESS != 0,
         }
     }
 }
@@ -184,12 +218,19 @@ impl Port {
 /// button.
 const TRIGGER_PRESSED: i16 = i16::MAX / 2;
 
+/// The bit of a port's presses that says its pointer touched down, above the
+/// buttons' bits.
+pub(crate) const POINTER_PRESS: u32 = 1 << 16;
+
 /// A port's state as the core sees it for one poll.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct PortSnapshot {
     buttons: u16,
     sticks: [i16; 4],
     triggers: [i16; 2],
+    /// X and y.
+    pointer: [i16; 2],
+    pointer_pressed: bool,
 }
 
 /// Answers the core's `input_state` query from a snapshot.
@@ -236,6 +277,14 @@ pub(crate) fn query(
                     0
                 }
             }
+            _ => 0,
+        },
+        // One touch: later ones, and a second touch, read as untouched.
+        ffi::RETRO_DEVICE_POINTER if index == 0 => match id {
+            ffi::RETRO_DEVICE_ID_POINTER_X => state.pointer[0],
+            ffi::RETRO_DEVICE_ID_POINTER_Y => state.pointer[1],
+            ffi::RETRO_DEVICE_ID_POINTER_PRESSED => i16::from(state.pointer_pressed),
+            ffi::RETRO_DEVICE_ID_POINTER_COUNT => i16::from(state.pointer_pressed),
             _ => 0,
         },
         _ => 0,
@@ -385,5 +434,47 @@ mod tests {
         assert_eq!(query(&state.snapshot(&presses), 0, joypad, 0, a), 1);
         let next = state.snapshot(&state.take_presses());
         assert_eq!(query(&next, 0, joypad, 0, a), 0);
+    }
+
+    #[test]
+    fn pointer_reads_its_position_and_touch() {
+        let state = InputState::new();
+        let pointer = ffi::RETRO_DEVICE_POINTER;
+        state.port(0).set_pointer(-1000, 32767, true);
+        assert_eq!(
+            query_one(&state, pointer, 0, ffi::RETRO_DEVICE_ID_POINTER_X),
+            -1000
+        );
+        assert_eq!(
+            query_one(&state, pointer, 0, ffi::RETRO_DEVICE_ID_POINTER_Y),
+            32767
+        );
+        let pressed = ffi::RETRO_DEVICE_ID_POINTER_PRESSED;
+        assert_eq!(query_one(&state, pointer, 0, pressed), 1);
+        assert_eq!(query_one(&state, pointer, 1, pressed), 0);
+        state.port(0).release_pointer();
+        assert_eq!(query_one(&state, pointer, 0, pressed), 0);
+        // Lifting keeps the position.
+        assert_eq!(
+            query_one(&state, pointer, 0, ffi::RETRO_DEVICE_ID_POINTER_X),
+            -1000
+        );
+    }
+
+    #[test]
+    fn touches_between_frames_last_a_frame() {
+        let state = InputState::new();
+        let pointer = ffi::RETRO_DEVICE_POINTER;
+        let pressed = ffi::RETRO_DEVICE_ID_POINTER_PRESSED;
+        state.port(0).set_pointer(10, 20, true);
+        state.port(0).set_pointer(10, 20, false);
+        let frame = state.snapshot(&state.take_presses());
+        assert_eq!(query(&frame, 0, pointer, 0, pressed), 1);
+        assert_eq!(
+            query(&frame, 0, pointer, 0, ffi::RETRO_DEVICE_ID_POINTER_Y),
+            20
+        );
+        let next = state.snapshot(&state.take_presses());
+        assert_eq!(query(&next, 0, pointer, 0, pressed), 0);
     }
 }

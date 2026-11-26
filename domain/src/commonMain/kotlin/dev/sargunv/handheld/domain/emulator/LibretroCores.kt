@@ -42,12 +42,17 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  * [androidLibrary] is the name on the Android buildbot where it differs, for cores built per
  * graphics API there. [retroArchFolder] is the folder RetroArch sorts the core's saves and states
  * into. [source] is where its Android builds come from.
+ *
+ * [stackedScreensOptions] are the core options that make a two-screen system's core draw its
+ * screens stacked in one frame, top above bottom, the same size, with no gap, so the built-in
+ * session can show each half on a screen of its own. They're empty for cores that draw one screen.
  */
 data class LibretroCore(
   val library: String,
   val androidLibrary: String = library,
   val retroArchFolder: String,
   val source: CoreSource = CoreSource.Buildbot,
+  val stackedScreensOptions: Map<String, String> = emptyMap(),
 )
 
 /** Where a core's Android builds come from, as a zip holding the core's library. */
@@ -79,7 +84,17 @@ object LibretroCores {
     )
   private val gambatte = LibretroCore("gambatte_libretro", retroArchFolder = "Gambatte")
   private val mgba = LibretroCore("mgba_libretro", retroArchFolder = "mGBA")
-  private val melonDsDs = LibretroCore("melondsds_libretro", retroArchFolder = "melonDS DS")
+  private val melonDsDs =
+    LibretroCore(
+      "melondsds_libretro",
+      retroArchFolder = "melonDS DS",
+      stackedScreensOptions =
+        mapOf(
+          "melonds_number_of_screen_layouts" to "1",
+          "melonds_screen_layout1" to "top-bottom",
+          "melonds_screen_gap" to "0",
+        ),
+    )
   // Azahar publishes this core with each of its releases, so it comes from there rather than from
   // the buildbot's nightlies.
   private val azahar =
