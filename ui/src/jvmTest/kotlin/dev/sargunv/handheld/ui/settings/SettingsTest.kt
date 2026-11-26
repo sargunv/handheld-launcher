@@ -5,6 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -144,6 +145,15 @@ class SettingsTest {
   private fun ComposeUiTest.awaitFocused(tag: String) {
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasTestTag(tag) and isFocused()).fetchSemanticsNodes().isNotEmpty()
+    }
+  }
+
+  /** Waits for Open with's list to take the focus, which comes a frame after its text. */
+  private fun ComposeUiTest.awaitFocusedApp() {
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(isFocused()).fetchSemanticsNodes().any {
+        it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("app:") == true
+      }
     }
   }
 
@@ -340,6 +350,7 @@ class SettingsTest {
     // A game's own choice doesn't apply to the platform, so the chain starts at the platform.
     onNodeWithText("Platform Game Boy: Built-in (default) · opens here").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Nothing chosen")
+    awaitFocusedApp()
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
 
     awaitFocused("settings:emulators:gb")
@@ -350,6 +361,7 @@ class SettingsTest {
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
     awaitText("Clearing it opens them in Built-in · Gambatte.")
+    awaitFocusedApp()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Built-in · Gambatte")
