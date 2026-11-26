@@ -76,7 +76,7 @@ pub(crate) struct Host {
     pub(crate) input: Arc<InputState>,
     input_snapshot: [PortSnapshot; MAX_PORTS],
     /// The buttons pressed since the previous frame, held for this one.
-    frame_presses: [u16; MAX_PORTS],
+    frame_presses: [u32; MAX_PORTS],
     pub(crate) audio_sink: Box<dyn AudioSink>,
     pub(crate) audio: Option<AudioPipeline>,
     /// The core rate `audio` resamples from.
@@ -612,7 +612,9 @@ impl Host {
                 ffi::RETRO_ENVIRONMENT_GET_INPUT_BITMASKS => true,
                 ffi::RETRO_ENVIRONMENT_GET_INPUT_DEVICE_CAPABILITIES => write::<u64>(
                     data,
-                    (1 << ffi::RETRO_DEVICE_JOYPAD) | (1 << ffi::RETRO_DEVICE_ANALOG),
+                    (1 << ffi::RETRO_DEVICE_JOYPAD)
+                        | (1 << ffi::RETRO_DEVICE_ANALOG)
+                        | (1 << ffi::RETRO_DEVICE_POINTER),
                 ),
                 ffi::RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS => {
                     write::<c_uint>(data, MAX_PORTS as c_uint)

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
@@ -24,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -31,8 +33,10 @@ import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.rememberSecondaryDisplay
+import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
+import dev.sargunv.handheld.session.LowerScreenView
 import dev.sargunv.handheld.session.SessionException
 import dev.sargunv.handheld.session.SessionInfo
 import dev.sargunv.handheld.session.SessionListener
@@ -65,11 +69,29 @@ import kotlinx.coroutines.withContext
  *
  * The view fills the screen and the session fits the core's frame inside it at the core's aspect
  * ratio, following any change to it mid-game, so the view needs no new layout when that changes.
+ *
+ * A two-screen system's game, on a device with a second display, plays on both: the core draws its
+ * screens stacked in one frame, and the session shows the top half here and the bottom half on the
+ * second display, where touches reach the game. The save-state slots cover the bottom screen while
+ * the quick menu is open. With one display, or a core whose session can't present to a second, the
+ * game plays on this one, as the core lays it out by default.
  */
 class SessionActivity : ComponentActivity() {
   private lateinit var view: GameSessionView
   private lateinit var menu: ComposeView
   private var session: GameSession? = null
+
+  /** The game's lower screen on the second display, while it shows. */
+  private var lowerView: LowerScreenView? = null
+
+  /**
+   * Whether the game draws its two screens stacked for showing on two displays, as decided when it
+   * started.
+   */
+  private var twoScreens = false
+
+  /** Whether the session turned down the lower screen, so the game plays on one display. */
+  private var lowerUnsupported by mutableStateOf(false)
   private val heldKeys = HeldKeys()
   private var inputSettings = InputSettings()
 
@@ -117,6 +139,9 @@ class SessionActivity : ComponentActivity() {
       systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
     inputSettings = settingsFile(this).read().input
+    twoScreens =
+      stackedScreensOptions().isNotEmpty() &&
+        getSystemService(DisplayManager::class.java).secondaryDisplay() != null
     view = GameSessionView(this)
     view.pauseWhenUnfocused = intent.getBooleanExtra(EXTRA_PAUSE_WHEN_UNFOCUSED, false)
     view.faceKeyCodes =
@@ -126,7 +151,7 @@ class SessionActivity : ComponentActivity() {
       ComposeView(this).apply {
         // Closed, the menu can't take the focus from the game.
         descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-        setContent { QuickMenuContent() }
+        setContent { SessionContent() }
       }
     setContentView(
       FrameLayout(this).apply {
@@ -143,30 +168,57 @@ class SessionActivity : ComponentActivity() {
 
   /**
    * The quick menu while it's open: over the game on this display, with the save-state slots on the
-   * second display, or beside the menu when there's only one.
+   * second display, or beside the menu when there's only one. With [twoScreens], the second display
+   * shows the game's lower screen, which the slots cover while the menu is open.
    */
   @Composable
-  private fun QuickMenuContent() {
-    if (!menuOpen) return
+  private fun SessionContent() {
     val display = rememberSecondaryDisplay()
     var failedDisplayId by remember { mutableStateOf<Int?>(null) }
     val usableDisplay = display?.takeIf { it.displayId != failedDisplayId }
-    val layout = if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
+    val lowerScreen = twoScreens && usableDisplay != null && !lowerUnsupported
     val slots = @Composable { StateSlotsPanel(quickMenu) }
-    ActionInputRoot(inputSettings, heldKeys, Modifier.exposeTestTags()) {
-      FocusRoot {
-        Box(Modifier.fillMaxSize()) {
-          DualScreen(layout, primary = { QuickMenu(quickMenu) }, secondary = slots)
+    if (menuOpen) {
+      val layout = if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
+      ActionInputRoot(inputSettings, heldKeys, Modifier.exposeTestTags()) {
+        FocusRoot {
+          Box(Modifier.fillMaxSize()) {
+            DualScreen(layout, primary = { QuickMenu(quickMenu) }, secondary = slots)
+          }
         }
       }
     }
-    if (usableDisplay != null) {
+    if (usableDisplay != null && (menuOpen || lowerScreen)) {
       SecondaryDisplayContent(
         display = usableDisplay,
         onFailed = { failedDisplayId = usableDisplay.displayId },
-        content = slots,
-      )
+      ) {
+        Box(Modifier.fillMaxSize()) {
+          if (lowerScreen) LowerScreen()
+          if (menuOpen) slots()
+        }
+      }
     }
+  }
+
+  /** The game's lower screen, which the session presents to while it's composed. */
+  @Composable
+  private fun LowerScreen() {
+    AndroidView(
+      factory = { context ->
+        LowerScreenView(context).also {
+          it.onUnsupported = { lowerUnsupported = true }
+          it.touchable = !menuOpen
+          it.session = session
+          lowerView = it
+        }
+      },
+      modifier = Modifier.fillMaxSize(),
+      onRelease = {
+        it.session = null
+        if (lowerView === it) lowerView = null
+      },
+    )
   }
 
   /** Pauses the game and opens the quick menu over it. */
@@ -175,6 +227,7 @@ class SessionActivity : ComponentActivity() {
     // Not running releases what the game held, and the menu takes the focus, which the game can't
     // hold meanwhile, so the game hears nothing until the menu closes.
     view.running = false
+    lowerView?.touchable = false
     setGameFocusable(false)
     quickMenu.open()
     menu.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
@@ -187,6 +240,7 @@ class SessionActivity : ComponentActivity() {
     menuOpen = false
     menu.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
     setGameFocusable(true)
+    lowerView?.touchable = true
     view.running = true
     view.requestFocus()
   }
@@ -205,6 +259,7 @@ class SessionActivity : ComponentActivity() {
     val stopping = session
     session = null
     view.session = null
+    lowerView?.session = null
     try {
       stopping?.stop()
     } catch (e: SessionException) {
@@ -234,6 +289,7 @@ class SessionActivity : ComponentActivity() {
       unclaimed = null
       session = started
       view.session = started
+      lowerView?.session = started
     } finally {
       unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
     }
@@ -249,9 +305,16 @@ class SessionActivity : ComponentActivity() {
       systemDir = intent.getStringExtra(EXTRA_SYSTEM_DIR)!!,
       saveDir = intent.getStringExtra(EXTRA_SAVE_DIR)!!,
       saveRamPath = intent.getStringExtra(EXTRA_SAVE_RAM),
-      coreOptions = emptyMap(),
+      coreOptions = if (twoScreens) stackedScreensOptions() else emptyMap(),
       video = VideoMode.WINDOW,
     )
+  }
+
+  /** The core options that draw a two-screen system's screens stacked, or none for one screen. */
+  private fun stackedScreensOptions(): Map<String, String> {
+    val keys = intent.getStringArrayExtra(EXTRA_STACKED_SCREENS_KEYS).orEmpty()
+    val values = intent.getStringArrayExtra(EXTRA_STACKED_SCREENS_VALUES).orEmpty()
+    return keys.zip(values).toMap()
   }
 
   // Activity's dispatchKeyEvent is public; lint objects only because androidx.core's override is
@@ -295,6 +358,7 @@ class SessionActivity : ComponentActivity() {
 
   override fun onDestroy() {
     view.session = null
+    lowerView?.session = null
     // Closing stops the core and writes its save memory.
     session?.close()
     session = null
@@ -312,6 +376,8 @@ class SessionActivity : ComponentActivity() {
     private const val EXTRA_STATES = "states"
     private const val EXTRA_PAUSE_WHEN_UNFOCUSED = "pause_when_unfocused"
     private const val EXTRA_A_BUTTON_POSITION = "a_button_position"
+    private const val EXTRA_STACKED_SCREENS_KEYS = "stacked_screens_keys"
+    private const val EXTRA_STACKED_SCREENS_VALUES = "stacked_screens_values"
 
     /** Why the session couldn't start, in the result of one that couldn't. */
     const val EXTRA_ERROR = "error"
@@ -323,6 +389,8 @@ class SessionActivity : ComponentActivity() {
      * The intent that runs [core] with [content], with [systemDir] for its system files, its own
      * saves in [saveDir], its save memory in [saveRam] and its save states in [states], one file
      * per slot, with the gamepad's face buttons where [aButtonPosition] puts them.
+     * [stackedScreensOptions] are the core's options that draw a two-screen system's screens
+     * stacked, for playing on two displays, or none for a one-screen system.
      */
     fun intent(
       context: Context,
@@ -334,6 +402,7 @@ class SessionActivity : ComponentActivity() {
       states: List<String>,
       pauseWhenUnfocused: Boolean,
       aButtonPosition: AButtonPosition,
+      stackedScreensOptions: Map<String, String> = emptyMap(),
     ): Intent =
       Intent(context, SessionActivity::class.java)
         .putExtra(EXTRA_CORE, core)
@@ -344,5 +413,7 @@ class SessionActivity : ComponentActivity() {
         .putExtra(EXTRA_STATES, states.toTypedArray())
         .putExtra(EXTRA_PAUSE_WHEN_UNFOCUSED, pauseWhenUnfocused)
         .putExtra(EXTRA_A_BUTTON_POSITION, aButtonPosition.name)
+        .putExtra(EXTRA_STACKED_SCREENS_KEYS, stackedScreensOptions.keys.toTypedArray())
+        .putExtra(EXTRA_STACKED_SCREENS_VALUES, stackedScreensOptions.values.toTypedArray())
   }
 }

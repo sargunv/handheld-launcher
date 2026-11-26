@@ -7,11 +7,13 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.View
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * Shows a [GameSession] in [VideoMode.WINDOW] and feeds it the gamepad's input while focused.
+ * Shows a [GameSession] in [VideoMode.WINDOW] and feeds it the gamepad's input while focused, and
+ * touches while it runs, as libretro's pointer.
  *
  * The session runs only while the view's surface exists, its window is visible and [running] is
  * true, so it pauses when the app goes to the background or the screen turns off. Losing focus,
@@ -32,6 +34,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       }
       attached = false
       resumed = false
+      field?.releaseTouch()
       field = value
       input?.close()
       input = value?.let {
@@ -107,6 +110,12 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     update()
   }
 
+  override fun onTouchEvent(event: MotionEvent): Boolean {
+    val session = session ?: return false
+    if (!resumed) return false
+    return session.touch(Screen.MAIN, this, event)
+  }
+
   override fun dispatchKeyEvent(event: KeyEvent): Boolean =
     input?.onKeyEvent(event) == true || super.dispatchKeyEvent(event)
 
@@ -134,7 +143,10 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         (hasWindowFocus() || !pauseWhenUnfocused)
     if (run == resumed) return
     resumed = run
-    if (!run) input?.releaseAll()
+    if (!run) {
+      input?.releaseAll()
+      session.releaseTouch()
+    }
     control(session) { if (run) resume() else pause() }
   }
 
@@ -160,4 +172,25 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       }
     }
   }
+}
+
+/**
+ * Passes [event], a touch on [view], which shows the session on [screen], to the session as its
+ * pointer: the first finger down, until it lifts.
+ */
+internal fun GameSession.touch(screen: Screen, view: View, event: MotionEvent): Boolean {
+  val pressed =
+    when (event.actionMasked) {
+      MotionEvent.ACTION_DOWN,
+      MotionEvent.ACTION_MOVE -> true
+      MotionEvent.ACTION_UP,
+      MotionEvent.ACTION_CANCEL -> false
+      else -> return true
+    }
+  try {
+    touch(screen, event.x, event.y, view.width.toUInt(), view.height.toUInt(), pressed)
+  } catch (_: IllegalStateException) {
+    // The owner closed the session.
+  }
+  return true
 }

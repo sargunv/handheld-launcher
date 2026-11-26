@@ -603,6 +603,41 @@ impl Session {
         Ok(())
     }
 
+    /// Replaces the lower window, or detaches it with `None`. While a lower
+    /// window is attached, the main window shows the top half of each frame
+    /// and the lower window its bottom half, as a two-screen system's core
+    /// draws its screens stacked. The new window shows the last frame at once.
+    /// Only OpenGL presents to a lower window; a Vulkan core's session turns
+    /// it down. On an error, the session has no lower window.
+    ///
+    /// When this returns, the session no longer uses the old lower window.
+    ///
+    /// # Safety
+    ///
+    /// The window outlives its attachment: until the session drops or this
+    /// is called again.
+    pub unsafe fn set_lower_window(
+        &mut self,
+        window: Option<(NativeWindow, u32, u32)>,
+    ) -> Result<(), SessionError> {
+        let host = self.host_mut();
+        if !matches!(host.video, VideoTarget::Window { .. }) {
+            return Err(SessionError::NoWindowOutput);
+        }
+        let Some(gpu) = &mut host.gpu else {
+            return match window {
+                Some(_) => Err(SessionError::UnsupportedWindow),
+                None => Ok(()),
+            };
+        };
+        let window = window
+            .as_ref()
+            .map(|(w, width, height)| (w, *width, *height));
+        gpu.context.set_lower_window(window)?;
+        host.redraw();
+        Ok(())
+    }
+
     /// Tells the session it runs frames at `speed` times the core's own
     /// rate, as when it paces them to the display, so that it resamples the
     /// audio to play in step with them.

@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -20,7 +21,7 @@ use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, FrameStats, Vsync};
 use crate::save::SaveWriter;
 use crate::session::{AvInfo, SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
-use crate::video::{CapturedFrame, Frame, VideoSink};
+use crate::video::{CapturedFrame, Frame, Region, VideoSink};
 
 /// What [`GameSession::start`] needs.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -72,6 +73,15 @@ pub enum WindowHandle {
     /// releases it when the window is detached or replaced, or attaching it
     /// fails.
     Android { window: u64 },
+}
+
+/// A window that shows the session, for [`GameSession::touch`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum Screen {
+    /// The window attached with [`GameSession::attach_window`].
+    Main,
+    /// The window attached with [`GameSession::attach_lower_window`].
+    Lower,
 }
 
 /// What a running session's core says about itself.
@@ -166,6 +176,9 @@ pub struct GameSession {
     commands: Sender<Command>,
     input: Arc<InputState>,
     info: Arc<Mutex<SessionInfo>>,
+    /// Whether a lower window is attached, so the main window shows only the
+    /// frame's top half.
+    split: AtomicBool,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -175,6 +188,8 @@ enum Command {
     AttachWindow(PlatformWindow, u32, u32, Reply<()>),
     ResizeWindow(u32, u32),
     DetachWindow(Reply<()>),
+    AttachLowerWindow(PlatformWindow, u32, u32, Reply<()>),
+    DetachLowerWindow(Reply<()>),
     Pause(Reply<()>),
     Resume,
     FastForward(u32),
@@ -213,6 +228,7 @@ impl GameSession {
                 commands,
                 input,
                 info,
+                split: AtomicBool::new(false),
                 thread: Mutex::new(Some(thread)),
             })),
             Ok(Err(e)) => {
@@ -255,6 +271,67 @@ impl GameSession {
     /// session no longer uses it, so the platform may destroy it.
     pub fn detach_window(&self) {
         let _ = self.request(Command::DetachWindow);
+    }
+
+    /// Presents the bottom half of each frame to `window` from now on, and
+    /// the top half to the main window, as for a two-screen system whose core
+    /// draws its screens stacked, top above bottom, with no gap. It replaces
+    /// any lower window before it and shows the last frame on it at once.
+    /// Only sessions in [`VideoMode::Window`] whose core doesn't render with
+    /// Vulkan present to a lower window.
+    pub fn attach_lower_window(
+        &self,
+        window: WindowHandle,
+        width: u32,
+        height: u32,
+    ) -> Result<(), SessionError> {
+        let window = PlatformWindow::adopt(window)?;
+        let result = self.request(|reply| Command::AttachLowerWindow(window, width, height, reply));
+        self.split.store(result.is_ok(), Ordering::Relaxed);
+        result
+    }
+
+    /// Stops presenting to the lower window, and shows the whole frame on the
+    /// main window again. When this returns, the session no longer uses it,
+    /// so the platform may destroy it.
+    pub fn detach_lower_window(&self) {
+        self.split.store(false, Ordering::Relaxed);
+        let _ = self.request(Command::DetachLowerWindow);
+    }
+
+    /// Touches `screen` at (`x`, `y`), in pixels from the top left of its
+    /// `width` by `height` window, or moves the touch there, or lifts it
+    /// there when `pressed` is false. The core reads it as libretro's pointer
+    /// on port 0, in its frame's coordinates, wherever the window shows the
+    /// frame. A touch on the window's black bars lifts the pointer. A touch
+    /// lifted before the next frame still reaches the core.
+    pub fn touch(&self, screen: Screen, x: f32, y: f32, width: u32, height: u32, pressed: bool) {
+        let region = match screen {
+            Screen::Lower => Region::Bottom,
+            Screen::Main if self.split.load(Ordering::Relaxed) => Region::Top,
+            Screen::Main => Region::Whole,
+        };
+        let info = self.info();
+        let position = crate::video::pointer_position(
+            region,
+            info.base_width,
+            info.base_height,
+            info.aspect_ratio,
+            width,
+            height,
+            x,
+            y,
+        );
+        let port = self.input.port(0);
+        match position {
+            Some((x, y)) => port.set_pointer(x, y, pressed),
+            None => port.release_pointer(),
+        }
+    }
+
+    /// Lifts the pointer, as when the window that had the touch goes.
+    pub fn release_touch(&self) {
+        self.input.port(0).release_pointer();
     }
 
     /// Stops running frames, and writes save memory to its file. When this
@@ -477,6 +554,7 @@ fn run(
         events: events.clone(),
         session,
         window: None,
+        lower_window: None,
         save_ram,
         paused: true,
         speed: 1,
@@ -570,6 +648,7 @@ struct Runner {
     reported_av: AvInfo,
     events: Events,
     window: Option<PlatformWindow>,
+    lower_window: Option<PlatformWindow>,
     save_ram: SaveRam,
     paused: bool,
     /// How many frames run each time one is due: more than one to fast
@@ -729,6 +808,20 @@ impl Runner {
                 // SAFETY: detaching needs no window.
                 let result = unsafe { self.session.set_window(None) };
                 self.window = None;
+                let _ = reply.send(result);
+            }
+            Command::AttachLowerWindow(window, width, height, reply) => {
+                let native = window.native();
+                // SAFETY: as for the main window.
+                let result =
+                    unsafe { self.session.set_lower_window(Some((native, width, height))) };
+                self.lower_window = result.is_ok().then_some(window);
+                let _ = reply.send(result);
+            }
+            Command::DetachLowerWindow(reply) => {
+                // SAFETY: detaching needs no window.
+                let result = unsafe { self.session.set_lower_window(None) };
+                self.lower_window = None;
                 let _ = reply.send(result);
             }
             Command::Pause(reply) => {
