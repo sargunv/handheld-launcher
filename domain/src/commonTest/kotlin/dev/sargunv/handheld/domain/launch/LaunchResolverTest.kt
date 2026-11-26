@@ -2,6 +2,7 @@ package dev.sargunv.handheld.domain.launch
 
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAMECUBE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64
@@ -222,6 +223,21 @@ class LaunchResolverTest {
         ),
       )
     }
+  }
+
+  // GameCube, Wii, 3DS, DS and PSP play better in their own emulators, so the built-in session
+  // waits for none to be installed.
+  @Test
+  fun anInstalledEmulatorComesFirstWhereItPlaysBetter() {
+    val game = LaunchSubject(gameId = 1, platform = GAMECUBE)
+    val withDolphin =
+      resolved(LaunchResolver.resolve(game, LaunchRules(), setOf("org.dolphinemu.dolphinemu")))
+    assertEquals("org.dolphinemu.dolphinemu", withDolphin.target.packageName)
+    assertEquals(LaunchRule.FirstInstalled, withDolphin.rule)
+    assertEquals(
+      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
+      LaunchResolver.resolve(game, LaunchRules(), emptySet()),
+    )
   }
 
   @Test

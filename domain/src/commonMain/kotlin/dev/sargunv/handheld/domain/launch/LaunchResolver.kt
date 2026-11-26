@@ -92,9 +92,10 @@ sealed interface LaunchResolution {
 /**
  * Picks the app a game launches in: the game's override, then the first of its collections' rules
  * that applies, then its platform's default, then the built-in session when a libretro core runs
- * the platform, then the best installed known emulator. A rule may name any app or the built-in
- * session. One whose app isn't installed is skipped and reported, as is the built-in session for a
- * platform no libretro core runs.
+ * the platform, then the best installed known emulator. For the platforms an installed emulator
+ * plays better ([LibretroCores.prefersStandalone]), the emulator comes before the built-in session.
+ * A rule may name any app or the built-in session. One whose app isn't installed is skipped and
+ * reported, as is the built-in session for a platform no libretro core runs.
  */
 object LaunchResolver {
   fun resolve(
@@ -121,7 +122,8 @@ object LaunchResolver {
       }
       skipped += SkippedChoice(rule, choice.packageName)
     }
-    if (runsBuiltIn)
+    val standaloneFirst = LibretroCores.prefersStandalone(subject.platform)
+    if (runsBuiltIn && !standaloneFirst)
       return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
 
     val known = EmulatorRegistry.forPlatform(subject.platform)
@@ -130,6 +132,8 @@ object LaunchResolver {
       val target = LaunchTarget(packageName, emulator.recipeFor(packageName), emulator)
       return LaunchResolution.Resolved(target, LaunchRule.FirstInstalled, skipped.toList())
     }
+    if (runsBuiltIn)
+      return LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, null, skipped.toList())
     return LaunchResolution.NoEmulatorInstalled(subject.platform, known, skipped.toList())
   }
 
