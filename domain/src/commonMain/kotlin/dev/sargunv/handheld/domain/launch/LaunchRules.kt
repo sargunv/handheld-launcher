@@ -47,4 +47,9 @@ data class LaunchRules(
   val gameOverrides: Map<Long, LaunchChoice> = emptyMap(),
   val collectionRules: List<CollectionRule> = emptyList(),
   val platformDefaults: Map<PlatformSlug, LaunchChoice> = emptyMap(),
-)
+) {
+  /** The [collectionRules] that apply to [subject], in the order they're tried. */
+  fun collectionRulesFor(subject: LaunchSubject): List<CollectionRule> = collectionRules.filter {
+    it.collection in subject.collections && (it.platform == null || it.platform == subject.platform)
+  }
+}

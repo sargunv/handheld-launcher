@@ -20,6 +20,9 @@ import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.launch.CollectionId
+import dev.sargunv.handheld.domain.launch.LaunchChoice
+import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.TestDevice
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -55,19 +58,24 @@ class GameTest {
   /** Plays nothing, but records what it was asked, and asks [conflict] first when given. */
   private class FakeLauncher(val conflict: SaveConflict? = null) : GameLauncher {
     val played = mutableListOf<String>()
+    val rules = mutableListOf<LaunchRules>()
     var chosen: SaveCopy? = null
 
-    override suspend fun opensIn(rom: Rom) = "Opens in Test Emulator"
+    override suspend fun opensIn(rom: Rom, rules: LaunchRules, collections: Set<CollectionId>) =
+      "Opens in Test Emulator"
 
     override suspend fun play(
       rom: Rom,
       path: String,
+      rules: LaunchRules,
+      collections: Set<CollectionId>,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> {
       if (conflict != null) {
         chosen = chooseSave(conflict) ?: return emptyList()
       }
       played += path
+      this.rules += rules
       return listOf("Couldn't sync the save with RomM: Forbidden.")
     }
 
@@ -95,7 +103,10 @@ class GameTest {
   }
 
   /** Launches with the game on the device, and opens it from Home. */
-  private fun ComposeUiTest.openGame(launcher: GameLauncher) {
+  private fun ComposeUiTest.openGame(
+    launcher: GameLauncher,
+    apps: AppCatalog = AppCatalog.None,
+  ) {
     gameFile.parentFile.mkdirs()
     gameFile.writeText("game")
     setContent {
@@ -119,6 +130,7 @@ class GameTest {
         Modifier.trackHeldKeys(heldKeys),
         httpEngine = server,
         launcher = launcher,
+        apps = apps,
       )
     }
     awaitTag("continue:1")
@@ -213,6 +225,42 @@ class GameTest {
     awaitText("Download (1.0 KB)")
     assertFalse(gameFile.exists())
     onNodeWithTag("primary").assertIsFocused()
+  }
+
+  @Test
+  fun opensTheGameWithTheAppChosenForIt() = runComposeUiTest {
+    val launcher = FakeLauncher()
+    val apps = AppCatalog {
+      listOf(InstalledApp("com.example.notes", "Notes"), InstalledApp("com.retroarch", "RetroArch"))
+    }
+    openGame(launcher, apps)
+
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitText("Open Game 1 with")
+    // The known emulator comes first, with the platform's core, and is the platform's default.
+    onNodeWithTag("app:com.retroarch:gambatte_libretro").assertIsFocused()
+    onNodeWithText("Game Boy default").assertExists()
+    awaitText("Why it opens in RetroArch")
+    onNodeWithText("→ Platform Game Boy: RetroArch (default) · opens here").assertExists()
+
+    press(listOf(Key.DirectionDown, Key.ButtonA))
+    awaitText("Play")
+    press(Key.ButtonA)
+    awaitText("Couldn't sync the save")
+    assertEquals(
+      listOf(LaunchRules(gameOverrides = mapOf(1L to LaunchChoice("com.example.notes")))),
+      launcher.rules,
+    )
+
+    // Back on Open with, the game's choice is current, and clearing it goes back to the default.
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitText("Why it opens in Notes")
+    onNodeWithText("→ Platform Game Boy: RetroArch (default) · overridden").assertExists()
+    press(listOf(Key.DirectionRight, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
+    awaitText("Play")
+    press(Key.ButtonA)
+    waitUntil(timeoutMillis = 5_000) { launcher.rules.size == 2 }
+    assertEquals(LaunchRules(), launcher.rules.last())
   }
 
   @Test

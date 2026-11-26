@@ -84,8 +84,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     notes = emptyList()
     scope.launch {
       try {
+        val collections = state.library.collectionsOf(rom.id).mapTo(mutableSetOf()) { it.launchId }
+        val rules = state.settings.launch.toRules()
         notes =
-          state.launcher.play(rom, path) { conflict ->
+          state.launcher.play(rom, path, rules, collections) { conflict ->
             val choice = PendingChoice(conflict)
             pending = choice
             try {
@@ -187,7 +189,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               }
             null -> Unit
           }
-          // "Open with" (#16) goes here, for every game.
+          MenuButton("menu:open-with", "Open with") {
+            close()
+            state.navigator.push(Screen.OpenWith(current.id, current.title))
+          }
         }
       }
     }
@@ -314,7 +319,13 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
     produceState(emptyList<KeptSave>(), current, state.savesChanged) {
       value = state.launcher.keptSaves(current)
     }
-  val opensIn by produceState<String?>(null, current) { value = state.launcher.opensIn(current) }
+  val launch = state.settings.launch
+  val opensIn by
+    produceState<String?>(null, current, launch) {
+      val collections =
+        state.library.collectionsOf(current.id).mapTo(mutableSetOf()) { it.launchId }
+      value = state.launcher.opensIn(current, launch.toRules(), collections)
+    }
   val now = remember(history) { Clock.System.now() }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Column(

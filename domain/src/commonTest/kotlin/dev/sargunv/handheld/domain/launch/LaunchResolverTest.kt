@@ -2,6 +2,7 @@ package dev.sargunv.handheld.domain.launch
 
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSX
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SNES
@@ -268,6 +269,26 @@ class LaunchResolverTest {
       LaunchExtra.StringValue(
         "LIBRETRO",
         "/data/data/com.retroarch/cores/bsnes_libretro_android.so",
+      ),
+      command.extras.first { it.key == "LIBRETRO" },
+    )
+  }
+
+  @Test
+  fun aKnownCoreLoadsByItsAndroidLibraryName() {
+    val rules =
+      LaunchRules(
+        platformDefaults =
+          mapOf(N64 to LaunchChoice("com.retroarch", core = "mupen64plus_next_libretro")),
+      )
+    val game = LaunchSubject(gameId = 1, platform = N64)
+    val target = resolved(LaunchResolver.resolve(game, rules, setOf("com.retroarch"))).target
+    val command =
+      assertIs<LaunchBuild.Ready>(target.commandFor(LaunchInput("/roms/mario.z64", N64))).command
+    assertEquals(
+      LaunchExtra.StringValue(
+        "LIBRETRO",
+        "/data/data/com.retroarch/cores/mupen64plus_next_gles3_libretro_android.so",
       ),
       command.extras.first { it.key == "LIBRETRO" },
     )

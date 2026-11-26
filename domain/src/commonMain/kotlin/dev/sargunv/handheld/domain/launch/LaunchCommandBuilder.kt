@@ -48,9 +48,8 @@ object LaunchCommandBuilder {
   /** The command that launches [input] in [packageName] the way [recipe] describes. */
   fun build(recipe: LaunchRecipe, packageName: String, input: LaunchInput): LaunchBuild {
     val rom = LaunchUri.ProviderFile(input.romPath)
-    val needsCore = recipe.extras.values.any { it is ExtraValue.Text && "{core}" in it.template }
     val core =
-      if (needsCore) {
+      if (recipe.loadsCore) {
         input.core
           ?: LibretroCores.recommendedFor(input.platform)?.androidLibrary
           ?: return LaunchBuild.MissingCore(input.platform)

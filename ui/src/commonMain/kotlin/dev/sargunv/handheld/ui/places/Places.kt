@@ -42,9 +42,12 @@ import dev.sargunv.handheld.ui.downloads.DownloadsPlace
 import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.GameScreen
 import dev.sargunv.handheld.ui.game.GameSecondary
+import dev.sargunv.handheld.ui.game.OpenWithScreen
+import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ConfirmButton
@@ -76,6 +79,9 @@ sealed interface Screen {
 
   /** A game. */
   data class Game(val romId: Long, val title: String) : Screen
+
+  /** The app a game opens in, from the game's menu. */
+  data class OpenWith(val romId: Long, val title: String) : Screen
 }
 
 /** How the library's latest sync with the server went. */
@@ -103,6 +109,7 @@ class AppState(
   val library: LibraryCache,
   val downloads: DownloadManager,
   val launcher: GameLauncher,
+  val apps: AppCatalog,
   val credentials: CredentialStore,
   val httpEngine: () -> HttpClientEngine,
 ) {
@@ -149,6 +156,7 @@ fun MainPrimary(state: AppState) {
     when (screen) {
       Screen.Places -> NavEntry(screen) { PlacesScreen(state) }
       is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
+      is Screen.OpenWith -> NavEntry(screen) { OpenWithScreen(state, screen) }
     }
   }
 }
@@ -167,6 +175,10 @@ fun MainSecondary(state: AppState) {
     val screen = state.navigator.current
     if (screen is Screen.Game) {
       GameSecondary(state, screen)
+      return@Column
+    }
+    if (screen is Screen.OpenWith) {
+      OpenWithSecondary(state, screen)
       return@Column
     }
     val focused = state.focused

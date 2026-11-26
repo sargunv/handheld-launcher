@@ -182,6 +182,7 @@ class LibraryCacheTest {
       listOf(1L),
       cache.romsInCollection(CollectionKind.Smart, 1).first().first().files.map { it.id / 10 },
     )
+    assertEquals(listOf("Adventures", "Couch"), cache.collectionsOf(1).map { it.name })
 
     cache.replaceCollections(emptyList())
     assertEquals(emptyList(), cache.collections().first())

@@ -30,9 +30,18 @@ data class LaunchTarget(
   val emulator: KnownEmulator? = null,
   val core: String? = null,
 ) {
-  /** The command that launches [input] here, with this target's [core] unless [input] names one. */
-  fun commandFor(input: LaunchInput): LaunchBuild =
-    LaunchCommandBuilder.build(recipe, packageName, input.copy(core = input.core ?: core))
+  /**
+   * The command that launches [input] here, with this target's [core] unless [input] names one. A
+   * known core loads by its Android library name, which can differ from [core]'s.
+   */
+  fun commandFor(input: LaunchInput): LaunchBuild {
+    val androidCore = core?.let { LibretroCores.byLibrary(it)?.androidLibrary ?: it }
+    return LaunchCommandBuilder.build(
+      recipe,
+      packageName,
+      input.copy(core = input.core ?: androidCore),
+    )
+  }
 
   /**
    * The libretro core, by library name, that a game on [platform] runs in here: this target's
@@ -80,10 +89,9 @@ object LaunchResolver {
   ): LaunchResolution {
     val candidates = buildList {
       rules.gameOverrides[subject.gameId]?.let { add(LaunchRule.GameOverride to it) }
-      rules.collectionRules
-        .filter { it.collection in subject.collections }
-        .filter { it.platform == null || it.platform == subject.platform }
-        .forEach { add(LaunchRule.CollectionOverride(it.collection) to it.choice) }
+      rules.collectionRulesFor(subject).forEach {
+        add(LaunchRule.CollectionOverride(it.collection) to it.choice)
+      }
       rules.platformDefaults[subject.platform]?.let { add(LaunchRule.PlatformDefault to it) }
     }
 

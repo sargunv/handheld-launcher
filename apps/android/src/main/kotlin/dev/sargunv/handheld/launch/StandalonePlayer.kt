@@ -13,6 +13,7 @@ import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.SaveSyncResult
 import dev.sargunv.handheld.data.saves.keptSaves
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchBuild
 import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchResolution
@@ -45,6 +46,7 @@ data class PlayNote(val text: String, val quiet: Boolean = false)
  * @param romPath the game's file.
  * @param title the game's name, as the save conflict screen shows it.
  * @param gameId the game, as [rules] name it.
+ * @param collections the collections the game is in, as [rules] name them.
  * @param romId the game's RomM id, which turns on save sync; null leaves the save alone.
  * @param saveFolders stand in for the emulator's save folders, for testing.
  * @param biosFolders take the firmware instead of the emulator's own folder, for testing.
@@ -57,6 +59,7 @@ data class PlayRequest(
   val gameId: Long,
   val romId: Long?,
   val rules: LaunchRules = LaunchRules(),
+  val collections: Set<CollectionId> = emptySet(),
   val saveFolders: List<String>? = null,
   val biosFolders: List<String>? = null,
   val saveServer: String? = null,
@@ -66,9 +69,6 @@ data class PlayRequest(
  * Plays games in standalone emulators. The resolver picks the app by the user's rules, the game's
  * save syncs with RomM, the emulator's firmware goes in place, and the dispatcher starts it. When
  * the launcher is back in front, the save syncs again, which sends what the game saved.
- *
- * The user can't set rules yet, so every game opens in the best installed emulator for its
- * platform.
  */
 class StandalonePlayer(
   private val activity: ComponentActivity,
@@ -80,8 +80,15 @@ class StandalonePlayer(
   // the other.
   private val syncLock = Mutex()
 
-  override suspend fun opensIn(rom: Rom): String =
-    when (val resolution = resolve(rom.id, PlatformSlug(rom.platformSlug), LaunchRules())) {
+  override suspend fun opensIn(
+    rom: Rom,
+    rules: LaunchRules,
+    collections: Set<CollectionId>,
+  ): String =
+    when (
+      val resolution =
+        resolve(LaunchSubject(rom.id, PlatformSlug(rom.platformSlug), collections), rules)
+    ) {
       is LaunchResolution.Resolved -> "Opens in ${appName(resolution.target)}"
       is LaunchResolution.NoEmulatorInstalled -> noEmulator(resolution)
     }
@@ -89,12 +96,23 @@ class StandalonePlayer(
   override suspend fun play(
     rom: Rom,
     path: String,
+    rules: LaunchRules,
+    collections: Set<CollectionId>,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
     val file =
       withContext(Dispatchers.IO) { launchFile(path) }
         ?: return listOf("The game's folder is empty, so there's nothing to play.")
-    val request = PlayRequest(file, PlatformSlug(rom.platformSlug), rom.title, rom.id, rom.id)
+    val request =
+      PlayRequest(
+        file,
+        PlatformSlug(rom.platformSlug),
+        rom.title,
+        rom.id,
+        rom.id,
+        rules,
+        collections,
+      )
     return play(request, chooseSave).filterNot { it.quiet }.map { it.text }
   }
 
@@ -119,7 +137,13 @@ class StandalonePlayer(
     }
 
     val resolution =
-      when (val resolution = resolve(request.gameId, request.platform, request.rules)) {
+      when (
+        val resolution =
+          resolve(
+            LaunchSubject(request.gameId, request.platform, request.collections),
+            request.rules,
+          )
+      ) {
         is LaunchResolution.NoEmulatorInstalled -> {
           note(noEmulator(resolution))
           return notes
@@ -220,13 +244,9 @@ class StandalonePlayer(
     }
   }
 
-  private suspend fun resolve(gameId: Long, platform: PlatformSlug, rules: LaunchRules) =
+  private suspend fun resolve(subject: LaunchSubject, rules: LaunchRules) =
     withContext(Dispatchers.IO) {
-      LaunchResolver.resolve(
-        LaunchSubject(gameId, platform),
-        rules,
-        dispatcher.installedPackages(),
-      )
+      LaunchResolver.resolve(subject, rules, dispatcher.installedPackages())
     }
 
   private fun appName(target: LaunchTarget): String =

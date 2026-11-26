@@ -3,18 +3,22 @@ package dev.sargunv.handheld.ui.game
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.launch.CollectionId
+import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.ui.saves.SaveConflict
 
 /** Plays games. Each platform supplies its own, since starting another app is platform-specific. */
 interface GameLauncher {
   /**
-   * Where [rom] opens, in words, such as "Opens in ARMSX2", or null when there's nothing to say.
+   * Where [rom] opens by [rules], in words, such as "Opens in ARMSX2", or null when there's nothing
+   * to say. [collections] are the collections [rom] is in.
    */
-  suspend fun opensIn(rom: Rom): String?
+  suspend fun opensIn(rom: Rom, rules: LaunchRules, collections: Set<CollectionId>): String?
 
   /**
-   * Plays [rom], whose file or folder is at [path], and returns once the player is back from the
-   * game, with what they should know about how it went, in plain words.
+   * Plays [rom], whose file or folder is at [path], in the app [rules] pick for it, and returns
+   * once the player is back from the game, with what they should know about how it went, in plain
+   * words. [collections] are the collections [rom] is in.
    *
    * @param chooseSave asks which copy of the game's save to keep when both changed since they last
    *   synced. Null cancels the launch and leaves both copies as they are.
@@ -22,6 +26,8 @@ interface GameLauncher {
   suspend fun play(
     rom: Rom,
     path: String,
+    rules: LaunchRules,
+    collections: Set<CollectionId>,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String>
 
@@ -30,11 +36,17 @@ interface GameLauncher {
 
   /** A launcher for platforms that can't play games yet. */
   object Unsupported : GameLauncher {
-    override suspend fun opensIn(rom: Rom): String? = null
+    override suspend fun opensIn(
+      rom: Rom,
+      rules: LaunchRules,
+      collections: Set<CollectionId>,
+    ): String? = null
 
     override suspend fun play(
       rom: Rom,
       path: String,
+      rules: LaunchRules,
+      collections: Set<CollectionId>,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
     ): List<String> = listOf("Playing games isn't available on this device yet.")
 
