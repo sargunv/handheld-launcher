@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.data.saves
 
-import dev.sargunv.handheld.data.cores.JsonFile
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommSave
@@ -384,7 +384,7 @@ class SaveSync(
     bytes: ByteArray,
   ): File = keepInHistory(history, game.key, origin, name, bytes, clock.now())
 
-  private fun record(
+  private suspend fun record(
     game: GameSave,
     file: File,
     localHash: String,

@@ -1,5 +1,8 @@
 package dev.sargunv.handheld.data.firmware
 
+import dev.sargunv.handheld.data.digest
+import dev.sargunv.handheld.data.feed
+import dev.sargunv.handheld.data.hexDigest
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommFirmware
@@ -11,7 +14,6 @@ import java.io.IOException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -127,7 +129,8 @@ class FirmwareInstaller(
         file.md5Hash,
         file.sha1Hash,
       )
-    val staged = File(staging, "${sha256Hex(identity.joinToString("\n").encodeToByteArray())}.part")
+    val staged =
+      File(staging, "${hexDigest("SHA-256", identity.joinToString("\n").encodeToByteArray())}.part")
     download(file, staged)
     try {
       mismatchedHash(staged, file)?.let {
@@ -178,25 +181,14 @@ class FirmwareInstaller(
     val expected =
       listOfNotNull(file.md5Hash?.let { "MD5" to it }, file.sha1Hash?.let { "SHA-1" to it })
     if (expected.isEmpty()) return null
-    val digests = expected.map { MessageDigest.getInstance(it.first) }
-    staged.inputStream().buffered().use { input ->
-      val buffer = ByteArray(64 * 1024)
-      while (true) {
-        val count = input.read(buffer)
-        if (count < 0) break
-        for (digest in digests) digest.update(buffer, 0, count)
-      }
-    }
+    val digests = expected.map { digest(it.first) }
+    staged.inputStream().use { it.feed(digests) }
     return expected
       .zip(digests)
       .firstOrNull { (hash, digest) ->
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
-        !actual.equals(hash.second, ignoreCase = true)
+        !digest.digest().toHexString().equals(hash.second, ignoreCase = true)
       }
       ?.first
       ?.first
   }
-
-  private fun sha256Hex(bytes: ByteArray) =
-    MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 }

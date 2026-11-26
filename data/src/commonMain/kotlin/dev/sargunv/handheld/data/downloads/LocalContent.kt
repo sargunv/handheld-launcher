@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.data.downloads
 
-import dev.sargunv.handheld.data.cores.JsonFile
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
@@ -16,7 +16,6 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 
 /**
@@ -95,7 +94,9 @@ internal class ContentScanner(
   cacheFile: Path,
   private val wholeFileLimit: Long = WHOLE_FILE_LIMIT,
 ) {
-  private val file = JsonFile(cacheFile, ListSerializer(CachedContent.serializer()))
+  // A cache from an older version, or a damaged one, is read again from the files.
+  private val file =
+    JsonFile(cacheFile, ListSerializer(CachedContent.serializer()), unreadableIsMissing = true)
   private val mutex = Mutex()
   private var cache: MutableMap<String, CachedContent>? = null
   /** Whether the cache has changes the file lacks. */
@@ -257,15 +258,8 @@ internal class ContentScanner(
     return content
   }
 
-  private fun loadCache(): MutableMap<String, CachedContent> =
-    try {
-      file.read().orEmpty().associateByTo(mutableMapOf()) { it.path }
-    } catch (e: SerializationException) {
-      // A cache from an older version, or a damaged one, is read again from the files.
-      mutableMapOf()
-    } catch (e: IOException) {
-      mutableMapOf()
-    }
+  private suspend fun loadCache(): MutableMap<String, CachedContent> =
+    file.read().orEmpty().associateByTo(mutableMapOf()) { it.path }
 
   companion object {
     /**
@@ -298,7 +292,7 @@ internal fun chdHeaderSha1(header: ByteArray): String? {
   if (header.size < CHD_HEADER_SIZE) return null
   if (header.copyOfRange(0, 8).decodeToString() != "MComprHD") return null
   if (header.readInt(8) < CHD_HEADER_SIZE || header.readInt(12) != 5) return null
-  return header.copyOfRange(84, 104).toHex().takeIf { it.any { c -> c != '0' } }
+  return header.copyOfRange(84, 104).toHexString().takeIf { it.any { c -> c != '0' } }
 }
 
 private fun chdSha1(path: Path, size: Long): String? {
@@ -311,9 +305,6 @@ private const val CHD_HEADER_SIZE = 124
 
 private fun ByteArray.readInt(offset: Int): Int =
   (0 until 4).fold(0) { value, i -> (value shl 8) or (this[offset + i].toInt() and 0xff) }
-
-private fun ByteArray.toHex(): String =
-  joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
 
 /**
  * The disc sets copied in loose among [files], the entries of platforms' folders: each playlist or

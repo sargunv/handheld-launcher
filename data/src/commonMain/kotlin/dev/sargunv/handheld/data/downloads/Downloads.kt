@@ -1,10 +1,10 @@
 package dev.sargunv.handheld.data.downloads
 
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.toDomain
-import dev.sargunv.handheld.data.cores.JsonFile
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommInstallStatus
@@ -183,7 +183,7 @@ class DownloadManager(
   private val entries =
     MutableStateFlow(
       // A download that was running when the app stopped starts again from where it got.
-      file.read().orEmpty().map {
+      file.readBlocking().orEmpty().map {
         if (it.state == DownloadState.Downloading) it.copy(state = DownloadState.Queued) else it
       },
     )
@@ -862,7 +862,7 @@ class DownloadManager(
     if (after == before) return@withLock false
     // Once stored, the change shows, even when the caller is cancelled meanwhile.
     withContext(NonCancellable) {
-      withContext(Dispatchers.IO) { file.write(after) }
+      file.write(after)
       entries.value = after
     }
     true

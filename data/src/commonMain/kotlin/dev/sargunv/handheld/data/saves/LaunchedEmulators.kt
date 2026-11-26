@@ -1,9 +1,7 @@
 package dev.sargunv.handheld.data.saves
 
-import dev.sargunv.handheld.data.cores.JsonFile
+import dev.sargunv.handheld.data.JsonFile
 import kotlin.math.abs
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -80,8 +78,13 @@ sealed interface EmulatorState {
  * device restarted, or [EmulatorProbe.isRunning] says so.
  */
 class LaunchedEmulators(path: Path) {
-  private val file = JsonFile(path, MapSerializer(String.serializer(), Launch.serializer()))
-  private val mutex = Mutex()
+  // An unreadable file loses only the records, which next launches write again.
+  private val file =
+    JsonFile(
+      path,
+      MapSerializer(String.serializer(), Launch.serializer()),
+      unreadableIsMissing = true,
+    )
 
   @Serializable internal data class Launch(val romId: Long?, val boot: Boot)
 
@@ -89,36 +92,35 @@ class LaunchedEmulators(path: Path) {
    * Notes that the launcher started [packageName] with the ROM [romId]. Returns what it knew
    * before, for [launchFailed].
    */
-  suspend fun launched(packageName: String, romId: Long?, probe: EmulatorProbe): Earlier =
-    mutex.withLock {
-      val launches = read()
-      write(launches + (packageName to Launch(romId, probe.boot())))
-      Earlier(launches[packageName])
-    }
+  suspend fun launched(packageName: String, romId: Long?, probe: EmulatorProbe): Earlier {
+    val before = edit { it + (packageName to Launch(romId, probe.boot())) }
+    return Earlier(before?.get(packageName))
+  }
 
   /**
    * Notes that a launch of [packageName] didn't start, so the game it may still hold is the one it
    * held [before]. With nothing before, it stays counted as running, since a failed launch may have
    * started it anyway.
    */
-  suspend fun launchFailed(packageName: String, before: Earlier) = mutex.withLock {
-    val earlier = before.launch ?: return@withLock
-    write(read() + (packageName to earlier))
+  suspend fun launchFailed(packageName: String, before: Earlier) {
+    val earlier = before.launch ?: return
+    edit { it + (packageName to earlier) }
   }
 
   /** What [LaunchedEmulators] knew about an app before a launch. */
   class Earlier internal constructor(internal val launch: Launch?)
 
   /** Forgets [packageName], once it's known to have stopped. */
-  suspend fun stopped(packageName: String) = mutex.withLock { write(read() - packageName) }
+  suspend fun stopped(packageName: String) {
+    edit { it - packageName }
+  }
 
   /**
    * Whether [packageName] may still be running, by what [probe] tells. A record the device shows is
-   * out of date is dropped.
+   * out of date is dropped, unless a launch replaced it meanwhile.
    */
-  suspend fun state(packageName: String, probe: EmulatorProbe): EmulatorState = mutex.withLock {
-    val launches = read()
-    val launch = launches[packageName] ?: return@withLock EmulatorState.NotRunning("not launched")
+  suspend fun state(packageName: String, probe: EmulatorProbe): EmulatorState {
+    val launch = file.read()?.get(packageName) ?: return EmulatorState.NotRunning("not launched")
     val stopped =
       when {
         probe.boot().isAfter(launch.boot) -> "the device restarted"
@@ -126,29 +128,16 @@ class LaunchedEmulators(path: Path) {
         else ->
           when (probe.isRunning(packageName)) {
             false -> "the device says it isn't running"
-            true ->
-              return@withLock EmulatorState.MayBeRunning(
-                launch.romId,
-                "the device says it's running",
-              )
+            true -> return EmulatorState.MayBeRunning(launch.romId, "the device says it's running")
             null -> null
           }
       }
-    if (stopped != null) {
-      write(launches - packageName)
-      EmulatorState.NotRunning(stopped)
-    } else {
-      EmulatorState.MayBeRunning(launch.romId, "nothing shows it stopped")
-    }
+    if (stopped == null) return EmulatorState.MayBeRunning(launch.romId, "nothing shows it stopped")
+    edit { if (it[packageName] == launch) it - packageName else it }
+    return EmulatorState.NotRunning(stopped)
   }
 
-  private fun read(): Map<String, Launch> =
-    try {
-      file.read().orEmpty()
-    } catch (_: Exception) {
-      // An unreadable file loses only the records, which next launches write again.
-      emptyMap()
-    }
-
-  private fun write(launches: Map<String, Launch>) = file.write(launches)
+  private suspend fun edit(change: (Map<String, Launch>) -> Map<String, Launch>) = file.update {
+    change(it.orEmpty())
+  }
 }

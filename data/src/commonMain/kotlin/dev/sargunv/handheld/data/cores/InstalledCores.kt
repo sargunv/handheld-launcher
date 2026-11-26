@@ -1,5 +1,7 @@
 package dev.sargunv.handheld.data.cores
 
+import dev.sargunv.handheld.data.JsonFile
+import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.domain.emulator.CoreSource
@@ -31,7 +33,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.Json
 
 /** A core installed on this device, and the build it came from. */
 @Serializable
@@ -81,7 +82,7 @@ class InstalledCores(
   fun fileOf(core: LibretroCore): Path = Path(abiDir, "${core.library}.so")
 
   /** The installed cores, by library name. */
-  suspend fun all(): Map<String, InstalledCore> = mutex.withLock { records.read() ?: emptyMap() }
+  suspend fun all(): Map<String, InstalledCore> = records.read().orEmpty()
 
   /** The installed build of [core], or null when it isn't installed. */
   suspend fun get(core: LibretroCore): InstalledCore? = all()[core.library]
@@ -114,7 +115,7 @@ class InstalledCores(
           )
         mutex.withLock {
           SystemFileSystem.atomicMove(library, fileOf(core))
-          records.write((records.read() ?: emptyMap()) + (core.library to installed))
+          records.update { it.orEmpty() + (core.library to installed) }
         }
         installed
       } finally {
@@ -198,7 +199,7 @@ class InstalledCores(
     if (!response.status.isSuccess()) {
       throw CoreDownloadException("GitHub answered ${response.status} for ${source.repository}")
     }
-    return json.decodeFromString(GitHubReleaseJson.serializer(), text)
+    return LenientJson.decodeFromString(GitHubReleaseJson.serializer(), text)
   }
 
   /** Downloads [url] into [target], and returns the response's headers once it's all written. */
@@ -242,7 +243,6 @@ class InstalledCores(
     const val BUILDBOT = "https://buildbot.libretro.com/nightly/android/latest"
     const val GITHUB_API = "https://api.github.com"
     const val CHUNK_SIZE = 64L * 1024
-    val json = Json { ignoreUnknownKeys = true }
   }
 }
 

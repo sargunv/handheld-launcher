@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.achievements
 
+import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.platformHttpEngine
 import io.ktor.client.engine.HttpClientEngine
@@ -18,7 +19,6 @@ import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
 
 /**
  * A client for RetroAchievements' API, which the app reaches directly, not through RomM: it signs
@@ -65,7 +65,7 @@ class RetroAchievementsClient(
     }
     val response =
       try {
-        json.decodeFromString(LoginResponse.serializer(), text)
+        LenientJson.decodeFromString(LoginResponse.serializer(), text)
       } catch (e: SerializationException) {
         throw RetroAchievementsException("RetroAchievements sent a response the app can't read", e)
       } catch (e: IllegalArgumentException) {
@@ -128,8 +128,6 @@ class RetroAchievementsClient(
   companion object {
     /** RetroAchievements' API, as rcheevos calls it. */
     const val DEFAULT_ENDPOINT = "https://retroachievements.org/dorequest.php"
-
-    private val json = Json { ignoreUnknownKeys = true }
 
     /**
      * The User-Agent RetroAchievements asks for: the app's name and version, then rcheevos' clause,
