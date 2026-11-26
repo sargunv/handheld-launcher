@@ -4,10 +4,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
-class FaceButtonLayoutTest {
+class AButtonPositionTest {
   @Test
-  fun xboxPutsASouth() {
-    val layout = FaceButtonLayout.Xbox
+  fun southPutsBEast() {
+    val layout = AButtonPosition.South
     assertEquals(PadButton.A, layout.buttonAt(FacePosition.South))
     assertEquals(PadButton.B, layout.buttonAt(FacePosition.East))
     assertEquals(PadButton.X, layout.buttonAt(FacePosition.West))
@@ -15,8 +15,8 @@ class FaceButtonLayoutTest {
   }
 
   @Test
-  fun nintendoPutsAEast() {
-    val layout = FaceButtonLayout.Nintendo
+  fun eastPutsBSouth() {
+    val layout = AButtonPosition.East
     assertEquals(PadButton.A, layout.buttonAt(FacePosition.East))
     assertEquals(PadButton.B, layout.buttonAt(FacePosition.South))
     assertEquals(PadButton.X, layout.buttonAt(FacePosition.North))
@@ -25,18 +25,18 @@ class FaceButtonLayoutTest {
 
   @Test
   fun positionOfFindsWhereEachButtonSits() {
-    for (layout in FaceButtonLayout.entries) {
+    for (layout in AButtonPosition.entries) {
       for (position in FacePosition.entries) {
         assertEquals(position, layout.positionOf(layout.buttonAt(position)))
       }
     }
-    assertEquals(FacePosition.East, FaceButtonLayout.Nintendo.positionOf(PadButton.A))
-    assertEquals(FacePosition.South, FaceButtonLayout.Xbox.positionOf(PadButton.A))
+    assertEquals(FacePosition.East, AButtonPosition.East.positionOf(PadButton.A))
+    assertEquals(FacePosition.South, AButtonPosition.South.positionOf(PadButton.A))
   }
 
   @Test
   fun otherButtonsHaveNoFacePosition() {
-    for (layout in FaceButtonLayout.entries) {
+    for (layout in AButtonPosition.entries) {
       assertNull(layout.positionOf(PadButton.Start))
       assertNull(layout.positionOf(PadButton.DpadUp))
     }

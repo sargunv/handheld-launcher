@@ -23,7 +23,7 @@ import dev.sargunv.handheld.session.SessionInfo
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
-import dev.sargunv.handheld.ui.input.FaceButtonLayout
+import dev.sargunv.handheld.ui.input.AButtonPosition
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -70,7 +70,7 @@ class SessionActivity : ComponentActivity() {
     view = GameSessionView(this)
     view.pauseWhenUnfocused = intent.getBooleanExtra(EXTRA_PAUSE_WHEN_UNFOCUSED, false)
     view.faceKeyCodes =
-      FaceButtonLayout.valueOf(intent.getStringExtra(EXTRA_FACE_BUTTON_LAYOUT)!!).faceKeyCodes()
+      AButtonPosition.valueOf(intent.getStringExtra(EXTRA_A_BUTTON_POSITION)!!).faceKeyCodes()
     setContentView(view)
     view.requestFocus()
     onBackPressedDispatcher.addCallback(this) { stopAndFinish() }
@@ -169,7 +169,7 @@ class SessionActivity : ComponentActivity() {
     private const val EXTRA_SAVE_DIR = "save_dir"
     private const val EXTRA_SAVE_RAM = "save_ram"
     private const val EXTRA_PAUSE_WHEN_UNFOCUSED = "pause_when_unfocused"
-    private const val EXTRA_FACE_BUTTON_LAYOUT = "face_button_layout"
+    private const val EXTRA_A_BUTTON_POSITION = "a_button_position"
 
     /** Why the session couldn't start, in the result of one that couldn't. */
     const val EXTRA_ERROR = "error"
@@ -180,7 +180,7 @@ class SessionActivity : ComponentActivity() {
     /**
      * The intent that runs [core] with [content], with [systemDir] for its system files, its own
      * saves in [saveDir] and its save memory in [saveRam], with the gamepad's face buttons where
-     * [faceButtonLayout] puts them.
+     * [aButtonPosition] puts them.
      */
     fun intent(
       context: Context,
@@ -190,7 +190,7 @@ class SessionActivity : ComponentActivity() {
       saveDir: String,
       saveRam: String,
       pauseWhenUnfocused: Boolean,
-      faceButtonLayout: FaceButtonLayout,
+      aButtonPosition: AButtonPosition,
     ): Intent =
       Intent(context, SessionActivity::class.java)
         .putExtra(EXTRA_CORE, core)
@@ -199,6 +199,6 @@ class SessionActivity : ComponentActivity() {
         .putExtra(EXTRA_SAVE_DIR, saveDir)
         .putExtra(EXTRA_SAVE_RAM, saveRam)
         .putExtra(EXTRA_PAUSE_WHEN_UNFOCUSED, pauseWhenUnfocused)
-        .putExtra(EXTRA_FACE_BUTTON_LAYOUT, faceButtonLayout.name)
+        .putExtra(EXTRA_A_BUTTON_POSITION, aButtonPosition.name)
   }
 }

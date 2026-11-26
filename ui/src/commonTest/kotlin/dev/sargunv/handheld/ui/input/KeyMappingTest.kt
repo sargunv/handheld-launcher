@@ -28,11 +28,11 @@ class KeyMappingTest {
   }
 
   @Test
-  fun faceButtonLayoutChangesNoAction() {
+  fun aButtonPositionChangesNoAction() {
     for (settings in listOf(confirmA, confirmB)) {
-      val nintendo = settings.copy(faceButtonLayout = FaceButtonLayout.Nintendo)
+      val aOnTheRight = settings.copy(aButtonPosition = AButtonPosition.East)
       for (button in PadButton.entries) {
-        assertEquals(settings.actionFor(button), nintendo.actionFor(button))
+        assertEquals(settings.actionFor(button), aOnTheRight.actionFor(button))
       }
     }
   }

@@ -57,7 +57,7 @@ enum class Direction {
 /**
  * A gamepad button, named by the key code it sends. The face buttons are Android's `BUTTON_A`,
  * `BUTTON_B`, `BUTTON_X` and `BUTTON_Y`, wherever they sit: a handheld's own layout setting decides
- * which physical button sends which, and [FaceButtonLayout] says where each one is.
+ * which physical button sends which, and [AButtonPosition] says where each one is.
  */
 enum class PadButton {
   A,
@@ -88,13 +88,13 @@ enum class ConfirmButton {
 }
 
 /**
- * The player's input preferences. Navigation follows the key codes, so [faceButtonLayout] changes
- * no action; it tells the built-in session where each face button sits.
+ * The player's input preferences. Navigation follows the key codes, so [aButtonPosition] changes no
+ * action; it tells the built-in session where each face button sits.
  */
 @Serializable
 data class InputSettings(
   val confirmButton: ConfirmButton = ConfirmButton.A,
-  val faceButtonLayout: FaceButtonLayout = FaceButtonLayout.Xbox,
+  val aButtonPosition: AButtonPosition = AButtonPosition.South,
 ) {
   /** The action [button] performs, or null if it does nothing. */
   fun actionFor(button: PadButton): Action? =

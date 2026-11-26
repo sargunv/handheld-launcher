@@ -8,8 +8,8 @@ import kotlin.math.roundToInt
 
 /**
  * The Android key code each face button position sends, which a handheld's own layout setting
- * decides. [ANDROID_DEFAULT] is Android's documented default, the Xbox layout: `BUTTON_A` south,
- * `BUTTON_B` east, `BUTTON_X` west and `BUTTON_Y` north.
+ * decides. [ANDROID_DEFAULT] is Android's documented default, with `BUTTON_A` south, `BUTTON_B`
+ * east, `BUTTON_X` west and `BUTTON_Y` north.
  */
 data class FaceKeyCodes(val south: Int, val east: Int, val west: Int, val north: Int) {
   companion object {

@@ -6,8 +6,8 @@ import androidx.compose.ui.input.key.Key
  * The pad button [key] stands for, or null if it isn't a gamepad key.
  *
  * Face buttons map by key code, not position, so the button that sends `BUTTON_A` is [PadButton.A]
- * under any [FaceButtonLayout]. A desktop gamepad source delivers the same [Key]s. D-pad keys
- * double as the keyboard's arrow keys.
+ * under any [AButtonPosition]. A desktop gamepad source delivers the same [Key]s. D-pad keys double
+ * as the keyboard's arrow keys.
  */
 fun padButtonFor(key: Key): PadButton? =
   when (key) {

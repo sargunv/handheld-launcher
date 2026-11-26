@@ -4,13 +4,13 @@ import android.view.KeyEvent
 import dev.sargunv.handheld.session.Button
 import dev.sargunv.handheld.session.FaceKeyCodes
 import dev.sargunv.handheld.session.GamepadInput
-import dev.sargunv.handheld.ui.input.FaceButtonLayout
+import dev.sargunv.handheld.ui.input.AButtonPosition
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class FaceButtonsTest {
   /** The RetroPad button each face button's key code plays under [layout], by key code name. */
-  private fun retroPad(layout: FaceButtonLayout): Map<String, Button?> {
+  private fun retroPad(layout: AButtonPosition): Map<String, Button?> {
     val keyCodes = layout.faceKeyCodes()
     return mapOf(
         "A" to KeyEvent.KEYCODE_BUTTON_A,
@@ -22,30 +22,30 @@ class FaceButtonsTest {
   }
 
   @Test
-  fun xboxLayoutPlaysAAsTheRetroPadsSouthButton() {
+  fun aAtTheBottomPlaysAsTheRetroPadsSouthButton() {
     // The RetroPad is positional: B south, A east, Y west, X north.
     assertEquals(
       mapOf("A" to Button.B, "B" to Button.A, "X" to Button.Y, "Y" to Button.X),
-      retroPad(FaceButtonLayout.Xbox),
+      retroPad(AButtonPosition.South),
     )
   }
 
   @Test
-  fun nintendoLayoutPlaysEachButtonAsItsName() {
+  fun aOnTheRightPlaysEachButtonAsItsName() {
     assertEquals(
       mapOf("A" to Button.A, "B" to Button.B, "X" to Button.X, "Y" to Button.Y),
-      retroPad(FaceButtonLayout.Nintendo),
+      retroPad(AButtonPosition.East),
     )
   }
 
   @Test
-  fun xboxLayoutIsAndroidsDefault() {
-    assertEquals(FaceKeyCodes.ANDROID_DEFAULT, FaceButtonLayout.Xbox.faceKeyCodes())
+  fun aAtTheBottomIsAndroidsDefault() {
+    assertEquals(FaceKeyCodes.ANDROID_DEFAULT, AButtonPosition.South.faceKeyCodes())
   }
 
   @Test
   fun layoutLeavesTheOtherButtonsAlone() {
-    for (layout in FaceButtonLayout.entries) {
+    for (layout in AButtonPosition.entries) {
       val keyCodes = layout.faceKeyCodes()
       assertEquals(Button.START, GamepadInput.buttonFor(KeyEvent.KEYCODE_BUTTON_START, keyCodes))
       assertEquals(Button.L, GamepadInput.buttonFor(KeyEvent.KEYCODE_BUTTON_L1, keyCodes))

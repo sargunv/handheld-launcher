@@ -2,12 +2,12 @@ package dev.sargunv.handheld.launch
 
 import android.view.KeyEvent
 import dev.sargunv.handheld.session.FaceKeyCodes
-import dev.sargunv.handheld.ui.input.FaceButtonLayout
+import dev.sargunv.handheld.ui.input.AButtonPosition
 import dev.sargunv.handheld.ui.input.FacePosition
 import dev.sargunv.handheld.ui.input.PadButton
 
 /** The key code each face button position sends under this layout, for the session's RetroPad. */
-internal fun FaceButtonLayout.faceKeyCodes(): FaceKeyCodes =
+internal fun AButtonPosition.faceKeyCodes(): FaceKeyCodes =
   FaceKeyCodes(
     south = keyCodeOf(buttonAt(FacePosition.South)),
     east = keyCodeOf(buttonAt(FacePosition.East)),

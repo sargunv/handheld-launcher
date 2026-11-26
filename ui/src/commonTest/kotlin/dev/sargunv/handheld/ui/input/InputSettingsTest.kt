@@ -10,14 +10,14 @@ class InputSettingsTest {
     // Settings stored before the face buttons were named by key code.
     val stored = """{"confirmButton":"East"}"""
     assertEquals(
-      InputSettings(confirmButton = ConfirmButton.B, faceButtonLayout = FaceButtonLayout.Xbox),
+      InputSettings(confirmButton = ConfirmButton.B, aButtonPosition = AButtonPosition.South),
       Json.decodeFromString(InputSettings.serializer(), stored),
     )
   }
 
   @Test
-  fun keepsTheFaceButtonLayout() {
-    val settings = InputSettings(faceButtonLayout = FaceButtonLayout.Nintendo)
+  fun keepsTheAButtonPosition() {
+    val settings = InputSettings(aButtonPosition = AButtonPosition.East)
     val json = Json.encodeToString(InputSettings.serializer(), settings)
     assertEquals(settings, Json.decodeFromString(InputSettings.serializer(), json))
   }

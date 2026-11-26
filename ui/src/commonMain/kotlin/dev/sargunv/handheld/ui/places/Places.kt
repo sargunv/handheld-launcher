@@ -63,9 +63,9 @@ import dev.sargunv.handheld.ui.game.GameSecondary
 import dev.sargunv.handheld.ui.game.OpenWithScreen
 import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
+import dev.sargunv.handheld.ui.input.AButtonPosition
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ConfirmButton
-import dev.sargunv.handheld.ui.input.FaceButtonLayout
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.InputSettings
@@ -197,13 +197,13 @@ class AppState(
     settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
   }
 
-  fun switchFaceButtonLayout() {
+  fun switchAButtonPosition() {
     val switched =
-      when (inputSettings.faceButtonLayout) {
-        FaceButtonLayout.Xbox -> FaceButtonLayout.Nintendo
-        FaceButtonLayout.Nintendo -> FaceButtonLayout.Xbox
+      when (inputSettings.aButtonPosition) {
+        AButtonPosition.South -> AButtonPosition.East
+        AButtonPosition.East -> AButtonPosition.South
       }
-    settings = settings.copy(input = inputSettings.copy(faceButtonLayout = switched))
+    settings = settings.copy(input = inputSettings.copy(aButtonPosition = switched))
   }
 }
 
@@ -458,13 +458,13 @@ private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
           ConfirmButton.B -> PadButton.B
         }
       MenuButton("quick:confirm", "Confirm with ${confirm.label}") { state.swapConfirmButton() }
-      val layout =
-        when (state.inputSettings.faceButtonLayout) {
-          FaceButtonLayout.Xbox -> "Xbox"
-          FaceButtonLayout.Nintendo -> "Nintendo"
+      val position =
+        when (state.inputSettings.aButtonPosition) {
+          AButtonPosition.South -> "Bottom"
+          AButtonPosition.East -> "Right"
         }
-      MenuButton("quick:faceButtons", "Face buttons: $layout layout") {
-        state.switchFaceButtonLayout()
+      MenuButton("quick:aButton", "A button: $position") {
+        state.switchAButtonPosition()
       }
     }
   }

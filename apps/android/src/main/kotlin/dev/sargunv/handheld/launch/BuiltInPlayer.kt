@@ -67,7 +67,7 @@ class BuiltInPlayer(private val activity: ComponentActivity) {
         saveDir = folder,
         saveRam = saves.saveRamOf(request.gameId, request.romPath),
         pauseWhenUnfocused = settings.pauseGameWhenUnfocused,
-        faceButtonLayout = settings.input.faceButtonLayout,
+        aButtonPosition = settings.input.aButtonPosition,
       )
     val result = awaitResult(intent)
     val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)
