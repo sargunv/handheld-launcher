@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui.library
 
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import kotlin.test.Test
@@ -93,5 +94,26 @@ class LibraryModelTest {
     val roms = listOf(rom(1, "1942"), rom(2, "alpha"), rom(3, "Avenger"), rom(4, "zeta"))
     assertEquals(mapOf('#' to 0, 'A' to 1, 'Z' to 3), jumpIndex(roms))
     assertEquals('#', jumpLetter(rom(5, "")))
+  }
+
+  @Test
+  fun downloadStatusesBecomeDeviceStates() {
+    assertEquals(
+      mapOf(
+        1L to DeviceState.OnDevice,
+        2L to DeviceState.Downloading(null),
+        3L to DeviceState.Downloading(0.25f),
+        4L to DeviceState.Downloading(null),
+      ),
+      deviceStates(
+        mapOf(
+          1L to RomStatus.OnDevice("/ROMs/gb/a.gb"),
+          2L to RomStatus.Queued,
+          3L to RomStatus.Downloading(25, 100),
+          4L to RomStatus.Downloading(0, 0),
+          5L to RomStatus.Failed("Offline"),
+        ),
+      ),
+    )
   }
 }

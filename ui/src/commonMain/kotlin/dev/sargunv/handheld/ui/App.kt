@@ -25,9 +25,10 @@ import dev.sargunv.handheld.ui.cover.coverImageLoader
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
+import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.library.DeviceState
+import dev.sargunv.handheld.ui.library.deviceStates
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
@@ -39,9 +40,7 @@ import io.ktor.client.engine.HttpClientEngine
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 
@@ -62,8 +61,7 @@ import kotlinx.io.files.Path
  * @param saveSettings stores the settings each time they change, in the order they changed.
  * @param device this device, as it introduces itself to the server when it signs in.
  * @param httpEngine makes the HTTP engine for each of the server's clients.
- * @param deviceStates the games on the device or on their way, by ROM id. Nothing marks a game as
- *   on the device until downloads exist, so the default holds none.
+ * @param launcher plays games, on platforms that can.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
  */
@@ -80,15 +78,20 @@ fun App(
   initialSettings: Settings = Settings(),
   saveSettings: suspend (Settings) -> Unit = {},
   httpEngine: () -> HttpClientEngine = ::platformHttpEngine,
-  deviceStates: Flow<Map<Long, DeviceState>> = flowOf(emptyMap()),
+  launcher: GameLauncher = GameLauncher.Unsupported,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
   // Null until the stored credentials have been read.
   var signedIn by remember { mutableStateOf<Boolean?>(null) }
   LaunchedEffect(credentials) { signedIn = credentials.load() != null }
-  val state = remember(library, downloads) { AppState(initialSettings, library, downloads) }
-  LaunchedEffect(state, deviceStates) { deviceStates.collect { state.deviceStates = it } }
+  val state =
+    remember(library, downloads, launcher, credentials, httpEngine) {
+      AppState(initialSettings, library, downloads, launcher, credentials, httpEngine)
+    }
+  LaunchedEffect(state) {
+    downloads.statuses().collect { state.deviceStates = deviceStates(it) }
+  }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
   LaunchedEffect(state) {
     snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }

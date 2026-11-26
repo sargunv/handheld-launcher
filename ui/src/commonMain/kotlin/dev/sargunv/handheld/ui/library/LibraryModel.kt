@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.ui.library
 
 import androidx.compose.runtime.Immutable
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import kotlinx.serialization.Serializable
@@ -22,6 +23,28 @@ sealed interface DeviceState {
 
   /** On its way: [progress] runs from 0 to 1, or is null while the size isn't known. */
   data class Downloading(val progress: Float?) : DeviceState
+}
+
+/**
+ * The [DeviceState]s of the games with [statuses], by ROM id. A download that failed waits in the
+ * queue for a retry, but the game is no closer to the device, so it has no state.
+ */
+internal fun deviceStates(statuses: Map<Long, RomStatus>): Map<Long, DeviceState> = buildMap {
+  for ((id, status) in statuses) {
+    when (status) {
+      is RomStatus.OnDevice -> put(id, DeviceState.OnDevice)
+      RomStatus.Queued -> put(id, DeviceState.Downloading(null))
+      is RomStatus.Downloading ->
+        put(
+          id,
+          DeviceState.Downloading(
+            status.totalBytes.takeIf { it > 0 }?.let { status.bytesDownloaded.toFloat() / it },
+          ),
+        )
+      is RomStatus.Failed,
+      RomStatus.NotOnDevice -> Unit
+    }
+  }
 }
 
 /** One page of Library, which L and R move between. */

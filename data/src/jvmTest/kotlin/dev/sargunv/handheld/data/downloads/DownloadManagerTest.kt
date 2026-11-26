@@ -373,6 +373,59 @@ class DownloadManagerTest {
   }
 
   @Test
+  fun listsTheLibrarysGamesOnTheDeviceAndInTheQueue() = runTest {
+    fillLibrary()
+    library.upsertRoms(listOf(gameRom, sagaRom))
+    val gba = file("ROMs/gba/Game (USA).gba").apply { parentFile.mkdirs() }
+    gba.writeBytes(game)
+    // A download that stopped partway isn't the game.
+    file("ROMs/psx/Saga (USA).part").mkdirs()
+    val downloads = manager(backgroundScope, server())
+
+    assertEquals(
+      mapOf(1L to RomStatus.OnDevice(gba.path)),
+      waitFor { downloads.statuses().first { it.isNotEmpty() } },
+    )
+    downloads.enqueue(sagaRom)
+    assertEquals(
+      RomStatus.OnDevice(file("ROMs/psx/Saga (USA)").path),
+      waitFor { downloads.statuses().first { it[2L] is RomStatus.OnDevice } }[2L],
+    )
+  }
+
+  @Test
+  fun removesOnlyTheGamesOwnFiles() = runTest {
+    fillLibrary()
+    library.upsertRoms(listOf(gameRom, sagaRom))
+    val gba = file("ROMs/gba/Game (USA).gba").apply { parentFile.mkdirs() }
+    gba.writeBytes(game)
+    val gbaSave = file("ROMs/gba/Game (USA).sav").apply { writeText("save") }
+    val folder = file("ROMs/psx/Saga (USA)").apply { mkdirs() }
+    for (name in listOf("Saga (USA) (Disc 1).chd", "Saga (USA) (Disc 2).chd", "Saga (USA).m3u")) {
+      File(folder, name).writeText(name)
+    }
+    val discSave = File(folder, "saves/Saga (USA).srm").apply { parentFile.mkdirs() }
+    discSave.writeText("save")
+    val downloads = manager(backgroundScope, server())
+    waitFor { downloads.statuses().first { it.size == 2 } }
+
+    assertEquals(Removal.Removed, downloads.remove(gameRom))
+    assertFalse(gba.exists())
+    assertTrue(gbaSave.exists())
+    assertEquals(RomStatus.NotOnDevice, downloads.status(gameRom).first())
+    assertEquals(setOf(2L), waitFor { downloads.statuses().first { it.size == 1 } }.keys)
+
+    // A folder that holds something besides the game stays whole.
+    assertEquals(Removal.HoldsOtherFiles(listOf(discSave.name)), downloads.remove(sagaRom))
+    assertEquals(4, folder.walk().count { it.isFile })
+    discSave.delete()
+    assertEquals(Removal.Removed, downloads.remove(sagaRom))
+    assertFalse(folder.exists())
+    assertEquals(emptyMap(), waitFor { downloads.statuses().first { it.isEmpty() } })
+    assertEquals(Removal.NotOnDevice, downloads.remove(sagaRom))
+  }
+
+  @Test
   fun refusesAGameThatDoesNotFit() = runTest {
     fillLibrary()
     val downloads = manager(backgroundScope, server(sizeOverride = 1L shl 60))

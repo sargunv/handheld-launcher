@@ -15,10 +15,9 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
@@ -30,10 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.downloads.RomStatus
-import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
@@ -44,6 +42,9 @@ import dev.sargunv.handheld.ui.downloads.DownloadsPlace
 import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.game.GameLauncher
+import dev.sargunv.handheld.ui.game.GameScreen
+import dev.sargunv.handheld.ui.game.GameSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ConfirmButton
@@ -59,8 +60,7 @@ import dev.sargunv.handheld.ui.library.LibrarySecondary
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
+import io.ktor.client.engine.HttpClientEngine
 
 /** The top-level places, switched with L and R. */
 enum class Place(val title: String) {
@@ -74,7 +74,7 @@ sealed interface Screen {
   /** The top-level places. */
   data object Places : Screen
 
-  /** A game. A placeholder until the game screen exists. */
+  /** A game. */
   data class Game(val romId: Long, val title: String) : Screen
 }
 
@@ -98,7 +98,14 @@ sealed interface Focused {
 
 /** State the app's two screens share. */
 @Stable
-class AppState(settings: Settings, val library: LibraryCache, val downloads: DownloadManager) {
+class AppState(
+  settings: Settings,
+  val library: LibraryCache,
+  val downloads: DownloadManager,
+  val launcher: GameLauncher,
+  val credentials: CredentialStore,
+  val httpEngine: () -> HttpClientEngine,
+) {
   var settings: Settings by mutableStateOf(settings)
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
@@ -110,6 +117,9 @@ class AppState(settings: Settings, val library: LibraryCache, val downloads: Dow
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
    */
   var deviceStates: Map<Long, DeviceState> by mutableStateOf(emptyMap())
+
+  /** Counts the plays that may have synced saves, so the save history loads again after each. */
+  var savesChanged: Int by mutableIntStateOf(0)
 
   val inputSettings: InputSettings
     get() = settings.input
@@ -152,6 +162,11 @@ fun MainSecondary(state: AppState) {
   ) {
     if (state.place == Place.Downloads && state.navigator.current == Screen.Places) {
       StorageSummary(state.downloads)
+      return@Column
+    }
+    val screen = state.navigator.current
+    if (screen is Screen.Game) {
+      GameSecondary(state, screen)
       return@Column
     }
     val focused = state.focused
@@ -306,70 +321,6 @@ private fun QuickMenu(state: AppState, onDismissRequest: () -> Unit) {
     }
   }
 }
-
-/**
- * A game. A placeholder until the game screen exists; for now its menu starts the game's download.
- */
-@Composable
-private fun GameScreen(state: AppState, screen: Screen.Game) {
-  val rom by produceState<Rom?>(null, screen.romId) { value = state.library.rom(screen.romId) }
-  val status by
-    remember(rom) { rom?.let { state.downloads.status(it) } ?: flowOf(null) }.collectAsState(null)
-  var menuOpen by rememberSaveable { mutableStateOf(false) }
-  val canDownload = status == RomStatus.NotOnDevice
-  val scope = rememberCoroutineScope()
-  // The screen is a focus scope of its own, so its menu opens while it has nothing to focus.
-  FocusScope(
-    Modifier.fillMaxSize().onAction { action ->
-      if (action == Action.Menu && canDownload) {
-        menuOpen = true
-        true
-      } else {
-        false
-      }
-    },
-  ) {
-    Column(Modifier.fillMaxSize()) {
-      Column(
-        Modifier.fillMaxWidth().weight(1f).padding(48.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-      ) {
-        Text(screen.title, color = Placeholder.text, fontSize = 28.sp)
-        Text("The game screen is coming soon.", color = Placeholder.mutedText)
-        status?.let { Text(downloadStatusText(it), color = Placeholder.mutedText) }
-      }
-      HintBar(
-        buildList {
-          add(Hint(Action.Back, "Back"))
-          if (canDownload) add(Hint(Action.Menu, "Menu"))
-        },
-      )
-    }
-    val current = rom
-    if (menuOpen && current != null) {
-      val close = { menuOpen = false }
-      Dialog(close, Modifier.background(Placeholder.dialog).padding(24.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          Text(current.title, color = Placeholder.text)
-          MenuButton("menu:download", "Download (${formatSize(current.sizeBytes)})") {
-            scope.launch { state.downloads.enqueue(current) }
-            close()
-          }
-        }
-      }
-    }
-  }
-}
-
-private fun downloadStatusText(status: RomStatus): String =
-  when (status) {
-    RomStatus.NotOnDevice -> "Not on this device"
-    RomStatus.Queued -> "Queued to download"
-    is RomStatus.Downloading ->
-      "Downloading: ${formatSize(status.bytesDownloaded)} of ${formatSize(status.totalBytes)}"
-    is RomStatus.Failed -> "The download failed: ${status.error}"
-    is RomStatus.OnDevice -> "On this device: ${status.path}"
-  }
 
 /** A button in a menu. */
 @Composable

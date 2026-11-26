@@ -53,4 +53,25 @@ class GameLayoutTest {
       GameLayout.playlist(PlatformSlug("ps2"), listOf("Game (Disc 1).chd", "Game (Disc 2).chd")),
     )
   }
+
+  @Test
+  fun launchesAFolderByItsPlaylistElseItsFirstDisc() {
+    assertEquals(
+      "Game.m3u",
+      GameLayout.launchFile(listOf("Game (Disc 1).cue", "Game.m3u", "Game (Disc 1).bin")),
+    )
+    assertEquals(
+      "Game (Disc 1).cue",
+      GameLayout.launchFile(
+        listOf("Game (Disc 2).bin", "Game (Disc 2).cue", "Game (Disc 1).bin", "Game (Disc 1).cue"),
+      ),
+    )
+    assertEquals(
+      "Game (Disc 1).chd",
+      GameLayout.launchFile(listOf("Game (Disc 2).chd", "Game (Disc 1).chd")),
+    )
+    assertEquals("a.bin", GameLayout.launchFile(listOf("readme.txt", "a.bin")))
+    assertEquals("data.pkg", GameLayout.launchFile(listOf("data.pkg", "manual.pdf")))
+    assertNull(GameLayout.launchFile(emptyList()))
+  }
 }

@@ -6,6 +6,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
@@ -145,7 +146,10 @@ class HomeTest {
     launch()
     awaitTag("continue:2")
     press(Key.ButtonA)
-    onNodeWithText("The game screen is coming soon.").assertExists()
+    // The primary action has focus first.
+    awaitTag("primary")
+    assertFocused("primary")
+    onNode(hasTestTag("primary") and hasAnyDescendant(hasText("Download (1.0 KB)"))).assertExists()
     press(Key.ButtonB)
     assertFocused("continue:2")
   }
@@ -162,7 +166,7 @@ class HomeTest {
     launch()
     awaitTag("continue:2")
     press(Key.ButtonA)
-    awaitText("Not on this device")
+    awaitTag("primary")
     press(Key.ButtonX)
     assertFocused("menu:download")
     press(listOf(Key.ButtonA, Key.ButtonB, Key.ButtonR1, Key.ButtonR1))
