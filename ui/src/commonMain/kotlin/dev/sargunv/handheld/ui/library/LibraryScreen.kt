@@ -59,10 +59,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigationevent.NavigationEventInfo
-import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
-import androidx.navigationevent.compose.NavigationBackHandler
-import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
@@ -85,6 +81,7 @@ import dev.sargunv.handheld.ui.input.LocalInputSettings
 import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
+import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.GameDescription
@@ -471,7 +468,7 @@ private fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: ()
         }
       }
     }
-  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+  Dialog(onDismissRequest) {
     // It scrolls with focus, so a collection of many platforms still reaches the last.
     Column(
       Modifier.verticalScroll(rememberScrollState()),
@@ -552,21 +549,13 @@ private fun ShelfGames(
     }
   }
 
-  // The system back gesture returns too, as Back does.
-  if (LocalNavigationEventDispatcherOwner.current != null) {
-    NavigationBackHandler(
-      state = rememberNavigationEventState(NavigationEventInfo.None),
-      onBackCompleted = { close() },
-    )
-  }
-
-  Box(
+  BackHandler(
+    onBack = ::close,
     Modifier.fillMaxSize().onAction { action ->
       when (action) {
         // At either end, L and R stay on the shelf rather than leave it for another tab.
         Action.PreviousShelf -> moveTo(shelves.step(shelfKey, -1))
         Action.NextShelf -> moveTo(shelves.step(shelfKey, 1))
-        Action.Back -> close()
         else -> return@onAction false
       }
       true
@@ -855,7 +844,7 @@ private fun GamesMenu(
     action()
     onDismissRequest()
   }
-  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+  Dialog(onDismissRequest) {
     // It scrolls with focus, so a short screen still reaches the letters.
     Column(
       Modifier.widthIn(max = 640.dp).verticalScroll(rememberScrollState()),

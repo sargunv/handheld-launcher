@@ -749,7 +749,7 @@ private fun StorageMenu(
   onDismissRequest: () -> Unit,
 ) {
   val shown = settings.arrange(mounted)
-  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+  Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(target.label, color = Placeholder.text, modifier = Modifier.semantics { heading() })
       if (shown.firstOrNull()?.id != target.id) {
@@ -812,7 +812,7 @@ internal fun SettingsSecondary(view: SettingsView) {
 private fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> Unit) {
   Dialog(
     onDismissRequest,
-    Modifier.widthIn(max = 640.dp).background(Placeholder.dialog).padding(24.dp),
+    Modifier.widthIn(max = 640.dp),
     initialFocus = "closeEmulators:cancel",
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -839,7 +839,7 @@ private fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> U
 private fun SignOutDialog(onSignOut: () -> Unit, onDismissRequest: () -> Unit) {
   Dialog(
     onDismissRequest,
-    Modifier.widthIn(max = 640.dp).background(Placeholder.dialog).padding(24.dp),
+    Modifier.widthIn(max = 640.dp),
     initialFocus = "signOut:cancel",
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {

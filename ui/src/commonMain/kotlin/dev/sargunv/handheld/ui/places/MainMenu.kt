@@ -50,7 +50,7 @@ internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
   val queue by state.downloads.queue.collectAsState()
   Dialog(
     onDismissRequest,
-    Modifier.fillMaxHeight().width(320.dp).background(Placeholder.dialog).padding(24.dp),
+    Modifier.fillMaxHeight().width(320.dp),
     initialFocus = "main:${(current ?: places.first()).name}",
     alignment = Alignment.CenterStart,
   ) {

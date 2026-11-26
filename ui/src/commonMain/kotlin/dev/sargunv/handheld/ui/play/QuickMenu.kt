@@ -266,7 +266,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
   Box(modifier.fillMaxSize()) {
     Dialog(
       onDismissRequest = state::back,
-      modifier = Modifier.width(420.dp).background(Placeholder.dialog).padding(24.dp),
+      modifier = Modifier.width(420.dp),
       initialFocus = "quick:resume",
     ) {
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

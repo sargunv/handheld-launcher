@@ -1,10 +1,8 @@
 package dev.sargunv.handheld.ui.signin
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -37,7 +35,7 @@ internal fun AllowUploadsDialog(
 ) {
   Dialog(
     onDismissRequest,
-    Modifier.widthIn(max = 640.dp).background(Placeholder.dialog).padding(24.dp),
+    Modifier.widthIn(max = 640.dp),
     initialFocus = "allowUploads:cancel",
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {

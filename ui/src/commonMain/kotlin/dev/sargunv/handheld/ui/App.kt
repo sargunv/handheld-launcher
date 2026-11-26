@@ -25,10 +25,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigationevent.NavigationEventInfo
-import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
-import androidx.navigationevent.compose.NavigationBackHandler
-import androidx.navigationevent.compose.rememberNavigationEventState
 import coil3.compose.setSingletonImageLoaderFactory
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.CredentialStore
@@ -61,6 +57,7 @@ import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.deviceStates
+import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.MainMenu
@@ -324,26 +321,12 @@ fun App(
  */
 @Composable
 private fun SignInSettings(state: AppState) {
-  val close = { state.settingsOverSignIn = false }
-  if (LocalNavigationEventDispatcherOwner.current != null) {
-    NavigationBackHandler(
-      state = rememberNavigationEventState(NavigationEventInfo.None),
-      onBackCompleted = close,
-    )
-  }
-  Box(
+  BackHandler(
+    onBack = { state.settingsOverSignIn = false },
     Modifier.fillMaxSize()
       .background(Placeholder.background)
       // The sign-in behind can't be tapped.
-      .pointerInput(Unit) { detectTapGestures {} }
-      .onAction { action ->
-        if (action == Action.Back) {
-          close()
-          true
-        } else {
-          false
-        }
-      },
+      .pointerInput(Unit) { detectTapGestures {} },
   ) {
     Column(Modifier.fillMaxSize()) {
       Text(

@@ -34,10 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
-import androidx.navigationevent.NavigationEventInfo
-import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
-import androidx.navigationevent.compose.NavigationBackHandler
-import androidx.navigationevent.compose.rememberNavigationEventState
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommSignIn
@@ -73,16 +69,15 @@ import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.home.HomePlace
 import dev.sargunv.handheld.ui.input.AButtonPosition
-import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.input.InputSettings
-import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryPlace
 import dev.sargunv.handheld.ui.library.LibrarySecondary
 import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.library.LibraryTab
+import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsPage
@@ -582,37 +577,27 @@ internal fun coverDescription(rom: Rom, state: DeviceState?): String {
 @Composable
 private fun PlacesScreen(state: AppState) {
   val places = rememberSaveableStateHolder()
-  // The system back gesture goes Home too, as Back does.
-  if (state.place != Place.Home && LocalNavigationEventDispatcherOwner.current != null) {
-    NavigationBackHandler(
-      state = rememberNavigationEventState(NavigationEventInfo.None),
-      onBackCompleted = { state.showPlace(Place.Home) },
-    )
-  }
-  Column(
-    Modifier.fillMaxSize().onAction { action ->
-      if (action == Action.Back && state.place != Place.Home) {
-        state.showPlace(Place.Home)
-        true
-      } else {
-        false
-      }
-    },
+  BackHandler(
+    onBack = { state.showPlace(Place.Home) },
+    Modifier.fillMaxSize(),
+    enabled = state.place != Place.Home,
   ) {
-    PlaceHeader(state.place, state.sync)
-    Box(Modifier.fillMaxWidth().weight(1f)) {
-      // Each place is a focus scope, which keeps its focus and scroll position while another
-      // place shows.
-      places.SaveableStateProvider(state.place.name) {
-        when (state.place) {
-          // A new key starts Home's state over, focus and scroll positions included.
-          Place.Home -> key(state.homeResets) { HomePlace(state) }
-          Place.Library -> LibraryPlace(state)
-          Place.Downloads ->
-            DownloadsPlace(state.downloads) {
-              state.navigator.push(Screen.Game(it.romId, it.title))
-            }
-          Place.Settings -> SettingsPage(state)
+    Column(Modifier.fillMaxSize()) {
+      PlaceHeader(state.place, state.sync)
+      Box(Modifier.fillMaxWidth().weight(1f)) {
+        // Each place is a focus scope, which keeps its focus and scroll position while another
+        // place shows.
+        places.SaveableStateProvider(state.place.name) {
+          when (state.place) {
+            // A new key starts Home's state over, focus and scroll positions included.
+            Place.Home -> key(state.homeResets) { HomePlace(state) }
+            Place.Library -> LibraryPlace(state)
+            Place.Downloads ->
+              DownloadsPlace(state.downloads) {
+                state.navigator.push(Screen.Game(it.romId, it.title))
+              }
+            Place.Settings -> SettingsPage(state)
+          }
         }
       }
     }

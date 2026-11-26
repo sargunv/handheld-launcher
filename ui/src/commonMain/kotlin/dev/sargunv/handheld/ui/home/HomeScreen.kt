@@ -374,7 +374,7 @@ private fun GameMenu(
   onShowShelf: (HomeShelf) -> Unit,
   onDismissRequest: () -> Unit,
 ) {
-  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+  Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(rom.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
       MenuButton("menu:game", "Go to game page") {
@@ -411,7 +411,7 @@ private fun ShelfMenu(
     onChange(changed)
     onDismissRequest()
   }
-  Dialog(onDismissRequest, Modifier.background(Placeholder.dialog).padding(24.dp)) {
+  Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(
         shelf?.title ?: "Home",
