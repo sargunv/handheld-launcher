@@ -62,8 +62,9 @@ import kotlinx.io.files.Path
  * @param openRequests the screens to show, for development tools, each once signed in. Before
  *   sign-in, a Settings one shows over the sign-in.
  * @param homePresses the presses of the system's HOME while the app is in front as the home app.
- *   Each closes the open dialogs, or when there are none, starts over on Home, or on the sign-in's
- *   first step. A play or an upload under way keeps its screen, since leaving it would stop it.
+ *   Each closes the open dialogs, or when there are none, starts over on Home, or closes Settings
+ *   over the sign-in. A play or an upload under way keeps its screen, since leaving it would stop
+ *   it.
  */
 @Composable
 fun App(
@@ -138,7 +139,7 @@ fun App(
             state.gameBusy -> Unit
             scopes?.isDialogOpen == true -> scopes.closeDialogs()
             data.romm.state.value.signedIn == true -> state.goHome()
-            data.romm.state.value.signedIn == false -> state.signIn.navigator.backToStart()
+            data.romm.state.value.signedIn == false -> state.signIn.closeSettings()
           }
         }
       }

@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.ui.signin
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,12 +8,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicSecureTextField
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,12 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -40,8 +30,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -67,8 +55,10 @@ import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Place
+import dev.sargunv.handheld.ui.places.PlaceHeader
 import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
+import dev.sargunv.handheld.ui.widgets.TextEntry
 import io.ktor.http.URLProtocol
 import io.ktor.http.parseUrl
 import kotlinx.coroutines.launch
@@ -121,6 +111,12 @@ class SignInState(
     if (settings < 0) navigator.push(SignInScreen.Settings)
     else while (navigator.backStack.lastIndex > settings) navigator.back()
   }
+
+  /** Leaves Settings and the screens over it, back to the sign-in step under them. */
+  fun closeSettings() {
+    val settings = navigator.backStack.indexOf(SignInScreen.Settings)
+    if (settings >= 0) while (navigator.backStack.size > settings) navigator.back()
+  }
 }
 
 /** The sign-in's top screen. */
@@ -169,16 +165,7 @@ fun SignInSecondary(state: AppState) {
 @Composable
 private fun SettingsScreen(state: AppState, onAbout: () -> Unit) {
   Column(Modifier.fillMaxSize()) {
-    Text(
-      Place.Settings.title,
-      color = Placeholder.text,
-      fontSize = 22.sp,
-      fontWeight = FontWeight.SemiBold,
-      modifier =
-        Modifier.padding(horizontal = 48.dp, vertical = 16.dp)
-          .testTag("place:${Place.Settings.name}")
-          .semantics { heading() },
-    )
+    PlaceHeader(Place.Settings)
     Box(Modifier.fillMaxWidth().weight(1f)) { SettingsPage(state, onAbout) }
   }
 }
@@ -221,7 +208,7 @@ private fun AddressScreen(state: SignInState) {
       "allowUploads",
       "Allow uploading games to your server",
       checked = state.allowUploads,
-      "Lets this device upload games that aren't on your server.",
+      "Lets this device upload games that aren't on your server",
     ) {
       state.allowUploads = !state.allowUploads
     }
@@ -340,7 +327,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
         modifier = Modifier.weight(1f),
         placeholder = "API token",
         label = "API token",
-        help = "A client API token from RomM, for $baseUrl.",
+        help = "A client API token from RomM, for $baseUrl",
         secure = true,
         keyboardOptions =
           KeyboardOptions(
@@ -401,115 +388,6 @@ private fun ScreenColumn(canGoBack: Boolean, content: @Composable () -> Unit) {
         if (canGoBack) add(Hint(Action.Back, "Back"))
       },
     )
-  }
-}
-
-/**
- * A text field for a controller: an item that focus moves over like any other, and that opens the
- * system keyboard on [Action.Confirm] or a tap. [Action.Back], [Action.Confirm] or moving focus
- * away stops editing; the keyboard's action key also calls [onSubmit]. Focusing it puts [help] on
- * [helpHolder]'s lower screen.
- *
- * @param label names the field to accessibility services and titles its help.
- * @param secure hides what's typed, for secrets.
- */
-@Composable
-internal fun TextEntry(
-  helpHolder: HelpHolder,
-  key: String,
-  field: TextFieldState,
-  placeholder: String,
-  label: String,
-  help: String,
-  keyboardOptions: KeyboardOptions,
-  onSubmit: () -> Unit,
-  modifier: Modifier = Modifier,
-  secure: Boolean = false,
-) {
-  var editing by remember { mutableStateOf(false) }
-  val itemRequester = remember { FocusRequester() }
-  val fieldRequester = remember { FocusRequester() }
-  fun stopEditing() {
-    itemRequester.requestFocus()
-    editing = false
-  }
-  val text = field.text
-  // Shown text that a screen reader would read as dots, or as a placeholder, says nothing; the
-  // label names the field and says what it holds.
-  val value =
-    when {
-      text.isEmpty() -> "empty"
-      secure -> "entered"
-      else -> text.toString()
-    }
-  Box(
-    modifier
-      .help(helpHolder, key, label, help)
-      .focusRequester(itemRequester)
-      .focusItem(
-        key,
-        onConfirm = { if (editing) stopEditing() else editing = true },
-        description = if (editing) null else "$label: $value",
-        onAction = { action ->
-          if (action == Action.Back && editing) {
-            stopEditing()
-            true
-          } else {
-            false
-          }
-        },
-      )
-      .background(Placeholder.tile)
-      .then(if (editing) Modifier.border(2.dp, Placeholder.text) else Modifier)
-      .padding(horizontal = 16.dp, vertical = 12.dp),
-  ) {
-    if (editing) {
-      var hadFocus by remember { mutableStateOf(false) }
-      val modifier =
-        Modifier.fillMaxWidth().focusRequester(fieldRequester).onFocusChanged {
-          // Focus that moves on, such as with the D-pad, ends editing too.
-          if (it.isFocused) hadFocus = true else if (hadFocus) editing = false
-        }
-      val textStyle = TextStyle(color = Placeholder.text, fontSize = 20.sp)
-      val cursor = SolidColor(Placeholder.text)
-      val submit = {
-        stopEditing()
-        onSubmit()
-      }
-      if (secure) {
-        BasicSecureTextField(
-          state = field,
-          modifier = modifier,
-          textStyle = textStyle,
-          keyboardOptions = keyboardOptions,
-          onKeyboardAction = { submit() },
-          cursorBrush = cursor,
-          textObfuscationMode = TextObfuscationMode.Hidden,
-        )
-      } else {
-        BasicTextField(
-          state = field,
-          modifier = modifier,
-          textStyle = textStyle,
-          keyboardOptions = keyboardOptions,
-          onKeyboardAction = { submit() },
-          lineLimits = TextFieldLineLimits.SingleLine,
-          cursorBrush = cursor,
-        )
-      }
-      LaunchedEffect(Unit) { fieldRequester.requestFocus() }
-    } else {
-      Text(
-        when {
-          text.isEmpty() -> placeholder
-          secure -> "•".repeat(minOf(text.length, 32))
-          else -> text.toString()
-        },
-        color = if (text.isEmpty()) Placeholder.mutedText else Placeholder.text,
-        fontSize = 20.sp,
-        maxLines = 1,
-      )
-    }
   }
 }
 
