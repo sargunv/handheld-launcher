@@ -20,8 +20,6 @@ import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
-import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.domain.GameKey
@@ -52,9 +50,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 
 /**
  * Local games: files in a platform's folder that match none of the server's games. The server has
@@ -64,8 +60,6 @@ import kotlinx.coroutines.withTimeout
 @OptIn(ExperimentalTestApi::class)
 class LocalGameTest {
   private val storage = createTempDirectory("local-storage").toFile()
-
-  private lateinit var downloads: DownloadManager
 
   /** The settings the app saved, last last. */
   private val saved = mutableListOf<Settings>()
@@ -145,17 +139,16 @@ class LocalGameTest {
     settings: Settings = Settings(),
     open: OpenTarget? = null,
   ) {
-    downloads =
-      launchApp(
-        server,
-        credentials = credentials,
-        library = library,
-        storage = listOf(StorageTarget(storage.path, "Test storage")),
-        settings = settings,
-        saveSettings = { saved += it },
-        launcher = launcher,
-        open = open,
-      )
+    launchApp(
+      server,
+      credentials = credentials,
+      library = library,
+      storage = listOf(StorageTarget(storage.path, "Test storage")),
+      settings = settings,
+      saveSettings = { saved += it },
+      launcher = launcher,
+      open = open,
+    )
   }
 
   /** Launches, and goes to the Library once the sync has filled it. */
@@ -310,14 +303,15 @@ class LocalGameTest {
     press(Key.ButtonX)
     awaitTag("menu:open-with")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
-    awaitText("Open Homebrew with")
+    awaitText("Kept for this file")
     serverHasHomebrew = true
     runBlocking {
       RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
     }
-    // The file is the server's game before the choice.
-    runBlocking {
-      withTimeout(5_000) { downloads.statuses().first { it[2] is RomStatus.OnDevice } }
+    // The screen is the server's game's before the choice.
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(hasText("Chosen for this game")).fetchSemanticsNodes().isNotEmpty() &&
+        onAllNodes(hasText("Kept for this file", substring = true)).fetchSemanticsNodes().isEmpty()
     }
     waitForIdle()
     // Built-in is first.
