@@ -152,7 +152,7 @@ fun App(
           Box(
             Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
           ) {
-            SettingsSecondary(state.settingsView)
+            SettingsSecondary(state, signedIn = false)
           }
         } else {
           SignInSecondary(account.signIn)

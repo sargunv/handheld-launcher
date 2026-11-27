@@ -119,7 +119,7 @@ fun MainSecondary(state: AppState) {
         when {
           state.place == Place.Downloads -> StorageSummary(state.downloads)
           state.place == Place.Library -> LibrarySecondary(state)
-          state.place == Place.Settings -> SettingsSecondary(state.settingsView)
+          state.place == Place.Settings -> SettingsSecondary(state, signedIn = true)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
           focused is Focused.OnCollection -> {
             val collection = focused.collection

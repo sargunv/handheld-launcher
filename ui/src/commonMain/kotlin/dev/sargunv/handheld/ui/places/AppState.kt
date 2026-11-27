@@ -98,7 +98,7 @@ class AppState(
   var focused: Focused? by mutableStateOf(null)
 
   val libraryView = LibraryState(library, downloads.statuses(), games.localGames()) { libraryTab }
-  val settingsView = SettingsView(romm, offersAchievements = retroAchievements != null)
+  val settingsView = SettingsView()
 
   val account = Account(romm, platform.device)
 
