@@ -589,11 +589,6 @@ impl Session {
         self.host_mut().capture()
     }
 
-    /// The core's battery-backed save memory, if it has any.
-    pub fn save_ram(&mut self) -> Option<&[u8]> {
-        save_memory(&mut self.core).map(|memory| &*memory)
-    }
-
     /// Writes save memory to its file if it changed, and waits until it's on
     /// disk.
     pub fn flush_save_ram(&mut self) -> Result<(), SessionError> {

@@ -147,7 +147,6 @@ fn has_no_save_ram() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("test.srm");
     let mut h = Harness::with(CORE, |c| c.save_ram = Some(path.clone())).unwrap();
-    assert!(h.session.save_ram().is_none());
     h.run(1);
     drop(h);
     assert!(!path.exists());

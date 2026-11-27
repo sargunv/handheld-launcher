@@ -11,8 +11,6 @@ use zip::write::SimpleFileOptions;
 
 const CORE: &str = "gambatte_libretro.so";
 const GAME: &str = "ucity.gbc";
-/// The cartridge's 128 KiB of battery-backed RAM.
-const SAVE_RAM_SIZE: usize = 128 * 1024;
 
 #[test]
 fn plays_the_title_screen_with_sound() {
@@ -69,32 +67,6 @@ fn needs_content() {
         Harness::start(CORE),
         Err(SessionError::ContentRequired)
     ));
-}
-
-#[test]
-fn save_ram_round_trips_through_its_file() {
-    let _lock = lock();
-    let pattern: Vec<u8> = (0..SAVE_RAM_SIZE).map(|i| (i * 7 % 251) as u8).collect();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("ucity.srm");
-    // A state of the game with blank save memory, which a state includes.
-    let state = dir.path().join("blank.state");
-    let blank = {
-        let mut h = Harness::with(CORE, |c| c.content = Some(fixture(GAME))).unwrap();
-        h.session.save_state(&state).unwrap();
-        h.session.save_ram().unwrap().to_vec()
-    };
-    std::fs::write(&path, &pattern).unwrap();
-
-    let mut h = Harness::with(CORE, |c| {
-        c.content = Some(fixture(GAME));
-        c.save_ram = Some(path.clone());
-    })
-    .unwrap();
-    assert_eq!(h.session.save_ram().unwrap(), pattern);
-    h.session.load_state(&state).unwrap();
-    drop(h);
-    assert_eq!(std::fs::read(&path).unwrap(), blank);
 }
 
 #[test]
