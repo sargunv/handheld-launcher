@@ -117,11 +117,7 @@ sealed interface SaveSyncResult {
     val device: DeviceSave,
     val server: RommSave,
     val reverted: Boolean = false,
-  ) : PushResult {
-    /** The copy changed last, which the conflict screen offers first. */
-    val newer: SaveCopy
-      get() = if (device.modifiedAt > server.updatedAt) SaveCopy.Device else SaveCopy.Server
-  }
+  ) : PushResult
 
   /**
    * The server has a save to pull, but none of [folders] exists and can be written: the emulator
@@ -191,7 +187,7 @@ class SaveSync(
       withContext(Dispatchers.IO) {
         val unit = game.unit()
         val local = unit.read()
-        when (val found = compare(game, local)) {
+        when (val found = settle(game, local)) {
           is SaveSyncResult.ServerNewer -> pull(game, unit, found.server, local, emulatorMayRun)
           else -> found
         }
@@ -207,11 +203,14 @@ class SaveSync(
    * @throws IOException when the save file can't be read.
    */
   suspend fun push(game: GameSave): PushResult = mutex.withLock {
-    withContext(Dispatchers.IO) { compare(game, game.unit().read()) }
+    withContext(Dispatchers.IO) { settle(game, game.unit().read()) }
   }
 
-  /** Compares [game]'s save [local] with the server's, and pushes it when only it changed. */
-  private suspend fun compare(game: GameSave, local: LocalCopy?): PushResult {
+  /**
+   * Compares [game]'s save [local] with the server's. Pushes it when only it changed, and records
+   * it as synced when both hold the same bytes.
+   */
+  private suspend fun settle(game: GameSave, local: LocalCopy?): PushResult {
     val record = recordFile(game).read()
     val server = latestOnServer(game)
     val localHash = local?.hash

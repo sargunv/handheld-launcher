@@ -38,21 +38,26 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   ): Boolean {
     val sync = signedIn() ?: return true
     val outcome =
-      trySync(note) {
-        sync.beforeLaunch(
-          game,
-          emulator,
-          chooseSave = { result ->
-            chooseSave(
-              SaveConflict(
-                title,
-                SaveVersion(result.device.modifiedAt, result.device.sizeBytes),
-                SaveVersion(result.server.updatedAt, result.server.fileSizeBytes),
-              ),
-            )
-          },
-        )
-      } ?: return true
+      trySync(
+        {
+          sync.beforeLaunch(
+            game,
+            emulator,
+            chooseSave = { result ->
+              chooseSave(
+                SaveConflict(
+                  title,
+                  SaveVersion(result.device.modifiedAt, result.device.sizeBytes),
+                  SaveVersion(result.server.updatedAt, result.server.fileSizeBytes),
+                ),
+              )
+            },
+          )
+        },
+      ) {
+        note(it)
+        return true
+      }
     return when (outcome) {
       is BeforeLaunch.Synced -> {
         describe(outcome.result, note)
@@ -97,7 +102,10 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
    */
   suspend fun afterPlay(game: GameSave, note: (String) -> Unit) {
     val sync = signedIn() ?: return
-    val result = trySync(note) { sync.push(game) } ?: return
+    val result =
+      trySync({ sync.push(game) }) {
+        return note(it)
+      }
     when (result) {
       // The conflict screen comes before a launch, so the choice waits for the next one.
       is SaveSyncResult.Conflict -> note(conflictLater(result))
@@ -114,8 +122,10 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
    */
   suspend fun push(game: GameSave): String {
     val sync = signedIn() ?: return "Not signed in"
-    var failure = ""
-    val result = trySync({ failure = it }) { sync.push(game) } ?: return failure
+    val result =
+      trySync({ sync.push(game) }) {
+        return it
+      }
     return when (result) {
       SaveSyncResult.NoSave -> "No save yet"
       is SaveSyncResult.Pushed -> "Sent to RomM"
@@ -140,18 +150,16 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   private fun chooseLater(label: String) = "$label · Choose at the next play"
 
   /**
-   * Runs the sync [call], or logs why it failed, passes [note] the note that says so, and returns
-   * null. A failed sync writes nothing, and its record stays as it was, so the next sync tries
-   * again.
+   * Runs the sync [call], or logs why it failed and passes [onFailure] the note that says so. A
+   * failed sync writes nothing, and its record stays as it was, so the next sync tries again.
    */
-  private inline fun <T : Any> trySync(note: (String) -> Unit, call: () -> T): T? =
+  private inline fun <T> trySync(call: () -> T, onFailure: (String) -> Nothing): T =
     try {
       call()
     } catch (e: Exception) {
       if (e !is RommException && e !is IOException) throw e
       log.w(e) { "Save sync failed" }
-      note(labelled("Save sync failed", e.message))
-      null
+      onFailure(labelled("Save sync failed", e.message))
     }
 
   private fun describe(result: SaveSyncResult, note: (String) -> Unit) {

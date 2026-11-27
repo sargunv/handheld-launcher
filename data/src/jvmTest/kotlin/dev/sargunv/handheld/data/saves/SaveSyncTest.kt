@@ -299,10 +299,8 @@ class SaveSyncTest {
     val (server, sync) = synced()
     server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
     saveFile.writeBytes(mine)
-    saveFile.setLastModified(Instant.parse("2025-02-15T00:00:00Z").toEpochMilliseconds())
 
     val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(game))
-    assertEquals(SaveCopy.Device, conflict.newer)
     assertEquals(mine.size.toLong(), conflict.device.sizeBytes)
     assertContentEquals(mine, saveFile.readBytes())
     assertTrue(server.uploads.isEmpty())
