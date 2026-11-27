@@ -2,6 +2,7 @@ package dev.sargunv.handheld.achievements
 
 import android.util.Log
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
+import dev.sargunv.handheld.session.AchievementFailure
 import dev.sargunv.handheld.session.AchievementStatus
 import dev.sargunv.handheld.session.AchievementsHttp
 import dev.sargunv.handheld.session.AchievementsRequest
@@ -45,13 +46,21 @@ internal class SessionAchievementsHttp(
   }
 }
 
+/** What the player reads when the session's achievements fail. */
+internal fun AchievementFailure.message(): String =
+  when (this) {
+    AchievementFailure.SignInExpired -> "Sign in to RetroAchievements again in Settings."
+    is AchievementFailure.SignIn -> "Couldn't sign in to RetroAchievements: $detail"
+    is AchievementFailure.LoadGame -> "Couldn't load the game's achievements: $detail"
+  }
+
 /** The session's achievements as the quick menu shows them. */
 internal fun AchievementStatus.toGameAchievements(): GameAchievements =
   when (this) {
     AchievementStatus.Off -> GameAchievements.Off
     AchievementStatus.Loading -> GameAchievements.Loading
     AchievementStatus.NoSet -> GameAchievements.NoSet
-    is AchievementStatus.Failed -> GameAchievements.Failed(reason)
+    is AchievementStatus.Failed -> GameAchievements.Failed(reason.message())
     is AchievementStatus.Ready ->
       GameAchievements.Ready(
         game = game,

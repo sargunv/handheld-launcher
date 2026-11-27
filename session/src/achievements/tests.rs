@@ -282,7 +282,7 @@ fn says_when_the_token_no_longer_works() {
         Some(401),
         br#"{"Success":false,"Error":"Invalid user/token combination.","Code":"invalid_credentials","Status":401}"#,
     );
-    let reason = "Sign in to RetroAchievements again in Settings.".to_owned();
+    let reason = AchievementFailure::SignInExpired;
     assert_eq!(
         achievements.take_events(),
         vec![AchievementEvent::Failed {

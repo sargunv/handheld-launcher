@@ -32,6 +32,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.SessionAchievementsHttp
+import dev.sargunv.handheld.achievements.message
 import dev.sargunv.handheld.achievements.retroAchievementsClient
 import dev.sargunv.handheld.achievements.retroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
@@ -155,7 +156,7 @@ class SessionActivity : ComponentActivity() {
           when (event) {
             is AchievementEvent.Unlocked ->
               unlockedToast(event.achievement.title, event.achievement.points.toInt())
-            is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason)
+            is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason.message())
           }
         runOnUiThread { toasts.show(toast) }
       }
