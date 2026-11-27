@@ -25,9 +25,6 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.domain.launch.LaunchRule
-import dev.sargunv.handheld.domain.launch.LaunchSubject
-import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.launch.RuleStatus
 import dev.sargunv.handheld.domain.launch.RuleStep
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -68,16 +65,7 @@ private class OpenWithContext(
       }
 
   fun chain(launch: LaunchSettings): List<RuleStep> =
-    when (scope) {
-      is OpenWithScope.Game ->
-        RuleChain.explain(
-          LaunchSubject(scope.game, platform, collections.mapTo(mutableSetOf()) { it.launchId }),
-          launch.toRules(),
-          installed,
-        )
-      is OpenWithScope.Platform -> platformChain(platform, launch, installed)
-      is OpenWithScope.Collection -> collectionChain(scope.collection, platform, launch, installed)
-    }
+    chainFor(scope, platform, collections, launch, installed)
 
   /** The app that wins under [launch], by name, or null when none can open the games. */
   fun opensIn(launch: LaunchSettings): String? {
@@ -163,17 +151,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       Spacer(Modifier.weight(1f))
     } else {
       val current = launch.choiceAt(scope)
-      // The app the platform's defaults pick, which opens the games when no choice applies.
-      val default =
-        context
-          .chain(launch)
-          .firstOrNull {
-            (it.rule == LaunchRule.BuiltInDefault || it.rule == LaunchRule.FirstInstalled) &&
-              it.status != RuleStatus.NoCore &&
-              it.choice != null
-          }
-          ?.choice
-          ?.packageName
+      val default = context.chain(launch).firstOrNull { it.isDefault }?.choice?.packageName
       fun choose(choice: SavedChoice?) {
         state.settings = state.settings.copy(launch = launch.withChoice(scope, choice))
         state.navigator.back()
@@ -195,7 +173,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
           ) {
-            items(options, key = { "app:${it.choice.packageName}:${it.choice.core}" }) { option ->
+            items(options, key = AppOption::key) { option ->
               val notes =
                 listOfNotNull(
                   "${context.platformName} default"
@@ -203,7 +181,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
                   "current".takeIf { option.choice == current },
                 )
               OptionRow(
-                key = "app:${option.choice.packageName}:${option.choice.core}",
+                key = option.key,
                 label = option.label,
                 note = notes.joinToString(" · ").ifEmpty { null },
                 onConfirm = { choose(option.choice) },
@@ -284,15 +262,7 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.semantics { heading() },
     )
-    val lines =
-      chainLines(
-        steps,
-        context.collections,
-        context.platformName,
-        context.forGame,
-        forCollection = context.scope is OpenWithScope.Collection,
-        name = context::name,
-      )
+    val lines = chainLines(steps, context.collections, context.platformName, context::name)
     lines.forEachIndexed { index, line ->
       Text(
         (if (index > 0) "→ " else "") + line.text,

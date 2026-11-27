@@ -45,35 +45,23 @@ sealed interface OpenWithScope {
 }
 
 /**
- * The rule chain for [platform]'s games that no game or collection choice covers, which the
- * platform's own choice and the defaults decide.
+ * The rule chain for what [scope] chooses for, on [platform]: its game, its platform's games, or
+ * its collection's games. [collections] are the game's, or the scope's one collection.
  */
-internal fun platformChain(
+internal fun chainFor(
+  scope: OpenWithScope,
   platform: PlatformSlug,
+  collections: List<Collection>,
   launch: LaunchSettings,
   installed: Set<String>,
 ): List<RuleStep> =
   RuleChain.explain(
-    // The subject is no game and in no collection, so only the platform's rules apply.
-    LaunchSubject(game = null, platform = platform),
-    launch.toRules().copy(gameOverrides = emptyMap(), collectionRules = emptyList()),
-    installed,
-  )
-
-/**
- * The rule chain for [collection]'s games on [platform] that no game's own choice covers, which the
- * collection's choice, the platform's and the defaults decide.
- */
-internal fun collectionChain(
-  collection: CollectionId,
-  platform: PlatformSlug,
-  launch: LaunchSettings,
-  installed: Set<String>,
-): List<RuleStep> =
-  RuleChain.explain(
-    // The subject is no game, so no game's rule applies, and it's in only this collection.
-    LaunchSubject(game = null, platform = platform, collections = setOf(collection)),
-    launch.toRules().copy(gameOverrides = emptyMap()),
+    LaunchSubject(
+      (scope as? OpenWithScope.Game)?.game,
+      platform,
+      collections.mapTo(mutableSetOf()) { it.launchId },
+    ),
+    launch.toRules(),
     installed,
   )
 
@@ -86,16 +74,20 @@ internal fun platformOpensIn(
   launch: LaunchSettings,
   apps: List<InstalledApp>,
 ): String? {
+  val installed = apps.mapTo(mutableSetOf()) { it.packageName }
   val winner =
-    platformChain(platform, launch, apps.mapTo(mutableSetOf()) { it.packageName }).firstOrNull {
-      it.status == RuleStatus.Wins
-    }
+    chainFor(OpenWithScope.Platform(platform), platform, emptyList(), launch, installed)
+      .firstOrNull { it.status == RuleStatus.Wins }
   val choice = winner?.choice ?: return null
   return appName(choice.packageName, choice.core, apps, platform)
 }
 
 /** An app the Open with screen offers. [known] marks a known emulator for the game's platform. */
-internal data class AppOption(val choice: SavedChoice, val label: String, val known: Boolean)
+internal data class AppOption(val choice: SavedChoice, val label: String, val known: Boolean) {
+  /** The option's key in the list, and its row's focus key. */
+  val key: String
+    get() = "app:${choice.packageName}:${choice.core}"
+}
 
 /**
  * The apps a game on [platform] can open in: the built-in session when a libretro core runs the
@@ -169,87 +161,38 @@ private fun withCore(name: String, core: LibretroCore) = "$name · ${core.retroA
 internal data class ChainLine(val text: String, val wins: Boolean = false)
 
 /**
- * The rule chain's lines, most specific first: the game's rule, its collections' rules, and its
- * platform's, which falls back to the built-in session and the best installed emulator, in the
- * order the resolver tries them. Each says what became of it.
+ * The rule chain's lines, one for each step, each naming its level and app and saying what became
+ * of it.
  *
- * @param collections the game's collections, which name the collections' rules.
+ * @param collections the collections the steps can name.
  * @param name names an app by package name and core.
- * @param forGame whether the chain is a game's. A platform's or a collection's chain leaves out the
- *   game's level, which doesn't apply to it, and a platform's the collections' too.
- * @param forCollection whether the chain is the games' of the one collection in [collections],
- *   whose level shows even with no choice.
  */
 internal fun chainLines(
   steps: List<RuleStep>,
   collections: List<Collection>,
   platformName: String,
-  forGame: Boolean = true,
-  forCollection: Boolean = false,
   name: (String, String?) -> String,
-): List<ChainLine> {
-  fun line(
-    level: String?,
-    step: RuleStep,
-    default: Boolean = false,
-    app: String = step.choice?.let { name(it.packageName, it.core) } ?: "none",
-  ): ChainLine {
-    val note =
-      when (step.status) {
-        RuleStatus.Unset -> ""
-        RuleStatus.Wins -> " · opens here"
-        RuleStatus.NotInstalled -> " · not installed, skipped"
-        RuleStatus.NoCore -> " · no core for $platformName, skipped"
-        RuleStatus.Outranked -> " · overridden"
-      }
-    val defaultNote = if (default) " (default)" else ""
-    val prefix = level?.let { "$it: " } ?: ""
-    return ChainLine("$prefix$app$defaultNote$note", step.status == RuleStatus.Wins)
-  }
-
-  val platformLevel = "Platform $platformName"
-  val platformRule = steps.first { it.rule == LaunchRule.PlatformDefault }
-  // Unless the platform's own rule is unset or skipped, it decides or is outranked, so its
-  // defaults don't matter.
-  val defaultsMatter =
-    platformRule.status in setOf(RuleStatus.Unset, RuleStatus.NotInstalled, RuleStatus.NoCore)
-  return buildList {
-    for (step in steps) {
-      when (val rule = step.rule) {
-        LaunchRule.GameOverride -> if (forGame) add(line("Game", step))
-        is LaunchRule.CollectionOverride -> {
-          val collection = collections.firstOrNull { it.launchId == rule.collection }
-          add(line("Collection '${collection?.name ?: rule.collection}'", step))
-        }
-        LaunchRule.PlatformDefault -> {
-          if (steps.none { it.rule is LaunchRule.CollectionOverride }) {
-            when {
-              forGame -> add(ChainLine("Collection: none"))
-              forCollection ->
-                add(ChainLine("Collection '${collections.firstOrNull()?.name}': none"))
-            }
-          }
-          if (step.status != RuleStatus.Unset) add(line(platformLevel, step))
-        }
-        LaunchRule.BuiltInDefault ->
-          when {
-            !defaultsMatter -> Unit
-            step.status == RuleStatus.NoCore ->
-              add(line(null, step, default = true, app = BUILT_IN_NAME))
-            platformRule.status == RuleStatus.Unset ->
-              add(line(platformLevel, step, default = true, app = BUILT_IN_NAME))
-            else -> add(line("Default for $platformName", step, app = BUILT_IN_NAME))
-          }
-        LaunchRule.FirstInstalled ->
-          when {
-            !defaultsMatter -> Unit
-            platformRule.status == RuleStatus.Unset && step.choice == null ->
-              add(ChainLine("$platformLevel: no emulator installed"))
-            platformRule.status == RuleStatus.Unset ->
-              add(line(platformLevel, step, default = true))
-            step.choice != null -> add(line("Default for $platformName", step))
-          }
-      }
+): List<ChainLine> = steps.map { step ->
+  val level =
+    when (val rule = step.rule) {
+      LaunchRule.GameOverride -> "Game"
+      is LaunchRule.CollectionOverride ->
+        rule.collection?.let { id ->
+          "Collection '${collections.firstOrNull { it.launchId == id }?.name ?: id}'"
+        } ?: "Collection"
+      LaunchRule.PlatformDefault,
+      LaunchRule.BuiltInDefault,
+      LaunchRule.FirstInstalled -> "Platform $platformName"
     }
-  }
+  val app = step.choice?.let { name(it.packageName, it.core) } ?: "none"
+  val default = if (step.isDefault) " (default)" else ""
+  val note =
+    when (step.status) {
+      RuleStatus.Unset -> ""
+      RuleStatus.Wins -> " · opens here"
+      RuleStatus.NotInstalled -> " · not installed, skipped"
+      RuleStatus.NoCore -> " · no core for $platformName, skipped"
+      RuleStatus.Outranked -> " · overridden"
+    }
+  ChainLine("$level: $app$default$note", step.status == RuleStatus.Wins)
 }
