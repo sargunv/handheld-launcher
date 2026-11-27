@@ -6,12 +6,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -26,39 +22,8 @@ import dev.sargunv.handheld.ui.game.platformOpensIn
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Screen
 
-@Composable
-internal fun rememberEmulatorsSection(state: AppState): EmulatorsSection =
-  rememberSaveable(state, saver = EmulatorsSection.saver(state)) { EmulatorsSection(state) }
-
-internal class EmulatorsSection(val state: AppState) {
-  /** Whether the dialog that explains closing emulators shows, before it turns on. */
-  var explainCloseEmulators by mutableStateOf(false)
-
-  @Composable
-  fun Dialogs() {
-    if (explainCloseEmulators) {
-      CloseEmulatorsDialog(
-        onTurnOn = {
-          state.settings = state.settings.copy(closeEmulators = true)
-          explainCloseEmulators = false
-        },
-        onDismissRequest = { explainCloseEmulators = false },
-      )
-    }
-  }
-
-  companion object {
-    fun saver(state: AppState) =
-      Saver<EmulatorsSection, Boolean>(
-        save = { it.explainCloseEmulators },
-        restore = { EmulatorsSection(state).apply { explainCloseEmulators = it } },
-      )
-  }
-}
-
-internal fun LazyListScope.emulators(section: EmulatorsSection) {
+internal fun LazyListScope.emulators(state: AppState, open: (SettingsDialog) -> Unit) {
   sectionHeading("Emulators")
-  val state = section.state
   val view = state.settingsView
   // Only on devices with a root service the launcher can close emulators with.
   if (state.launcher.canCloseEmulators) {
@@ -73,7 +38,7 @@ internal fun LazyListScope.emulators(section: EmulatorsSection) {
           "close it, so a newer save from RomM can't be overwritten.",
       ) {
         if (on) state.settings = state.settings.copy(closeEmulators = false)
-        else section.explainCloseEmulators = true
+        else open(SettingsDialog.CloseEmulators)
       }
     }
   }
