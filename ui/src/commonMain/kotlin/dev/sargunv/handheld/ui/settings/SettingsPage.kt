@@ -17,10 +17,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -38,6 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.auth.UploadAccess
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
@@ -50,7 +57,11 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.places.AppState
+import dev.sargunv.handheld.ui.places.signedIn
+import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
@@ -102,7 +113,9 @@ class SettingsView {
 @Composable
 internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val view = state.settingsView
-  val signedIn = state.account.signedIn == true
+  val romm by state.romm.state.collectAsState()
+  val sync by state.romm.sync.collectAsState()
+  val signedIn = romm.signedIn == true
   val sections =
     SettingsSection.entries.filter {
       when (it) {
@@ -115,11 +128,22 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val section = view.section.takeIf { it in sections } ?: sections.first()
   // A section left from before a sign-out isn't offered at sign-in, so the lower screen follows.
   if (section != view.section) SideEffect { view.section = section }
-  val rommSection = rememberRommSection(state, shown = section == SettingsSection.RomM)
-  val emulatorsSection = rememberEmulatorsSection(state)
-  val storageSection = rememberStorageSection(state)
+  val scope = rememberCoroutineScope()
+  var dialog by rememberSaveable(stateSaver = SettingsDialog.saver) { mutableStateOf(null) }
+  val open = { it: SettingsDialog -> dialog = it }
+  val close = { dialog = null }
+  // Asked again after each sync, since the account's permissions can change.
+  val uploadAccess by
+    produceState<UploadAccess?>(null, romm, sync, section) {
+      if (section == SettingsSection.RomM) value = state.romm.uploadAccess()
+    }
   val storageSpaces by
     rememberStorageSpaces(state.downloads, active = section == SettingsSection.Storage)
+  val mounted = storageSpaces.map { it.target }
+  var storageRefused by remember(section) { mutableStateOf(false) }
+  val toggleStorage = { target: StorageTarget ->
+    storageRefused = !state.toggleStorage(target, mounted)
+  }
   // The section's settings, which Right from the list enters at the top.
   val pane = remember { FocusRequester() }
 
@@ -147,10 +171,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               view,
               it,
               selected = it == section,
-              onFocus = {
-                view.section = it
-                storageSection.refused = false
-              },
+              onFocus = { view.section = it },
               // A section without settings to focus, such as About, keeps focus in the list.
               onRight = { pane.requestFocus(FocusDirection.Enter) || true },
             )
@@ -166,11 +187,12 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           ) {
             when (section) {
               SettingsSection.Controls -> controls(state)
-              SettingsSection.RomM -> romm(rommSection)
+              SettingsSection.RomM -> romm(state, romm, sync, uploadAccess, open)
               SettingsSection.RetroAchievements -> retroAchievements(state)
-              SettingsSection.Emulators -> emulators(emulatorsSection)
-              SettingsSection.Storage -> storage(storageSection, storageSpaces)
-              SettingsSection.About -> about(state)
+              SettingsSection.Emulators -> emulators(state, open)
+              SettingsSection.Storage ->
+                storage(state, storageSpaces, storageRefused, toggleStorage, open)
+              SettingsSection.About -> about(state, signedIn)
             }
           }
         }
@@ -185,9 +207,83 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           .filterNotNull(),
       )
     }
-    storageSection.Dialogs(storageSpaces)
-    emulatorsSection.Dialogs()
-    rommSection.Dialogs()
+    when (val shown = dialog) {
+      null -> {}
+      SettingsDialog.SignOut ->
+        SignOutDialog(
+          onSignOut = {
+            close()
+            scope.launch { state.signOut() }
+          },
+          onDismissRequest = close,
+        )
+      SettingsDialog.AllowUploads ->
+        AllowUploadsDialog(
+          UPLOADS_NOT_REQUESTED,
+          onSignInAgain = {
+            close()
+            scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+          },
+          onDismissRequest = close,
+        )
+      SettingsDialog.CloseEmulators ->
+        CloseEmulatorsDialog(
+          onTurnOn = {
+            state.settings = state.settings.copy(closeEmulators = true)
+            close()
+          },
+          onDismissRequest = close,
+        )
+      // A restored menu shows once its storage is measured.
+      is SettingsDialog.StorageMenu ->
+        mounted
+          .find { it.id == shown.id }
+          ?.let { target ->
+            StorageMenu(
+              target,
+              state.settings.storage,
+              mounted,
+              onMove = { state.settings = state.settings.copy(storage = it) },
+              onToggle = { toggleStorage(target) },
+              onDismissRequest = close,
+            )
+          }
+    }
+  }
+}
+
+/** The dialog open over Settings. */
+internal sealed interface SettingsDialog {
+  data object SignOut : SettingsDialog
+
+  data object AllowUploads : SettingsDialog
+
+  data object CloseEmulators : SettingsDialog
+
+  /** The menu on the storage with [id]. */
+  data class StorageMenu(val id: String) : SettingsDialog
+
+  companion object {
+    val saver =
+      Saver<SettingsDialog?, String>(
+        save = {
+          when (it) {
+            null -> null
+            SignOut -> "signOut"
+            AllowUploads -> "allowUploads"
+            CloseEmulators -> "closeEmulators"
+            is StorageMenu -> "storage:${it.id}"
+          }
+        },
+        restore = {
+          when (it) {
+            "signOut" -> SignOut
+            "allowUploads" -> AllowUploads
+            "closeEmulators" -> CloseEmulators
+            else -> StorageMenu(it.removePrefix("storage:"))
+          }
+        },
+      )
   }
 }
 

@@ -379,8 +379,9 @@ class SettingsTest {
     awaitTag("settings:storage:primary")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitTag("settings:storage:refused")
-    press(Key.DirectionLeft)
+    press(listOf(Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown))
     awaitFocused("settings:Storage")
+    awaitTag("settings:storage:primary")
     onNodeWithTag("settings:storage:refused").assertDoesNotExist()
   }
 

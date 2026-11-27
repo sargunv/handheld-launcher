@@ -4,7 +4,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Screen
 
-internal fun LazyListScope.about(state: AppState) {
+internal fun LazyListScope.about(state: AppState, signedIn: Boolean) {
   sectionHeading("About")
   item(key = "about") {
     SettingRow(
@@ -14,7 +14,7 @@ internal fun LazyListScope.about(state: AppState) {
       state.appInfo.version,
       "The app's version, licence and source, and its components' licences.",
       // About opens over the places, which the sign-in doesn't have.
-      enabled = state.account.signedIn == true,
+      enabled = signedIn,
       onConfirm = { state.navigator.push(Screen.About) },
     )
   }
