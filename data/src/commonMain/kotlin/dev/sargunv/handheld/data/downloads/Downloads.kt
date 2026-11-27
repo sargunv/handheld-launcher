@@ -57,7 +57,7 @@ data class Download(
   /** The size of the game on the server. */
   val sizeBytes: Long,
   val state: DownloadState = DownloadState.Queued,
-  /** Why the download failed, when it did. */
+  /** Why the download failed, when it did and the error says. */
   val error: String? = null,
   /** The root of the storage the game goes to, picked when the download first starts. */
   val storageRoot: String? = null,
@@ -399,7 +399,7 @@ class DownloadManager(
 
   /** Marks [download] failed for [e], and tells its server, if the server asked for the game. */
   private suspend fun fail(download: Download, signedIn: RommCredentials, e: Exception) {
-    val error = e.message ?: "The download failed"
+    val error = e.message
     edit { list ->
       list.map {
         if (it.romId == download.romId) it.copy(state = DownloadState.Failed, error = error) else it

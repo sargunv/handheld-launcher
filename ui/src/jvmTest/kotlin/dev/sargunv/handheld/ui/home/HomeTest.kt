@@ -496,7 +496,9 @@ class HomeTest {
   fun saysSoWhenTheFirstSyncFails() = runComposeUiTest {
     launch(fail = true)
     waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasText("Offline")).fetchSemanticsNodes().isNotEmpty()
+      onAllNodes(hasText("Offline") and !hasTestTag("sync:status"))
+        .fetchSemanticsNodes()
+        .isNotEmpty()
     }
   }
 

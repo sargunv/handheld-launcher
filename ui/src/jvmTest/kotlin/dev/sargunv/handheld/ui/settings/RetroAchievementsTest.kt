@@ -18,7 +18,6 @@ import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.awaitFocused
-import dev.sargunv.handheld.ui.awaitTag
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.places.OpenRequest
@@ -77,20 +76,11 @@ class RetroAchievementsTest {
     press(Key.ButtonA)
   }
 
-  /**
-   * Opens the section again after the focused row went away with a sign-in or sign-out, since focus
-   * then returns to the first section.
-   */
-  private fun ComposeUiTest.reopen(tag: String) {
-    onNodeWithTag("settings:RetroAchievements").performSemanticsAction(SemanticsActions.OnClick)
-    awaitTag(tag)
-  }
-
   @Test
   fun signsInAndKeepsOnlyTheToken() = runComposeUiTest {
     launch(accepts = true)
     signIn("player", "hunter2")
-    reopen("settings:ra:account")
+    awaitFocused("settings:ra:account")
     onNodeWithTag("settings:ra:account").assertTextEquals("Account", "Player")
     assertEquals(RetroAchievementsAccount("Player", "ra_token"), runBlocking { store.load() })
 
@@ -101,7 +91,7 @@ class RetroAchievementsTest {
     assertEquals(AchievementSettings(hardcore = true), saved.last().achievements)
 
     onNodeWithTag("settings:ra:signOut").performSemanticsAction(SemanticsActions.OnClick)
-    reopen("settings:ra:username")
+    awaitFocused("settings:ra:username")
     assertNull(runBlocking { store.load() })
     // The password isn't kept, even in its field.
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")

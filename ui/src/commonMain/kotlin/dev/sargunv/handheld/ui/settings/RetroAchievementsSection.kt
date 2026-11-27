@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.settings
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -13,6 +14,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
+import dev.sargunv.handheld.ui.focus.LocalFocusScope
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.signin.Help
 import dev.sargunv.handheld.ui.signin.TextEntry
@@ -49,13 +52,20 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
     }
     item(key = "signOut") {
       val scope = rememberCoroutineScope()
+      val focus = LocalFocusScope.current
       SettingRow(
         view,
         "settings:ra:signOut",
         "Sign out",
         null,
         Help("Sign out", "Signs this device out of RetroAchievements."),
-        onConfirm = { scope.launch { account.signOut() } },
+        onConfirm = {
+          scope.launch {
+            account.signOut()
+            // The signed-out rows replace this one.
+            focus?.focus("settings:ra:username")
+          }
+        },
       )
     }
     return
@@ -79,7 +89,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
     )
   }
   item(key = "password") {
-    val scope = rememberCoroutineScope()
+    val submit = rememberSubmit(account)
     val help = Help("Password", "Goes only to RetroAchievements. The device keeps a token instead.")
     TextEntry(
       key = "settings:ra:password",
@@ -92,14 +102,13 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
           keyboardType = KeyboardType.Password,
           imeAction = ImeAction.Done,
         ),
-      onSubmit = { scope.launch { account.submit() } },
+      onSubmit = submit,
       modifier = Modifier.fillMaxWidth(),
       secure = true,
       onFocused = { view.help = help },
     )
   }
   item(key = "signIn") {
-    val scope = rememberCoroutineScope()
     SettingRow(
       view,
       "settings:ra:signIn",
@@ -107,10 +116,10 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       null,
       Help("Sign in", "Earns achievements in games that play in Built-in."),
       enabled = !account.busy,
-      onConfirm = { scope.launch { account.submit() } },
+      onConfirm = rememberSubmit(account),
     )
   }
-  val status = if (account.busy) "Signing in…" else account.error
+  val status = if (account.busy) "Signing in" else account.error
   if (status != null) {
     item(key = "status") {
       Text(
@@ -119,6 +128,19 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
         modifier =
           Modifier.testTag("settings:ra:status").semantics { liveRegion = LiveRegionMode.Polite },
       )
+    }
+  }
+}
+
+/** Signs in with what's in the fields. The signed-in rows replace the focused one. */
+@Composable
+private fun rememberSubmit(account: RetroAchievementsState): () -> Unit {
+  val scope = rememberCoroutineScope()
+  val focus = LocalFocusScope.current
+  return {
+    scope.launch {
+      account.submit()
+      if (account.username != null) focus?.focus("settings:ra:account")
     }
   }
 }
