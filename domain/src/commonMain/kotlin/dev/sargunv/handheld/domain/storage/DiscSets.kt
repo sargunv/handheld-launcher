@@ -7,8 +7,37 @@ package dev.sargunv.handheld.domain.storage
  * [GameLayout.launchFile] opens a downloaded game of several files.
  */
 object DiscSets {
-  /** Whether a file named [fileName] is a sheet: a playlist, cue sheet or GDI. */
-  fun isSheet(fileName: String): Boolean = fileName.extension() in Sheets
+  /**
+   * The disc sets among [names], the entries of one folder: each sheet that no other lists, with
+   * the files beside it that it lists and that the sheets among them list in turn, in order.
+   * [readText] reads a sheet, or gives null when it can't, so it heads no set.
+   */
+  fun sets(names: List<String>, readText: (String) -> String?): Map<String, List<String>> {
+    val listed =
+      names
+        .filter(::isSheet)
+        .mapNotNull { sheet ->
+          readText(sheet)?.let { sheet to siblings(listedFiles(sheet, it), names) - sheet }
+        }
+        .toMap()
+    val members = listed.values.flatten().toSet()
+    return (listed.keys - members).associateWith { head ->
+      walk(head, Int.MAX_VALUE) { listed[it].orEmpty() }
+    }
+  }
+
+  /**
+   * The file that holds the header of the game at [path]: [path] itself, or the file a playlist
+   * names first, a cue sheet's first data track's, or a GDI's high-density data track's. [readText]
+   * reads a sheet, or gives null when it can't. Null when one can't be read, names no such file, or
+   * nests more than three deep.
+   */
+  fun headerFile(path: String, readText: (String) -> String?): String? {
+    val file =
+      walk(path, 3) { sheet -> listOfNotNull(readText(sheet)?.let { headerNamed(sheet, it) }) }
+        .lastOrNull() ?: path
+    return file.takeUnless(::isSheet)
+  }
 
   /**
    * The text of a sheet [size] bytes long, which [read] reads: UTF-8, else Latin-1, as cue sheets
@@ -23,61 +52,6 @@ object DiscSets {
     return CharArray(bytes.size) { (bytes[it].toInt() and 0xff).toChar() }.concatToString()
   }
 
-  /**
-   * The files the sheet named [fileName], whose content is [text], lists, as it names them: a
-   * playlist's discs, a cue sheet's `FILE`s, or a GDI's tracks, in order. Null when [fileName]
-   * isn't a sheet.
-   */
-  fun listedFiles(fileName: String, text: String): List<String>? {
-    val lines = lines(text)
-    return when (fileName.extension()) {
-      "m3u" -> lines.filterNot { it.startsWith('#') }
-      "cue" -> lines.mapNotNull { line -> cueArgs(line, "FILE")?.let(::cueFile) }
-      "gdi" -> gdiTracks(lines).map { it.file }
-      else -> null
-    }
-  }
-
-  /**
-   * The file that holds the header of the game at [path]: [path] itself, or the file a playlist
-   * names first, a cue sheet's first data track's, or a GDI's high-density data track's. [readText]
-   * reads a sheet, or gives null when it can't. Null when one can't be read, names no such file, or
-   * nests more than three deep, so one that names itself ends.
-   */
-  fun headerFile(path: String, readText: (String) -> String?): String? {
-    var file = path
-    repeat(3) {
-      if (!isSheet(file)) return file
-      val lines = lines(readText(file) ?: return null)
-      val named =
-        when (file.extension()) {
-          "m3u" -> lines.firstOrNull { !it.startsWith('#') }
-          "cue" -> cueDataFile(lines)
-          else -> gdiDataFile(lines)
-        } ?: return null
-      val folder = file.substringBeforeLast('/', "")
-      file =
-        named.replace('\\', '/').let {
-          if (folder.isEmpty() || it.startsWith('/')) it else "$folder/$it"
-        }
-    }
-    return file.takeUnless { isSheet(it) }
-  }
-
-  /**
-   * Of the [names] of the entries in one folder, the ones that [listed], as a sheet there lists
-   * them, names. A listed file in another folder names none of them. Names compare without case, as
-   * Android's shared storage and cue sheets made on Windows do.
-   */
-  fun siblings(listed: List<String>, names: Collection<String>): List<String> {
-    val byName = names.associateBy { it.lowercase() }
-    return listed
-      .map { it.replace('\\', '/') }
-      .filterNot { '/' in it.removePrefix("./") }
-      .mapNotNull { byName[it.removePrefix("./").lowercase()] }
-      .distinct()
-  }
-
   /** Whether a file named [fileName] is a playlist. */
   internal fun isPlaylist(fileName: String): Boolean = fileName.extension() == "m3u"
 
@@ -86,6 +60,66 @@ object DiscSets {
     files
       .filter { it.extension() in Descriptors }
       .ifEmpty { files.filter { it.extension() in Images } }
+
+  /**
+   * The files reached from [start] through the sheets it nests, depth first, each once and without
+   * [start]: [next] gives the files a sheet leads to, and the walk reads sheets at most [depth]
+   * deep.
+   */
+  private fun walk(start: String, depth: Int, next: (String) -> List<String>): List<String> {
+    val seen = mutableSetOf(start)
+    fun from(file: String, depth: Int): List<String> =
+      if (depth == 0 || !isSheet(file)) emptyList()
+      else
+        next(file).flatMap { if (seen.add(it)) listOf(it) + from(it, depth - 1) else emptyList() }
+    return from(start, depth)
+  }
+
+  /** Whether a file named [fileName] is a sheet: a playlist, cue sheet or GDI. */
+  private fun isSheet(fileName: String): Boolean = fileName.extension() in Sheets
+
+  /**
+   * The files the sheet named [fileName], whose content is [text], lists, as it names them: a
+   * playlist's discs, a cue sheet's `FILE`s, or a GDI's tracks, in order.
+   */
+  private fun listedFiles(fileName: String, text: String): List<String> {
+    val lines = lines(text)
+    return when (fileName.extension()) {
+      "m3u" -> lines.filterNot { it.startsWith('#') }
+      "cue" -> lines.mapNotNull { line -> cueArgs(line, "FILE")?.let(::cueFile) }
+      else -> gdiTracks(lines).map { it.file }
+    }
+  }
+
+  /**
+   * Of the [names] of the entries in one folder, the ones that [listed], as a sheet there lists
+   * them, names. A listed file in another folder names none of them. Names compare without case, as
+   * Android's shared storage and cue sheets made on Windows do.
+   */
+  private fun siblings(listed: List<String>, names: List<String>): List<String> {
+    val byName = names.associateBy { it.lowercase() }
+    return listed
+      .map { it.replace('\\', '/') }
+      .filterNot { '/' in it.removePrefix("./") }
+      .mapNotNull { byName[it.removePrefix("./").lowercase()] }
+      .distinct()
+  }
+
+  /**
+   * The file the sheet at [path], whose content is [text], names for the header, as a path beside
+   * the sheet unless it names a whole one.
+   */
+  private fun headerNamed(path: String, text: String): String? {
+    val lines = lines(text)
+    val named =
+      when (path.extension()) {
+        "m3u" -> lines.firstOrNull { !it.startsWith('#') }
+        "cue" -> cueDataFile(lines)
+        else -> gdiDataFile(lines)
+      }?.replace('\\', '/') ?: return null
+    val folder = path.substringBeforeLast('/', "")
+    return if (folder.isEmpty() || named.startsWith('/')) named else "$folder/$named"
+  }
 
   /** A sheet's lines, trimmed, without its byte order mark or blank lines. */
   private fun lines(text: String): List<String> =

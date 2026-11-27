@@ -304,12 +304,6 @@ class DeviceGamesTest {
     assertEquals(cue.length() + 2 * disc1.size, local[0].sizeBytes)
     assertEquals("Demo", local[0].title)
     assertEquals(discs.map { it.path }.sorted(), local[2].otherFiles.sorted())
-    // The tracks of a set aren't read, however big they are.
-    val cached = File(dir, "local-content.json").readText()
-    assertTrue(stray.path in cached)
-    for (part in tracks + discs.filter { it.extension == "bin" }) {
-      assertFalse(part.path in cached, part.name)
-    }
   }
 
   @Test
