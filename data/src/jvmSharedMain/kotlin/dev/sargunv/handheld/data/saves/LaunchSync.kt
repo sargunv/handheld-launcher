@@ -64,7 +64,8 @@ suspend fun SaveSync.beforeLaunch(
   val mayRun = emulator is EmulatorState.MayBeRunning
   // Shared PS2 cards hold every game's saves, so an emulator running any game holds them.
   val holds =
-    emulator is EmulatorState.MayBeRunning && (emulator.holds(game.romId) || game.cards != null)
+    emulator is EmulatorState.MayBeRunning &&
+      (emulator.holds(game.romId) || game.shape is SaveShape.Cards)
 
   // Pulls with [pull], asking first when the emulator holds the game.
   suspend fun guarded(found: SaveSyncResult, pull: suspend () -> BeforeLaunch): BeforeLaunch {

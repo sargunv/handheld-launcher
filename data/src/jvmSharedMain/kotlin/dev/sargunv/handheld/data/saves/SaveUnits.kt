@@ -61,7 +61,11 @@ internal sealed interface SaveUnit {
 }
 
 internal fun GameSave.unit(): SaveUnit =
-  cards?.let(::Ps2CardUnit) ?: folders?.let(::FolderUnit) ?: FileUnit(candidates)
+  when (shape) {
+    is SaveShape.Files -> FileUnit(shape.candidates)
+    is SaveShape.Folders -> FolderUnit(shape.roots)
+    is SaveShape.Cards -> Ps2CardUnit(shape.roots)
+  }
 
 /** A save that's one file. */
 private class FileUnit(private val candidates: List<File>) : SaveUnit {

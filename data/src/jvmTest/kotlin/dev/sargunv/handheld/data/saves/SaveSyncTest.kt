@@ -37,7 +37,7 @@ class SaveSyncTest {
   private val root = Files.createTempDirectory("save-sync-test").toFile()
   private val saves = File(root, "emulator/saves").apply { mkdirs() }
   private val saveFile = File(saves, "Pokemon Black.sav")
-  private val game = GameSave(romId = 7, emulator = "melonds", candidates = listOf(saveFile))
+  private val game = GameSave(7, "melonds", SaveShape.Files(listOf(saveFile)))
 
   @AfterTest fun deleteRoot() = check(root.deleteRecursively())
 
@@ -380,12 +380,14 @@ class SaveSyncTest {
 
     assertEquals(
       SaveSyncResult.NoFolder(listOf(missing.parent)),
-      sync.sync(game.copy(candidates = listOf(missing))),
+      sync.sync(game.copy(shape = SaveShape.Files(listOf(missing)))),
     )
     assertTrue(!missing.parentFile.exists(), "The emulator's folder isn't made for it")
 
     val pulled =
-      assertIs<SaveSyncResult.Pulled>(sync.sync(game.copy(candidates = listOf(missing, saveFile))))
+      assertIs<SaveSyncResult.Pulled>(
+        sync.sync(game.copy(shape = SaveShape.Files(listOf(missing, saveFile)))),
+      )
     assertEquals(saveFile, pulled.file)
     assertNull(pulled.previous)
     assertContentEquals(v1, saveFile.readBytes())
@@ -795,7 +797,7 @@ class SaveSyncTest {
     )!!
   private val savedata = File(root, "memstick/PSP/SAVEDATA").apply { mkdirs() }
   private val psp =
-    GameSave(7, "ppsspp", emptyList(), folders = SaveFolderRoots(listOf(savedata), ppsspp))
+    GameSave(7, "ppsspp", SaveShape.Folders(SaveFolderRoots(listOf(savedata), ppsspp)))
 
   /** A PSP PARAM.SFO: a save's carries the savedata keys, installed game data's doesn't. */
   private fun sfo(save: Boolean) =
@@ -991,7 +993,7 @@ class SaveSyncTest {
       assertNotNull(SaveLocations.forEmulator(EmulatorId("azahar"), PlatformCatalog.N3DS))
     val sdmc = File(root, "azahar/sdmc/Nintendo 3DS").apply { mkdirs() }
     val save = SaveFolders.forGame(location, PlatformCatalog.N3DS, "0004000000033500")!!
-    val game = GameSave(7, "azahar", emptyList(), folders = SaveFolderRoots(listOf(sdmc), save))
+    val game = GameSave(7, "azahar", SaveShape.Folders(SaveFolderRoots(listOf(sdmc), save)))
     val server = FakeRomm()
     server.push(
       "0004000000033500.zip",
@@ -1024,7 +1026,7 @@ class SaveSyncTest {
     nand.put("$profile/0100000000010000/main", "another game")
     nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
     val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
-    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val game = GameSave(7, "eden", SaveShape.Folders(SaveFolderRoots(listOf(nand), save)))
     val server = FakeRomm()
     val sync = sync(server)
 
@@ -1055,7 +1057,7 @@ class SaveSyncTest {
     nand.put("0000000000000000/125D2DBAEBDEB11000296E1E1ECBF401/$title/main", "account save")
     nand.put("0000000000000000/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/$title/.yuzu_save_size", "size")
     val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
-    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val game = GameSave(7, "eden", SaveShape.Folders(SaveFolderRoots(listOf(nand), save)))
     val server = FakeRomm()
 
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
@@ -1073,7 +1075,7 @@ class SaveSyncTest {
     val title = "0100ABCD12345000"
     nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
     val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
-    val game = GameSave(7, "eden", emptyList(), folders = SaveFolderRoots(listOf(nand), save))
+    val game = GameSave(7, "eden", SaveShape.Folders(SaveFolderRoots(listOf(nand), save)))
     val server = FakeRomm()
 
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
@@ -1091,7 +1093,7 @@ class SaveSyncTest {
     gc.put("USA/Card A/01-GZLE-gczelda.gci", "zelda")
     gc.put("USA/Card A/8P-GSNE-sonic.gci", "sonic")
     val save = SaveFolders.forGame(location, PlatformCatalog.GAMECUBE, "GZLE")!!
-    val game = GameSave(7, "dolphin", emptyList(), folders = SaveFolderRoots(listOf(gc), save))
+    val game = GameSave(7, "dolphin", SaveShape.Folders(SaveFolderRoots(listOf(gc), save)))
     val server = FakeRomm()
 
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
@@ -1104,8 +1106,7 @@ class SaveSyncTest {
   fun beforeLaunchAsksBeforePullingToCardsTheEmulatorHoldsForAnotherGame() = runTest {
     val server = FakeRomm()
     val cards = File(root, "armsx2/memcards").apply { mkdirs() }
-    val ps2 =
-      GameSave(7, "armsx2", emptyList(), cards = Ps2CardRoots(listOf(cards), JAK, "Jak.ps2"))
+    val ps2 = GameSave(7, "armsx2", SaveShape.Cards(Ps2CardRoots(listOf(cards), JAK, "Jak.ps2")))
     server.push(
       "Jak.ps2",
       sigilUnit(JAK),
@@ -1134,8 +1135,7 @@ class SaveSyncTest {
       GameSave(
         7,
         "pocketgoal",
-        emptyList(),
-        cards = Ps2CardRoots(listOf(cards), JAK, "Jak.ps2", folderCards = true),
+        SaveShape.Cards(Ps2CardRoots(listOf(cards), JAK, "Jak.ps2", folderCards = true)),
         sharesWith = setOf("armsx2"),
       )
     val sync = sync(server)
@@ -1160,13 +1160,14 @@ class SaveSyncTest {
     )
     val name = "Ace Combat 04.ps2"
     val here =
-      GameSave(7, "armsx2", emptyList(), cards = Ps2CardRoots(listOf(fileCards), ACE_COMBAT, name))
+      GameSave(7, "armsx2", SaveShape.Cards(Ps2CardRoots(listOf(fileCards), ACE_COMBAT, name)))
     // Another device keeps a folder card, holding other games' saves.
     val folderCards = File(root, "other/memcards").apply { mkdirs() }
     val folderCard = File(folderCards, "Mcd001.ps2")
     val others = folderCardFiles.filterKeys { !it.startsWith("BASLUS-20152") }
     writeTree(folderCard, others)
-    val there = here.copy(cards = Ps2CardRoots(listOf(folderCards), ACE_COMBAT, name))
+    val there =
+      here.copy(shape = SaveShape.Cards(Ps2CardRoots(listOf(folderCards), ACE_COMBAT, name)))
     val thereSync =
       SaveSync(
         server.client,
