@@ -29,6 +29,13 @@ HANDHELD_SESSION_FIXTURES = "{{ get_env(name='XDG_CACHE_HOME', default=env.HOME 
 description = "Run the formatters and linters"
 run = "hk check --all"
 
+[tasks."check:android"]
+description = "Run clippy on the session for Android"
+run = """
+min_sdk="$(sed -n 's/^android-minSdk = "\\(.*\\)"$/\\1/p' gradle/libs.versions.toml)"
+cargo ndk --target arm64-v8a --platform "$min_sdk" clippy -p handheld-session --all-targets -- -D warnings
+"""
+
 [tasks.fix]
 description = "Apply formatter and linter fixes"
 run = "hk fix --all"
@@ -140,8 +147,3 @@ run = "session/fixtures.sh"
 [tasks."session:run"]
 description = "Run a libretro core in the session's desktop development runner"
 run = "cargo run -p handheld-session --features runner --bin session-runner --"
-
-[tasks."session:android-fixtures"]
-description = "Build the session's test cores for an Android ABI (session/README.md)"
-usage = 'arg "[abi]" help="arm64-v8a or x86_64" default="arm64-v8a"'
-run = 'session/android-fixtures.sh "$usage_abi"'
