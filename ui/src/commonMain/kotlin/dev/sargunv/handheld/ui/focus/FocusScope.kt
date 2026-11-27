@@ -172,14 +172,14 @@ internal constructor(
   }
 
   /**
-   * Remembers the item with [key], such as the target of a jump, as the item to restore, and moves
-   * focus to it once it's composed.
+   * Waits until the item with [key], such as the target of a jump, is composed, then moves focus to
+   * it and remembers it as the item to restore.
    */
-  suspend fun focus(key: String): Boolean {
+  suspend fun focus(key: String) {
+    memory.awaitItem(key)
     memory.select(key)
     restorePending = false
-    memory.awaitItem(key)
-    return memory.focusRemembered()
+    memory.focusRemembered()
   }
 }
 
