@@ -7,7 +7,13 @@ import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 import kotlinx.io.files.Path
 
-internal actual fun extractLibrary(zip: Path, target: Path) {
+/**
+ * Extracts the core's library, the zip's one `.so` file, from [zip] into [target], checking each
+ * byte against the zip's checksum.
+ *
+ * @throws CoreDownloadException when the zip is broken or holds no library.
+ */
+internal fun extractLibrary(zip: Path, target: Path) {
   try {
     ZipInputStream(File(zip.toString()).inputStream().buffered()).use { input ->
       while (true) {

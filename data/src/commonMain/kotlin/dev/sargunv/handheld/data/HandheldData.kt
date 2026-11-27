@@ -7,8 +7,8 @@ import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.romm.RommSession
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -31,7 +31,7 @@ class HandheldData(
   scope: CoroutineScope,
   canWrite: Flow<Boolean> = flowOf(true),
   storageSettings: () -> StorageSettings = { StorageSettings() },
-  engine: () -> HttpClientEngine = ::platformHttpEngine,
+  engine: () -> HttpClientEngine = { OkHttp.create() },
 ) {
   val games = DeviceGames(library, storage, scope, Path(dataDir, "local-content.json"))
 
