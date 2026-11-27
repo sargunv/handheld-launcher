@@ -2,6 +2,7 @@ package dev.sargunv.handheld.data.romm
 
 import dev.sargunv.handheld.data.httpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
@@ -61,7 +62,7 @@ import kotlinx.serialization.serializer
 class RommClient(
   baseUrl: String,
   private val token: String? = null,
-  private val engine: HttpClientEngine = platformHttpEngine(),
+  private val engine: HttpClientEngine = OkHttp.create(),
 ) : AutoCloseable {
   /** The server's address, without a trailing slash. */
   val baseUrl: Url = Url(baseUrl.trimEnd('/'))

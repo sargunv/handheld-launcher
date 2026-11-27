@@ -55,7 +55,9 @@ sealed interface SaveShape {
 
 /** What names the sync record and history of the ROM [romId]'s save that [owner] keeps. */
 private fun historyKey(romId: Long, owner: String): String =
-  "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
+  "$romId-${owner.replace(UnsafeKeyChars, "_")}"
+
+private val UnsafeKeyChars = Regex("[^A-Za-z0-9._-]")
 
 /**
  * The save memory at [saveRam] of the ROM [romId], as the built-in session keeps it when the core

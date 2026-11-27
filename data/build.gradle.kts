@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
-
 plugins {
   id("handheld.kmp-library")
   alias(libs.plugins.kotlin.serialization)
@@ -9,16 +7,6 @@ plugins {
 kotlin {
   android { withHostTest {} }
 
-  applyDefaultHierarchyTemplate {
-    common {
-      // Android and the desktop both run on a JVM, so they share its zip support.
-      group("jvmShared") {
-        withJvm()
-        withCompilations { it.target.platformType == KotlinPlatformType.androidJvm }
-      }
-    }
-  }
-
   sourceSets {
     commonMain.dependencies {
       api(project(":domain"))
@@ -27,13 +15,12 @@ kotlin {
       api(libs.ktor.client.core)
       implementation(libs.kermit)
       implementation(libs.ktor.client.encoding)
+      implementation(libs.ktor.client.okhttp)
       implementation(libs.kotlinx.serialization.json)
       implementation(libs.sqldelight.coroutines.extensions)
       implementation(libs.sqldelight.androidx.driver)
       implementation(libs.androidx.sqlite.bundled)
     }
-    androidMain.dependencies { implementation(libs.ktor.client.okhttp) }
-    jvmMain.dependencies { implementation(libs.ktor.client.java) }
     jvmTest.dependencies {
       implementation(libs.kotlin.test)
       implementation(libs.kotlinx.coroutines.test)

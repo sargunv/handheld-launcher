@@ -3,8 +3,8 @@ package dev.sargunv.handheld.data.achievements
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -30,7 +30,7 @@ import kotlinx.serialization.Serializable
  */
 class RetroAchievementsClient(
   private val userAgent: String,
-  private val engine: HttpClientEngine = platformHttpEngine(),
+  private val engine: HttpClientEngine = OkHttp.create(),
 ) : AutoCloseable {
   private val http = httpClient(engine, socketTimeoutMillis = 30_000)
 

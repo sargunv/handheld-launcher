@@ -18,11 +18,8 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.compose.AsyncImage
 import coil3.disk.DiskCache
-import coil3.network.ktor3.KtorNetworkFetcherFactory
 import com.composeunstyled.Text
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.ui.Placeholder
-import io.ktor.client.HttpClient
 import kotlinx.io.files.Path
 import okio.Path.Companion.toPath
 
@@ -72,9 +69,6 @@ internal fun Cover(
  */
 fun coverImageLoader(context: PlatformContext, cacheDir: Path): ImageLoader =
   ImageLoader.Builder(context)
-    .components {
-      add(KtorNetworkFetcherFactory(httpClient = { HttpClient(platformHttpEngine()) }))
-    }
     .diskCache {
       DiskCache.Builder().directory(cacheDir.toString().toPath()).maxSizeBytes(CACHE_SIZE).build()
     }

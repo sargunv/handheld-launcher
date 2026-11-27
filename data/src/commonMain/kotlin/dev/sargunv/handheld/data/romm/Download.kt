@@ -119,15 +119,15 @@ private val log = Logger.withTag("Download")
 
 /** The first byte and the total size in a `Content-Range: bytes first-last/total` header. */
 internal fun parseContentRange(header: String?): Pair<Long, Long?>? {
-  val match = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""").matchEntire(header?.trim() ?: return null)
+  val match = ContentRange.matchEntire(header?.trim() ?: return null)
   val (first, _, total) = match?.destructured ?: return null
   return first.toLong() to total.toLongOrNull()
 }
 
 /** The total size in the `Content-Range` header of a response to an unsatisfiable range. */
 private fun parseUnsatisfiedRangeTotal(header: String?): Long? =
-  Regex("""bytes \*/(\d+)""")
-    .matchEntire(header?.trim() ?: return null)
-    ?.groupValues
-    ?.get(1)
-    ?.toLong()
+  UnsatisfiedContentRange.matchEntire(header?.trim() ?: return null)?.groupValues?.get(1)?.toLong()
+
+private val ContentRange = Regex("""bytes (\d+)-(\d+)/(\d+|\*)""")
+
+private val UnsatisfiedContentRange = Regex("""bytes \*/(\d+)""")

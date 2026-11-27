@@ -6,7 +6,6 @@ import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.UploadScopes
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import io.ktor.client.engine.HttpClientEngine
 
 /** This device, as it introduces itself to a server it pairs with. */
@@ -42,7 +41,7 @@ enum class UploadAccess {
  */
 class RommSignIn(
   private val store: CredentialStore,
-  private val engine: () -> HttpClientEngine = ::platformHttpEngine,
+  private val engine: () -> HttpClientEngine,
 ) {
   /**
    * Signs in by pairing: the server issues a code, [onCode] shows it, and a user approves it on the
