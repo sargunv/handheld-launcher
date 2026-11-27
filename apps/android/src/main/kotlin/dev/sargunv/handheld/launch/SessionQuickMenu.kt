@@ -119,23 +119,38 @@ internal class SessionQuickMenu(
   }
 
   private fun failure(e: SessionException): String =
-    when (e) {
-      is SessionException.StatesUnsupported,
-      is SessionException.StatesNotPersistent -> "Can't save states"
-      is SessionException.Serialize -> "Save state failed"
-      is SessionException.Unserialize -> "Load state failed"
-      is SessionException.Hardcore -> "Hardcore · No loading states"
-      is SessionException.Io -> "State file error · ${e.message}"
-      is SessionException.Stopped -> STOPPED
-      else -> e.message ?: e.toString()
-    }
+    if (e is SessionException.Io) "State file error · ${e.message}" else e.label()
 
   private companion object {
-    const val STOPPED = "Game stopped"
-
     /** How many times its own speed a game runs while fast forward is on. */
     const val FAST_FORWARD_SPEED = 4u
   }
 }
 
 private val log = Logger.withTag("SessionQuickMenu")
+
+private const val STOPPED = "Game stopped"
+
+/** What the player reads when the session fails. */
+internal fun SessionException.label(): String =
+  when (this) {
+    is SessionException.AlreadyActive -> "Another game is running"
+    is SessionException.Core -> "Can't load the core"
+    is SessionException.ContentRequired -> "Core needs a game"
+    is SessionException.ReadContent -> "Can't read the game"
+    is SessionException.LoadGame -> "Core can't load the game"
+    is SessionException.Archive -> "Can't open the zip"
+    is SessionException.NoContentInArchive -> "No game in the zip"
+    is SessionException.ReadSaveRam -> "Can't read the save"
+    is SessionException.Gl -> "Can't set up OpenGL"
+    is SessionException.Vulkan -> "Can't set up Vulkan"
+    is SessionException.NoWindowOutput -> "No window output"
+    is SessionException.UnsupportedWindow -> "Window not supported"
+    is SessionException.Stopped -> STOPPED
+    is SessionException.StatesUnsupported,
+    is SessionException.StatesNotPersistent -> "Can't save states"
+    is SessionException.Serialize -> "Save state failed"
+    is SessionException.Unserialize -> "Load state failed"
+    is SessionException.Hardcore -> "Hardcore · No loading states"
+    is SessionException.Io -> "File error"
+  }

@@ -293,7 +293,7 @@ class SessionActivity : ComponentActivity() {
       null
     } catch (e: SessionException) {
       log.e(e) { "couldn't write the save memory" }
-      e.message ?: e.toString()
+      e.label()
     }
   }
 
@@ -320,7 +320,7 @@ class SessionActivity : ComponentActivity() {
       } catch (e: SessionException) {
         log.e(e) { "can't start the session" }
         ready.cancel()
-        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.message ?: e.toString()))
+        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.label()))
         finish()
         return
       }

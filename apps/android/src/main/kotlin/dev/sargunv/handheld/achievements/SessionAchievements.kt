@@ -40,9 +40,8 @@ private val log = Logger.withTag("SessionAchievements")
 /** What the player reads when the session's achievements fail. */
 internal fun AchievementFailure.message(): String =
   when (this) {
-    AchievementFailure.SignInExpired ->
-      "RetroAchievements sign-in expired · Sign in again in Settings"
-    is AchievementFailure.SignIn -> "RetroAchievements sign-in failed · $detail"
+    AchievementFailure.SignInExpired -> "Sign-in expired · Sign in again in Settings"
+    is AchievementFailure.SignIn -> "Sign-in failed · $detail"
     is AchievementFailure.LoadGame -> "Achievements unavailable · $detail"
   }
 
