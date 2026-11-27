@@ -91,7 +91,7 @@ class HandheldApp : Application() {
     )
 
   /** The mounted shared storage volumes, the device's own first, then any SD card. */
-  private fun storageTargets(): List<StorageTarget> =
+  internal fun storageTargets(): List<StorageTarget> =
     getSystemService(StorageManager::class.java)
       .storageVolumes
       .filter { it.state == Environment.MEDIA_MOUNTED }

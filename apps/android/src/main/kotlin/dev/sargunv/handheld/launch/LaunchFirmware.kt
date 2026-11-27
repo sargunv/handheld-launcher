@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.launch
 
 import android.content.Context
-import android.os.Environment
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.firmware.FirmwareInstall
 import dev.sargunv.handheld.data.firmware.FirmwareInstaller
@@ -10,6 +9,7 @@ import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.saves.BiosKnowledge
+import dev.sargunv.handheld.handheldApp
 import java.io.File
 
 /**
@@ -29,7 +29,7 @@ suspend fun installFirmwareFor(
   val emulator = target.emulator ?: return null
   val location = BiosKnowledge.locationFor(emulator.id, platform) ?: return null
   val signedIn = credentials.load() ?: return null
-  val storage = Environment.getExternalStorageDirectory().path
+  val storage = context.handheldApp.storageTargets().firstOrNull()?.root ?: return null
   return RommClient(signedIn.baseUrl, signedIn.token).use { client ->
     FirmwareInstaller(client, File(context.cacheDir, "firmware"))
       .install(platform, location, location.folders(storage, target.packageName))
