@@ -72,7 +72,9 @@ fun gameSaveFor(
     if (kind == GameIdKind.Switch) {
       GameIds.switchTitle(File(romPath), switchKeys(storage, target.packageName))
     } else {
-      SessionRomHeaders.headerPlatform(platform)?.let { romGameId(it, romPath) }
+      val header = SessionRomHeaders.headerPlatform(platform)
+      val file = SessionRomHeaders.headerFile(romPath)
+      if (header != null && file != null) romGameId(header, file) else null
     } ?: return SaveLookup.NoGameId
   val saveRoots = SaveFiles.folders(location.paths, roots).map(::File)
   val layout = location.layout
