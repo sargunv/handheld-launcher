@@ -18,7 +18,6 @@ import io.ktor.http.parameters
 import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 
 /**
  * A client for RetroAchievements' API, which the app reaches directly, not through RomM: it signs
@@ -65,8 +64,6 @@ class RetroAchievementsClient(
     val response =
       try {
         LenientJson.decodeFromString(LoginResponse.serializer(), text)
-      } catch (e: SerializationException) {
-        throw RetroAchievementsException("Unreadable response", e)
       } catch (e: IllegalArgumentException) {
         throw RetroAchievementsException("Unreadable response", e)
       }
