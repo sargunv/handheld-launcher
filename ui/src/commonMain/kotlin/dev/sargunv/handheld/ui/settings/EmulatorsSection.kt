@@ -63,7 +63,7 @@ internal fun LazyListScope.emulators(
       "settings:emulators:${platform.slug}",
       platform.name,
       platformOpensIn(slug, state.settings.launch, apps) ?: "No app installed",
-      "The app its games open in, unless a game or a collection chooses another.",
+      "The app its games open in, unless a game or a collection chooses another",
     ) {
       state.navigator.push(Screen.OpenWith(OpenWithScope.Platform(slug), platform.name))
     }

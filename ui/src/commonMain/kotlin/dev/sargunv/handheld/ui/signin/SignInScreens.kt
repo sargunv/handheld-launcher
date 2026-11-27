@@ -227,7 +227,7 @@ private fun AddressScreen(state: SignInState) {
       "allowUploads",
       "Allow uploading games to your server",
       checked = state.allowUploads,
-      "Lets this device upload games that aren't on your server.",
+      "Lets this device upload games that aren't on your server",
     ) {
       state.allowUploads = !state.allowUploads
     }
@@ -346,7 +346,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
         modifier = Modifier.weight(1f),
         placeholder = "API token",
         label = "API token",
-        help = "A client API token from RomM, for $baseUrl.",
+        help = "A client API token from RomM, for $baseUrl",
         secure = true,
         keyboardOptions =
           KeyboardOptions(

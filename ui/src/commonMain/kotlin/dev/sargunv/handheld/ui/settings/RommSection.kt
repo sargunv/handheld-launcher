@@ -32,7 +32,7 @@ internal fun LazyListScope.romm(
       "settings:romm:server",
       "Server",
       credentials.baseUrl,
-      "The RomM server this device's library comes from.",
+      "The RomM server this device's library comes from",
     )
   }
   item(key = "account") {
@@ -41,7 +41,7 @@ internal fun LazyListScope.romm(
       "settings:romm:account",
       "Account",
       credentials.username,
-      "The RomM user this device signed in as.",
+      "The RomM user this device signed in as",
     )
   }
   item(key = "library") {
@@ -50,7 +50,7 @@ internal fun LazyListScope.romm(
       "settings:romm:sync",
       "Library",
       sync.label,
-      "How the latest sync of the library with the server went.",
+      "How the latest sync of the library with the server went",
     )
   }
   if (sync == SyncStatus.Unauthorized) {
@@ -82,7 +82,7 @@ internal fun LazyListScope.romm(
         "settings:romm:allowUploads",
         "Allow uploads",
         null,
-        "Signs in again, asking for permission to upload games.",
+        "Signs in again, asking for permission to upload games",
         onConfirm = { open(SettingsDialog.AllowUploads) },
       )
     }
@@ -123,11 +123,11 @@ private fun uploadsSummary(access: UploadAccess?): String =
 
 private fun uploadsHelp(access: UploadAccess?): String =
   when (access) {
-    null -> "Whether this device may upload games that aren't on your server."
+    null -> "Whether this device may upload games that aren't on your server"
     UploadAccess.Allowed -> "Uploads games that aren't on your server"
     UploadAccess.NotRequested -> UPLOADS_NOT_REQUESTED
     UploadAccess.AccountMayNot -> UPLOADS_NOT_FOR_ACCOUNT
-    UploadAccess.Unknown -> "RomM doesn't say whether an API token may upload games."
+    UploadAccess.Unknown -> "RomM doesn't say whether an API token may upload games"
   }
 
 /** What signing out or in again leaves alone. */
