@@ -17,38 +17,38 @@ import kotlinx.coroutines.withContext
  */
 object SessionRomHeaders : RomHeaders {
   override suspend fun read(rom: Rom, path: String): List<RomHeaderField> {
-    val platform = headerPlatform(PlatformSlug(rom.platformSlug)) ?: return emptyList()
+    val platform = PlatformSlug(rom.platformSlug).headerPlatform() ?: return emptyList()
     return withContext(Dispatchers.IO) {
       val file = launchFile(path)?.let(::headerFile) ?: return@withContext emptyList()
       romHeaderFields(platform, file).map { RomHeaderField(it.label, it.value) }
     }
   }
-
-  /** The header the games of [slug] carry, or null when the session reads none for it. */
-  internal fun headerPlatform(slug: PlatformSlug): Platform? =
-    when (PlatformCatalog.emulatedAs(slug)) {
-      PlatformCatalog.NES -> Platform.NES
-      PlatformCatalog.SNES -> Platform.SNES
-      PlatformCatalog.N64 -> Platform.N64
-      PlatformCatalog.GB,
-      PlatformCatalog.GBC -> Platform.GAME_BOY
-      PlatformCatalog.GBA -> Platform.GAME_BOY_ADVANCE
-      PlatformCatalog.NDS -> Platform.NINTENDO_DS
-      PlatformCatalog.N3DS -> Platform.NINTENDO3DS
-      PlatformCatalog.GAMECUBE,
-      PlatformCatalog.WII -> Platform.GAME_CUBE
-      PlatformCatalog.MASTER_SYSTEM,
-      PlatformCatalog.GAME_GEAR -> Platform.MASTER_SYSTEM
-      PlatformCatalog.GENESIS,
-      PlatformCatalog.SEGA_32X -> Platform.MEGA_DRIVE
-      PlatformCatalog.SEGA_CD -> Platform.MEGA_CD
-      PlatformCatalog.SATURN -> Platform.SATURN
-      PlatformCatalog.DREAMCAST -> Platform.DREAMCAST
-      PlatformCatalog.PSX -> Platform.PLAY_STATION
-      PlatformCatalog.PS2 -> Platform.PLAY_STATION2
-      PlatformCatalog.PSP -> Platform.PSP
-      PlatformCatalog.XBOX -> Platform.XBOX
-      PlatformCatalog.SWITCH -> Platform.SWITCH
-      else -> null
-    }
 }
+
+/** The header this platform's games carry, or null when the session reads none for it. */
+internal fun PlatformSlug.headerPlatform(): Platform? =
+  when (PlatformCatalog.emulatedAs(this)) {
+    PlatformCatalog.NES -> Platform.NES
+    PlatformCatalog.SNES -> Platform.SNES
+    PlatformCatalog.N64 -> Platform.N64
+    PlatformCatalog.GB,
+    PlatformCatalog.GBC -> Platform.GAME_BOY
+    PlatformCatalog.GBA -> Platform.GAME_BOY_ADVANCE
+    PlatformCatalog.NDS -> Platform.NINTENDO_DS
+    PlatformCatalog.N3DS -> Platform.NINTENDO3DS
+    PlatformCatalog.GAMECUBE,
+    PlatformCatalog.WII -> Platform.GAME_CUBE
+    PlatformCatalog.MASTER_SYSTEM,
+    PlatformCatalog.GAME_GEAR -> Platform.MASTER_SYSTEM
+    PlatformCatalog.GENESIS,
+    PlatformCatalog.SEGA_32X -> Platform.MEGA_DRIVE
+    PlatformCatalog.SEGA_CD -> Platform.MEGA_CD
+    PlatformCatalog.SATURN -> Platform.SATURN
+    PlatformCatalog.DREAMCAST -> Platform.DREAMCAST
+    PlatformCatalog.PSX -> Platform.PLAY_STATION
+    PlatformCatalog.PS2 -> Platform.PLAY_STATION2
+    PlatformCatalog.PSP -> Platform.PSP
+    PlatformCatalog.XBOX -> Platform.XBOX
+    PlatformCatalog.SWITCH -> Platform.SWITCH
+    else -> null
+  }
