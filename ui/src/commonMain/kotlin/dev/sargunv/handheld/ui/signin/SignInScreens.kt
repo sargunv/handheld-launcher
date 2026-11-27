@@ -168,8 +168,7 @@ private fun AddressScreen(state: SignInState) {
       checked = state.allowUploads,
       Help(
         "Allow uploading games",
-        "Lets this device send games that aren't on your server to it, from the game's page. " +
-          "RomM asks you to approve it with the code. You can allow it later by signing in again.",
+        "Lets this device upload games that aren't on your server.",
       ),
     ) {
       state.allowUploads = !state.allowUploads

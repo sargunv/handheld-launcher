@@ -246,7 +246,7 @@ class LocalGameTest {
     onNodeWithTag("menu:cancel").assertDoesNotExist()
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Open Homebrew with")
-    awaitText("keeps this choice for its file")
+    awaitText("Kept for this file")
   }
 
   // An upload sends one file, so a disc set, whose other files would stay behind, has none.
@@ -404,8 +404,7 @@ class LocalGameTest {
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     // It asks before anything goes to the server.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText("This device signed in without permission to upload games to your server.")
-      .assertExists()
+    onNodeWithText("This sign-in doesn't allow uploads.").assertExists()
     onNodeWithTag("upload:confirm").assertDoesNotExist()
     assertFocused("allowUploads:cancel")
     press(listOf(Key.DirectionRight, Key.ButtonA))
@@ -427,7 +426,7 @@ class LocalGameTest {
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
-    awaitText("Your RomM account may not upload games. An admin can allow it in RomM.")
+    awaitText("Your RomM account can't upload games.")
     onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
     onNodeWithTag("upload:confirm").assertDoesNotExist()
     assertEquals(emptyList(), uploadRequests.toList())

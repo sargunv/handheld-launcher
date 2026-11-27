@@ -106,7 +106,6 @@ private fun PlatformRows(state: AppState) {
     for (platform in loaded) {
       val slug = PlatformSlug(platform.slug)
       val opensIn = platformOpensIn(slug, state.settings.launch, installed)
-      val chosen = state.settings.launch.platforms.containsKey(platform.slug)
       SettingRow(
         state.settingsView,
         "settings:emulators:${platform.slug}",
@@ -114,10 +113,7 @@ private fun PlatformRows(state: AppState) {
         opensIn ?: "No app installed",
         Help(
           platform.name,
-          (opensIn?.let { "Its games open in $it" } ?: "No app on this device can open its games") +
-            (if (chosen) ", which you chose." else ", by default.") +
-            " Choose another app for all its games. A game's or collection's own choice still " +
-            "comes first.",
+          "The app its games open in, unless a game or a collection chooses another.",
         ),
       ) {
         state.navigator.push(Screen.OpenWith(OpenWithScope.Platform(slug), platform.name))
@@ -136,7 +132,7 @@ internal fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> 
     onConfirm = onTurnOn,
     onDismissRequest = onDismissRequest,
     fact =
-      "Closing skips the emulator's own exit, so progress since its last in-game save can be " +
-        "lost. When you can, quit from the emulator's own menu instead.",
+      "Uses the device's root service. Closing skips the emulator's own exit, so unsaved " +
+        "progress can be lost.",
   )
 }

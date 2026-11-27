@@ -155,8 +155,7 @@ internal fun LazyListScope.romm(section: RommSection) {
   if (state.sync == SyncStatus.Unauthorized) {
     item(key = "refused") {
       Text(
-        "RomM refused this device's sign-in, so the library can't sync. It may have been signed " +
-          "out on the server, or its token may have expired. Sign in again to sync.",
+        "RomM refused this device's sign-in, so the library can't sync.",
         color = Placeholder.text,
         modifier =
           Modifier.testTag("settings:romm:refused").semantics {
@@ -170,11 +169,7 @@ internal fun LazyListScope.romm(section: RommSection) {
         "settings:romm:signInAgain",
         "Sign in again",
         null,
-        Help(
-          "Sign in again",
-          "Goes to the sign-in, with this server filled in. Your games and saves stay on this " +
-            "device.",
-        ),
+        Help("Sign in again", "Your games and saves stay on this device."),
         onConfirm = section::signInAgain,
       )
     }
@@ -196,11 +191,7 @@ internal fun LazyListScope.romm(section: RommSection) {
         "settings:romm:allowUploads",
         "Allow uploads",
         null,
-        Help(
-          "Allow uploads",
-          "Signs in again to this server, asking for permission to upload games. Your games, " +
-            "saves and settings stay on this device.",
-        ),
+        Help("Allow uploads", "Signs in again, asking for permission to upload games."),
         onConfirm = { section.confirmAllowUploads = true },
       )
     }
@@ -223,10 +214,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:signOut",
       "Sign out",
       null,
-      Help(
-        "Sign out",
-        "Signs this device out of the server. Your downloaded games and saves stay on this device.",
-      ),
+      Help("Sign out", "Your downloaded games and saves stay on this device."),
       onConfirm = { section.confirmSignOut = true },
     )
   }
@@ -247,11 +235,9 @@ private fun uploadsHelp(access: UploadAccess?): String =
     null -> "Whether this device may upload games that aren't on your server."
     UploadAccess.Allowed ->
       "This device may upload games that aren't on your server, from the game's page."
-    UploadAccess.NotRequested -> "$UPLOADS_NOT_REQUESTED Allow uploads to sign in again with it."
+    UploadAccess.NotRequested -> UPLOADS_NOT_REQUESTED
     UploadAccess.AccountMayNot -> UPLOADS_NOT_FOR_ACCOUNT
-    UploadAccess.Unknown ->
-      "This device signed in with an API token, and RomM doesn't say whether it may upload " +
-        "games. If it may not, an upload says so."
+    UploadAccess.Unknown -> "RomM doesn't say whether an API token may upload games."
   }
 
 /** What the RomM section says about the latest sync. */
@@ -274,7 +260,6 @@ internal fun SignOutDialog(onSignOut: () -> Unit, onDismissRequest: () -> Unit) 
     "Sign out",
     onConfirm = onSignOut,
     onDismissRequest = onDismissRequest,
-    fact =
-      "Your downloaded games and saves stay on this device. Saves sync again once you sign in.",
+    fact = "Your downloaded games and saves stay on this device.",
   )
 }

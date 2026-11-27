@@ -299,7 +299,7 @@ class SettingsTest {
 
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
-    awaitText("Clearing it opens them in Built-in · Gambatte.")
+    awaitText("If cleared: Built-in · Gambatte")
     awaitFocusedApp()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")

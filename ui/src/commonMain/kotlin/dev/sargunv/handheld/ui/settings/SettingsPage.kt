@@ -65,7 +65,7 @@ enum class SettingsSection(val title: String, internal val description: String) 
     "Storage",
     "Where new games download to, in what order, and the room each place has left.",
   ),
-  About("About", "The version, the license and source, and the third-party components' licenses.");
+  About("About", "The version, the licence and source, and the third-party components' licences.");
 
   /** The section's item in the list, and its test tag. */
   internal val key: String

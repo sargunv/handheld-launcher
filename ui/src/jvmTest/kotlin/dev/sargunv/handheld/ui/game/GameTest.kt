@@ -333,7 +333,7 @@ class GameTest {
     awaitText("Why it opens in Notes")
     onNodeWithText("→ Platform Game Boy: Built-in (default) · overridden").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Notes")
-    onNodeWithText("Clearing it opens it in Built-in · Gambatte.").assertExists()
+    onNodeWithText("If cleared: Built-in · Gambatte").assertExists()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)

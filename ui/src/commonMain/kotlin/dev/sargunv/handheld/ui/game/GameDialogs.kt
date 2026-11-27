@@ -64,10 +64,8 @@ internal fun RemoveDialog(game: LibraryGame, onDismissRequest: () -> Unit, onRem
     onDismissRequest = onDismissRequest,
     fact =
       when (game) {
-        is Rom -> "Its saves stay, here and on RomM, and you can download it again."
-        is LocalGame ->
-          "It isn't on your server, so you can't download it again. Its saves stay on " +
-            "this device."
+        is Rom -> "Its saves stay here and on RomM."
+        is LocalGame -> "It isn't on your server, so you can't download it again."
       },
   )
 }
@@ -81,10 +79,7 @@ internal fun UploadDialog(game: LocalGame, onDismissRequest: () -> Unit, onUploa
     "Upload",
     onConfirm = onUpload,
     onDismissRequest = onDismissRequest,
-    fact =
-      "It goes into its platform's folder on your server as ${game.fileName} " +
-        "(${formatSize(game.sizeBytes)}). Once RomM has it in your library, its saves " +
-        "sync like any game's.",
+    fact = "${game.fileName} · ${formatSize(game.sizeBytes)}",
   )
 }
 
@@ -111,9 +106,7 @@ internal fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit)
     "Leave",
     onConfirm = onLeave,
     onDismissRequest = onStay,
-    fact =
-      "A game that hasn't started yet won't start. One already playing in another app keeps " +
-        "running, but its save won't sync with RomM when you quit it.",
+    fact = "The launch stops, and a game already running won't sync its save.",
     cancelLabel = "Stay",
   )
 }

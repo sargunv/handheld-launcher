@@ -4,12 +4,10 @@ import androidx.compose.runtime.Composable
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 
 /** Why a sign-in that doesn't ask for permission to upload games can't upload them. */
-internal const val UPLOADS_NOT_REQUESTED =
-  "This device signed in without permission to upload games to your server."
+internal const val UPLOADS_NOT_REQUESTED = "This sign-in doesn't allow uploads."
 
 /** Why an account that may not upload games can't, which signing in again doesn't change. */
-internal const val UPLOADS_NOT_FOR_ACCOUNT =
-  "Your RomM account may not upload games. An admin can allow it in RomM."
+internal const val UPLOADS_NOT_FOR_ACCOUNT = "Your RomM account can't upload games."
 
 /**
  * Offers to sign in again, to the same server, asking for permission to upload games. [reason] says

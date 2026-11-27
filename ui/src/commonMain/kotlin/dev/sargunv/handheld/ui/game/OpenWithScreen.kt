@@ -230,17 +230,13 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           )
           if ((screen.scope as? OpenWithScope.Game)?.game is GameKey.Local) {
             Text(
-              "A game that isn't on your server keeps this choice for its file, while the file " +
-                "keeps its name and folder. Once the file is a game on your server, the choice " +
-                "is that game's, unless it has one of its own.",
+              "Kept for this file, then for its game once it's on your server.",
               color = Placeholder.mutedText,
             )
           }
           if (current != null) {
-            val after = context.opensIn(launch.withChoice(scope, null))
             Text(
-              after?.let { "Clearing it opens ${if (context.forGame) "it" else "them"} in $it." }
-                ?: "Clearing it leaves no app on this device that can open it.",
+              "If cleared: ${context.opensIn(launch.withChoice(scope, null)) ?: "no app"}",
               color = Placeholder.mutedText,
             )
             MenuButton("clear", "Clear this choice") { choose(null) }
@@ -312,13 +308,7 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       )
     }
     Text(
-      when (context.scope) {
-        is OpenWithScope.Game -> "The most specific choice wins."
-        is OpenWithScope.Platform ->
-          "A game's own choice, or its collection's, comes before the platform's."
-        is OpenWithScope.Collection ->
-          "A game's own choice comes before its collection's, which comes before the platform's."
-      },
+      "The most specific choice wins: game, then collection, then platform.",
       color = Placeholder.mutedText,
     )
   }

@@ -11,13 +11,9 @@ internal fun LazyListScope.about(state: AppState) {
     SettingRow(
       state.settingsView,
       "settings:about:open",
-      "Version, license and source",
+      "Version, licence and source",
       state.appInfo.version,
-      Help(
-        "About",
-        "The app's version, its license and where its source is, and the licenses of the " +
-          "components it's built from.",
-      ),
+      Help("About", "The app's version, licence and source, and its components' licences."),
       // About opens over the places, which the sign-in doesn't have.
       enabled = state.account.signedIn == true,
       onConfirm = { state.navigator.push(Screen.About) }.takeIf { state.account.signedIn == true },
