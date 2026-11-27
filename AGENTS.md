@@ -103,7 +103,7 @@ there. `mise run test:live` runs the live RomM test.
 ## Project invariants
 
 - Anything kept per game is keyed by `GameKey`, and goes to a game's ROM in the
-  one adopt step when its file stops being a local game. A setting does so by
-  being in a map keyed by `GameKey` anywhere in `Settings`, which
-  `Settings.adopted` finds by itself. Other state implements `PerGameState` and
-  joins the platform's `gameState`.
+  one adopt step when its file stops being a local game. A per-game setting
+  lives in a map keyed by `GameKey`, which `Settings.adopted` hands over
+  explicitly. Other state implements `PerGameState` and joins the platform's
+  `gameState`.
