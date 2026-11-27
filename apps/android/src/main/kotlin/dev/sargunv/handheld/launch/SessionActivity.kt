@@ -46,7 +46,6 @@ import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.LowerScreenView
 import dev.sargunv.handheld.session.SessionException
-import dev.sargunv.handheld.session.SessionInfo
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
@@ -142,10 +141,6 @@ class SessionActivity : ComponentActivity() {
 
   private val listener =
     object : SessionListener {
-      override fun infoChanged(info: SessionInfo) {
-        Log.i(TAG, "the core changed its video mode: $info")
-      }
-
       override fun coreQuit() {
         Log.i(TAG, "the core quit")
         runOnUiThread { stopAndFinish() }

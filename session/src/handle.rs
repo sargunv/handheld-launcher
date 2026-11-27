@@ -131,11 +131,6 @@ impl SessionInfo {
 /// of its own, one call at a time, so it may call the session back.
 #[uniffi::export(with_foreign)]
 pub trait SessionListener: Send + Sync {
-    /// The core changed its frame size, aspect ratio or frame rate mid-game,
-    /// as `info` now gives them. The session already presents and paces
-    /// frames to match; the app may lay out its view again.
-    fn info_changed(&self, info: SessionInfo);
-
     /// The core asked to quit, as when a game offers an exit. The session has
     /// stopped, writing save memory as it does when stopped, and unloaded the
     /// core, so the app should close it.
@@ -161,7 +156,6 @@ pub trait AchievementsHttp: Send + Sync {
 
 /// What the session thread tells the listener.
 enum Event {
-    InfoChanged(SessionInfo),
     CoreQuit,
     Achievement(AchievementEvent),
     Request(u64, AchievementsRequest),
@@ -186,9 +180,6 @@ impl Events {
             .spawn(move || {
                 for event in receiver {
                     match (event, &listener, &http) {
-                        (Event::InfoChanged(info), Some(listener), _) => {
-                            listener.info_changed(info)
-                        }
                         (Event::CoreQuit, Some(listener), _) => listener.core_quit(),
                         (Event::Achievement(event), Some(listener), _) => {
                             listener.achievement_event(event)
@@ -252,8 +243,8 @@ enum Command {
 impl GameSession {
     /// Loads the core and its content on a new thread, and returns once
     /// they're ready to run, paused. The session tells `listener` when the
-    /// core changes its video mode or quits, or something happens to the
-    /// game's achievements, and sends RetroAchievements requests to `http`.
+    /// core quits or something happens to the game's achievements, and sends
+    /// RetroAchievements requests to `http`.
     ///
     /// The core is native code that runs in this process: only start cores
     /// the user chose to trust.
@@ -806,7 +797,7 @@ impl Runner {
         quit
     }
 
-    /// Tells the app about a frame size, aspect ratio or frame rate the core
+    /// Updates `info` to a frame size, aspect ratio or frame rate the core
     /// changed to.
     fn report_av(&mut self) {
         let av = self.session.av_info();
@@ -814,22 +805,18 @@ impl Runner {
             return;
         }
         self.reported_av = av;
-        let info = {
-            let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = info.with_av(av);
-            if changed == *info {
-                return;
-            }
-            *info = changed.clone();
-            changed
-        };
+        let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
+        let changed = info.with_av(av);
+        if changed == *info {
+            return;
+        }
         log::info!(
             "the core changed to {}x{} at {:.2} fps",
-            info.base_width,
-            info.base_height,
-            info.fps
+            changed.base_width,
+            changed.base_height,
+            changed.fps
         );
-        self.events.send(Event::InfoChanged(info));
+        *info = changed;
     }
 
     fn run_frame(&mut self) {
