@@ -1,10 +1,10 @@
 package dev.sargunv.handheld.session
 
 import android.content.Context
-import android.util.Log
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import co.touchlab.kermit.Logger
 
 /**
  * Shows the bottom half of a [GameSession]'s frames, the lower screen of a two-screen system whose
@@ -75,12 +75,10 @@ class LowerScreenView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       session.attachLowerWindow(window, frame.width().toUInt(), frame.height().toUInt())
       attached = true
     } catch (e: SessionException) {
-      Log.e(TAG, "can't present the session's lower screen", e)
+      log.e(e) { "Can't present the session's lower screen" }
       onUnsupported()
     }
   }
-
-  private companion object {
-    const val TAG = "LowerScreenView"
-  }
 }
+
+private val log = Logger.withTag("LowerScreenView")

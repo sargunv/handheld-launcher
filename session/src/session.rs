@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 
 use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory,
@@ -24,7 +23,6 @@ use crate::gl::{GlError, NativeWindow, Target, WindowRef};
 use crate::host::{self, Host, Output};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::Options;
-use crate::pacing;
 use crate::renderer::Renderer;
 use crate::save::{SaveRam, write_atomically};
 use crate::video::{CapturedFrame, Region, VideoSink};
@@ -123,12 +121,6 @@ impl AvInfo {
             fps: info.timing.fps,
             sample_rate: info.timing.sample_rate,
         }
-    }
-
-    /// How long a frame lasts, at 60 frames a second if the core gives no
-    /// usable rate.
-    pub fn frame_period(&self) -> Duration {
-        pacing::core_period(self.fps)
     }
 }
 
@@ -319,7 +311,7 @@ impl Session {
             unsafe { (session.core.set_controller_port_device)(port, ffi::RETRO_DEVICE_JOYPAD) };
         }
         if let Some(path) = config.save_ram
-            && let Some(memory) = session.save_ram_mut()
+            && let Some(memory) = save_memory(&mut session.core)
         {
             // Running anyway would replace the file with fresh save memory
             // the first time the game saves.
@@ -448,7 +440,7 @@ impl Session {
             }
             achievements.do_frame();
         }
-        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&mut self.core)) {
             save_ram.write_if_due(memory);
         }
     }
@@ -604,24 +596,14 @@ impl Session {
     }
 
     /// The core's battery-backed save memory, if it has any.
-    pub fn save_ram(&self) -> Option<&[u8]> {
-        save_memory(&self.core)
-    }
-
-    fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
-        // SAFETY: as in `save_memory`.
-        unsafe {
-            let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
-            let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
-            (size > 0 && !data.is_null())
-                .then(|| std::slice::from_raw_parts_mut(data.cast::<u8>(), size))
-        }
+    pub fn save_ram(&mut self) -> Option<&[u8]> {
+        save_memory(&mut self.core).map(|memory| &*memory)
     }
 
     /// Writes save memory to its file if it changed, and waits until it's on
     /// disk.
     pub fn flush_save_ram(&mut self) -> Result<(), SessionError> {
-        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&mut self.core)) {
             save_ram.flush(memory)?;
         }
         Ok(())
@@ -657,7 +639,7 @@ impl Session {
             return Err(SessionError::Hardcore);
         }
         let state = fs::read(path)?;
-        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&mut self.core)) {
             save_ram.back_up(memory)?;
         }
         // SAFETY: the game is loaded, the core only reads `state`, and no
@@ -673,14 +655,14 @@ impl Session {
 }
 
 /// The core's battery-backed save memory, if it has any.
-fn save_memory(core: &Core) -> Option<&[u8]> {
+fn save_memory(core: &mut Core) -> Option<&mut [u8]> {
     // SAFETY: the core's memory stays valid while the game is loaded, and
-    // the core doesn't run while this borrow lives, as the session runs it
-    // only through `&mut self`.
+    // the core doesn't run while this borrow of `core` lives.
     unsafe {
         let size = (core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
         let data = (core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
-        (size > 0 && !data.is_null()).then(|| std::slice::from_raw_parts(data.cast::<u8>(), size))
+        (size > 0 && !data.is_null())
+            .then(|| std::slice::from_raw_parts_mut(data.cast::<u8>(), size))
     }
 }
 

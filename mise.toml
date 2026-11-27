@@ -143,4 +143,5 @@ run = "cargo run -p handheld-session --features runner --bin session-runner --"
 
 [tasks."session:android-fixtures"]
 description = "Build the session's test cores for an Android ABI (session/README.md)"
-run = "session/android-fixtures.sh"
+usage = 'arg "[abi]" help="arm64-v8a or x86_64" default="arm64-v8a"'
+run = 'session/android-fixtures.sh "$usage_abi"'

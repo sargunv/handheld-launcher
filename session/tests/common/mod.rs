@@ -131,11 +131,7 @@ impl VideoSink for Frames {
     fn frame(&mut self, frame: Frame<'_>) {
         let mut inner = self.0.borrow_mut();
         inner.0 += 1;
-        inner.1 = Some(CapturedFrame {
-            width: frame.width,
-            height: frame.height,
-            pixels: frame.pixels.to_vec(),
-        });
+        inner.1 = Some(frame.into());
     }
 }
 
