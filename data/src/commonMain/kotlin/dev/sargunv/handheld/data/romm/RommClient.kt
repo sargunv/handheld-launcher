@@ -86,7 +86,7 @@ internal constructor(
    * null when it doesn't. It asks without credentials and follows no redirect, so nothing secret
    * goes out before the address is known to be encrypted.
    */
-  suspend fun httpsAddress(): String? {
+  internal suspend fun httpsAddress(): String? {
     if (baseUrl.protocol != URLProtocol.HTTP) return null
     val response = network {
       httpClient(engine) { followRedirects = false }
@@ -172,7 +172,7 @@ internal constructor(
     }
 
   /** The ids of every ROM the user can see. */
-  suspend fun romIds(): List<Long> = get("roms", "identifiers")
+  internal suspend fun romIds(): List<Long> = get("roms", "identifiers")
 
   internal suspend fun rom(id: Long): RommRom = get("roms", id.toString())
 
@@ -219,7 +219,10 @@ internal constructor(
     send(HttpMethod.Delete, listOf("devices", deviceId, "installs", requestId))
 
   /** Declares what this device can do, such as taking games sent from RomM's web page. */
-  suspend fun updateDeviceCapabilities(deviceId: String, capabilities: Map<String, Boolean>) {
+  internal suspend fun updateDeviceCapabilities(
+    deviceId: String,
+    capabilities: Map<String, Boolean>,
+  ) {
     request(HttpMethod.Put, listOf("devices", deviceId)) {
       jsonBody(RommDeviceCapabilities(capabilities))
     }
@@ -230,7 +233,7 @@ internal constructor(
    * each file's hashes, for checking the result: a resume doesn't detect a file that changed on the
    * server in between.
    */
-  suspend fun downloadRomFile(
+  internal suspend fun downloadRomFile(
     fileId: Long,
     fileName: String,
     target: Path,
@@ -241,7 +244,7 @@ internal constructor(
     }
 
   /** Downloads a firmware file to [target], resuming from what [target] already holds. */
-  suspend fun downloadFirmware(
+  internal suspend fun downloadFirmware(
     firmwareId: Long,
     fileName: String,
     target: Path,
@@ -252,7 +255,7 @@ internal constructor(
     }
 
   /** Downloads a save's file to [target], which must be empty or missing. */
-  suspend fun downloadSave(saveId: Long, target: Path): DownloadResult =
+  internal suspend fun downloadSave(saveId: Long, target: Path): DownloadResult =
     http.download(target, onProgress = {}) {
       endpoint(HttpMethod.Get, listOf("saves", saveId.toString(), "content"))
     }
@@ -266,7 +269,7 @@ internal constructor(
    * Without [overwrite], the server may keep an earlier save in the slot with the same bytes
    * instead of the upload, even one from another emulator, and return that save.
    */
-  suspend fun uploadSave(
+  internal suspend fun uploadSave(
     romId: Long,
     fileName: String,
     content: ByteArray,
@@ -313,7 +316,7 @@ internal constructor(
    * into the folder of the platform [platformId], and returns the upload's id. The server refuses a
    * file whose name its platform's folder already holds. Needs the `roms.write` scope.
    */
-  suspend fun startUpload(
+  internal suspend fun startUpload(
     platformId: Long,
     fileName: String,
     totalSize: Long,
@@ -333,7 +336,7 @@ internal constructor(
       .uploadId
 
   /** Sends chunk [index] of the upload [uploadId]. */
-  suspend fun uploadChunk(uploadId: String, index: Int, bytes: ByteArray) {
+  internal suspend fun uploadChunk(uploadId: String, index: Int, bytes: ByteArray) {
     request(HttpMethod.Put, listOf("roms", "upload", uploadId)) {
       header("x-chunk-index", index.toString())
       contentType(ContentType.Application.OctetStream)
@@ -342,12 +345,12 @@ internal constructor(
   }
 
   /** Puts the upload [uploadId]'s chunks together into the game's file on the server. */
-  suspend fun completeUpload(uploadId: String) {
+  internal suspend fun completeUpload(uploadId: String) {
     request(HttpMethod.Post, listOf("roms", "upload", uploadId, "complete"))
   }
 
   /** Stops the upload [uploadId], and the server drops what it received. */
-  suspend fun cancelUpload(uploadId: String) {
+  internal suspend fun cancelUpload(uploadId: String) {
     request(HttpMethod.Post, listOf("roms", "upload", uploadId, "cancel"))
   }
 
@@ -355,14 +358,14 @@ internal constructor(
    * Asks the server for a quick scan of the platform [platformId], which adds the games new in its
    * folder to the library, and returns the scan task's id. Needs the `tasks.run` scope.
    */
-  suspend fun scanPlatform(platformId: Long): String =
+  internal suspend fun scanPlatform(platformId: Long): String =
     send<ScanTask>(HttpMethod.Post, listOf("tasks", "scan")) {
         jsonBody(ScanRequest(listOf(platformId)))
       }
       .taskId
 
   /** The status of the server's task [taskId], such as `queued`, `started` or `finished`. */
-  suspend fun taskStatus(taskId: String): String = get<ScanTask>("tasks", taskId).status
+  internal suspend fun taskStatus(taskId: String): String = get<ScanTask>("tasks", taskId).status
 
   /**
    * Starts a device sign-in. Show the user [DeviceCode.userCode] and [DeviceCode.verificationUrl],
@@ -435,7 +438,7 @@ internal constructor(
    * The absolute URL of a path the server returned, such as a cover's. RomM returns paths from its
    * own root, which is [baseUrl]'s path when the server is served under one.
    */
-  fun resolve(path: String): String {
+  internal fun resolve(path: String): String {
     val query = path.substringAfter('?', "")
     return URLBuilder(baseUrl)
       .apply {

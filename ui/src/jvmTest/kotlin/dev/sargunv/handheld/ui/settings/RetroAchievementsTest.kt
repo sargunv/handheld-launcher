@@ -14,10 +14,10 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.achievements.InMemoryRetroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.launchApp

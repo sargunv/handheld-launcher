@@ -19,7 +19,7 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 
 /** How far a download has come. */
-data class DownloadProgress(
+internal data class DownloadProgress(
   /** The bytes the target holds, counting any it held before the download resumed. */
   val bytesDownloaded: Long,
   /** The size of the whole file, when the server said. */
@@ -27,7 +27,7 @@ data class DownloadProgress(
 )
 
 /** A finished download. */
-data class DownloadResult(
+internal data class DownloadResult(
   /** The size of the downloaded file. */
   val totalBytes: Long,
   /** The bytes the target already held, which this download kept and didn't fetch again. */

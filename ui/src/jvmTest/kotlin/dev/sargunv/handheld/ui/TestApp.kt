@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
@@ -24,7 +25,6 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
