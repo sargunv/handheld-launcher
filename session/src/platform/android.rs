@@ -1,4 +1,4 @@
-//! Android's logging and windows.
+//! Android's logging, windows and video output.
 
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 
 use ndk::native_window::NativeWindow as AndroidWindow;
 
-use crate::{NativeWindow, SessionError, WindowHandle};
+use crate::{NativeWindow, Region, SessionError, VideoOutput};
 
 /// Now on `CLOCK_MONOTONIC`, the clock of Choreographer's and AAudio's
 /// timestamps, in nanoseconds.
@@ -29,17 +29,26 @@ pub(crate) fn init_logging() {
     );
 }
 
+/// Presents to the window the app attaches, through an OpenGL ES context, or
+/// a Vulkan device for Vulkan cores, that the session keeps while windows come
+/// and go.
+pub(crate) fn video_output(lower: Region) -> VideoOutput {
+    VideoOutput::Window {
+        window: None,
+        lower,
+    }
+}
+
 /// One reference to an `ANativeWindow`, released when dropped.
 pub(crate) struct PlatformWindow(AndroidWindow);
 
 impl PlatformWindow {
-    /// Takes over the reference that `handle` hands over, as
-    /// [`WindowHandle::Android`] documents.
-    pub(crate) fn adopt(handle: WindowHandle) -> Result<Self, SessionError> {
-        let WindowHandle::Android { window } = handle;
+    /// Takes over the reference to the `ANativeWindow` at `window`, as
+    /// [`GameSession::attach_window`](crate::GameSession::attach_window) documents.
+    pub(crate) fn adopt(window: u64) -> Result<Self, SessionError> {
         let window =
             NonNull::new(window as usize as *mut _).ok_or(SessionError::UnsupportedWindow)?;
-        // SAFETY: the handle hands over a reference to an `ANativeWindow`.
+        // SAFETY: the caller hands over a reference to an `ANativeWindow`.
         Ok(Self(unsafe { AndroidWindow::from_ptr(window) }))
     }
 
@@ -52,7 +61,8 @@ impl PlatformWindow {
 
 /// `NativeWindows.acquire(Surface)` in the Kotlin bindings: the
 /// `ANativeWindow` behind a `Surface`, with a reference for the caller, as a
-/// pointer for `WindowHandle.Android`, or 0 if the surface has none.
+/// pointer for [`GameSession::attach_window`](crate::GameSession::attach_window),
+/// or 0 if the surface has none.
 ///
 /// # Safety
 ///
