@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.cores
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
@@ -141,7 +142,7 @@ class InstalledCores(
         when {
           response.status == HttpStatusCode.NotModified -> false
           response.status.isSuccess() -> true
-          else -> throw CoreDownloadException("The buildbot answered ${response.status}")
+          else -> throw serverError(buildbotUrl(core), response.status)
         }
       }
       is CoreSource.GitHubRelease -> latestRelease(source).tag != installed.release
@@ -164,8 +165,8 @@ class InstalledCores(
     } else {
       try {
         if (hasUpdate(core)) install(core, onProgress)
-      } catch (_: IOException) {
-        // The installed build still runs the game.
+      } catch (e: IOException) {
+        log.w(e) { "Keeping the installed ${core.library}: its update failed" }
       }
     }
     return fileOf(core)
@@ -178,11 +179,11 @@ class InstalledCores(
       CoreSource.Buildbot -> Build(buildbotUrl(core), release = null)
       is CoreSource.GitHubRelease -> {
         val release = latestRelease(source)
-        val asset =
-          source.assetFor(abi, release.assets.map { it.name })
-            ?: throw CoreDownloadException(
-              "${source.repository} ${release.tag} has no build for $abi",
-            )
+        val asset = source.assetFor(abi, release.assets.map { it.name })
+        if (asset == null) {
+          log.w { "${source.repository} ${release.tag} has no build for $abi" }
+          throw CoreDownloadException("No core build · $abi")
+        }
         Build(release.assets.first { it.name == asset }.url, release.tag)
       }
     }
@@ -191,14 +192,10 @@ class InstalledCores(
     "$BUILDBOT/$abi/${core.androidLibrary}_android.so.zip"
 
   private suspend fun latestRelease(source: CoreSource.GitHubRelease): GitHubReleaseJson {
-    val response =
-      http.get("$GITHUB_API/repos/${source.repository}/releases/latest") {
-        header(HttpHeaders.Accept, "application/vnd.github+json")
-      }
+    val url = "$GITHUB_API/repos/${source.repository}/releases/latest"
+    val response = http.get(url) { header(HttpHeaders.Accept, "application/vnd.github+json") }
     val text = response.bodyAsText()
-    if (!response.status.isSuccess()) {
-      throw CoreDownloadException("GitHub answered ${response.status} for ${source.repository}")
-    }
+    if (!response.status.isSuccess()) throw serverError(url, response.status)
     return LenientJson.decodeFromString(GitHubReleaseJson.serializer(), text)
   }
 
@@ -209,9 +206,7 @@ class InstalledCores(
     onProgress: (Long, Long?) -> Unit,
   ): Headers =
     http.prepareGet(url).execute { response ->
-      if (!response.status.isSuccess()) {
-        throw CoreDownloadException("$url answered ${response.status}")
-      }
+      if (!response.status.isSuccess()) throw serverError(url, response.status)
       val total = response.contentLength()
       val channel = response.bodyAsChannel()
       var downloaded = 0L
@@ -226,7 +221,8 @@ class InstalledCores(
         }
       }
       if (total != null && downloaded != total) {
-        throw CoreDownloadException("The download of $url ended at $downloaded of $total bytes")
+        log.w { "$url: cut short at $downloaded of $total bytes" }
+        throw CoreDownloadException("Core download cut short")
       }
       response.headers
     }
@@ -239,7 +235,14 @@ class InstalledCores(
     @Serializable class Asset(val name: String, @SerialName("browser_download_url") val url: String)
   }
 
+  private fun serverError(url: String, status: HttpStatusCode): CoreDownloadException {
+    log.w { "$url: $status" }
+    return CoreDownloadException("Core server error · ${status.value}")
+  }
+
   private companion object {
+    val log = Logger.withTag("InstalledCores")
+
     const val BUILDBOT = "https://buildbot.libretro.com/nightly/android/latest"
     const val GITHUB_API = "https://api.github.com"
     const val CHUNK_SIZE = 64L * 1024

@@ -7,6 +7,7 @@
 
 package dev.sargunv.handheld.data.saves
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.writeAtomically
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -66,7 +67,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         try {
           Ps2Card.load(bytes)
         } catch (e: Ps2FormatException) {
-          throw IOException("Unreadable memory card · ${file.name}")
+          throw unreadable("Unreadable memory card · ${file.name}", e)
         }
       cards += Card(file, folder = false, card, bytes)
     }
@@ -85,7 +86,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         try {
           Ps2FolderCard.pack(folder.name, files)
         } catch (e: Ps2FormatException) {
-          throw IOException("Damaged save · ${folder.name}")
+          throw unreadable("Damaged save · ${folder.name}", e)
         }
       card.inject(packed)
     }
@@ -128,7 +129,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
           try {
             card.card.extract(entry.firstCluster)
           } catch (e: Ps2FormatException) {
-            throw IOException("Damaged save · ${entry.name}")
+            throw unreadable("Damaged save · ${entry.name}", e)
           }
         saves += lifted to card
       }
@@ -140,7 +141,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     try {
       card.card.list()
     } catch (e: Ps2FormatException) {
-      throw IOException("Unreadable memory card · ${card.file.name}")
+      throw unreadable("Unreadable memory card · ${card.file.name}", e)
     }
 
   /** The per-game card holding [saves], as sigil builds it. */
@@ -322,7 +323,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       try {
         if (isZipBytes(unit)) zipCards(unit) else listOf(Ps2Card.load(unit))
       } catch (e: Ps2FormatException) {
-        throw IOException("Not a PS2 memory card")
+        throw unreadable("Not a PS2 memory card", e)
       }
     val saves = mutableListOf<Ps2Save>()
     for (card in cards) {
@@ -373,6 +374,13 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     /** The cards PCSX2 and its forks use unless their settings name others: slot 1's, then 2's. */
     val SLOTS = listOf("Mcd001.ps2", "Mcd002.ps2")
   }
+}
+
+private val log = Logger.withTag("Ps2CardUnit")
+
+private fun unreadable(label: String, cause: Ps2FormatException): IOException {
+  log.w(cause) { label }
+  return IOException(label, cause)
 }
 
 /**

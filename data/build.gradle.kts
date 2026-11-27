@@ -25,6 +25,7 @@ kotlin {
       api(libs.kotlinx.coroutines.core)
       api(libs.kotlinx.io.core)
       api(libs.ktor.client.core)
+      implementation(libs.kermit)
       implementation(libs.ktor.client.encoding)
       implementation(libs.kotlinx.serialization.json)
       implementation(libs.sqldelight.coroutines.extensions)

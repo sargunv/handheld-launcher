@@ -14,6 +14,7 @@ ktor = "3.6.2"
 kotlinx-coroutines = "1.11.0"
 kotlinx-serialization = "1.13.0"
 kotlinx-io = "0.9.3"
+kermit = "2.2.0"
 sqldelight = "2.4.1"
 sqldelight-androidx-driver = "0.2.2"
 androidx-sqlite = "2.7.1"
@@ -45,6 +46,7 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+kermit = { module = "co.touchlab:kermit", version.ref = "kermit" }
 sqldelight-coroutines-extensions = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
 sqldelight-sqlite-dialect = { module = "app.cash.sqldelight:sqlite-3-38-dialect", version.ref = "sqldelight" }
 sqldelight-androidx-driver = { module = "com.eygraber:sqldelight-androidx-driver", version.ref = "sqldelight-androidx-driver" }
