@@ -26,7 +26,7 @@ import kotlinx.io.files.Path
  * one on slot 1's, and leaves every other game's saves alone. [folderCards] makes a slot 1 card the
  * launcher has to create a folder card, for an app that reads only those.
  */
-data class Ps2CardRoots(
+internal data class Ps2CardRoots(
   val roots: List<File>,
   val serial: String,
   val name: String,

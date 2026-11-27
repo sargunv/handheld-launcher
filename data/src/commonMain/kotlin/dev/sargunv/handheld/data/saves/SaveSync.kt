@@ -30,10 +30,12 @@ internal const val SAVE_SLOT = "autosave"
  * @param sharesWith the other emulators whose saves of the game are the same as this one's, so a
  *   pull takes the newest of any of them. Pushes still go under [emulator].
  */
-data class GameSave(
+@ConsistentCopyVisibility
+data class GameSave
+internal constructor(
   val romId: Long,
   val emulator: String,
-  val shape: SaveShape,
+  internal val shape: SaveShape,
   val owner: String = emulator,
   val sharesWith: Set<String> = emptySet(),
 ) {
@@ -42,7 +44,7 @@ data class GameSave(
 }
 
 /** How an emulator keeps a game's save on this device. */
-sealed interface SaveShape {
+internal sealed interface SaveShape {
   /** One file, at the first of [candidates] that exists, most likely first. */
   data class Files(val candidates: List<File>) : SaveShape
 
@@ -89,10 +91,10 @@ data class DeviceSave(val file: File, val sizeBytes: Long, val modifiedAt: Insta
 /** What a [SaveSync] call did. */
 sealed interface SaveSyncResult {
   /** Neither the device nor the server has a save for the game. */
-  data object NoSave : SaveSyncResult
+  data object NoSave : PushResult
 
   /** Neither copy changed since the last sync, or both hold the same bytes. */
-  data class UpToDate(val file: File?) : SaveSyncResult
+  data class UpToDate(val file: File) : PushResult
 
   /**
    * The server's save replaced the device's at [file]. [previous] is where the device's old save,
@@ -101,7 +103,7 @@ sealed interface SaveSyncResult {
   data class Pulled(val file: File, val save: RommSave, val previous: File?) : SaveSyncResult
 
   /** The device's save at [file] went to the server as [save]. */
-  data class Pushed(val file: File, val save: RommSave) : SaveSyncResult
+  data class Pushed(val file: File, val save: RommSave) : PushResult
 
   /**
    * Both copies changed since the last sync, so the player has to choose one with
@@ -115,7 +117,7 @@ sealed interface SaveSyncResult {
     val device: DeviceSave,
     val server: RommSave,
     val reverted: Boolean = false,
-  ) : SaveSyncResult {
+  ) : PushResult {
     /** The copy changed last, which the conflict screen offers first. */
     val newer: SaveCopy
       get() = if (device.modifiedAt > server.updatedAt) SaveCopy.Device else SaveCopy.Server
@@ -132,22 +134,24 @@ sealed interface SaveSyncResult {
    * there's nothing to push. [SaveSync.push] leaves the device's save alone; the next
    * [SaveSync.sync] pulls it.
    */
-  data class ServerNewer(val server: RommSave) : SaveSyncResult
+  data class ServerNewer(val server: RommSave) : PushResult
 
   /**
    * The player chose [kept] in a conflict, which is now the save at [file] and the slot's newest
-   * save [save] on the server. The other copy is kept in the history at [history], and on the
-   * server: the server's old save when the device's copy won, or a separate upload when the
-   * server's won. That upload can fail, which [uploadError] says; the history still has the copy.
+   * save [save] on the server. The other copy is kept in the history, and on the server: the
+   * server's old save when the device's copy won, or a separate upload when the server's won. That
+   * upload can fail, which [uploadError] says; the history still has the copy.
    */
   data class Resolved(
     val kept: SaveCopy,
     val file: File,
     val save: RommSave,
-    val history: File,
     val uploadError: String? = null,
   ) : SaveSyncResult
 }
+
+/** What [SaveSync.push] did, which never writes to the device. */
+sealed interface PushResult : SaveSyncResult
 
 /**
  * Syncs games' saves with a RomM server: one file per game, or a game's save folders as one zip.
@@ -183,7 +187,16 @@ class SaveSync(
    * @throws IOException when a save file can't be read or written.
    */
   suspend fun sync(game: GameSave, emulatorMayRun: Boolean = false): SaveSyncResult =
-    sync(game, pull = true, emulatorMayRun)
+    mutex.withLock {
+      withContext(Dispatchers.IO) {
+        val unit = game.unit()
+        val local = unit.read()
+        when (val found = compare(game, local)) {
+          is SaveSyncResult.ServerNewer -> pull(game, unit, found.server, local, emulatorMayRun)
+          else -> found
+        }
+      }
+    }
 
   /**
    * Like [sync], but never writes to the device: when [sync] would pull, it reports
@@ -193,40 +206,33 @@ class SaveSync(
    * @throws RommException when the server can't be reached or refuses a call.
    * @throws IOException when the save file can't be read.
    */
-  suspend fun push(game: GameSave): SaveSyncResult =
-    sync(game, pull = false, emulatorMayRun = false)
+  suspend fun push(game: GameSave): PushResult = mutex.withLock {
+    withContext(Dispatchers.IO) { compare(game, game.unit().read()) }
+  }
 
-  private suspend fun sync(game: GameSave, pull: Boolean, emulatorMayRun: Boolean): SaveSyncResult =
-    mutex.withLock {
-      withContext(Dispatchers.IO) {
-        val unit = game.unit()
-        val record = recordFile(game).read()
-        val local = unit.read()
-        val localHash = local?.hash
-        val server = latestOnServer(game)
-        val localChanged = localHash != null && localHash != record?.localHash
-        val serverChanged = server != null && !record.matches(server)
-        when {
-          local == null && server == null -> SaveSyncResult.NoSave
-          // A missing save comes back from the server, since there's nothing to overwrite.
-          local == null && !pull -> SaveSyncResult.ServerNewer(server!!)
-          local == null -> pull(game, unit, server!!, null, emulatorMayRun)
-          !localChanged && !serverChanged -> SaveSyncResult.UpToDate(local.file)
-          !localChanged && !pull -> SaveSyncResult.ServerNewer(server!!)
-          !localChanged -> pull(game, unit, server!!, local, emulatorMayRun)
-          // The copy a pull replaced came back: the emulator wrote its old save over the pulled
-          // one.
-          server != null && localHash == record?.replacedHash ->
-            SaveSyncResult.Conflict(deviceSave(local), server, reverted = true)
-          !serverChanged -> push(game, local)
-          localHash == server!!.contentHash -> {
-            record(game, local.hash, server)
-            SaveSyncResult.UpToDate(local.file)
-          }
-          else -> SaveSyncResult.Conflict(deviceSave(local), server)
-        }
+  /** Compares [game]'s save [local] with the server's, and pushes it when only it changed. */
+  private suspend fun compare(game: GameSave, local: LocalCopy?): PushResult {
+    val record = recordFile(game).read()
+    val server = latestOnServer(game)
+    val localHash = local?.hash
+    val localChanged = localHash != null && localHash != record?.localHash
+    val serverChanged = server != null && !record.matches(server)
+    return when {
+      local == null && server == null -> SaveSyncResult.NoSave
+      local == null -> SaveSyncResult.ServerNewer(server!!)
+      !localChanged && !serverChanged -> SaveSyncResult.UpToDate(local.file)
+      !localChanged -> SaveSyncResult.ServerNewer(server!!)
+      // The copy a pull replaced came back: the emulator wrote its old save over the pulled one.
+      server != null && localHash == record?.replacedHash ->
+        SaveSyncResult.Conflict(deviceSave(local), server, reverted = true)
+      !serverChanged -> push(game, local)
+      localHash == server.contentHash -> {
+        record(game, local.hash, server)
+        SaveSyncResult.UpToDate(local.file)
       }
+      else -> SaveSyncResult.Conflict(deviceSave(local), server)
     }
+  }
 
   private fun deviceSave(local: LocalCopy) =
     DeviceSave(local.file, local.bytes.size.toLong(), local.modifiedAt)
@@ -252,10 +258,10 @@ class SaveSync(
       when (keep) {
         SaveCopy.Device -> {
           val serverBytes = download(conflict.server)
-          val kept = keepInHistory(game, SaveCopy.Server, conflict.server.fileName, serverBytes)
+          keepInHistory(game, SaveCopy.Server, conflict.server.fileName, serverBytes)
           val pushed = upload(game, local.name, local.bytes, SAVE_SLOT)
           record(game, local.hash, pushed)
-          SaveSyncResult.Resolved(keep, file, pushed, kept)
+          SaveSyncResult.Resolved(keep, file, pushed)
         }
         SaveCopy.Server -> {
           val kept = keepInHistory(game, SaveCopy.Device, local.name, local.bytes)
@@ -274,7 +280,7 @@ class SaveSync(
           val serverBytes = download(conflict.server)
           val replaced = replace(game, unit, file, serverBytes, keptAs = kept)
           recordPull(game, unit, conflict.server, serverBytes, replaced, emulatorMayRun)
-          SaveSyncResult.Resolved(keep, file, conflict.server, kept, uploadError)
+          SaveSyncResult.Resolved(keep, file, conflict.server, uploadError)
         }
       }
     }
@@ -328,7 +334,7 @@ class SaveSync(
     return written
   }
 
-  private suspend fun push(game: GameSave, local: LocalCopy): SaveSyncResult {
+  private suspend fun push(game: GameSave, local: LocalCopy): SaveSyncResult.Pushed {
     val save = upload(game, local.name, local.bytes, SAVE_SLOT)
     record(game, local.hash, save)
     return SaveSyncResult.Pushed(local.file, save)

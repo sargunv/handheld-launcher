@@ -143,6 +143,9 @@ class SaveSyncTest {
   /** The copies of [game]'s saves the history keeps, as the save history lists them. */
   private fun kept() = keptSaves(File(root, "history"), game.romId)
 
+  /** The bytes of the copy the history kept last. */
+  private fun lastKept() = File(kept().first().path).readBytes()
+
   private val v1 = "first save".encodeToByteArray()
   private val v2 = "second save".encodeToByteArray()
   private val mine = "played on this device".encodeToByteArray()
@@ -253,12 +256,13 @@ class SaveSyncTest {
     saveFile.writeBytes(mine)
     server.push("Pokemon Black [2025].sav", v1, Instant.parse("2025-03-01T00:00:00Z"))
     val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(game))
-    val resolved = sync.resolve(game, conflict, SaveCopy.Device)
+    sync.resolve(game, conflict, SaveCopy.Device)
 
+    val kept = kept()
     assertEquals(
       listOf(
         KeptSave(
-          resolved.history.path,
+          kept.first().path,
           Instant.parse("2025-03-02T00:00:00Z"),
           SaveCopy.Server,
           "melonds",
@@ -272,8 +276,9 @@ class SaveSyncTest {
           v1.size.toLong(),
         ),
       ),
-      keptSaves(File(root, "history"), romId = 7),
+      kept,
     )
+    assertContentEquals(v1, File(kept.first().path).readBytes())
     assertEquals(emptyList(), keptSaves(File(root, "history"), romId = 70))
   }
 
@@ -313,8 +318,8 @@ class SaveSyncTest {
 
     val resolved = sync.resolve(game, conflict, SaveCopy.Server)
     assertContentEquals(v2, saveFile.readBytes())
-    assertContentEquals(mine, resolved.history.readBytes())
-    assertEquals(listOf(resolved.history.path), kept().map { it.path }, "One copy, not two")
+    assertContentEquals(mine, lastKept())
+    assertEquals(1, kept().size, "One copy, not two")
     val upload = server.uploads.single()
     assertNull(upload.query["slot"], "The device's copy is a separate save, outside the slot")
     assertTrue(upload.fileName.startsWith("Pokemon Black (conflict "), upload.fileName)
@@ -332,9 +337,9 @@ class SaveSyncTest {
     saveFile.writeBytes(mine)
     val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(game))
 
-    val resolved = sync.resolve(game, conflict, SaveCopy.Device)
+    sync.resolve(game, conflict, SaveCopy.Device)
     assertContentEquals(mine, saveFile.readBytes())
-    assertContentEquals(v2, resolved.history.readBytes())
+    assertContentEquals(v2, lastKept())
     val upload = server.uploads.single()
     assertEquals(SAVE_SLOT, upload.query["slot"])
     assertContentEquals(mine, upload.bytes)
@@ -519,10 +524,10 @@ class SaveSyncTest {
     assertContentEquals(mine, saveRam.readBytes(), "Nothing is written before the player chooses")
     assertTrue(server.uploads.isEmpty())
 
-    val resolved = sync.resolve(builtIn, conflict, SaveCopy.Server)
+    sync.resolve(builtIn, conflict, SaveCopy.Server)
     assertContentEquals(v2, saveRam.readBytes())
-    assertContentEquals(mine, resolved.history.readBytes(), "The losing copy is in the history")
-    assertEquals(listOf("builtin"), keptSaves(File(root, "history"), romId = 7).map { it.emulator })
+    assertContentEquals(mine, lastKept(), "The losing copy is in the history")
+    assertEquals(listOf("builtin"), kept().map { it.emulator })
   }
 
   @Test
@@ -939,9 +944,9 @@ class SaveSyncTest {
 
     val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(psp))
     assertEquals("played here", File(savedata, "ULUS10064DATA00/DATA.BIN").readText())
-    val resolved = sync.resolve(psp, conflict, SaveCopy.Server)
+    sync.resolve(psp, conflict, SaveCopy.Server)
     assertEquals("played there", File(savedata, "ULUS10064DATA00/DATA.BIN").readText())
-    assertEquals("played here", entries(resolved.history.readBytes())["ULUS10064DATA00/DATA.BIN"])
+    assertEquals("played here", entries(lastKept())["ULUS10064DATA00/DATA.BIN"])
     val upload = server.uploads.last()
     assertTrue(upload.fileName.startsWith("ULUS10064 (conflict "), upload.fileName)
     assertEquals("played here", entries(upload.bytes)["ULUS10064DATA00/DATA.BIN"])
