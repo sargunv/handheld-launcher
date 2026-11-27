@@ -25,7 +25,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Instant
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -39,12 +38,6 @@ class RommSignInTest {
   private val store = InMemoryCredentialStore()
   private val requests = mutableListOf<HttpRequestData>()
   private var polls = 0
-
-  /** The scopes the server grants a device it pairs with. */
-  private var grantedScopes = """["roms.read"]"""
-
-  /** The scopes the signed-in account's role grants. */
-  private var accountScopes = """["me.read", "roms.read"]"""
 
   private val signIn =
     RommSignIn(store) {
@@ -65,13 +58,10 @@ class RommSignInTest {
           path == "/api/auth/device/token" && polls++ == 0 ->
             json("""{"detail":"authorization_pending"}""", HttpStatusCode.BadRequest)
           path == "/api/auth/device/token" ->
-            json(
-              """{"access_token": "rmm_issued", "device_id": "d1", "scopes": $grantedScopes,
-                  "expires_at": "2026-01-01T00:00:00+00:00"}""",
-            )
+            json("""{"access_token": "rmm_issued", "device_id": "d1", "scopes": ["roms.read"]}""")
           path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
           path == "/api/users/me" && token in setOf("Bearer rmm_good", "Bearer rmm_issued") ->
-            json(Fixtures.me.replace("""["me.read", "roms.read"]""", accountScopes))
+            json(Fixtures.me)
           path == "/api/users/me" ->
             json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
           else -> respondError(HttpStatusCode.NotFound)
@@ -89,13 +79,7 @@ class RommSignInTest {
     assertEquals("ABCD2345", codes.single().userCode)
     assertEquals("$TEST_SERVER/pair/device?user_code=ABCD2345", codes.single().verificationUrl)
     assertEquals(
-      RommCredentials(
-        TEST_SERVER,
-        "rmm_issued",
-        "d1",
-        listOf("roms.read"),
-        Instant.parse("2026-01-01T00:00:00Z"),
-      ),
+      RommCredentials(TEST_SERVER, "rmm_issued", 1, "player", "d1", listOf("roms.read")),
       credentials,
     )
     assertEquals(credentials, store.load())
@@ -127,35 +111,9 @@ class RommSignInTest {
   }
 
   @Test
-  fun tellsWhetherTheTokenMayUpload() = runTest {
-    assertNull(signIn.uploadAccess())
-
-    // A sign-in that didn't ask, for an account that may upload.
-    accountScopes = """["me.read", "roms.read", "roms.write"]"""
-    signIn.withDeviceCode(TEST_SERVER, device) {}
-    assertEquals(UploadAccess.NotRequested, signIn.uploadAccess())
-
-    // The account may not, so signing in again wouldn't help.
-    accountScopes = """["me.read", "roms.read"]"""
-    assertEquals(UploadAccess.AccountMayNot, signIn.uploadAccess())
-
-    polls = 0
-    grantedScopes = """["roms.read", "roms.write", "tasks.run"]"""
-    signIn.withDeviceCode(TEST_SERVER, device, allowUploads = true) {}
-    assertEquals(UploadAccess.Allowed, signIn.uploadAccess())
-
-    // RomM doesn't say what a pasted token may do.
-    accountScopes = """["me.read", "roms.read", "roms.write"]"""
-    signIn.withToken(TEST_SERVER, "rmm_good")
-    assertEquals(UploadAccess.Unknown, signIn.uploadAccess())
-    accountScopes = """["me.read", "roms.read"]"""
-    assertEquals(UploadAccess.AccountMayNot, signIn.uploadAccess())
-  }
-
-  @Test
   fun storesAWorkingToken() = runTest {
     val credentials = signIn.withToken(TEST_SERVER, "  rmm_good\n")
-    assertEquals(RommCredentials(TEST_SERVER, "rmm_good"), credentials)
+    assertEquals(RommCredentials(TEST_SERVER, "rmm_good", 1, "player"), credentials)
     assertEquals(credentials, store.load())
   }
 
@@ -166,24 +124,14 @@ class RommSignInTest {
   }
 
   @Test
-  fun makesAClientForTheSignedInServer() = runTest {
-    assertNull(signIn.client())
-    signIn.withToken(TEST_SERVER, "rmm_good")
-    signIn.client()!!.use { it.me() }
-    assertEquals("Bearer rmm_good", requests.last().headers[HttpHeaders.Authorization])
-
-    signIn.signOut()
-    assertNull(store.load())
-  }
-
-  @Test
   fun keepsCredentialsInAFile() = runTest {
     val dir = Path(SystemTemporaryDirectory, "credentials-test-${Random.nextLong().toULong()}")
     val path = Path(dir, "credentials.json")
     val fileStore = FileCredentialStore(path)
     try {
       assertNull(fileStore.load())
-      val credentials = RommCredentials(TEST_SERVER, "rmm_secret", "d1", listOf("roms.read"), null)
+      val credentials =
+        RommCredentials(TEST_SERVER, "rmm_secret", 1, "player", "d1", listOf("roms.read"))
       fileStore.save(credentials)
       assertEquals(credentials, FileCredentialStore(path).load())
       assertFalse("rmm_secret" in credentials.toString())

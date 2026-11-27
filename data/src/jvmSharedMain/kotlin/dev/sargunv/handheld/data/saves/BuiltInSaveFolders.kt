@@ -13,13 +13,15 @@ import kotlinx.coroutines.withContext
  * The built-in session's save folders, one for each game ([BuiltInSaves]). When a local game
  * becomes a ROM, its folder becomes the ROM's, so its saves sync from then on. When the ROM's
  * folder holds saves already, those stay the ROM's, and the local game's files go to the ROM's save
- * history in [history], the history of a [SaveSync], as a conflict's other copy does. Neither copy
- * is lost.
+ * history, as a conflict's other copy does. Neither copy is lost.
+ *
+ * @param history finds the signed-in account's [SaveSync] history, or null when signed out. A local
+ *   game's saves stay in its folder until there's a history to keep them in.
  */
 class BuiltInSaveFolders(
   val saves: BuiltInSaves,
-  private val history: File,
   private val clock: Clock = Clock.System,
+  private val history: suspend () -> File?,
 ) : PerGameState {
   override suspend fun adopt(adoptions: List<Adoption>) =
     withContext(Dispatchers.IO) {
@@ -32,7 +34,7 @@ class BuiltInSaveFolders(
       }
     }
 
-  private fun adopt(adoption: Adoption) {
+  private suspend fun adopt(adoption: Adoption) {
     val local = File(saves.folderOf(adoption.local))
     if (!local.isDirectory) return
     val own = File(saves.folderOf(adoption.rom))
@@ -44,6 +46,7 @@ class BuiltInSaveFolders(
       // Both are in the app's files, so the move is one step, or nothing moves.
       if (!local.renameTo(own)) throw IOException("Couldn't move $local to $own")
     } else {
+      val history = history() ?: return
       val now = clock.now()
       for (file in files) {
         // The history is one folder, so a file in a subfolder is named for its path.

@@ -592,19 +592,19 @@ private suspend fun loadAchievementProgress(
   romId: Long,
 ): RommAchievementProgress? =
   try {
-    withContext(Dispatchers.Default) { state.romm.client()?.use { it.achievementProgress(romId) } }
+    withContext(Dispatchers.Default) { state.romm.account?.client?.achievementProgress(romId) }
   } catch (_: RommException) {
     null
   }
 
-private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistoryState =
-  try {
+private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistoryState {
+  val account = state.romm.account ?: return SaveHistoryState.Failed("Sign in to see saves on RomM")
+  return try {
     withContext(Dispatchers.Default) {
-      val thisDevice = state.credentials.load()?.deviceId
-      state.romm.client()?.use {
-        SaveHistoryState.Loaded(serverSaveHistory(it.saves(romId = romId), thisDevice))
-      } ?: SaveHistoryState.Failed("Sign in to see saves on RomM")
+      val saves = account.client.saves(romId = romId)
+      SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
     }
   } catch (e: RommException) {
     SaveHistoryState.Failed("Saves unavailable · ${e.message}")
   }
+}

@@ -23,6 +23,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
@@ -34,7 +35,6 @@ import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
 import dev.sargunv.handheld.ui.places.OpenTarget
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import kotlin.io.path.createTempDirectory
@@ -51,11 +51,12 @@ internal const val TestServer = "https://romm.test"
  * download queue in new, empty directories. It shows [open] once signed in, and takes each of
  * [homePresses] as a press of HOME.
  *
- * @return the app's download queue, which downloads from a server that has nothing.
+ * @return the app's download queue, which downloads from [server].
  */
 internal fun ComposeUiTest.launchApp(
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
-  credentials: CredentialStore = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token")),
+  credentials: CredentialStore =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player")),
   library: LibraryCache = LibraryCache.open(path = null),
   storage: List<StorageTarget> = emptyList(),
   settings: Settings = Settings(),
@@ -78,30 +79,43 @@ internal fun ComposeUiTest.launchApp(
     val games = remember {
       DeviceGames(library, { storage }, scope, Path(dataDir, "local-content.json"))
     }
-    downloads = remember {
-      DownloadManager(
-        queueFile = Path(dataDir, "downloads.json"),
-        library = library,
-        games = games,
-        credentials = credentials,
-        storage = { storage },
-        scope = scope,
-        engine = { MockEngine { respondError(HttpStatusCode.NotFound) } },
-      )
-    }
+    val (romm, queue) =
+      remember {
+        lateinit var queue: DownloadManager
+        val romm =
+          RommSession(
+            credentials,
+            library,
+            Path(dataDir, "save-sync"),
+            scope,
+            server,
+          ) { client, id ->
+            queue.takeInstallRequests(client, id)
+          }
+        queue =
+          DownloadManager(
+            queueFile = Path(dataDir, "downloads.json"),
+            library = library,
+            games = games,
+            romm = romm.state,
+            storage = { storage },
+            scope = scope,
+          )
+        downloads = queue
+        romm to queue
+      }
     App(
       layout,
       heldKeys,
-      credentials,
+      romm,
       DeviceDescription("install-1", "Test device", "test", null),
       library,
-      downloads,
+      queue,
       games,
       remember { Path(createTempDirectory("handheld-covers").toString()) },
       Modifier.trackHeldKeys(heldKeys),
       initialSettings = settings,
       saveSettings = saveSettings,
-      httpEngine = server,
       launcher = launcher,
       apps = apps,
       romHeaders = romHeaders,

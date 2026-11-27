@@ -3,10 +3,8 @@ package dev.sargunv.handheld.launch
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
-import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.firmware.FirmwareInstall
 import dev.sargunv.handheld.data.firmware.FirmwareInstaller
-import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.KeptSave
@@ -68,12 +66,10 @@ data class PlayRequest(
  * (see [Emulators]). While it may be, the launcher never pulls a save it may hold without asking:
  * after the game it only sends, and before the next launch it asks the player.
  */
-class AndroidGameLauncher(
-  private val activity: ComponentActivity,
-  private val credentials: CredentialStore,
-) : GameLauncher {
+class AndroidGameLauncher(private val activity: ComponentActivity) : GameLauncher {
+  private val romm = activity.handheldApp.rommSession
   private val dispatcher = LaunchDispatcher(activity)
-  private val saves = PlaySaves(activity, credentials)
+  private val saves = PlaySaves(activity.handheldApp.saveSync)
   private val builtIn = BuiltInPlayer(activity, saves)
   private val emulators = activity.handheldApp.emulators
 
@@ -103,12 +99,12 @@ class AndroidGameLauncher(
       is LaunchResolution.NoEmulatorInstalled -> noEmulator(resolution)
     }
 
-  override suspend fun keptSaves(game: LibraryGame): List<KeptSave> =
-    when (game) {
-      is Rom -> withContext(Dispatchers.IO) { keptSaves(saveHistory(activity), game.id) }
-      // Save sync keeps copies only of the saves it syncs.
-      else -> emptyList()
-    }
+  override suspend fun keptSaves(game: LibraryGame): List<KeptSave> {
+    // Save sync keeps copies only of the saves it syncs, in the signed-in account's history.
+    val history = romm.account?.saveHistory ?: return emptyList()
+    if (game !is Rom) return emptyList()
+    return withContext(Dispatchers.IO) { keptSaves(File(history.toString()), game.id) }
+  }
 
   override suspend fun play(
     game: LibraryGame,
@@ -299,14 +295,12 @@ class AndroidGameLauncher(
   ) {
     val emulator = target.emulator ?: return
     val location = BiosKnowledge.locationFor(emulator.id, platform) ?: return
-    val signedIn = credentials.load() ?: return
+    val client = romm.account?.client ?: return
     val storage = activity.handheldApp.storageTargets().firstOrNull()?.root ?: return
     val result =
       try {
-        RommClient(signedIn.baseUrl, signedIn.token).use { client ->
-          FirmwareInstaller(client, File(activity.cacheDir, "firmware"))
-            .install(platform, location, location.folders(storage, target.packageName))
-        }
+        FirmwareInstaller(client, File(activity.cacheDir, "firmware"))
+          .install(platform, location, location.folders(storage, target.packageName))
       } catch (e: RommException) {
         note("BIOS list failed · ${e.message}")
         return

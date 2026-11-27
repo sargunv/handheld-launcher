@@ -1,11 +1,7 @@
-@file:UseSerializers(RommInstantSerializer::class)
-
 package dev.sargunv.handheld.data.romm
 
-import kotlin.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.UseSerializers
 
 /** The signed-in user, from `GET /api/users/me`. */
 @Serializable
@@ -71,8 +67,6 @@ data class DeviceToken(
   /** The server's id for the device the token is bound to. */
   @SerialName("device_id") val deviceId: String,
   val scopes: List<String> = emptyList(),
-  /** When the token expires, or null when it doesn't. */
-  @SerialName("expires_at") val expiresAt: Instant? = null,
 )
 
 /** The scopes a device requests by default: what browsing, downloads and save sync use. */

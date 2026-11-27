@@ -83,7 +83,8 @@ class LocalGameTest {
   @Volatile private var accountScopes: String? = null
 
   /** The device's sign-in: a pasted token by default, whose scopes RomM doesn't report. */
-  private val credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token"))
+  private val credentials =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player"))
 
   /** The paths below `/api/` of the requests the server had about uploads and scans. */
   private val uploadRequests = Collections.synchronizedList(mutableListOf<String>())
@@ -377,7 +378,9 @@ class LocalGameTest {
   fun aRefusalDespitePermissionToUploadIsTheAccounts() = runComposeUiTest {
     refuseUploads = true
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.write")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.write")),
+      )
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
@@ -391,7 +394,9 @@ class LocalGameTest {
   fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
     accountScopes = """["roms.read", "roms.write", "tasks.run"]"""
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+      )
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
@@ -415,7 +420,9 @@ class LocalGameTest {
   fun anAccountThatMayNotUploadIsToldSo() = runComposeUiTest {
     accountScopes = """["roms.read"]"""
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+      )
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))

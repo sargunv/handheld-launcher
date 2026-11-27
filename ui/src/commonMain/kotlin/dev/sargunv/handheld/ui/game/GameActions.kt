@@ -206,14 +206,14 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     uploadJob = scope.launch {
       try {
         val client =
-          state.romm.client()
+          state.romm.account?.client
             ?: run {
               notes = listOf(SIGN_IN_TO_UPLOAD)
               return@launch
             }
-        val result = client.use {
+        val result =
           uploadLocalGame(
-            it,
+            client,
             game,
             onFinishing = {
               upload = UploadState.Finishing
@@ -222,7 +222,6 @@ internal class GameActions(private val state: AppState, private val scope: Corou
           ) { sent, total ->
             if (sent < total) upload = UploadState.Sending((sent * 100 / total).toInt())
           }
-        }
         notes =
           listOf(
             when (result) {
@@ -231,7 +230,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
             },
           )
         // The library learns of the game, and this page becomes its page.
-        state.syncNow()
+        state.romm.syncNow()
       } catch (_: RommException.Forbidden) {
         val refused = "Upload refused · No upload permission"
         notes = listOf(refused)

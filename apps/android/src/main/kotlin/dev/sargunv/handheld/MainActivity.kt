@@ -92,9 +92,8 @@ class MainActivity : ComponentActivity() {
     val app = handheldApp
     val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val launcher = AndroidGameLauncher(this, app.credentials).also { player = it }
+    val launcher = AndroidGameLauncher(this).also { player = it }
     val retroAchievements = retroAchievementsSignIn(this)
-    // Made once: App keeps its state per catalog, and this block recomposes when a game starts.
     val apps = InstalledApps(this)
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
@@ -116,7 +115,7 @@ class MainActivity : ComponentActivity() {
         modifier = Modifier.exposeTestTags(),
         layout = layout,
         heldKeys = heldKeys,
-        credentials = app.credentials,
+        romm = app.rommSession,
         device = device,
         library = app.libraryCache,
         downloads = app.downloadManager,

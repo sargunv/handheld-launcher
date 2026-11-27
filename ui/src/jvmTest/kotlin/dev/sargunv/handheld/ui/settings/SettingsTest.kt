@@ -58,7 +58,8 @@ import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalTestApi::class)
 class SettingsTest {
-  private val credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token"))
+  private val credentials =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player"))
   private val library = LibraryCache.open(path = null)
   private val saved = mutableListOf<Settings>()
 
@@ -215,7 +216,14 @@ class SettingsTest {
   fun showsThatADeviceSignInMayUpload() = runComposeUiTest {
     runBlocking {
       credentials.save(
-        RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read", "roms.write")),
+        RommCredentials(
+          TestServer,
+          "rmm_token",
+          1,
+          "player",
+          "d1",
+          listOf("roms.read", "roms.write"),
+        ),
       )
     }
     launch(OpenTarget.Settings(SettingsSection.RomM))
@@ -229,7 +237,9 @@ class SettingsTest {
     user =
       User.replace("\"role\": \"user\"", "\"role\": \"user\", \"oauth_scopes\": [\"roms.write\"]")
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+      )
     }
     val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitFocused("settings:RomM")
