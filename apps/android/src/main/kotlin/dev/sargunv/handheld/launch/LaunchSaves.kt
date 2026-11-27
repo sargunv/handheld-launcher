@@ -3,7 +3,6 @@ package dev.sargunv.handheld.launch
 import android.content.Context
 import android.os.Environment
 import android.os.storage.StorageManager
-import dev.sargunv.handheld.data.saves.GameIds
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.Ps2CardRoots
 import dev.sargunv.handheld.data.saves.SaveFolderRoots
@@ -16,6 +15,7 @@ import dev.sargunv.handheld.domain.saves.SaveFolders
 import dev.sargunv.handheld.domain.saves.SaveLayout
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
+import dev.sargunv.handheld.session.Platform
 import dev.sargunv.handheld.session.romGameId
 import java.io.File
 
@@ -68,12 +68,13 @@ fun gameSaveFor(
         is SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
         else -> SaveLookup.NotSupported
       }
-  val id =
-    if (kind == GameIdKind.Switch) {
-      GameIds.switchTitle(File(romPath), switchKeys(storage, target.packageName))
-    } else {
-      SessionRomHeaders.headerPlatform(platform)?.let { romGameId(it, romPath) }
-    } ?: return SaveLookup.NoGameId
+  val headerPlatform =
+    (if (kind == GameIdKind.Switch) Platform.SWITCH else SessionRomHeaders.headerPlatform(platform))
+      ?: return SaveLookup.NoGameId
+  val file = SessionRomHeaders.headerFile(romPath) ?: return SaveLookup.NoGameId
+  val keys =
+    if (headerPlatform == Platform.SWITCH) switchKeys(storage, target.packageName) else null
+  val id = romGameId(headerPlatform, file, keys) ?: return SaveLookup.NoGameId
   val saveRoots = SaveFiles.folders(location.paths, roots).map(::File)
   val layout = location.layout
   if (layout is SaveLayout.Ps2MemoryCards) {
@@ -93,7 +94,8 @@ fun gameSaveFor(
 }
 
 /** The Switch emulator's keys, as the yuzu forks and Ryujinx keep them, if it has them. */
-private fun switchKeys(storage: String, packageName: String): File? =
+private fun switchKeys(storage: String, packageName: String): String? =
   listOf("keys/prod.keys", "system/prod.keys")
     .map { File(storage, "Android/data/$packageName/files/$it") }
     .firstOrNull { it.isFile }
+    ?.path

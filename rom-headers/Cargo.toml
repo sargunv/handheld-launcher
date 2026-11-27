@@ -16,10 +16,13 @@ chd = ["dep:chd"]
 deflate = ["dep:miniz_oxide"]
 # Images compressed with zstd: the 3DS's Z3DS (.zcci, .zcxi, .zcia).
 zstd = ["dep:ruzstd"]
+# Nintendo Switch title ids, from NSPs and XCIs, whose NCA headers it decrypts.
+switch = ["dep:aes", "dep:xts-mode"]
 
 [dependencies]
 encoding_rs = "0.8.35"
 
+aes = { version = "0.9.4", optional = true }
 chd = { version = "0.4.0", default-features = false, features = [
   "std",
 ], optional = true }
@@ -27,3 +30,4 @@ miniz_oxide = { version = "0.8.9", optional = true }
 ruzstd = { version = "0.9.1", default-features = false, features = [
   "std",
 ], optional = true }
+xts-mode = { version = "0.6.0", optional = true }

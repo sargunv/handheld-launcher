@@ -40,7 +40,7 @@ class DiscSetsTest {
       listOf("track01.bin", "track 02.raw", "track03.bin"),
       DiscSets.listedFiles("Game.GDI", gdi),
     )
-    val m3u = "﻿#EXTM3U\r\nGame (Disc 1).cue\r\n\r\nGame (Disc 2).cue\r\n"
+    val m3u = "\uFEFF#EXTM3U\r\nGame (Disc 1).cue\r\n\r\nGame (Disc 2).cue\r\n"
     assertEquals(
       listOf("Game (Disc 1).cue", "Game (Disc 2).cue"),
       DiscSets.listedFiles("Game.m3u", m3u),
@@ -62,6 +62,43 @@ class DiscSetsTest {
   fun aGdisFieldsMayBeSeparatedByTabs() {
     val gdi = "2\n1\t0\t4\t2352\ttrack01.bin\t0\n2\t756\t0\t2352\t\"track 02.raw\"\t0\n"
     assertEquals(listOf("track01.bin", "track 02.raw"), DiscSets.listedFiles("Game.gdi", gdi))
+  }
+
+  @Test
+  fun aPlaylistsHeaderIsInItsFirstDiscsFirstDataTrack() {
+    val sheets =
+      mapOf(
+        "dir/game.m3u" to "\uFEFF# discs\n\nGame (Disc 1).cue\nGame (Disc 2).cue\n",
+        "dir/Game (Disc 1).cue" to
+          "\uFEFFFILE \"Disc 1\\Game (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n",
+      )
+    assertEquals("dir/Disc 1/Game (Track 1).bin", DiscSets.headerFile("dir/game.m3u", sheets::get))
+    assertEquals("dir/game.chd", DiscSets.headerFile("dir/game.chd", sheets::get))
+    assertNull(DiscSets.headerFile("dir/missing.cue", sheets::get))
+  }
+
+  @Test
+  fun aPlaylistMayNameADiscByItsWholePath() {
+    val m3u = "/storage/ROMs/psx/Game (Disc 1).chd\n"
+    assertEquals("/storage/ROMs/psx/Game (Disc 1).chd", DiscSets.headerFile("dir/game.m3u") { m3u })
+  }
+
+  @Test
+  fun aSheetsHeaderIsInItsFirstDataTrack() {
+    val cue =
+      "FILE \"a.bin\" BINARY\n TRACK 01 AUDIO\nfile\tb c.bin\tBINARY\n TRACK 02 MODE1/2352\n"
+    assertEquals("b c.bin", DiscSets.headerFile("game.cue") { cue })
+    // A GDI's high-density area starts at track 3.
+    val gdi =
+      "\n3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n" +
+        "3\t45000\t4\t2352\t\"track 03.bin\"\t0\n"
+    assertEquals("track 03.bin", DiscSets.headerFile("game.gdi") { gdi })
+  }
+
+  @Test
+  fun aSheetThatNamesItselfHasNoHeaderFile() {
+    val cue = "FILE \"loop.cue\" BINARY\n  TRACK 01 MODE1/2352\n"
+    assertNull(DiscSets.headerFile("loop.cue") { cue })
   }
 
   @Test
