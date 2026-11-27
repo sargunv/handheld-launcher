@@ -10,15 +10,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.romm.RommException
-import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.SyncStatus
@@ -148,21 +141,11 @@ internal fun LazyListScope.romm(section: RommSection) {
       view,
       "settings:romm:sync",
       "Library",
-      syncSummary(state.sync),
+      state.sync.label,
       Help("Library", "How the latest sync of the library with the server went."),
     )
   }
   if (state.sync == SyncStatus.Unauthorized) {
-    item(key = "refused") {
-      Text(
-        "RomM refused this device's sign-in, so the library can't sync.",
-        color = Placeholder.text,
-        modifier =
-          Modifier.testTag("settings:romm:refused").semantics {
-            liveRegion = LiveRegionMode.Polite
-          },
-      )
-    }
     item(key = "signInAgain") {
       SettingRow(
         view,
@@ -238,17 +221,6 @@ private fun uploadsHelp(access: UploadAccess?): String =
     UploadAccess.NotRequested -> UPLOADS_NOT_REQUESTED
     UploadAccess.AccountMayNot -> UPLOADS_NOT_FOR_ACCOUNT
     UploadAccess.Unknown -> "RomM doesn't say whether an API token may upload games."
-  }
-
-/** What the RomM section says about the latest sync. */
-internal fun syncSummary(sync: SyncStatus): String =
-  when (sync) {
-    SyncStatus.NotStarted -> "Not synced yet"
-    SyncStatus.FirstSync,
-    SyncStatus.Syncing -> "Syncing"
-    SyncStatus.Synced -> "Synced"
-    SyncStatus.Failed -> "Couldn't reach the server"
-    SyncStatus.Unauthorized -> "RomM refused the sign-in"
   }
 
 /** Asks before signing out. */

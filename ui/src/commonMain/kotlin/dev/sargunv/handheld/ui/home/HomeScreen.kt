@@ -46,7 +46,6 @@ import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.collectionShelfKey
-import dev.sargunv.handheld.ui.library.librarySyncText
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.MenuButton
@@ -152,7 +151,7 @@ internal fun HomePlace(state: AppState) {
             when {
               !syncing && !hasItems -> "No shelves to show"
               !syncing -> null
-              else -> librarySyncText(state.sync)
+              else -> state.sync.emptyLabel("No games")
             }
           if (message != null) {
             Text(

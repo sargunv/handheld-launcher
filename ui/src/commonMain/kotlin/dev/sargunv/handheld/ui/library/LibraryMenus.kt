@@ -67,7 +67,7 @@ internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: (
     ) {
       Text(shelf.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
       if (choices != null && choices.isEmpty()) {
-        Text("None of its games are in your library.", color = Placeholder.mutedText)
+        Text("No games", color = Placeholder.mutedText)
       }
       for ((label, scope) in choices.orEmpty()) {
         val tag =

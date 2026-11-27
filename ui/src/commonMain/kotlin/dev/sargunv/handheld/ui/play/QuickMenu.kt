@@ -307,7 +307,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
         null if state.showsAchievements -> listOf(Hint(Action.Back, "Back"))
         null ->
           listOf(
-            Hint(Action.Confirm, "Select"),
+            Hint(Action.Confirm, "Choose"),
             Hint(Action.Back, "Resume"),
           )
         SlotAction.Save -> listOf(Hint(Action.Confirm, "Save"), Hint(Action.Back, "Back"))

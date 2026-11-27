@@ -51,7 +51,6 @@ import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.places.gameCount
 
 /** The tabs, with [tab] showing. L and R switch to the neighboring tab, stopping at the ends. */
@@ -164,20 +163,10 @@ private fun TabGames(state: AppState, tab: LibraryTab, gridStates: SaveableState
     roms = roms,
     // Every game on the On device tab is on the device, so it has nothing to filter.
     filters = !onDevice,
-    empty =
-      if (onDevice) "No games on this device yet. A game's page downloads it."
-      else librarySyncText(state.sync),
+    empty = if (onDevice) "No games" else state.sync.emptyLabel("No games"),
     backHint = "Home",
   )
 }
-
-/** What a tab with nothing to show says, by how the sync with the server went. */
-internal fun librarySyncText(sync: SyncStatus, synced: String = "Your library has no games yet.") =
-  when (sync) {
-    SyncStatus.Failed -> "Couldn't reach your server to sync your library."
-    SyncStatus.Synced -> synced
-    else -> "Syncing your library"
-  }
 
 /**
  * The platforms or collections of [tab], focused on [focused]. Confirm opens the focused one, and
@@ -212,11 +201,9 @@ private fun ShelfList(
       Box(Modifier.fillMaxWidth().weight(1f)) {
         if (shelves != null && shelves.isEmpty()) {
           Text(
-            if (tab == LibraryTab.Collections) {
-              librarySyncText(state.sync, synced = "Your server has no collections.")
-            } else {
-              librarySyncText(state.sync)
-            },
+            state.sync.emptyLabel(
+              if (tab == LibraryTab.Collections) "No collections" else "No platforms",
+            ),
             color = Placeholder.mutedText,
             modifier = Modifier.align(Alignment.Center),
           )

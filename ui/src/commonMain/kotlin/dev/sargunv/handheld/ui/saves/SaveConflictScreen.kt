@@ -72,14 +72,13 @@ fun SaveConflictScreen(
         verticalArrangement = Arrangement.spacedBy(24.dp),
       ) {
         Text(
-          "Which save do you want to play?",
+          "Choose a save · ${conflict.gameName}",
           color = Placeholder.text,
           fontSize = 28.sp,
           modifier = Modifier.semantics { heading() },
         )
         Text(
-          "${conflict.gameName} was saved on this device and on RomM since they last synced. " +
-            "The save you don't choose is kept in the game's save history.",
+          "Changed on both since the last sync · The other copy goes to save history",
           color = Placeholder.mutedText,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -104,7 +103,7 @@ fun SaveConflictScreen(
           }
         }
       }
-      HintBar(listOf(Hint(Action.Confirm, "Play with this save"), Hint(Action.Back, "Don't play")))
+      HintBar(listOf(Hint(Action.Confirm, "Play"), Hint(Action.Back, "Cancel")))
     }
   }
 }

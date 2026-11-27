@@ -187,7 +187,7 @@ class GameTest {
     openGame(launcher)
 
     press(Key.ButtonA)
-    awaitText("Which save do you want to play?")
+    awaitText("Choose a save")
     // The newer copy, this device's, has focus.
     onNodeWithTag(SaveCopy.Device.name).assertIsFocused()
     press(Key.ButtonA)
@@ -205,7 +205,7 @@ class GameTest {
     openGame(launcher)
 
     press(Key.ButtonA)
-    awaitText("Which save do you want to play?")
+    awaitText("Choose a save")
     press(Key.ButtonB)
     awaitTag("primary")
     onNodeWithTag("primary").assertIsFocused()

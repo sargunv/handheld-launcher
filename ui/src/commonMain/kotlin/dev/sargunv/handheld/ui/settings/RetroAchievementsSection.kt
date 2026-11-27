@@ -13,26 +13,15 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
-import dev.sargunv.handheld.ui.achievements.AchievementSettings
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.signin.Help
 import dev.sargunv.handheld.ui.signin.TextEntry
 import kotlinx.coroutines.launch
 
 internal fun LazyListScope.retroAchievements(state: AppState) {
-  val achievements = state.retroAchievements ?: return
-  retroAchievements(state.settingsView, achievements, state.settings.achievements) {
-    state.settings = state.settings.copy(achievements = it)
-  }
-}
-
-internal fun LazyListScope.retroAchievements(
-  view: SettingsView,
-  account: RetroAchievementsState,
-  settings: AchievementSettings,
-  onSettingsChange: (AchievementSettings) -> Unit,
-) {
+  val account = state.retroAchievements ?: return
+  val view = state.settingsView
+  val settings = state.settings.achievements
   sectionHeading("RetroAchievements")
   val username = account.username
   if (username != null) {
@@ -52,7 +41,10 @@ internal fun LazyListScope.retroAchievements(
         "Hardcore",
         if (settings.hardcore) "On" else "Off",
         Help("Hardcore", "In hardcore, games with achievements can't load states or fast forward."),
-        onConfirm = { onSettingsChange(settings.copy(hardcore = !settings.hardcore)) },
+        onConfirm = {
+          state.settings =
+            state.settings.copy(achievements = settings.copy(hardcore = !settings.hardcore))
+        },
       )
     }
     item(key = "signOut") {

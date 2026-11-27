@@ -15,4 +15,18 @@ enum class SyncStatus {
   /** Whether the sync has finished, one way or another. */
   val isDone: Boolean
     get() = this == Synced || this == Failed || this == Unauthorized
+
+  val label: String
+    get() =
+      when (this) {
+        NotStarted -> "Not synced"
+        FirstSync,
+        Syncing -> "Syncing"
+        Synced -> "Synced"
+        Failed -> "Offline"
+        Unauthorized -> "Sign-in refused"
+      }
+
+  /** What a list with nothing in it says: [synced] once synced, otherwise [label]. */
+  fun emptyLabel(synced: String): String = if (this == Synced) synced else label
 }

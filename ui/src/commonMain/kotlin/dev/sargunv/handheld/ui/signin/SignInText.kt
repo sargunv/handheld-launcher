@@ -25,7 +25,7 @@ internal fun serverUrl(input: String): String? {
  */
 internal fun unencryptedNote(url: String?): String? =
   if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
-    "This address isn't encrypted, so use it only on a network you trust."
+    "Unencrypted connection"
   } else {
     null
   }

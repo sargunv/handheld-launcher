@@ -184,16 +184,16 @@ class SettingsTest {
   @Test
   fun aRefusedSignInSaysSoAndSignsInAgain() = runComposeUiTest {
     launch(refuses = true)
-    awaitText("RomM refused the sign-in · Settings → RomM")
-    onNodeWithTag("sync:status").assertTextEquals("RomM refused the sign-in · Settings → RomM")
+    awaitText("Sign-in refused")
+    onNodeWithTag("sync:status").assertTextEquals("Sign-in refused")
 
     press(Key.ButtonStart)
     awaitTag("main:Settings")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitTag("settings:Controls")
     press(listOf(Key.DirectionDown, Key.DirectionRight))
-    awaitTag("settings:romm:refused")
-    onNodeWithTag("settings:romm:sync").assertTextEquals("Library", "RomM refused the sign-in")
+    awaitTag("settings:romm:signInAgain")
+    onNodeWithTag("settings:romm:sync").assertTextEquals("Library", "Sign-in refused")
     focusDownTo("settings:romm:signInAgain")
     // The token is no good, so it signs in again without asking.
     press(Key.ButtonA)
