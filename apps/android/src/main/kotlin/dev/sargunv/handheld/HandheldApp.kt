@@ -16,6 +16,8 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.launch.Emulators
+import dev.sargunv.handheld.launch.PlaySaves
+import dev.sargunv.handheld.launch.Plays
 import dev.sargunv.handheld.session.rcheevosUserAgentClause
 import dev.sargunv.handheld.ui.Settings
 import java.io.File
@@ -23,6 +25,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.io.files.Path
 
 /** The app's process, which holds one of each thing its activities and services share. */
@@ -36,17 +40,44 @@ class HandheldApp : Application() {
     SettingsFile(Path(filesDir.resolve("settings.json").path), Settings.serializer(), Settings())
   }
 
-  /**
-   * Whether the app has all-files access, which writing games to shared storage needs. The launcher
-   * updates it when it comes back from [allFilesAccessSettings].
-   */
-  val allFilesAccess by lazy { MutableStateFlow(Environment.isExternalStorageManager()) }
+  private val allFilesAccessGranted by lazy {
+    MutableStateFlow(Environment.isExternalStorageManager())
+  }
+
+  /** Whether the app has all-files access, which games in shared storage need. */
+  val allFilesAccess: StateFlow<Boolean> by lazy { allFilesAccessGranted.asStateFlow() }
+
+  /** Reads [allFilesAccess] again, as the user may be back from granting it. */
+  fun refreshAllFilesAccess() {
+    allFilesAccessGranted.value = Environment.isExternalStorageManager()
+  }
+
+  /** Opens the system page where the user grants the app all-files access. */
+  fun openAllFilesAccessSettings() {
+    startActivity(
+      Intent(
+          AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+          Uri.fromParts("package", packageName, null),
+        )
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+    )
+  }
+
+  private val launcherResumed = MutableStateFlow(false)
+
+  /** Whether the launcher is resumed, which makes it what the first display shows. */
+  internal val launcherInFront: StateFlow<Boolean> = launcherResumed.asStateFlow()
+
+  /** Records whether the launcher is resumed, from its onResume and onPause. */
+  internal fun setLauncherResumed(resumed: Boolean) {
+    launcherResumed.value = resumed
+  }
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   /**
    * The games, the RomM sign-in, the download queue and save sync. The queue goes on while the
-   * activity is gone, and [DownloadService] keeps the process alive while there's work.
+   * activity is gone, and [BackgroundWorkService] keeps the process alive while there's work.
    */
   val data by lazy {
     HandheldData(
@@ -84,6 +115,14 @@ class HandheldApp : Application() {
   /** The standalone emulators the launcher started. */
   internal val emulators by lazy { Emulators(this) }
 
+  /** Syncs a game's save around a play. */
+  internal val playSaves by lazy { PlaySaves(data.saveSync) }
+
+  /** The plays whose game has started, until their notes are in. */
+  internal val plays by lazy {
+    Plays(scope, playSaves, emulators, launcherInFront) { BackgroundWorkService.start(this) }
+  }
+
   /** The mounted shared storage volumes, the device's own first, then any SD card. */
   internal fun storageTargets(): List<StorageTarget> =
     getSystemService(StorageManager::class.java)
@@ -100,10 +139,3 @@ class HandheldApp : Application() {
 
 internal val Context.handheldApp: HandheldApp
   get() = applicationContext as HandheldApp
-
-/** The system page where the user grants the launcher all-files access. */
-internal fun Context.allFilesAccessSettings(): Intent =
-  Intent(
-    AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-    Uri.fromParts("package", packageName, null),
-  )

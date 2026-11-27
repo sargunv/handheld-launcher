@@ -18,6 +18,7 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.launcherIntent
 import dev.sargunv.handheld.secondaryDisplay
+import dev.sargunv.handheld.ui.play.CompanionSync
 import dev.sargunv.handheld.ui.play.PlayCompanionScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,12 +27,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * A game playing in another app, as the companion on the second display shows it. [quit], when set,
- * asks for the emulator to be closed once the launcher is back in front.
+ * A game playing in another app, as the companion on the second display shows it. [sync] sends the
+ * save now, and [syncState] says how that's going. [quit], when set, asks for the emulator to be
+ * closed once the launcher is back in front.
  */
 class PlaySession(
   val title: String,
-  val sync: suspend () -> String,
+  val syncState: StateFlow<CompanionSync>,
+  val sync: () -> Unit,
   val quit: (() -> Unit)? = null,
 )
 
@@ -92,6 +95,7 @@ class PlayCompanionActivity : ComponentActivity() {
         session?.let { session ->
           PlayCompanionScreen(
             session.title,
+            session.syncState,
             session.sync,
             ::backToLibrary,
             onQuit =

@@ -17,19 +17,24 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlinx.coroutines.flow.MutableStateFlow
 
 @OptIn(ExperimentalTestApi::class)
 class PlayCompanionScreenTest {
+  private val idle = MutableStateFlow<CompanionSync>(CompanionSync.Idle)
+
   @Test
   fun syncsAndGoesBackOnTap() = runComposeUiTest {
+    val sync = MutableStateFlow<CompanionSync>(CompanionSync.Idle)
     var syncs = 0
     var backs = 0
     setContent {
       PlayCompanionScreen(
         "Taiko",
-        sync = {
+        sync,
+        onSync = {
           syncs++
-          "Sent to RomM"
+          sync.value = CompanionSync.Done("Sent to RomM")
         },
         onBackToLibrary = { backs++ },
       )
@@ -48,7 +53,7 @@ class PlayCompanionScreenTest {
   @Test
   fun aScreenReaderPressesTheButtonsToo() = runComposeUiTest {
     var backs = 0
-    setContent { PlayCompanionScreen("Taiko", sync = { "" }, onBackToLibrary = { backs++ }) }
+    setContent { PlayCompanionScreen("Taiko", idle, onSync = {}, onBackToLibrary = { backs++ }) }
     onNodeWithTag("companion:back")
       .assert(expectValue(SemanticsProperties.Role, Role.Button))
       .assertTextEquals("Back to library")
@@ -63,7 +68,8 @@ class PlayCompanionScreenTest {
     setContent {
       PlayCompanionScreen(
         "Taiko",
-        sync = { "" },
+        idle,
+        onSync = {},
         onBackToLibrary = {},
         onQuit = if (canQuit) ({ quits++ }) else null,
       )
