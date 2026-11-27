@@ -67,7 +67,7 @@ data class PlayRequest(
  * after the game it only sends, and before the next launch it asks the player.
  */
 class AndroidGameLauncher(private val activity: ComponentActivity) : GameLauncher {
-  private val romm = activity.handheldApp.rommSession
+  private val romm = activity.handheldApp.data.romm
   private val dispatcher = LaunchDispatcher(activity)
   private val saves = PlaySaves(activity.handheldApp.saveSync)
   private val builtIn = BuiltInPlayer(activity, saves)

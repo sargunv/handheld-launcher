@@ -37,7 +37,7 @@ class DownloadService : Service() {
     manager.createNotificationChannel(
       NotificationChannel(CHANNEL, "Downloads", NotificationManager.IMPORTANCE_LOW),
     )
-    val downloads = handheldApp.downloadManager
+    val downloads = handheldApp.data.downloads
     startForeground(
       NOTIFICATION,
       notification(downloads.queue.value, downloads.progress.value),

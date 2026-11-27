@@ -115,11 +115,11 @@ class MainActivity : ComponentActivity() {
         modifier = Modifier.exposeTestTags(),
         layout = layout,
         heldKeys = heldKeys,
-        romm = app.rommSession,
+        romm = app.data.romm,
         device = device,
-        library = app.libraryCache,
-        downloads = app.downloadManager,
-        games = app.deviceGames,
+        library = app.data.library,
+        downloads = app.data.downloads,
+        games = app.data.games,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = app.settingsFile::write,
@@ -155,7 +155,7 @@ class MainActivity : ComponentActivity() {
     // The user may be back from granting all-files access, which queued downloads wait for.
     handheldApp.allFilesAccess.value = Environment.isExternalStorageManager()
     // Games may have been copied onto the device, or deleted, while the app was away.
-    lifecycleScope.launch { handheldApp.deviceGames.rescan() }
+    lifecycleScope.launch { handheldApp.data.games.rescan() }
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -190,7 +190,7 @@ class MainActivity : ComponentActivity() {
    * once that's granted, to show the download's progress in a notification.
    */
   private fun keepDownloadsRunning() {
-    val hasWork = handheldApp.downloadManager.queue.map { queue -> queue.any { it.isActive } }
+    val hasWork = handheldApp.data.downloads.queue.map { queue -> queue.any { it.isActive } }
     lifecycleScope.launch {
       combine(hasWork, handheldApp.allFilesAccess, ::Pair)
         .distinctUntilChanged()

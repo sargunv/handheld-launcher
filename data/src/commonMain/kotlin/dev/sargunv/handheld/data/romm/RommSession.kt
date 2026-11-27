@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.romm
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.auth.RommSignIn
@@ -8,12 +9,9 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.http.encodeURLParameter
-import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -71,9 +69,8 @@ enum class SyncStatus {
 
 /**
  * The device's sign-in to a RomM server, for as long as the app runs, as [credentials] holds it.
- * While signed in, it syncs [library] with the server, at the sign-in and on [syncNow], and passes
- * [takeInstallRequests] the games sent to the device from RomM's web page, at the sign-in and every
- * minute after. Signing out stops both.
+ * While signed in, it syncs [library] with the server, at the sign-in and on [syncNow]. Signing out
+ * stops the sync.
  *
  * @param saveRoot where save sync keeps each account's records and history, apart from the others'.
  * @param engine makes the HTTP engine for each sign-in's client.
@@ -83,8 +80,7 @@ class RommSession(
   private val library: LibraryCache,
   saveRoot: Path,
   scope: CoroutineScope,
-  engine: () -> HttpClientEngine = ::platformHttpEngine,
-  private val takeInstallRequests: suspend (RommClient, deviceId: String) -> Unit,
+  engine: () -> HttpClientEngine,
 ) {
   /** Signs in to a server, and out of it. */
   val signIn = RommSignIn(credentials, engine)
@@ -116,15 +112,8 @@ class RommSession(
   init {
     scope.launch {
       state.collectLatest { account ->
-        if (account !is RommAccount) {
-          syncStatus.value = SyncStatus.NotStarted
-          return@collectLatest
-        }
-        coroutineScope {
-          launch { syncLibrary(account.client) }
-          // A token pasted from the server's web page is no device's, so nothing is sent to it.
-          account.credentials.deviceId?.let { launch { pollInstallRequests(account.client, it) } }
-        }
+        if (account is RommAccount) syncLibrary(account.client)
+        else syncStatus.value = SyncStatus.NotStarted
       }
     }
   }
@@ -172,20 +161,12 @@ class RommSession(
             SyncStatus.Synced
           } catch (_: RommException.Unauthorized) {
             SyncStatus.Unauthorized
-          } catch (_: RommException) {
+          } catch (e: RommException) {
+            log.w(e) { "Library sync failed" }
             SyncStatus.Failed
           }
       }
   }
-
-  private suspend fun pollInstallRequests(client: RommClient, deviceId: String) {
-    while (true) {
-      try {
-        takeInstallRequests(client, deviceId)
-      } catch (_: RommException) {
-        // The server is out of reach; the next poll tries again.
-      }
-      delay(1.minutes)
-    }
-  }
 }
+
+private val log = Logger.withTag("RommSession")
