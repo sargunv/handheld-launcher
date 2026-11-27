@@ -2,7 +2,6 @@ package dev.sargunv.handheld.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -20,12 +19,11 @@ import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.Placeholder
-import dev.sargunv.handheld.ui.dialog.Dialog
+import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.game.InstalledApp
 import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.platformOpensIn
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.signin.Help
 
@@ -128,29 +126,17 @@ private fun PlatformRows(state: AppState) {
   }
 }
 
-/** Explains closing emulators before the player turns it on. */
+/** Asks before turning on closing emulators. */
 @Composable
 internal fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> Unit) {
-  Dialog(
-    onDismissRequest,
-    Modifier.widthIn(max = 640.dp),
-    initialFocus = "closeEmulators:cancel",
-  ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text("Close emulators", color = Placeholder.text, modifier = Modifier.semantics { heading() })
-      Text(
-        "This device has a built-in root service that any app can use. With this on, the " +
-          "launcher uses it only to check whether an emulator is still running and to close it, " +
-          "so a newer save from RomM can't be overwritten by the emulator's old one.",
-        color = Placeholder.mutedText,
-      )
-      Text(
-        "Closing skips the emulator's own exit, so progress since its last in-game save can be " +
-          "lost. When you can, quit from the emulator's own menu instead.",
-        color = Placeholder.mutedText,
-      )
-      MenuButton("closeEmulators:turnOn", "Turn on", onConfirm = onTurnOn)
-      MenuButton("closeEmulators:cancel", "Cancel", onConfirm = onDismissRequest)
-    }
-  }
+  ConfirmDialog(
+    "closeEmulators",
+    "Close emulators",
+    "Turn on",
+    onConfirm = onTurnOn,
+    onDismissRequest = onDismissRequest,
+    fact =
+      "Closing skips the emulator's own exit, so progress since its last in-game save can be " +
+        "lost. When you can, quit from the emulator's own menu instead.",
+  )
 }

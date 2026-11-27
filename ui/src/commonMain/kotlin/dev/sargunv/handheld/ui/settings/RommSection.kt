@@ -1,8 +1,5 @@
 package dev.sargunv.handheld.ui.settings
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,17 +13,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.ui.Placeholder
-import dev.sargunv.handheld.ui.dialog.Dialog
+import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.Help
@@ -271,26 +265,16 @@ internal fun syncSummary(sync: SyncStatus): String =
     SyncStatus.Unauthorized -> "RomM refused the sign-in"
   }
 
-/** Asks before signing out. Cancel has focus first, so one press too many signs nothing out. */
+/** Asks before signing out. */
 @Composable
 internal fun SignOutDialog(onSignOut: () -> Unit, onDismissRequest: () -> Unit) {
-  Dialog(
-    onDismissRequest,
-    Modifier.widthIn(max = 640.dp),
-    initialFocus = "signOut:cancel",
-  ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(
-        "Sign out of RomM?",
-        color = Placeholder.text,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(
-        "Your downloaded games and saves stay on this device. Saves sync again once you sign in.",
-        color = Placeholder.mutedText,
-      )
-      MenuButton("signOut:confirm", "Sign out", onConfirm = onSignOut)
-      MenuButton("signOut:cancel", "Cancel", onConfirm = onDismissRequest)
-    }
-  }
+  ConfirmDialog(
+    "signOut",
+    "Sign out of RomM?",
+    "Sign out",
+    onConfirm = onSignOut,
+    onDismissRequest = onDismissRequest,
+    fact =
+      "Your downloaded games and saves stay on this device. Saves sync again once you sign in.",
+  )
 }

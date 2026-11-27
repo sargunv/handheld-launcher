@@ -1,18 +1,7 @@
 package dev.sargunv.handheld.ui.signin
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
-import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
-import dev.sargunv.handheld.ui.dialog.Dialog
-import dev.sargunv.handheld.ui.places.MenuButton
+import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 
 /** Why a sign-in that doesn't ask for permission to upload games can't upload them. */
 internal const val UPLOADS_NOT_REQUESTED =
@@ -24,8 +13,7 @@ internal const val UPLOADS_NOT_FOR_ACCOUNT =
 
 /**
  * Offers to sign in again, to the same server, asking for permission to upload games. [reason] says
- * why it's offered, such as RomM's refusal of an upload. Not now has focus first, so one press too
- * many signs nothing out.
+ * why it's offered, such as RomM's refusal of an upload.
  */
 @Composable
 internal fun AllowUploadsDialog(
@@ -33,27 +21,13 @@ internal fun AllowUploadsDialog(
   onSignInAgain: () -> Unit,
   onDismissRequest: () -> Unit,
 ) {
-  Dialog(
-    onDismissRequest,
-    Modifier.widthIn(max = 640.dp),
-    initialFocus = "allowUploads:cancel",
-  ) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(
-        "Sign in again to allow uploads?",
-        color = Placeholder.text,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(reason, color = Placeholder.text)
-      Text(
-        "You approve a new code in RomM on another device. Your games, saves and settings stay " +
-          "on this device, and downloads carry on once you're signed in again.",
-        color = Placeholder.mutedText,
-      )
-      Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        MenuButton("allowUploads:cancel", "Not now", onConfirm = onDismissRequest)
-        MenuButton("allowUploads:confirm", "Sign in again", onConfirm = onSignInAgain)
-      }
-    }
-  }
+  ConfirmDialog(
+    "allowUploads",
+    "Sign in again to allow uploads?",
+    "Sign in again",
+    onConfirm = onSignInAgain,
+    onDismissRequest = onDismissRequest,
+    fact = reason,
+    cancelLabel = "Not now",
+  )
 }

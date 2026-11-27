@@ -146,7 +146,7 @@ class SettingsTest {
     onNodeWithTag("settings:romm:signOut").assertIsFocused()
     assertNotNull(runBlocking { credentials.load() })
 
-    press(listOf(Key.ButtonA, Key.DirectionUp, Key.ButtonA))
+    press(listOf(Key.ButtonA, Key.DirectionRight, Key.ButtonA))
     // The sign-in itself, not the request for Settings shown again over it.
     awaitFocused("address")
     onNodeWithTag("settings:Controls").assertDoesNotExist()
@@ -167,7 +167,7 @@ class SettingsTest {
     focusDownTo("settings:romm:signOut")
     press(Key.ButtonA)
     awaitTag("signOut:cancel")
-    press(listOf(Key.DirectionUp, Key.ButtonA))
+    press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("address")
     assertEquals(emptyList(), downloads.queue.value)
   }

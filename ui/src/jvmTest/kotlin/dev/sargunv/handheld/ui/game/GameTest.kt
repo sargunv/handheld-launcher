@@ -150,9 +150,9 @@ class GameTest {
     onNodeWithTag("hint:Menu").assertDoesNotExist()
     press(Key.ButtonB)
     // Staying has focus first, so one press too many keeps the launch going.
-    onNodeWithTag("leave:stay").assertIsFocused()
+    onNodeWithTag("leave:cancel").assertIsFocused()
     press(Key.ButtonA)
-    onNodeWithTag("leave:stay").assertDoesNotExist()
+    onNodeWithTag("leave:cancel").assertDoesNotExist()
     assertFalse(launcher.canceled)
     onNodeWithText("Getting the core 40%").assertExists()
     // Leaving stops the launch.
@@ -171,10 +171,10 @@ class GameTest {
     press(Key.ButtonA)
     awaitText("Getting the core 40%")
     press(Key.ButtonB)
-    onNodeWithTag("leave:stay").assertIsFocused()
+    onNodeWithTag("leave:cancel").assertIsFocused()
     hold.complete(Unit)
     awaitText("Played")
-    onNodeWithTag("leave:stay").assertDoesNotExist()
+    onNodeWithTag("leave:cancel").assertDoesNotExist()
     onNodeWithTag("primary").assertIsFocused()
   }
 
@@ -254,10 +254,10 @@ class GameTest {
     openEmulatorsSettings()
     onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "Off")
     press(Key.ButtonA)
-    awaitText("built-in root service")
+    awaitTag("closeEmulators:cancel")
     // Cancel has focus first, so one press too many leaves it off.
     onNodeWithTag("closeEmulators:cancel").assertIsFocused()
-    press(listOf(Key.DirectionUp, Key.ButtonA))
+    press(listOf(Key.DirectionRight, Key.ButtonA))
     onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "On")
     press(Key.ButtonB)
 

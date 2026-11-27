@@ -2,7 +2,6 @@ package dev.sargunv.handheld.ui.game
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -15,6 +14,7 @@ import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.MenuButton
 
@@ -53,98 +53,67 @@ internal fun GameMenu(
   }
 }
 
-/** Asks before removing [game] from the device. Cancel is focused first. */
+/** Asks before removing [game] from the device. */
 @Composable
 internal fun RemoveDialog(game: LibraryGame, onDismissRequest: () -> Unit, onRemove: () -> Unit) {
-  Dialog(onDismissRequest, initialFocus = "remove:cancel") {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(
-        "Remove ${game.title} from this device?",
-        color = Placeholder.text,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(
-        when (game) {
-          is Rom -> "Its saves stay, here and on RomM, and you can download it again."
-          is LocalGame ->
-            "It isn't on your server, so you can't download it again. Its saves stay on " +
-              "this device."
-        },
-        color = Placeholder.mutedText,
-      )
-      Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        MenuButton("remove:cancel", "Cancel", onConfirm = onDismissRequest)
-        MenuButton("remove:confirm", "Remove", onConfirm = onRemove)
-      }
-    }
-  }
+  ConfirmDialog(
+    "remove",
+    "Remove ${game.title} from this device?",
+    "Remove",
+    onConfirm = onRemove,
+    onDismissRequest = onDismissRequest,
+    fact =
+      when (game) {
+        is Rom -> "Its saves stay, here and on RomM, and you can download it again."
+        is LocalGame ->
+          "It isn't on your server, so you can't download it again. Its saves stay on " +
+            "this device."
+      },
+  )
 }
 
-/** Asks before uploading [game] to RomM. Cancel is focused first. */
+/** Asks before uploading [game] to RomM. */
 @Composable
 internal fun UploadDialog(game: LocalGame, onDismissRequest: () -> Unit, onUpload: () -> Unit) {
-  Dialog(onDismissRequest, initialFocus = "upload:cancel") {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(
-        "Upload ${game.title} to RomM?",
-        color = Placeholder.text,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(
-        "It goes into its platform's folder on your server as ${game.fileName} " +
-          "(${formatSize(game.sizeBytes)}). Once RomM has it in your library, its saves " +
-          "sync like any game's.",
-        color = Placeholder.mutedText,
-      )
-      Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        MenuButton("upload:cancel", "Cancel", onConfirm = onDismissRequest)
-        MenuButton("upload:confirm", "Upload", onConfirm = onUpload)
-      }
-    }
-  }
+  ConfirmDialog(
+    "upload",
+    "Upload ${game.title} to RomM?",
+    "Upload",
+    onConfirm = onUpload,
+    onDismissRequest = onDismissRequest,
+    fact =
+      "It goes into its platform's folder on your server as ${game.fileName} " +
+        "(${formatSize(game.sizeBytes)}). Once RomM has it in your library, its saves " +
+        "sync like any game's.",
+  )
 }
 
-/** Asks before stopping the upload of [title]. Keeping on is focused first. */
+/** Asks before stopping the upload of [title]. */
 @Composable
 internal fun StopUploadDialog(title: String, onKeep: () -> Unit, onStop: () -> Unit) {
-  Dialog(onKeep, initialFocus = "upload:keep") {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(
-        "Stop uploading $title?",
-        color = Placeholder.text,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text("RomM drops what it received so far.", color = Placeholder.mutedText)
-      Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        MenuButton("upload:keep", "Keep uploading", onConfirm = onKeep)
-        MenuButton("upload:stop", "Stop upload", onConfirm = onStop)
-      }
-    }
-  }
+  ConfirmDialog(
+    "stopUpload",
+    "Stop uploading $title?",
+    "Stop upload",
+    onConfirm = onStop,
+    onDismissRequest = onKeep,
+    fact = "RomM drops what it received so far.",
+    cancelLabel = "Keep uploading",
+  )
 }
 
-/**
- * Asks whether to leave a game while its launch is under way, which stops the launch. Staying is
- * focused first.
- */
+/** Asks whether to leave a game while its launch is under way, which stops the launch. */
 @Composable
 internal fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit) {
-  Dialog(onStay, initialFocus = "leave:stay") {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(
-        "Leave $title?",
-        color = Placeholder.text,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(
-        "A game that hasn't started yet won't start. One already playing in another app keeps " +
-          "running, but its save won't sync with RomM when you quit it.",
-        color = Placeholder.mutedText,
-      )
-      Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        MenuButton("leave:stay", "Stay", onConfirm = onStay)
-        MenuButton("leave:confirm", "Leave", onConfirm = onLeave)
-      }
-    }
-  }
+  ConfirmDialog(
+    "leave",
+    "Leave $title?",
+    "Leave",
+    onConfirm = onLeave,
+    onDismissRequest = onStay,
+    fact =
+      "A game that hasn't started yet won't start. One already playing in another app keeps " +
+        "running, but its save won't sync with RomM when you quit it.",
+    cancelLabel = "Stay",
+  )
 }
