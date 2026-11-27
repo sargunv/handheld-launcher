@@ -5,8 +5,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -22,18 +29,76 @@ import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.Help
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
-internal fun LazyListScope.romm(
-  state: AppState,
-  uploadAccess: UploadAccess?,
-  onSignOut: () -> Unit,
-  onAllowUploads: () -> Unit,
-  onSignInAgain: () -> Unit,
+/** The RomM section's state. It asks what this sign-in may upload only while [shown]. */
+@Composable
+internal fun rememberRommSection(state: AppState, shown: Boolean): RommSection {
+  val signedIn = state.account.signedIn == true
+  // Asked again after each sync, since the account's permissions can change.
+  val uploadAccess =
+    produceState<UploadAccess?>(null, state.sync, signedIn, shown) {
+      if (signedIn && shown) value = state.romm.uploadAccess()
+    }
+  val confirmSignOut = rememberSaveable { mutableStateOf(false) }
+  val confirmAllowUploads = rememberSaveable { mutableStateOf(false) }
+  val scope = rememberCoroutineScope()
+  return remember(state) {
+    RommSection(state, scope, uploadAccess, confirmSignOut, confirmAllowUploads)
+  }
+}
+
+internal class RommSection(
+  val state: AppState,
+  private val scope: CoroutineScope,
+  uploadAccess: State<UploadAccess?>,
+  confirmSignOut: MutableState<Boolean>,
+  confirmAllowUploads: MutableState<Boolean>,
 ) {
+  /** What this sign-in may upload, or null while it's being asked. */
+  val uploadAccess by uploadAccess
+
+  var confirmSignOut by confirmSignOut
+
+  var confirmAllowUploads by confirmAllowUploads
+
+  fun signInAgain() {
+    scope.launch { state.signOut(keepQueue = true) }
+  }
+
+  @Composable
+  fun Dialogs() {
+    if (confirmSignOut) {
+      SignOutDialog(
+        onSignOut = {
+          confirmSignOut = false
+          scope.launch { state.signOut() }
+        },
+        onDismissRequest = { confirmSignOut = false },
+      )
+    }
+    if (confirmAllowUploads) {
+      AllowUploadsDialog(
+        UPLOADS_NOT_REQUESTED,
+        onSignInAgain = {
+          confirmAllowUploads = false
+          scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+        },
+        onDismissRequest = { confirmAllowUploads = false },
+      )
+    }
+  }
+}
+
+internal fun LazyListScope.romm(section: RommSection) {
   sectionHeading("RomM")
+  val state = section.state
+  val uploadAccess = section.uploadAccess
   val view = state.settingsView
   if (state.account.signedIn != true) {
     item(key = "signedOut") {
@@ -108,7 +173,7 @@ internal fun LazyListScope.romm(
           "Goes to the sign-in, with this server filled in. Your games and saves stay on this " +
             "device.",
         ),
-        onConfirm = onSignInAgain,
+        onConfirm = section::signInAgain,
       )
     }
   }
@@ -134,7 +199,7 @@ internal fun LazyListScope.romm(
           "Signs in again to this server, asking for permission to upload games. Your games, " +
             "saves and settings stay on this device.",
         ),
-        onConfirm = onAllowUploads,
+        onConfirm = { section.confirmAllowUploads = true },
       )
     }
   }
@@ -160,7 +225,7 @@ internal fun LazyListScope.romm(
         "Sign out",
         "Signs this device out of the server. Your downloaded games and saves stay on this device.",
       ),
-      onConfirm = onSignOut,
+      onConfirm = { section.confirmSignOut = true },
     )
   }
 }
