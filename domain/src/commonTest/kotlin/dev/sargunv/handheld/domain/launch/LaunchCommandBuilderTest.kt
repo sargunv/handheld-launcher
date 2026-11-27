@@ -3,11 +3,12 @@ package dev.sargunv.handheld.domain.launch
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.KnownEmulator
+import dev.sargunv.handheld.domain.emulator.LibretroCore
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -21,9 +22,13 @@ class LaunchCommandBuilderTest {
 
   private fun emulator(id: String): KnownEmulator = assertNotNull(EmulatorRegistry[EmulatorId(id)])
 
-  private fun build(emulator: KnownEmulator, input: LaunchInput): LaunchCommand =
+  private fun build(
+    emulator: KnownEmulator,
+    input: LaunchInput,
+    core: LibretroCore? = LibretroCores.recommendedFor(input.platform),
+  ): LaunchCommand =
     assertIs<LaunchBuild.Ready>(
-        LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input),
+        LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input, core),
       )
       .command
 
@@ -48,13 +53,12 @@ class LaunchCommandBuilderTest {
         categories = listOf(IntentCategory.DEFAULT),
         data = LaunchUri.ProviderFile(rom),
         mimeType = LaunchRecipe.OCTET_STREAM,
-        flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask, LaunchFlag.GrantReadUriPermission),
+        flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask),
         clipData = LaunchUri.ProviderFile(rom),
       ),
       command,
     )
     assertEquals(listOf(LaunchUri.ProviderFile(rom)), command.readGrants)
-    assertFalse(command.canUseShell)
   }
 
   @Test
@@ -84,7 +88,6 @@ class LaunchCommandBuilderTest {
       command.extras,
     )
     assertEquals(LaunchUri.ProviderFile(rom), command.clipData)
-    assertTrue(LaunchFlag.GrantReadUriPermission in command.flags)
   }
 
   @Test
@@ -93,19 +96,6 @@ class LaunchCommandBuilderTest {
     assertEquals(
       "/data/data/com.retroarch/cores/mupen64plus_next_gles3_libretro_android.so",
       command.extras.first { it.key == "LIBRETRO" }.let { (it as LaunchExtra.StringValue).value },
-    )
-  }
-
-  @Test
-  fun aGivenCoreBeatsTheRecommendedOne() {
-    val command =
-      build(emulator("retroarch"), LaunchInput(rom, PlatformCatalog.NES, core = "fceumm_libretro"))
-    assertEquals(
-      LaunchExtra.StringValue(
-        "LIBRETRO",
-        "/data/data/com.retroarch/cores/fceumm_libretro_android.so",
-      ),
-      command.extras.first { it.key == "LIBRETRO" },
     )
   }
 
@@ -137,7 +127,7 @@ class LaunchCommandBuilderTest {
     val oldBuild =
       build(duckStation, LaunchInput(rom, PlatformCatalog.PSX, installedVersionName = "0.1-9000"))
     assertEquals(LaunchExtra.UriString("bootPath", LaunchUri.ProviderFile(rom)), oldBuild.extras[0])
-    assertTrue(LaunchFlag.GrantReadUriPermission in oldBuild.flags)
+    assertEquals(listOf(LaunchUri.ProviderFile(rom)), oldBuild.readGrants)
 
     val unknownBuild = build(duckStation, LaunchInput(rom, PlatformCatalog.PSX))
     assertIs<LaunchExtra.UriString>(unknownBuild.extras[0])
@@ -157,7 +147,6 @@ class LaunchCommandBuilderTest {
     assertEquals(LaunchUri.Raw("file:///storage/emulated/0/ROMs/game.nds"), command.data)
     assertNull(command.mimeType)
     assertEquals(LaunchMethod.Shell, command.method)
-    assertTrue(command.canUseShell)
     assertTrue(command.categories.isEmpty())
   }
 
@@ -217,20 +206,9 @@ class LaunchCommandBuilderTest {
       listOf(LaunchExtra.StringArray("AppStartParameters", listOf("-r", "PCSE00120"))),
       command.extras,
     )
-    assertTrue(command.stopBeforeLaunch)
 
     val noTitle = build("vita3k", PlatformCatalog.VITA, "/storage/emulated/0/ROMs/game.zip")
     assertTrue(noTitle.extras.isEmpty())
-
-    val given =
-      build(
-        emulator("vita3k"),
-        LaunchInput("/x/game.zip", PlatformCatalog.VITA, titleId = "PCSB00245"),
-      )
-    assertEquals(
-      listOf("-r", "PCSB00245"),
-      (given.extras.single() as LaunchExtra.StringArray).values,
-    )
   }
 
   @Test
@@ -257,7 +235,14 @@ class LaunchCommandBuilderTest {
     val command = build("flycast", PlatformCatalog.DREAMCAST, "/storage/emulated/0/ROMs/game.chd")
     assertEquals(LaunchUri.Raw("/storage/emulated/0/ROMs/game.chd"), command.data)
     assertEquals(LaunchRecipe.OCTET_STREAM, command.mimeType)
-    assertTrue(command.canUseShell)
-    assertFalse(LaunchFlag.GrantReadUriPermission in command.flags)
+    assertEquals(LaunchMethod.Shell, command.method)
+    assertTrue(command.readGrants.isEmpty())
+  }
+
+  @Test
+  fun shellRecipesHandingOverAContentUriGoAsIntents() {
+    val command = build("armsx2", PlatformCatalog.PS2)
+    assertEquals(LaunchUri.ProviderFile(rom), command.data)
+    assertEquals(LaunchMethod.Intent, command.method)
   }
 }

@@ -3,6 +3,7 @@ package dev.sargunv.handheld.domain.launch
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64
@@ -113,7 +114,7 @@ class LaunchResolverTest {
       resolved(LaunchResolver.resolve(snesGame, rules, installed)).target.packageName,
     )
     assertEquals(
-      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
+      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, LibretroCores.recommendedFor(PSX)!!),
       LaunchResolver.resolve(psxGame, rules, installed),
     )
   }
@@ -158,7 +159,7 @@ class LaunchResolverTest {
   fun theDsPlaysBuiltInEvenWithAnEmulatorInstalled() {
     val game = LaunchSubject(game = GameKey.Romm(1), platform = NDS)
     assertEquals(
-      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
+      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault, LibretroCores.recommendedFor(NDS)!!),
       LaunchResolver.resolve(game, LaunchRules(), setOf("com.dsemu.drastic", "me.magnum.melonds")),
     )
   }
@@ -191,7 +192,7 @@ class LaunchResolverTest {
   fun aBuiltInChoiceKeepsItsCore() {
     val mgba = LaunchChoice.BuiltIn.copy(core = "mgba_libretro")
     assertEquals(
-      LaunchResolution.BuiltIn(LaunchRule.GameOverride, "mgba_libretro"),
+      LaunchResolution.BuiltIn(LaunchRule.GameOverride, LibretroCores.byLibrary("mgba_libretro")!!),
       LaunchResolver.resolve(
         LaunchSubject(game = GameKey.Romm(1), platform = GB),
         LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to mgba)),
@@ -230,25 +231,6 @@ class LaunchResolverTest {
     )
     val none = LaunchResolver.resolve(game, LaunchRules(), setOf("com.retroarch"))
     assertEquals(LaunchResolution.NoEmulatorInstalled(virtualBoy, emptyList()), none)
-  }
-
-  @Test
-  fun aTargetBuildsItsCommandWithItsCore() {
-    val rules =
-      LaunchRules(
-        platformDefaults = mapOf(SNES to LaunchChoice("com.retroarch", core = "bsnes_libretro")),
-      )
-    val game = LaunchSubject(game = GameKey.Romm(1), platform = SNES)
-    val target = resolved(LaunchResolver.resolve(game, rules, setOf("com.retroarch"))).target
-    val command =
-      assertIs<LaunchBuild.Ready>(target.commandFor(LaunchInput("/roms/zelda.sfc", SNES))).command
-    assertEquals(
-      LaunchExtra.StringValue(
-        "LIBRETRO",
-        "/data/data/com.retroarch/cores/bsnes_libretro_android.so",
-      ),
-      command.extras.first { it.key == "LIBRETRO" },
-    )
   }
 
   @Test

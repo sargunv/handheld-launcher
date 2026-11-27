@@ -52,19 +52,4 @@ class LaunchCommandTest {
       )
     assertEquals(emptyList(), command.readFolders)
   }
-
-  @Test
-  fun shellCommandsWithContentUrisGoAsIntents() {
-    val rom = LaunchUri.ProviderFile("/storage/emulated/0/ROMs/ps2/Game.chd")
-    val path = LaunchUri.Raw("/storage/emulated/0/ROMs/ps2/Game.chd")
-    val shell =
-      LaunchCommand("dev.example.emu", action = IntentAction.VIEW, method = LaunchMethod.Shell)
-
-    assertEquals(LaunchMethod.Shell, shell.copy(data = path).dispatchMethod)
-    assertEquals(LaunchMethod.Intent, shell.copy(data = rom).dispatchMethod)
-    assertEquals(
-      LaunchMethod.Intent,
-      shell.copy(data = path, method = LaunchMethod.Intent).dispatchMethod,
-    )
-  }
 }

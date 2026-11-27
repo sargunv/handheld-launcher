@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.achievements
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.platformHttpEngine
@@ -18,7 +19,6 @@ import io.ktor.http.parameters
 import kotlinx.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 
 /**
  * A client for RetroAchievements' API, which the app reaches directly, not through RomM: it signs
@@ -31,7 +31,6 @@ import kotlinx.serialization.SerializationException
 class RetroAchievementsClient(
   private val userAgent: String,
   private val engine: HttpClientEngine = platformHttpEngine(),
-  private val endpoint: String = DEFAULT_ENDPOINT,
 ) : AutoCloseable {
   private val http = httpClient(engine, socketTimeoutMillis = 30_000)
 
@@ -49,7 +48,7 @@ class RetroAchievementsClient(
   suspend fun signIn(username: String, password: String): RetroAchievementsAccount {
     val text = network {
       http
-        .post(endpoint) {
+        .post(ENDPOINT) {
           header(HttpHeaders.UserAgent, userAgent)
           setBody(
             FormDataContent(
@@ -66,17 +65,13 @@ class RetroAchievementsClient(
     val response =
       try {
         LenientJson.decodeFromString(LoginResponse.serializer(), text)
-      } catch (e: SerializationException) {
-        throw RetroAchievementsException("RetroAchievements sent a response the app can't read", e)
       } catch (e: IllegalArgumentException) {
-        throw RetroAchievementsException("RetroAchievements sent a response the app can't read", e)
+        throw RetroAchievementsException("Unreadable response", e)
       }
     val user = response.user
     val token = response.token
     if (!response.success || user == null || token == null) {
-      throw RetroAchievementsException(
-        response.error ?: "RetroAchievements didn't accept the sign-in",
-      )
+      throw RetroAchievementsException(response.error ?: "Sign-in refused")
     }
     return RetroAchievementsAccount(username = user, token = token)
   }
@@ -103,7 +98,8 @@ class RetroAchievementsClient(
           }
         }
       Response(response.status.value, response.bodyAsBytes())
-    } catch (_: IOException) {
+    } catch (e: IOException) {
+      log.w(e) { "Request to RetroAchievements failed" }
       null
     }
 
@@ -114,7 +110,7 @@ class RetroAchievementsClient(
     try {
       block()
     } catch (e: IOException) {
-      throw RetroAchievementsException("Couldn't reach RetroAchievements: ${e.message}", e)
+      throw RetroAchievementsException("RetroAchievements unreachable · ${e.message}", e)
     }
 
   @Serializable
@@ -126,8 +122,10 @@ class RetroAchievementsClient(
   )
 
   companion object {
+    private val log = Logger.withTag("RetroAchievementsClient")
+
     /** RetroAchievements' API, as rcheevos calls it. */
-    const val DEFAULT_ENDPOINT = "https://retroachievements.org/dorequest.php"
+    private const val ENDPOINT = "https://retroachievements.org/dorequest.php"
 
     /**
      * The User-Agent RetroAchievements asks for: the app's name and version, then rcheevos' clause,

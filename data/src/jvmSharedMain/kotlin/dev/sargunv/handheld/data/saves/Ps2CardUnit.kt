@@ -7,12 +7,11 @@
 
 package dev.sargunv.handheld.data.saves
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.writeAtomically
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.util.zip.ZipInputStream
 import kotlin.time.Instant
 import kotlinx.io.files.Path
@@ -68,7 +67,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         try {
           Ps2Card.load(bytes)
         } catch (e: Ps2FormatException) {
-          throw IOException("${file.path} isn't a memory card the launcher can read: ${e.message}")
+          throw unreadable("Unreadable memory card · ${file.name}", e)
         }
       cards += Card(file, folder = false, card, bytes)
     }
@@ -87,7 +86,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         try {
           Ps2FolderCard.pack(folder.name, files)
         } catch (e: Ps2FormatException) {
-          throw IOException("The save folder ${folder.path} is damaged: ${e.message}")
+          throw unreadable("Damaged save · ${folder.name}", e)
         }
       card.inject(packed)
     }
@@ -121,16 +120,16 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val saves = mutableListOf<Pair<Ps2Save, Card>>()
     for (card in cards) {
       val listing = listing(card)
-      if (listing.corrupt.any { ps2Owner(it) == save.serial }) {
-        throw IOException("A save of this game on ${card.file.path} is damaged")
-      }
+      listing.corrupt
+        .firstOrNull { ps2Owner(it) == save.serial }
+        ?.let { throw IOException("Damaged save · $it") }
       for (entry in listing.entries) {
         if (entry.owner != save.serial || saves.any { it.first.name == entry.name }) continue
         val lifted =
           try {
             card.card.extract(entry.firstCluster)
           } catch (e: Ps2FormatException) {
-            throw IOException("A save of this game on ${card.file.path} is damaged: ${e.message}")
+            throw unreadable("Damaged save · ${entry.name}", e)
           }
         saves += lifted to card
       }
@@ -142,7 +141,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     try {
       card.card.list()
     } catch (e: Ps2FormatException) {
-      throw IOException("${card.file.path} isn't a memory card the launcher can read: ${e.message}")
+      throw unreadable("Unreadable memory card · ${card.file.name}", e)
     }
 
   /** The per-game card holding [saves], as sigil builds it. */
@@ -186,7 +185,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
 
   override fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit) {
     val incoming = unitSaves(bytes)
-    val root = target.parentFile ?: throw IOException("${target.path} has no folder")
+    val root = target.parentFile ?: throw IOException("No save folder")
     val gathered = gather(root)
     val cards = gathered.cards
     // What the cards hold of this game now is in the history already, unless the emulator wrote
@@ -219,7 +218,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       try {
         card.card.inject(s)
       } catch (e: Ps2NoSpaceException) {
-        throw IOException("${card.file.path} has no room for the save ${s.name}")
+        throw IOException("Memory card full · ${card.file.name}")
       }
       placed.getOrPut(card) { mutableListOf() } += s
       changed += card
@@ -238,7 +237,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val now = if (card.file.isFile) card.file.readBytes() else null
     val unchanged =
       card.bytes?.let { now?.contentEquals(it) == true } ?: (now == null || holdsNothing(now))
-    if (!unchanged) throw IOException("${card.file.path} changed while the launcher was writing it")
+    if (!unchanged) throw IOException("Memory card changed · ${card.file.name}")
   }
 
   /**
@@ -249,13 +248,13 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val image = card.card.image()
     val back = Ps2Card.load(image)
     if (!placed.all { back.holds(it) }) {
-      throw IOException("The saves didn't read back from the new ${card.file.name}")
+      throw IOException("Write check failed · ${card.file.name}")
     }
     return {
       checkUnchanged(card)
       writeAtomically(Path(card.file.path), image)
       if (!card.file.readBytes().contentEquals(image)) {
-        throw IOException("${card.file.path} didn't read back as written")
+        throw IOException("Write check failed · ${card.file.name}")
       }
     }
   }
@@ -273,7 +272,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
           val lifted = card.card.extract(entry.firstCluster)
           val files = Ps2FolderCard.unpack(lifted)
           if (Ps2FolderCard.pack(lifted.name, files).md5() != lifted.md5()) {
-            throw IOException("The save ${lifted.name} doesn't keep as a folder")
+            throw IOException("Can't unpack save · ${lifted.name}")
           }
           lifted.name to files
         }
@@ -299,39 +298,17 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val aside = File(dir.parentFile, "$RESERVED$stamp-old")
     try {
       for ((name, files) in folders) {
+        val folder = File(staging, name).apply { mkdirs() }
         for ((path, data) in files) {
-          val file = File(File(staging, name), path)
+          val file = File(folder, path)
           file.parentFile.mkdirs()
           file.writeBytes(data)
         }
       }
-      if (!aside.mkdirs()) throw IOException("Couldn't make ${aside.path}")
-      val undo = ArrayDeque<() -> Unit>()
-      try {
-        for (old in owned(dir)) {
-          val moved = File(aside, old.name)
-          Files.move(old.toPath(), moved.toPath(), ATOMIC_MOVE)
-          undo.addFirst { Files.move(moved.toPath(), old.toPath(), ATOMIC_MOVE) }
-        }
-        for ((name, _) in folders) {
-          val placed = File(dir, name)
-          Files.move(File(staging, name).toPath(), placed.toPath(), ATOMIC_MOVE)
-          undo.addFirst { placed.deleteRecursively() }
-        }
-      } catch (e: IOException) {
-        for (step in undo) {
-          try {
-            step()
-          } catch (suppressed: IOException) {
-            e.addSuppressed(suppressed)
-          }
-        }
-        throw e
-      }
+      swapIn(listOf(Swap(dir, owned(dir), staging, aside)))
       aside.deleteRecursively()
     } finally {
       staging.deleteRecursively()
-      if (aside.list()?.isEmpty() == true) aside.delete()
     }
   }
 
@@ -346,22 +323,20 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       try {
         if (isZipBytes(unit)) zipCards(unit) else listOf(Ps2Card.load(unit))
       } catch (e: Ps2FormatException) {
-        throw IOException("The save from RomM isn't a PS2 memory card: ${e.message}")
+        throw unreadable("Not a PS2 memory card", e)
       }
     val saves = mutableListOf<Ps2Save>()
     for (card in cards) {
       val listing = card.list()
       if (listing.corrupt.isNotEmpty()) {
-        throw IOException(
-          "The save from RomM holds a damaged save: ${listing.corrupt.joinToString()}",
-        )
+        throw IOException("Damaged save · ${listing.corrupt.joinToString()}")
       }
       for (entry in listing.entries) {
         if (entry.owner != save.serial || saves.any { it.name == entry.name }) continue
         saves += card.extract(entry.firstCluster)
       }
     }
-    if (saves.isEmpty()) throw IOException("The save from RomM holds none of this game's saves")
+    if (saves.isEmpty()) throw IOException("No saves of this game")
     return saves
   }
 
@@ -398,8 +373,14 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
   private companion object {
     /** The cards PCSX2 and its forks use unless their settings name others: slot 1's, then 2's. */
     val SLOTS = listOf("Mcd001.ps2", "Mcd002.ps2")
-    const val RESERVED = ".handheld-"
   }
+}
+
+private val log = Logger.withTag("Ps2CardUnit")
+
+private fun unreadable(label: String, cause: Ps2FormatException): IOException {
+  log.w(cause) { label }
+  return IOException(label, cause)
 }
 
 /**

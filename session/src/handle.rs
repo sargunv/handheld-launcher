@@ -20,12 +20,11 @@ use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
     SendAchievementsRequest,
 };
-use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, Vsync};
-use crate::save::SaveRam;
-use crate::session::{AvInfo, Session, SessionConfig, SessionError, VideoOutput};
-use crate::video::{CapturedFrame, Frame, Region, VideoSink};
+use crate::platform::{self, PlatformWindow, VsyncClock};
+use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo};
+use crate::video::{CapturedFrame, Region};
 
 /// What [`GameSession::start`] needs.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -54,7 +53,6 @@ pub struct SessionOptions {
     pub save_ram_path: Option<String>,
     /// Core option values to use instead of the core's defaults, by key.
     pub core_options: HashMap<String, String>,
-    pub video: VideoMode,
     /// The bottom screen's share of the frame's width, from 0 to 1, when a
     /// two-screen system's core draws it narrower than the top screen and
     /// centred under it, as Azahar draws the 3DS's 320-pixel-wide bottom
@@ -68,18 +66,6 @@ pub struct SessionOptions {
     /// so without one, the session doesn't take part either.
     #[uniffi(default = None)]
     pub achievements: Option<AchievementOptions>,
-}
-
-/// Where a session's frames go.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum VideoMode {
-    /// To the window attached with [`GameSession::attach_window`], through an
-    /// OpenGL ES context, or a Vulkan device for Vulkan cores, that the
-    /// session keeps while windows come and go.
-    Window,
-    /// Nowhere: the session only keeps the last frame, for
-    /// [`GameSession::capture_frame`].
-    Offscreen,
 }
 
 /// A window to present to, from the platform's own window system.
@@ -102,7 +88,7 @@ pub enum Screen {
 }
 
 /// What a running session's core says about itself.
-#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+#[derive(Clone, Debug, Default, PartialEq, uniffi::Record)]
 pub struct SessionInfo {
     pub library_name: String,
     pub library_version: String,
@@ -116,6 +102,16 @@ pub struct SessionInfo {
 }
 
 impl SessionInfo {
+    fn new(system: &SystemInfo, av: AvInfo) -> Self {
+        let mut info = Self {
+            library_name: system.library_name.clone(),
+            library_version: system.library_version.clone(),
+            ..Self::default()
+        };
+        info.set_av(av);
+        info
+    }
+
     /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
     /// whether they changed.
     fn set_av(&mut self, av: AvInfo) -> bool {
@@ -234,7 +230,6 @@ enum Command {
     Pause(Reply<()>),
     Resume,
     FastForward(u32),
-    Advance(u32, Reply<()>),
     SaveState(PathBuf, Reply<()>),
     LoadState(PathBuf, Reply<()>),
     CaptureFrame(Reply<Option<CapturedFrame>>),
@@ -258,7 +253,7 @@ impl GameSession {
         listener: Option<Arc<dyn SessionListener>>,
         http: Option<Arc<dyn AchievementsHttp>>,
     ) -> Result<Arc<Self>, SessionError> {
-        crate::platform::init_logging();
+        platform::init_logging();
         if http.is_none() {
             options.achievements = None;
         }
@@ -270,7 +265,7 @@ impl GameSession {
         let lower = Region::bottom(options.lower_screen_width_share);
         let thread = std::thread::Builder::new()
             .name("session".into())
-            .spawn(move || run(options, thread_input, events, receiver, started))?;
+            .spawn(move || run(options, lower, thread_input, events, receiver, started))?;
         match start_result.recv() {
             Ok(Ok(info)) => Ok(Arc::new(Self {
                 commands,
@@ -298,8 +293,7 @@ impl GameSession {
     }
 
     /// Presents to `window` from now on, instead of any window before it, and
-    /// shows the last frame on it at once. Only sessions in
-    /// [`VideoMode::Window`] present to windows.
+    /// shows the last frame on it at once.
     pub fn attach_window(
         &self,
         window: WindowHandle,
@@ -328,7 +322,6 @@ impl GameSession {
     /// half, it shows the share of the width that
     /// [`SessionOptions::lower_screen_width_share`] gives. It replaces
     /// any lower window before it and shows the last frame on it at once.
-    /// Only sessions in [`VideoMode::Window`] present to a lower window.
     pub fn attach_lower_window(
         &self,
         window: WindowHandle,
@@ -407,12 +400,6 @@ impl GameSession {
         let _ = self.commands.send(Command::FastForward(speed));
     }
 
-    /// Runs `frames` frames now, as fast as the core can, if the session is
-    /// paused. For stepping a frame at a time, and for tests.
-    pub fn advance(&self, frames: u32) -> Result<(), SessionError> {
-        self.request(|reply| Command::Advance(frames, reply))
-    }
-
     /// Presses or releases `button` on controller `port`. Ports past the last
     /// are ignored.
     pub fn set_button(&self, port: u32, button: Button, pressed: bool) {
@@ -445,7 +432,10 @@ impl GameSession {
         self.request(|reply| Command::SaveState(path.into(), reply))
     }
 
-    /// Restores a state that [`GameSession::save_state`] wrote.
+    /// Restores a state that [`GameSession::save_state`] wrote. The state
+    /// brings its own save memory, so save memory as it was goes to a backup
+    /// beside its file first, as `<name>.<unix time>.bak`, and the state
+    /// isn't loaded if that fails.
     pub fn load_state(&self, path: String) -> Result<(), SessionError> {
         self.request(|reply| Command::LoadState(path.into(), reply))
     }
@@ -509,91 +499,24 @@ impl Drop for GameSession {
     }
 }
 
-/// A window the session owns while it's attached.
-struct PlatformWindow {
-    #[cfg(target_os = "android")]
-    window: crate::platform::AndroidWindow,
-}
-
-impl PlatformWindow {
-    fn adopt(handle: WindowHandle) -> Result<Self, SessionError> {
-        match handle {
-            #[cfg(target_os = "android")]
-            WindowHandle::Android { window } => {
-                // SAFETY: the caller hands over a reference, as documented on
-                // `WindowHandle::Android`.
-                let window = unsafe { crate::platform::AndroidWindow::adopt(window) }
-                    .ok_or(SessionError::UnsupportedWindow)?;
-                Ok(Self { window })
-            }
-            #[cfg(not(target_os = "android"))]
-            WindowHandle::Android { .. } => Err(SessionError::UnsupportedWindow),
-        }
-    }
-
-    fn native(&self) -> crate::NativeWindow {
-        #[cfg(target_os = "android")]
-        {
-            self.window.native()
-        }
-        #[cfg(not(target_os = "android"))]
-        unreachable!("no window type exists on this platform")
-    }
-}
-
-// SAFETY: an `ANativeWindow` reference may be used and released from any
-// thread.
-unsafe impl Send for PlatformWindow {}
-
-/// The sink of a session in [`VideoMode::Offscreen`]. The session keeps the
-/// last frame itself, for [`Session::capture_frame`].
-struct DiscardFrames;
-
-impl VideoSink for DiscardFrames {
-    fn frame(&mut self, _frame: Frame<'_>) {}
-}
-
 /// The session thread: loads the session, then runs it until told to stop.
 fn run(
     options: SessionOptions,
+    lower: Region,
     input: Arc<InputState>,
     events: Events,
     commands: Receiver<Command>,
     started: Sender<Result<Arc<Mutex<SessionInfo>>, SessionError>>,
 ) {
-    let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
-    let presents_to_window = options.video == VideoMode::Window;
-    let mut session = match start_session(options, input, &events) {
+    let mut session = match start_session(options, lower, input, &events) {
         Ok(session) => session,
         Err(e) => {
             let _ = started.send(Err(e));
             return;
         }
     };
-    let save_ram = match &save_ram_path {
-        Some(path) => match SaveRam::load(path, &mut session) {
-            Ok(save_ram) => save_ram,
-            Err(e) => {
-                // Running anyway would replace the file with fresh save
-                // memory the first time the game saves.
-                log::error!("can't load save memory from {}: {e}", path.display());
-                let _ = started.send(Err(SessionError::ReadSaveRam(e)));
-                return;
-            }
-        },
-        None => None,
-    };
-    let av = session.av_info();
-    let info = SessionInfo {
-        library_name: session.system_info().library_name.clone(),
-        library_version: session.system_info().library_version.clone(),
-        fps: av.fps,
-        base_width: av.base_width,
-        base_height: av.base_height,
-        aspect_ratio: av.aspect_ratio,
-    };
+    let info = SessionInfo::new(session.system_info(), session.av_info());
     session.set_audio_paused(true);
-    let vsync = presents_to_window.then(vsync_clock).flatten();
     let info = Arc::new(Mutex::new(info));
     if started.send(Ok(info.clone())).is_err() {
         return;
@@ -604,11 +527,10 @@ fn run(
         session,
         window: None,
         lower_window: None,
-        save_ram,
         paused: true,
         speed: 1,
         next_frame: Instant::now(),
-        vsync,
+        vsync: VsyncClock::new(),
         vsyncs: None,
     };
     let quit = runner.run(&commands);
@@ -622,26 +544,19 @@ fn run(
 
 fn start_session(
     options: SessionOptions,
+    lower: Region,
     input: Arc<InputState>,
     events: &Events,
 ) -> Result<Session, SessionError> {
-    let video = match options.video {
-        VideoMode::Window => VideoOutput::Window {
-            window: None,
-            width: 0,
-            height: 0,
-            lower_screen_width_share: options.lower_screen_width_share,
-        },
-        VideoMode::Offscreen => VideoOutput::Sink(Box::new(DiscardFrames)),
-    };
     let config = SessionConfig {
         core: options.core_path.into(),
         content: options.content_path.map(PathBuf::from),
         content_cache: options.content_cache_dir.map(PathBuf::from),
         system_dir: options.system_dir.into(),
         save_dir: options.save_dir.into(),
-        video,
-        audio: audio_sink(),
+        save_ram: options.save_ram_path.map(PathBuf::from),
+        video: platform::video_output(lower),
+        audio: platform::audio_sink(),
         input,
         options: options.core_options,
         achievements: options.achievements.map(|achievements| {
@@ -656,45 +571,6 @@ fn start_session(
     unsafe { Session::new(config) }
 }
 
-/// The platform's audio output, or none where the session has no output.
-fn audio_sink() -> Box<dyn AudioSink> {
-    #[cfg(target_os = "android")]
-    match crate::platform::AAudioSink::new() {
-        Ok(sink) => return Box::new(sink),
-        Err(e) => log::error!("can't open audio output, so the session plays none: {e}"),
-    }
-    Box::new(NullAudioSink)
-}
-
-/// The display's vsync, for a session that presents to windows on a platform
-/// that tells it.
-#[cfg(target_os = "android")]
-type VsyncClock = crate::platform::VsyncClock;
-
-#[cfg(target_os = "android")]
-fn vsync_clock() -> Option<VsyncClock> {
-    VsyncClock::new()
-}
-
-#[cfg(not(target_os = "android"))]
-enum VsyncClock {}
-
-#[cfg(not(target_os = "android"))]
-impl VsyncClock {
-    fn set_running(&mut self, _running: bool) {
-        match *self {}
-    }
-
-    fn vsync(&self) -> Option<Vsync> {
-        match *self {}
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-fn vsync_clock() -> Option<VsyncClock> {
-    None
-}
-
 /// The session thread's state.
 struct Runner {
     session: Session,
@@ -704,9 +580,6 @@ struct Runner {
     events: Events,
     window: Option<PlatformWindow>,
     lower_window: Option<PlatformWindow>,
-    /// Keeps save memory's file up to date, if the core has save memory and
-    /// it has a file.
-    save_ram: Option<SaveRam>,
     paused: bool,
     /// How many frames run each time one is due: more than one to fast
     /// forward.
@@ -757,11 +630,11 @@ fn next(
 
 impl Runner {
     /// Runs the session until it's told to stop or the core quits, and
-    /// returns whether the core quit. The session is dropped when this
-    /// returns.
+    /// returns whether the core quit. The session is dropped, writing save
+    /// memory, when this returns.
     fn run(mut self, commands: &Receiver<Command>) -> bool {
         let mut next_idle = Instant::now() + ACHIEVEMENTS_IDLE_INTERVAL;
-        let quit = loop {
+        loop {
             let idle = self.session.has_achievements().then_some(next_idle);
             match next(commands, self.paused, self.next_frame, idle) {
                 Next::Command(Command::Stop(reply)) => {
@@ -784,11 +657,7 @@ impl Runner {
                 log::info!("the core asked to quit");
                 break true;
             }
-        };
-        if let Err(e) = self.stop() {
-            log::error!("can't write save memory: {e}");
         }
-        quit
     }
 
     /// Updates `info` to a frame size, aspect ratio or frame rate the core
@@ -815,9 +684,6 @@ impl Runner {
         let now = Instant::now();
         let fps = self.session.av_info().fps;
         let vsync = self.vsync();
-        if let Some(save_ram) = &mut self.save_ram {
-            save_ram.write_if_due(&self.session);
-        }
         let schedule = pacing::next_frame(self.next_frame, now, fps, vsync);
         self.next_frame = schedule.due;
         self.session.set_speed(schedule.speed);
@@ -874,7 +740,7 @@ impl Runner {
             }
             Command::Pause(reply) => {
                 self.set_paused(true);
-                let _ = reply.send(self.flush_save_ram());
+                let _ = reply.send(self.session.flush_save_ram());
             }
             Command::Resume => self.set_paused(false),
             Command::FastForward(speed) => {
@@ -886,19 +752,6 @@ impl Runner {
                 };
                 // Audio at the core's rate can't keep up with more frames.
                 self.session.set_audio_muted(self.speed > 1);
-            }
-            Command::Advance(frames, reply) => {
-                if self.paused {
-                    for _ in 0..frames {
-                        if self.session.shutdown_requested() {
-                            break;
-                        }
-                        self.session.run_frame();
-                    }
-                    // So info() is current once advance() returns.
-                    self.update_info();
-                }
-                let _ = reply.send(Ok(()));
             }
             Command::SaveState(path, reply) => {
                 let _ = reply.send(self.session.save_state(&path));
@@ -935,14 +788,7 @@ impl Runner {
 
     fn stop(&mut self) -> Result<(), SessionError> {
         self.set_paused(true);
-        self.flush_save_ram()
-    }
-
-    fn flush_save_ram(&mut self) -> Result<(), SessionError> {
-        match &mut self.save_ram {
-            Some(save_ram) => Ok(save_ram.flush(&self.session)?),
-            None => Ok(()),
-        }
+        self.session.flush_save_ram()
     }
 }
 

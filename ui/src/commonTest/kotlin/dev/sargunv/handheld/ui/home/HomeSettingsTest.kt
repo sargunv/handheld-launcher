@@ -27,14 +27,15 @@ class HomeSettingsTest {
     val settings = HomeSettings()
     assertEquals(
       listOf(RecentlyPlayed, RecentlyAdded, Collections),
-      settings.moveUp(RecentlyAdded).visible,
+      settings.moveUp(RecentlyAdded, settings.visible).visible,
     )
     assertEquals(
       listOf(Collections, RecentlyPlayed, RecentlyAdded),
-      settings.moveDown(RecentlyPlayed).visible,
+      settings.moveDown(RecentlyPlayed, settings.visible).visible,
     )
     // A hidden shelf in between doesn't take a move.
-    val skipping = settings.hide(Collections).moveDown(RecentlyPlayed)
+    val hidden = settings.hide(Collections)
+    val skipping = hidden.moveDown(RecentlyPlayed, hidden.visible)
     assertEquals(listOf(RecentlyAdded, RecentlyPlayed), skipping.visible)
     assertEquals(
       listOf(RecentlyAdded, Collections, RecentlyPlayed),
@@ -50,9 +51,9 @@ class HomeSettingsTest {
   @Test
   fun movingPastTheEndsDoesNothing() {
     val settings = HomeSettings()
-    assertEquals(settings, settings.moveUp(RecentlyPlayed))
-    assertEquals(settings, settings.moveDown(RecentlyAdded))
+    assertEquals(settings, settings.moveUp(RecentlyPlayed, settings.visible))
+    assertEquals(settings, settings.moveDown(RecentlyAdded, settings.visible))
     val hidden = settings.hide(Collections)
-    assertEquals(hidden, hidden.moveUp(Collections))
+    assertEquals(hidden, hidden.moveUp(Collections, hidden.visible))
   }
 }

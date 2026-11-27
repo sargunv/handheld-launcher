@@ -3,11 +3,8 @@ package dev.sargunv.handheld.ui.input
 import androidx.compose.ui.input.key.Key
 
 /**
- * The pad button [key] stands for, or null if it isn't a gamepad key.
- *
- * Face buttons map by key code, not position, so the button that sends `BUTTON_A` is [PadButton.A]
- * under any [AButtonPosition]. A desktop gamepad source delivers the same [Key]s. D-pad keys double
- * as the keyboard's arrow keys.
+ * The pad button [key] stands for, or null if it isn't one. A desktop gamepad source delivers the
+ * same [Key]s. D-pad keys double as the keyboard's arrow keys.
  */
 fun padButtonFor(key: Key): PadButton? =
   when (key) {
@@ -17,12 +14,7 @@ fun padButtonFor(key: Key): PadButton? =
     Key.ButtonY -> PadButton.Y
     Key.ButtonL1 -> PadButton.L1
     Key.ButtonR1 -> PadButton.R1
-    Key.ButtonL2 -> PadButton.L2
-    Key.ButtonR2 -> PadButton.R2
-    Key.ButtonThumbLeft -> PadButton.ThumbLeft
-    Key.ButtonThumbRight -> PadButton.ThumbRight
     Key.ButtonStart -> PadButton.Start
-    Key.ButtonSelect -> PadButton.Select
     Key.DirectionUp -> PadButton.DpadUp
     Key.DirectionDown -> PadButton.DpadDown
     Key.DirectionLeft -> PadButton.DpadLeft

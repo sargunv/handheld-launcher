@@ -12,8 +12,10 @@ It sets the scope and the priorities. Before you build a screen, read
   later.
 - `ui/`: the shared Compose Multiplatform interface: design system, focus and
   navigation, screens.
-- `domain/`: the library model, launch rules and sync logic, with no UI or I/O.
-- `data/`: the RomM client, the local cache and downloads.
+- `domain/`: what the app knows about games, platforms, emulators, cores, launch
+  rules, save locations and disc sets, with no UI or I/O.
+- `data/`: everything that talks to RomM, RetroAchievements or the device's
+  storage.
 - `session/`: the Rust game session that hosts libretro cores, used from Kotlin
   through UniFFI.
 - `rom-headers/`: a Rust crate that reads each platform's own ROM and disc
@@ -23,45 +25,22 @@ It sets the scope and the priorities. Before you build a screen, read
 
 ## Dev tool commands
 
-`mise install` installs the pinned tools. `mise tasks` lists every task. The
-common ones:
+`mise install` installs the pinned tools, `mise tasks` lists the tasks, and
+`mise run <task> --help` shows a task's arguments. What the list doesn't say:
 
-- `mise run build`: build the apps and the session crate.
-- `mise run test`: the Kotlin and Rust tests.
-- `mise run check`, `mise run fix`: the formatters and linters (hk.pkl).
-- `mise run run:desktop`: run the desktop app.
-- `mise run run:android`: install and launch on the connected device.
-  `HANDHELD_LAYOUT=frame` (or `folded`) forces a dual-screen layout.
-- `mise run android:screenshot`: save the device's screen to a temp file and
-  print its path.
-- `mise run android:action <action>`: send a semantic action (`confirm`, `back`,
-  `up`, `menu`, ...) to the app as a key event, on display 0.
-- `mise run android:ui`: print where the app is, on every display, without a
-  screenshot: the focused element first, then each visible element with its test
-  tag, text, accessibility label and bounds. Confirming on a game that isn't on
-  the device downloads it, so check first: Home's covers say so in their label,
-  and Library marks the games on the device with an `onDevice:<romId>` element,
-  and local games with `onDevice:local:<path>`.
-- `mise run android:open <target>`: show a screen of the debug app straight
-  away: `place:home`, `place:library`, `place:downloads`, `place:settings`,
-  `game:<romId>`, `local:<path>` (a local game: a file in a platform's folder
-  that matches none of the server's games), `library` (on its last tab),
-  `library:tab:<tab>` (`on-device`, `platforms`, `collections`, `all-games`),
-  `library:<platform-slug>`, `library:collection:<id>`,
-  `library:collection:smart:<id>`, `settings` or `settings:<section>`
-  (`controls`, `romm`, `retroachievements`, `emulators`, `storage`, `about`).
-  Before sign-in, only the `settings` targets show. It's the `open` extra of the
-  launch intent, so
+- `mise run run:android` and `mise run android:open` take
+  `HANDHELD_LAYOUT=frame` (or `folded`) to force a dual-screen layout.
+- `mise run android:open <target>` shows a screen straight away;
+  `mise run android:open --help` lists the targets. Before sign-in, only the
+  `settings` targets show. It's the launch intent's `open` extra, so
   `adb shell am start -n dev.sargunv.handheld/.MainActivity --es open game:42`
   does the same.
-- `mise run android:lock -- <command>`: run a command while holding the device's
-  lock (below).
-- `mise run session:fixtures`: build the cores and fetch the content the
-  session's tests run. `mise run test` runs it first.
-- `mise run session:run -- <core> [content]`: run a core in the session's
-  desktop development runner (session/README.md).
-- `mise run session:android-fixtures -- <abi>`: build the test cores for
-  Android, to run in the debug app's session test screen (session/README.md).
+- Before confirming on a game in `mise run android:ui`'s output, check it's on
+  the device, or confirming downloads it: Home's covers say so in their label,
+  and Library marks the games on the device with an `onDevice:<romId>` element,
+  and local games with `onDevice:local:<path>`.
+- session/README.md covers the session's fixtures, its desktop runner and the
+  debug app's session test activity.
 
 ## Android dev device
 
@@ -103,7 +82,7 @@ there. `mise run test:live` runs the live RomM test.
 ## Project invariants
 
 - Anything kept per game is keyed by `GameKey`, and goes to a game's ROM in the
-  one adopt step when its file stops being a local game. A setting does so by
-  being in a map keyed by `GameKey` anywhere in `Settings`, which
-  `Settings.adopted` finds by itself. Other state implements `PerGameState` and
-  joins the platform's `gameState`.
+  one adopt step when its file stops being a local game. A per-game setting
+  lives in a map keyed by `GameKey`, which `Settings.adopted` hands over
+  explicitly. Other state implements `PerGameState` and joins the platform's
+  `gameState`.

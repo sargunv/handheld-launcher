@@ -17,7 +17,14 @@ class KeystoreCredentialStoreTest {
   private val dir = Files.createTempDirectory("keystore-store").toFile()
   private val file = File(dir, "credentials")
   private val credentials =
-    RommCredentials("https://romm.example.com", "rmm_secret", "d1", listOf("roms.read"), null)
+    RommCredentials(
+      "https://romm.example.com",
+      "rmm_secret",
+      1,
+      "player",
+      "d1",
+      listOf("roms.read"),
+    )
 
   private fun aesKey() = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
 

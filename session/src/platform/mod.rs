@@ -1,5 +1,5 @@
 //! What the session needs from the platform it runs on: logging, windows,
-//! vsync and audio output.
+//! vsync, and video and audio output.
 
 #[cfg(target_os = "android")]
 mod aaudio;
@@ -7,15 +7,25 @@ mod aaudio;
 mod android;
 #[cfg(target_os = "android")]
 mod choreographer;
+#[cfg(not(target_os = "android"))]
+mod headless;
 
 #[cfg(target_os = "android")]
-pub(crate) use aaudio::AAudioSink;
+pub(crate) use aaudio::audio_sink;
 #[cfg(target_os = "android")]
-pub(crate) use android::{AndroidWindow, init_logging};
+pub(crate) use android::{PlatformWindow, init_logging};
 #[cfg(target_os = "android")]
 pub(crate) use choreographer::VsyncClock;
-
-/// Sends the session's logs where the platform shows them. The app's own
-/// logger takes them elsewhere.
 #[cfg(not(target_os = "android"))]
-pub(crate) fn init_logging() {}
+pub(crate) use headless::{PlatformWindow, VsyncClock, audio_sink, init_logging, video_output};
+
+/// Presents to the window the app attaches, through an OpenGL ES context, or
+/// a Vulkan device for Vulkan cores, that the session keeps while windows come
+/// and go.
+#[cfg(target_os = "android")]
+pub(crate) fn video_output(lower: crate::Region) -> crate::VideoOutput {
+    crate::VideoOutput::Window {
+        window: None,
+        lower,
+    }
+}

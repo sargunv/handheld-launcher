@@ -38,7 +38,6 @@ import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.library.LibrarySettings
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
@@ -84,7 +83,8 @@ class LocalGameTest {
   @Volatile private var accountScopes: String? = null
 
   /** The device's sign-in: a pasted token by default, whose scopes RomM doesn't report. */
-  private val credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token"))
+  private val credentials =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player"))
 
   /** The paths below `/api/` of the requests the server had about uploads and scans. */
   private val uploadRequests = Collections.synchronizedList(mutableListOf<String>())
@@ -143,7 +143,7 @@ class LocalGameTest {
   private fun ComposeUiTest.launch(
     launcher: GameLauncher = FakeLauncher(),
     settings: Settings = Settings(),
-    open: OpenRequest? = null,
+    open: OpenTarget? = null,
   ) {
     downloads =
       launchApp(
@@ -168,7 +168,7 @@ class LocalGameTest {
 
   /** Launches, and opens Homebrew's page from the Game Boy's games. */
   private fun ComposeUiTest.openHomebrew(launcher: GameLauncher = FakeLauncher()) {
-    launch(launcher, open = OpenRequest(OpenTarget.Local(homebrew.path)))
+    launch(launcher, open = OpenTarget.Local(homebrew.path))
     awaitText("Play")
     onNodeWithTag("primary").assertIsFocused()
   }
@@ -228,8 +228,7 @@ class LocalGameTest {
     val launcher = FakeLauncher()
     openHomebrew(launcher)
     onNodeWithText("Game Boy · 8 bytes · Not on your server").assertExists()
-    onNodeWithTag("game:saves-local")
-      .assert(hasText("Saves stay on this device until the game is on your server."))
+    onNodeWithTag("game:saves-local").assert(hasText("Saves kept on this device"))
     awaitText("Opens in Test Emulator")
 
     press(Key.ButtonA)
@@ -246,7 +245,7 @@ class LocalGameTest {
     onNodeWithTag("menu:cancel").assertDoesNotExist()
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Open Homebrew with")
-    awaitText("keeps this choice for its file")
+    awaitText("Kept for this file")
   }
 
   // An upload sends one file, so a disc set, whose other files would stay behind, has none.
@@ -254,7 +253,7 @@ class LocalGameTest {
   fun aDiscSetOffersNoUpload() = runComposeUiTest {
     val cue = File(storage, "ROMs/gb/Disc.cue").apply { writeText("FILE \"Disc.bin\" BINARY\n") }
     File(storage, "ROMs/gb/Disc.bin").writeBytes(ByteArray(8))
-    launch(open = OpenRequest(OpenTarget.Local(cue.path)))
+    launch(open = OpenTarget.Local(cue.path))
     awaitText("Play")
     press(Key.ButtonX)
     awaitTag("menu:remove")
@@ -272,7 +271,7 @@ class LocalGameTest {
     press(Key.ButtonX)
     assertFocused("menu:remove")
     press(Key.ButtonA)
-    awaitText("you can't download it again")
+    awaitText("Can't download it again")
     // Cancel has focus first.
     assertFocused("remove:cancel")
     press(Key.ButtonA)
@@ -297,7 +296,7 @@ class LocalGameTest {
       RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
     }
     // The page is the server's game's now, which has its saves on RomM.
-    awaitText("No saves on RomM yet.")
+    awaitText("No saves on RomM")
     onNodeWithTag("game:saves-local").assertDoesNotExist()
     onNodeWithText("Homebrew (World)").assertExists()
     onNodeWithTag("primary").assertIsFocused()
@@ -364,16 +363,11 @@ class LocalGameTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     // A pasted token's permissions aren't known, so its sign-in may be why.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText(
-        "RomM didn't allow the upload: Forbidden. This device's sign-in may not have " +
-          "permission to upload games.",
-      )
-      .assertExists()
     assertFocused("allowUploads:cancel")
     press(Key.ButtonA)
-    awaitText(
-      "RomM didn't allow the upload: Forbidden. Your account needs permission to upload games.",
-    )
+    waitForIdle()
+    onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
+    onNodeWithText("Upload refused · No upload permission").assertExists()
     assertEquals(listOf("roms/upload/start"), uploadRequests.toList())
     onNodeWithTag("primary").assertTextEquals("Play")
     onNodeWithTag("game:saves-local").assertExists()
@@ -384,13 +378,15 @@ class LocalGameTest {
   fun aRefusalDespitePermissionToUploadIsTheAccounts() = runComposeUiTest {
     refuseUploads = true
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.write")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.write")),
+      )
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitTag("upload:confirm")
     press(listOf(Key.DirectionRight, Key.ButtonA))
-    awaitText("Your account needs permission to upload games.")
+    awaitText("Upload refused · No upload permission")
     onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
   }
 
@@ -398,14 +394,15 @@ class LocalGameTest {
   fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
     accountScopes = """["roms.read", "roms.write", "tasks.run"]"""
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+      )
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     // It asks before anything goes to the server.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText("This device signed in without permission to upload games to your server.")
-      .assertExists()
+    onNodeWithText("Uploads not allowed by this sign-in").assertExists()
     onNodeWithTag("upload:confirm").assertDoesNotExist()
     assertFocused("allowUploads:cancel")
     press(listOf(Key.DirectionRight, Key.ButtonA))
@@ -423,11 +420,13 @@ class LocalGameTest {
   fun anAccountThatMayNotUploadIsToldSo() = runComposeUiTest {
     accountScopes = """["roms.read"]"""
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+      )
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
-    awaitText("Your RomM account may not upload games. An admin can allow it in RomM.")
+    awaitText("Uploads not allowed for your RomM account")
     onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
     onNodeWithTag("upload:confirm").assertDoesNotExist()
     assertEquals(emptyList(), uploadRequests.toList())

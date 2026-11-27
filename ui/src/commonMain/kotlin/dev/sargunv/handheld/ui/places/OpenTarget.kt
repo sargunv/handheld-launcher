@@ -1,13 +1,18 @@
 package dev.sargunv.handheld.ui.places
 
 import androidx.compose.runtime.Immutable
+import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * A screen to show straight away, for development: debug builds take one from the launch intent, so
- * a tool can reach a screen without driving the controls there.
+ * A screen to show straight away, for development: the app takes one from the launch intent's
+ * `open` extra, so a tool can reach a screen without driving the controls there.
  */
 @Immutable
 sealed interface OpenTarget {
@@ -36,13 +41,7 @@ sealed interface OpenTarget {
   data class Settings(val section: SettingsSection?) : OpenTarget
 
   companion object {
-    /**
-     * The target [text] names: `place:<place>` (such as `place:downloads`), `game:<romId>`,
-     * `local:<path>` (a local game's file), `library`, `library:tab:<tab>` (such as
-     * `library:tab:on-device`), `library:<platform-slug>`, `library:collection:<id>`,
-     * `library:collection:smart:<id>`, `settings` or `settings:<section>` (such as
-     * `settings:romm`). Null when it names none of those.
-     */
+    /** The target [text] names, as `mise run android:open --help` lists them, or null. */
     fun parse(text: String): OpenTarget? {
       val kind = text.substringBefore(':')
       val arg = text.substringAfter(':', missingDelimiterValue = "").ifEmpty { null }
@@ -83,14 +82,71 @@ sealed interface OpenTarget {
 }
 
 /**
- * A request to show [target]. Each request is its own, so asking for the same target twice shows it
- * twice, even after the player moved away in between.
+ * Shows [target], on top of the places, as if the player had gone there. A game or platform that
+ * the cache doesn't hold yet shows once the sync under way brings it, if it does.
  */
-class OpenRequest(val target: OpenTarget)
+internal suspend fun AppState.open(target: OpenTarget) {
+  navigator.backToStart()
+  when (target) {
+    is OpenTarget.AtPlace -> showPlace(target.place)
+    is OpenTarget.Game -> {
+      val rom = findOrAfterSync { library.rom(target.romId) }
+      if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
+    }
+    is OpenTarget.Local -> {
+      // A scan before the sync brings the platforms finds no local games, so each look waits a
+      // while for the scan that follows.
+      val local = findOrAfterSync {
+        withTimeoutOrNull(LOCAL_SCAN_WAIT) {
+          games.localGame(target.path).first {
+            it is LocalGameState.Local || it is LocalGameState.Matched
+          }
+        }
+      }
+      // The file may have matched a game of the library since.
+      when (local) {
+        is LocalGameState.Local -> navigator.push(Screen.Game(local.game.key, local.game.title))
+        is LocalGameState.Matched ->
+          library.rom(local.romId)?.let { navigator.push(Screen.Game(it.id, it.title)) }
+        LocalGameState.Gone,
+        null -> Unit
+      }
+    }
+    is OpenTarget.Library -> {
+      showPlace(Place.Library)
+      libraryView.close()
+      target.tab?.let { libraryTab = it }
+    }
+    is OpenTarget.LibraryPlatform -> {
+      showPlace(Place.Library)
+      libraryView.close()
+      val platform =
+        findOrAfterSync { library.platforms().first().find { it.slug == target.slug } } ?: return
+      openShelf(LibraryTab.Platforms, LibraryShelf.OfPlatform(platform).key)
+    }
+    is OpenTarget.LibraryCollection -> {
+      showPlace(Place.Library)
+      libraryView.close()
+      val collection =
+        findOrAfterSync {
+          library.collections().first().find { it.kind == target.kind && it.id == target.id }
+        } ?: return
+      openShelf(LibraryTab.Collections, LibraryShelf.OfCollection(collection).key)
+    }
+    is OpenTarget.Settings -> {
+      showPlace(Place.Settings)
+      target.section?.let(settingsView::jumpTo)
+    }
+  }
+}
 
-/**
- * A press of the system's HOME while the app is already in front, as the home app. It closes the
- * open dialogs when there are any, and otherwise starts over on Home, the way launchers do. Each
- * press is its own, like an [OpenRequest].
- */
-class HomePress
+/** What [find] finds now, or else once the sync under way is done. */
+private suspend fun <T : Any> AppState.findOrAfterSync(find: suspend () -> T?): T? =
+  find()
+    ?: run {
+      romm.sync.first { it.isDone }
+      find()
+    }
+
+/** How long opening a local game waits for a scan to find it. */
+private val LOCAL_SCAN_WAIT = 10.seconds

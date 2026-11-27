@@ -31,8 +31,7 @@ internal actual fun matchesServerHashes(
       ZipFile(file)
     } catch (e: ZipException) {
       // Not a zip. RomM hashes other archives' content too, which this check can't read.
-      // A file still downloading has a `.part` suffix after its own extension.
-      val extension = file.name.removeSuffix(".part").substringAfterLast('.', "").lowercase()
+      val extension = file.extension.lowercase()
       return if (extension in OtherArchives) null else false
     }
   // A ROM that's one zip has the hash of its members' content in name order, and a zip among a
@@ -61,15 +60,17 @@ internal actual fun freeBytes(root: String): Long = File(root).usableSpace
 
 internal actual fun lastModified(path: Path): Long = File(path.toString()).lastModified()
 
-internal actual fun zipMembers(path: Path): List<ZipMember>? =
+internal actual fun oneFileZipCrc(path: Path): String? =
   try {
     ZipFile(File(path.toString())).use { zip ->
       zip
         .entries()
         .asSequence()
         .filterNot { it.isDirectory }
-        .map { ZipMember(it.name, it.size, it.crc.toString(16).padStart(8, '0')) }
-        .toList()
+        .singleOrNull()
+        ?.crc
+        ?.toString(16)
+        ?.padStart(8, '0')
     }
   } catch (e: ZipException) {
     null

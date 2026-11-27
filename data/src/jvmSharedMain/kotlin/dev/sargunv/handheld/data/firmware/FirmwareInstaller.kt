@@ -87,7 +87,7 @@ class FirmwareInstaller(
         val target = File(folder, name)
         // A name from the server mustn't climb out of the folder.
         if (!target.canonicalPath.startsWith(folder.canonicalPath + File.separator)) {
-          failed[name] = "The name leaves the firmware folder"
+          failed[name] = "Unsafe firmware name"
           continue
         }
         if (target.exists()) {
@@ -134,7 +134,7 @@ class FirmwareInstaller(
     download(file, staged)
     try {
       mismatchedHash(staged, file)?.let {
-        throw IOException("The download doesn't match the server's $it hash")
+        throw IOException("Firmware hash mismatch · $it")
       }
       target.parentFile.mkdirs()
       // Creating the file fails if one exists, so nothing is ever replaced.

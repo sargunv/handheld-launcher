@@ -89,6 +89,7 @@ fn start(content: &str, hardcore: bool) -> (Harness, Waiting) {
             account(hardcore),
             Box::new(move |id, request| sent.borrow_mut().push((id, request))),
         )),
+        None,
     )
     .unwrap();
     (h, waiting)
@@ -150,9 +151,10 @@ fn hardcore_refuses_to_load_states() {
     let (mut h, waiting) = start(GAME, true);
     load(&mut h, &waiting);
     assert!(h.session.hardcore_restricts());
-    let state = h.session.serialize_state().unwrap();
+    let state = h.dirs.path().join("ucity.state");
+    h.session.save_state(&state).unwrap();
     assert!(matches!(
-        h.session.unserialize_state(&state),
+        h.session.load_state(&state),
         Err(SessionError::Hardcore)
     ));
 }

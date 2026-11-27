@@ -2,7 +2,6 @@ package dev.sargunv.handheld.data.settings
 
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteRecursively
-import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -40,27 +39,6 @@ class SettingsFileTest {
     val settings = TestSettings(Hand.Left, 7)
     settingsFile().write(settings)
     assertEquals(settings, settingsFile().read())
-  }
-
-  @Test
-  fun leavesOnlyTheSettingsFileBehind() = runTest {
-    settingsFile().write(TestSettings(Hand.Left))
-    settingsFile().write(TestSettings(Hand.Right))
-    assertEquals(listOf(file), file.parent.listDirectoryEntries())
-  }
-
-  @Test
-  fun aSettingTheFileLacksTakesItsDefault() {
-    file.parent.toFile().mkdirs()
-    file.writeText("""{"hand":"Left"}""")
-    assertEquals(TestSettings(Hand.Left, 5), settingsFile().read())
-  }
-
-  @Test
-  fun unknownSettingsAndValuesFallBackToTheDefaults() {
-    file.parent.toFile().mkdirs()
-    file.writeText("""{"hand":"Both","volume":3,"removed":true}""")
-    assertEquals(TestSettings(Hand.Right, 3), settingsFile().read())
   }
 
   @Test

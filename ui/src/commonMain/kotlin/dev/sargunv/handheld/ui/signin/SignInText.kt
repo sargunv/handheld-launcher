@@ -21,13 +21,11 @@ internal fun serverUrl(input: String): String? {
 
 /**
  * A note for a server [url] that isn't encrypted, or null when it is. Plain HTTP is allowed, for a
- * server on a private network or a tailnet, but the user should know what it means. Sign-in
- * switches to https first when the server redirects there, so the note says so.
+ * server on a private network or a tailnet.
  */
 internal fun unencryptedNote(url: String?): String? =
   if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
-    "This address isn't encrypted. If the server doesn't switch to https itself, your sign-in " +
-      "is sent in the clear, so use it only on a network you trust."
+    "Unencrypted connection"
   } else {
     null
   }
@@ -37,29 +35,23 @@ internal enum class SignInMethod {
   Token,
 }
 
-/** What went wrong signing in to [baseUrl], in plain words. */
+/** What went wrong signing in to [baseUrl]. */
 internal fun signInErrorMessage(error: Exception, baseUrl: String, method: SignInMethod): String =
   when (error) {
-    is RommException.Unreachable ->
-      "Couldn't reach $baseUrl. Check the address, and that this device is online."
+    is RommException.Unreachable -> "Unreachable · $baseUrl"
     is RommException.Unauthorized,
-    is RommException.Forbidden ->
-      "The server didn't accept this token. Check that it's complete, and that it hasn't " +
-        "expired or been deleted in RomM."
-    is RommException.DeviceAuthExpired ->
-      "The code expired before it was approved. Get a new code to try again."
-    is RommException.DeviceAuthDenied -> "The sign-in was denied in RomM."
+    is RommException.Forbidden -> "Token refused"
+    is RommException.DeviceAuthExpired -> "Code expired"
+    is RommException.DeviceAuthDenied -> "Sign-in denied"
     is RommException.NotFound,
     is RommException.InvalidResponse ->
       when (method) {
-        SignInMethod.Code ->
-          "$baseUrl doesn't offer sign-in with a code. Check the address, or use an API token."
-        SignInMethod.Token -> "$baseUrl doesn't look like a RomM server. Check the address."
+        SignInMethod.Code -> "No code sign-in · $baseUrl"
+        SignInMethod.Token -> "Not a RomM server · $baseUrl"
       }
-    is RommException.RateLimited -> "The server is busy. Wait a minute, then try again."
-    is RommException.ServerError ->
-      "The server had a problem (status ${error.status}). Try again later."
-    else -> "Couldn't sign in: ${error.message}"
+    is RommException.RateLimited -> "Server busy · Try again in a minute"
+    is RommException.ServerError -> "Server error ${error.status}"
+    else -> listOfNotNull("Sign-in failed", error.message).joinToString(" · ")
   }
 
 /** The clipboard's text, or null when it holds none. */

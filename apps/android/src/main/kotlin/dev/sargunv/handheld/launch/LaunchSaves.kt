@@ -1,21 +1,19 @@
 package dev.sargunv.handheld.launch
 
 import android.content.Context
-import android.os.Environment
-import android.os.storage.StorageManager
-import dev.sargunv.handheld.data.saves.GameIds
+import dev.sargunv.handheld.data.downloads.headerFile
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.Ps2CardRoots
 import dev.sargunv.handheld.data.saves.SaveFolderRoots
 import dev.sargunv.handheld.data.saves.SaveShape
 import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
-import dev.sargunv.handheld.domain.saves.GameIdKind
 import dev.sargunv.handheld.domain.saves.SaveFiles
 import dev.sargunv.handheld.domain.saves.SaveFolders
 import dev.sargunv.handheld.domain.saves.SaveLayout
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.session.romGameId
 import java.io.File
 
@@ -46,34 +44,30 @@ fun gameSaveFor(
 ): SaveLookup {
   val emulator = target.emulator ?: return SaveLookup.NotSupported
   val location = SaveLocations.forEmulator(emulator.id, platform) ?: return SaveLookup.NotSupported
-  val storage = Environment.getExternalStorageDirectory().path
-  val volumes =
-    context.getSystemService(StorageManager::class.java).storageVolumes.mapNotNull {
-      it.directory?.path
-    }
+  val volumes = context.handheldApp.storageTargets().map { it.root }
+  val storage = volumes.firstOrNull() ?: return SaveLookup.NotSupported
   val roots =
     SaveRoots(
       storage = storage,
-      anyStorage = listOf(storage) + (volumes - storage),
+      anyStorage = volumes,
       packageName = target.packageName,
       core = target.coreFor(platform),
     )
   SaveFiles.candidates(location, romPath, roots)?.let { paths ->
     return SaveLookup.Found(GameSave(romId, emulator.id.value, SaveShape.Files(paths.map(::File))))
   }
-  val kind =
-    SaveFolders.idKind(location, platform)
-      ?: return when (location.layout) {
-        is SaveLayout.SharedMemoryCard,
-        is SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
-        else -> SaveLookup.NotSupported
-      }
+  if (SaveFolders.idKind(location, platform) == null) {
+    return when (location.layout) {
+      is SaveLayout.SharedMemoryCard,
+      is SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
+      else -> SaveLookup.NotSupported
+    }
+  }
+  val headerPlatform = SessionRomHeaders.headerPlatform(platform) ?: return SaveLookup.NoGameId
+  val file = headerFile(romPath) ?: return SaveLookup.NoGameId
   val id =
-    if (kind == GameIdKind.Switch) {
-      GameIds.switchTitle(File(romPath), switchKeys(storage, target.packageName))
-    } else {
-      SessionRomHeaders.headerPlatform(platform)?.let { romGameId(it, romPath) }
-    } ?: return SaveLookup.NoGameId
+    romGameId(headerPlatform, file, switchKeys(storage, target.packageName))
+      ?: return SaveLookup.NoGameId
   val saveRoots = SaveFiles.folders(location.paths, roots).map(::File)
   val layout = location.layout
   if (layout is SaveLayout.Ps2MemoryCards) {
@@ -92,8 +86,9 @@ fun gameSaveFor(
   )
 }
 
-/** The Switch emulator's keys, as the yuzu forks and Ryujinx keep them, if it has them. */
-private fun switchKeys(storage: String, packageName: String): File? =
+/** The emulator's Switch keys, where the yuzu forks and Ryujinx keep them, if it has them. */
+private fun switchKeys(storage: String, packageName: String): String? =
   listOf("keys/prod.keys", "system/prod.keys")
     .map { File(storage, "Android/data/$packageName/files/$it") }
     .firstOrNull { it.isFile }
+    ?.path

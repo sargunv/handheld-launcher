@@ -12,46 +12,28 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::audio::{AudioPipeline, AudioSink};
+use crate::cstr::opt_string;
 use crate::ffi;
-use crate::gl::{self, Framebuffer, GlApi, GlContext};
-use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
-use crate::options::{Options, opt_string};
-use crate::session::{SessionError, VideoOutput};
-use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region};
-use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
+use crate::gl::{self, GlApi};
+use crate::input::{self, InputState, MAX_PORTS, PortSnapshot, Presses};
+use crate::options::Options;
+use crate::renderer::Renderer;
+use crate::session::SessionError;
+use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region, VideoSink};
+use crate::vulkan::{self, Negotiation, VulkanError};
 use crate::{AvInfo, GlError};
 
 thread_local! {
     static HOST: Cell<*mut Host> = const { Cell::new(std::ptr::null_mut()) };
 }
 
-/// The GL context and the framebuffers the session draws with.
-pub(crate) struct Gpu {
-    pub(crate) context: GlContext,
-    /// The framebuffer a hardware-rendered core draws into.
-    pub(crate) hw: Option<Framebuffer>,
-    /// A texture for presenting software frames to a window.
-    pub(crate) upload: Option<Framebuffer>,
-    readback: Vec<u8>,
-}
-
-impl Gpu {
-    pub(crate) fn new(context: GlContext) -> Self {
-        Self {
-            context,
-            hw: None,
-            upload: None,
-            readback: Vec::new(),
-        }
-    }
-}
-
-impl Drop for Gpu {
-    fn drop(&mut self) {
-        for fb in self.hw.iter().chain(&self.upload) {
-            fb.delete(&self.context.gl);
-        }
-    }
+/// Where the host's frames go.
+pub(crate) enum Output {
+    /// To the sink, read back from the GPU when the core renders there.
+    Sink(Box<dyn VideoSink>),
+    /// To the renderer's windows, with `lower` of each frame on the lower
+    /// window.
+    Window { lower: Region },
 }
 
 /// Everything the core's callbacks read and write.
@@ -64,7 +46,7 @@ pub(crate) struct Host {
     pub(crate) input: Arc<InputState>,
     input_snapshot: [PortSnapshot; MAX_PORTS],
     /// The buttons pressed since the previous frame, held for this one.
-    frame_presses: [u32; MAX_PORTS],
+    frame_presses: [Presses; MAX_PORTS],
     pub(crate) audio_sink: Box<dyn AudioSink>,
     pub(crate) audio: Option<AudioPipeline>,
     /// The core rate `audio` resamples from.
@@ -74,12 +56,8 @@ pub(crate) struct Host {
     pub(crate) audio_speed: f64,
     /// Whether the core's audio is dropped rather than played.
     pub(crate) audio_muted: bool,
-    pub(crate) video: VideoOutput,
-    /// What a lower window shows of each frame.
-    pub(crate) lower: Region,
-    pub(crate) gpu: Option<Gpu>,
-    /// The Vulkan context, for a core that renders with Vulkan.
-    pub(crate) vulkan: Option<VulkanContext>,
+    pub(crate) output: Output,
+    pub(crate) renderer: Option<Renderer>,
     /// The core's hardware render request, with our callbacks filled in.
     pub(crate) hw_render: Option<ffi::retro_hw_render_callback>,
     /// The Vulkan context negotiation interface the core set.
@@ -87,7 +65,8 @@ pub(crate) struct Host {
     /// Why the session turned down the core's hardware render request, when
     /// it had to.
     pub(crate) hw_refused: Option<SessionError>,
-    /// The last software frame, converted, for repeats and presenting.
+    /// The last software frame, converted, for repeats and presenting, or
+    /// the last hardware frame read back for the sink.
     frame: Vec<u8>,
     frame_size: (u32, u32),
     /// Whether the last frame was hardware-rendered.
@@ -113,8 +92,7 @@ impl Host {
         options: Options,
         input: Arc<InputState>,
         audio_sink: Box<dyn AudioSink>,
-        video: VideoOutput,
-        lower: Region,
+        output: Output,
     ) -> Self {
         Self {
             system_dir,
@@ -124,17 +102,15 @@ impl Host {
             options,
             input,
             input_snapshot: Default::default(),
-            frame_presses: [0; MAX_PORTS],
+            frame_presses: Default::default(),
             audio_sink,
             audio: None,
             audio_rate: 0.0,
             audio_samples: Vec::new(),
             audio_speed: 1.0,
             audio_muted: false,
-            video,
-            lower,
-            gpu: None,
-            vulkan: None,
+            output,
+            renderer: None,
             hw_render: None,
             negotiation: None,
             hw_refused: None,
@@ -184,16 +160,11 @@ impl Host {
         self.flush_audio();
         self.av_info = av;
         self.reset_audio();
-        if let Some(gpu) = &mut self.gpu
-            && let Some(fb) = &mut gpu.hw
-        {
-            let (w, h) = (
+        if let Some(renderer) = &mut self.renderer {
+            renderer.grow(
                 av.max_width.max(av.base_width),
                 av.max_height.max(av.base_height),
             );
-            if w > fb.width || h > fb.height {
-                fb.resize(&gpu.context.gl, w.max(fb.width), h.max(fb.height));
-            }
         }
     }
 
@@ -244,9 +215,17 @@ impl Host {
         self.show_sw_frame();
     }
 
+    /// The renderer, when it presents to windows.
+    pub(crate) fn window_renderer(&mut self) -> Option<&mut Renderer> {
+        match self.output {
+            Output::Window { .. } => self.renderer.as_mut(),
+            Output::Sink(_) => None,
+        }
+    }
+
     /// Presents the last frame again, as when a window is attached.
     pub(crate) fn redraw(&mut self) {
-        if !matches!(self.video, VideoOutput::Window { .. }) {
+        if !matches!(self.output, Output::Window { .. }) {
             return;
         }
         if self.last_frame_hw {
@@ -271,26 +250,11 @@ impl Host {
                 pixels: self.frame.clone(),
             });
         }
-        if let Some(vulkan) = &mut self.vulkan {
-            let mut pixels = Vec::new();
-            return vulkan
-                .read(width, height, &mut pixels)
-                .then_some(CapturedFrame {
-                    width,
-                    height,
-                    pixels,
-                });
-        }
-        let bottom_left_origin = self.hw_render.is_some_and(|hw| hw.bottom_left_origin);
-        let gpu = self.gpu.as_ref()?;
-        let fb = gpu.hw.as_ref()?;
-        let (width, height) = (width.min(fb.width), height.min(fb.height));
         let mut pixels = Vec::new();
-        fb.read(&gpu.context.gl, width, height, &mut pixels);
-        gl::drain_errors(&gpu.context.gl, "capturing a frame");
-        if bottom_left_origin {
-            video::flip_rows(&mut pixels, width as usize, height as usize);
-        }
+        let (width, height) = self
+            .renderer
+            .as_mut()?
+            .read_hw_frame(width, height, &mut pixels)?;
         Some(CapturedFrame {
             width,
             height,
@@ -303,87 +267,39 @@ impl Host {
         if width == 0 || height == 0 {
             return;
         }
-        match &mut self.video {
-            VideoOutput::Sink(sink) => sink.frame(Frame {
-                width,
-                height,
-                pixels: &self.frame,
-            }),
-            VideoOutput::Window { .. } => {
-                let Some(gpu) = &mut self.gpu else { return };
-                let gl = &gpu.context.gl;
-                if gpu.upload.is_none() {
-                    match Framebuffer::new(gl, width, height, false, false) {
-                        Ok(fb) => gpu.upload = Some(fb),
-                        Err(e) => {
-                            log::error!("can't create the upload texture: {e}");
-                            return;
-                        }
-                    }
+        let frame = Frame {
+            width,
+            height,
+            pixels: &self.frame,
+        };
+        match &mut self.output {
+            Output::Sink(sink) => sink.frame(frame),
+            Output::Window { lower } => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.present_sw_frame(frame, self.av_info.aspect_ratio, *lower);
                 }
-                let upload = gpu.upload.as_mut().expect("created above");
-                upload.upload(gl, width, height, &self.frame);
-                gl::present(
-                    &gpu.context,
-                    upload,
-                    width,
-                    height,
-                    self.av_info.aspect_ratio,
-                    true,
-                    self.lower,
-                );
             }
         }
     }
 
     fn show_hw_frame(&mut self, width: u32, height: u32) {
-        if let Some(vulkan) = &mut self.vulkan {
-            match &mut self.video {
-                VideoOutput::Sink(sink) => {
-                    if vulkan.read(width, height, &mut self.frame) {
-                        sink.frame(Frame {
-                            width,
-                            height,
-                            pixels: &self.frame,
-                        });
-                    }
-                }
-                VideoOutput::Window { .. } => {
-                    vulkan.present(width, height, self.av_info.aspect_ratio, self.lower);
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        match &mut self.output {
+            Output::Sink(sink) => {
+                if let Some((width, height)) =
+                    renderer.read_hw_frame(width, height, &mut self.frame)
+                {
+                    sink.frame(Frame {
+                        width,
+                        height,
+                        pixels: &self.frame,
+                    });
                 }
             }
-            return;
-        }
-        let bottom_left_origin = self.hw_render.is_some_and(|hw| hw.bottom_left_origin);
-        let Some(gpu) = &mut self.gpu else { return };
-        let Some(fb) = &gpu.hw else { return };
-        let (width, height) = (width.min(fb.width), height.min(fb.height));
-        if width == 0 || height == 0 {
-            return;
-        }
-        match &mut self.video {
-            VideoOutput::Sink(sink) => {
-                fb.read(&gpu.context.gl, width, height, &mut gpu.readback);
-                gl::drain_errors(&gpu.context.gl, "reading back a frame");
-                if bottom_left_origin {
-                    video::flip_rows(&mut gpu.readback, width as usize, height as usize);
-                }
-                sink.frame(Frame {
-                    width,
-                    height,
-                    pixels: &gpu.readback,
-                });
-            }
-            VideoOutput::Window { .. } => {
-                gl::present(
-                    &gpu.context,
-                    fb,
-                    width,
-                    height,
-                    self.av_info.aspect_ratio,
-                    !bottom_left_origin,
-                    self.lower,
-                );
+            Output::Window { lower } => {
+                renderer.present_hw_frame(width, height, self.av_info.aspect_ratio, *lower);
             }
         }
     }
@@ -449,9 +365,9 @@ impl Host {
                     write::<c_uint>(data, preferred)
                 }
                 ffi::RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT => true,
-                ffi::RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE => match &self.vulkan {
-                    Some(vulkan) => write(data, vulkan.interface()),
-                    None => false,
+                ffi::RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE => match &self.renderer {
+                    Some(Renderer::Vulkan(vulkan)) => write(data, vulkan.interface()),
+                    _ => false,
                 },
                 ffi::RETRO_ENVIRONMENT_GET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE_SUPPORT => {
                     let Some(query) = data
@@ -803,11 +719,9 @@ pub(crate) unsafe extern "C" fn input_state(
 }
 
 unsafe extern "C" fn get_current_framebuffer() -> usize {
-    with_host(|host| {
-        host.gpu
-            .as_ref()
-            .and_then(|gpu| gpu.hw.as_ref())
-            .map_or(0, |fb| fb.fbo.0.get() as usize)
+    with_host(|host| match &host.renderer {
+        Some(Renderer::Gl(gpu)) => gpu.hw.as_ref().map_or(0, |fb| fb.fbo.0.get() as usize),
+        _ => 0,
     })
     .unwrap_or(0)
 }
@@ -876,6 +790,8 @@ mod tests {
 
     use super::*;
     use crate::audio::NullAudioSink;
+    use crate::gl::Framebuffer;
+    use crate::renderer::Gpu;
     use crate::video::VideoSink;
 
     struct Discard;
@@ -891,8 +807,7 @@ mod tests {
             Options::new(HashMap::new()),
             Arc::new(InputState::new()),
             Box::new(NullAudioSink),
-            VideoOutput::Sink(Box::new(Discard)),
-            Region::Whole,
+            Output::Sink(Box::new(Discard)),
         )
     }
 
@@ -914,9 +829,8 @@ mod tests {
             return;
         };
         let mut host = host();
-        let mut gpu = Gpu::new(context);
-        gpu.hw = Some(Framebuffer::new(&gpu.context.gl, 320, 240, false, false).unwrap());
-        host.gpu = Some(gpu);
+        let fb = Framebuffer::new(&context.gl, 320, 240, false, false).unwrap();
+        host.renderer = Some(Renderer::Gl(Gpu::new(context, Some(fb), false)));
         let mut info = ffi::retro_system_av_info::default();
         info.geometry.max_width = 640;
         info.geometry.max_height = 480;
@@ -924,7 +838,10 @@ mod tests {
             ffi::RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
             (&raw mut info).cast(),
         ));
-        let fb = host.gpu.as_ref().and_then(|gpu| gpu.hw.as_ref()).unwrap();
+        let Some(Renderer::Gl(gpu)) = &host.renderer else {
+            panic!("no GL renderer");
+        };
+        let fb = gpu.hw.as_ref().unwrap();
         assert_eq!((fb.width, fb.height), (640, 480));
     }
 }

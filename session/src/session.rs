@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory,
@@ -17,14 +18,17 @@ use crate::achievements::{
 use crate::audio::AudioSink;
 use crate::content;
 use crate::core::{Core, CoreLoadError};
+use crate::cstr::{opt_string, path_cstring};
 use crate::ffi;
-use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
-use crate::host::{self, Gpu, Host};
+use crate::gl::{GlError, NativeWindow, Target, WindowRef};
+use crate::host::{self, Host, Output};
 use crate::input::{InputState, MAX_PORTS};
-use crate::options::{Options, opt_string};
-use crate::save::write_atomically;
+use crate::options::Options;
+use crate::pacing;
+use crate::renderer::Renderer;
+use crate::save::{SaveRam, write_atomically};
 use crate::video::{CapturedFrame, Region, VideoSink};
-use crate::vulkan::{VulkanContext, VulkanError};
+use crate::vulkan::VulkanError;
 
 /// Where a session's frames go.
 pub enum VideoOutput {
@@ -36,18 +40,13 @@ pub enum VideoOutput {
     /// which presents only to Android windows. [`Session::set_window`]
     /// replaces the window or detaches it, keeping the context.
     Window {
-        /// The window to start with. A session that starts without one uses
-        /// the platform's default EGL display, so only windows on that
-        /// display can be attached later, which on Android is every window.
-        window: Option<NativeWindow>,
-        /// The window's size in pixels.
-        width: u32,
-        height: u32,
-        /// The bottom screen's share of the frame's width, centred, when a
-        /// two-screen system's core draws it narrower than the top screen
-        /// above it, so a lower window shows only those columns. `None`
-        /// shows the whole width.
-        lower_screen_width_share: Option<f32>,
+        /// The window to start with, and its size in pixels. A session that
+        /// starts without one uses the platform's default EGL display, so
+        /// only windows on that display can be attached later, which on
+        /// Android is every window.
+        window: Option<(NativeWindow, u32, u32)>,
+        /// What a lower window shows of each frame.
+        lower: Region,
     },
 }
 
@@ -67,6 +66,11 @@ pub struct SessionConfig {
     /// Where the core may write its own save files. The session creates it
     /// if it's missing.
     pub save_dir: PathBuf,
+    /// The file that keeps the core's save memory: the session loads save
+    /// memory from it, and writes save memory back within a few seconds of
+    /// it changing, on [`Session::flush_save_ram`] and when it drops. `None`
+    /// keeps save memory only in memory.
+    pub save_ram: Option<PathBuf>,
     pub video: VideoOutput,
     pub audio: Box<dyn AudioSink>,
     /// The controllers, which the platform layer keeps up to date.
@@ -119,6 +123,12 @@ impl AvInfo {
             fps: info.timing.fps,
             sample_rate: info.timing.sample_rate,
         }
+    }
+
+    /// How long a frame lasts, at 60 frames a second if the core gives no
+    /// usable rate.
+    pub fn frame_period(&self) -> Duration {
+        pacing::core_period(self.fps)
     }
 }
 
@@ -196,11 +206,13 @@ pub struct Session {
     core: Core,
     host: NonNull<Host>,
     system_info: SystemInfo,
-    initialized: bool,
     game_loaded: bool,
     /// The game's achievements, while the session takes part in
     /// RetroAchievements. Dropped before the game unloads.
     achievements: Option<Achievements>,
+    /// Keeps save memory's file up to date, if the core has save memory and
+    /// it has a file.
+    save_ram: Option<SaveRam>,
     /// Content the core may keep pointers into.
     _content: Option<(CString, Option<Vec<u8>>)>,
     _claim: ActiveClaim,
@@ -219,21 +231,17 @@ impl Session {
         fs::create_dir_all(&config.save_dir)?;
         // SAFETY: the caller vouches for the core.
         let core = unsafe { Core::load(&config.core)? };
-        let lower = Region::bottom(match config.video {
-            VideoOutput::Window {
-                lower_screen_width_share,
-                ..
-            } => lower_screen_width_share,
-            VideoOutput::Sink(_) => None,
-        });
+        let (output, window) = match config.video {
+            VideoOutput::Sink(sink) => (Output::Sink(sink), None),
+            VideoOutput::Window { window, lower } => (Output::Window { lower }, Some(window)),
+        };
         let host = Box::new(Host::new(
             path_cstring(&config.system_dir),
             path_cstring(&config.save_dir),
             Options::new(config.options),
             config.input,
             config.audio,
-            config.video,
-            lower,
+            output,
         ));
         let host = NonNull::from(Box::leak(host));
         // SAFETY: the host lives until the session's drop unregisters it, and
@@ -249,9 +257,9 @@ impl Session {
                 need_fullpath: false,
                 block_extract: false,
             },
-            initialized: false,
             game_loaded: false,
             achievements: None,
+            save_ram: None,
             _content: None,
             _claim: claim,
             _thread_bound: PhantomData,
@@ -270,7 +278,6 @@ impl Session {
             (session.core.set_input_poll)(Some(host::input_poll));
             (session.core.set_input_state)(Some(host::input_state));
         }
-        session.initialized = true;
         session.system_info = session.read_system_info();
         log::info!(
             "loaded core {} {}",
@@ -300,13 +307,27 @@ impl Session {
         log::info!("core AV info: {:?}", host.av_info);
         host.reset_audio();
 
-        session.set_up_video()?;
+        session.set_up_video(match &window {
+            None => Target::Headless,
+            Some(window) => Target::Window(window_ref(window)),
+        })?;
         // A RetroPad on every port, or on every port the core has, as it
         // may not expect calls for ports past its last.
         let ports = session.host().controller_ports.unwrap_or(MAX_PORTS);
         for port in 0..ports.min(MAX_PORTS) as u32 {
             // SAFETY: the game is loaded.
             unsafe { (session.core.set_controller_port_device)(port, ffi::RETRO_DEVICE_JOYPAD) };
+        }
+        if let Some(path) = config.save_ram
+            && let Some(memory) = session.save_ram_mut()
+        {
+            // Running anyway would replace the file with fresh save memory
+            // the first time the game saves.
+            let save_ram = SaveRam::load(&path, memory).map_err(|e| {
+                log::error!("can't load save memory from {}: {e}", path.display());
+                SessionError::ReadSaveRam(e)
+            })?;
+            session.save_ram = Some(save_ram);
         }
         Ok(session)
     }
@@ -383,58 +404,16 @@ impl Session {
         }
     }
 
-    /// Creates the GL context and framebuffer when the core renders with
-    /// OpenGL or frames go to a window, or the Vulkan context when the core
-    /// renders with Vulkan, and lets a hardware-rendered core set up its
-    /// state.
-    fn set_up_video(&mut self) -> Result<(), SessionError> {
+    /// Creates the renderer for frames drawn to `target`, and lets a
+    /// hardware-rendered core set up its state.
+    fn set_up_video(&mut self, target: Target<'_>) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let target = match &host.video {
-            VideoOutput::Window {
-                window,
-                width,
-                height,
-                ..
-            } => Target::Window(window.as_ref().map(|w| (w, *width, *height))),
-            VideoOutput::Sink(_) => Target::Headless,
-        };
         let hw = host.hw_render;
-        if let Some(cb) = hw.filter(|cb| cb.context_type == ffi::RETRO_HW_CONTEXT_VULKAN) {
-            let context = VulkanContext::new(host.negotiation.as_ref(), target)?;
-            host.vulkan = Some(context);
-            if let Some(reset) = cb.context_reset {
-                // SAFETY: the context exists, as libretro requires; no host
-                // reference is live.
-                unsafe { reset() };
-            }
-            return Ok(());
-        }
-        let context = match (hw, target) {
-            (Some(cb), target) => {
-                let api = host::hw_api(&cb).expect("accepted in SET_HW_RENDER");
-                GlContext::new(api, target, cb.debug_context)?
-            }
-            (None, target @ Target::Window(_)) => {
-                GlContext::new(GlApi::Gles { major: 3, minor: 0 }, target, false)?
-            }
-            (None, Target::Headless) => return Ok(()),
-        };
-        let mut gpu = Gpu::new(context);
-        if let Some(cb) = hw {
-            let av = host.av_info;
-            let fb = Framebuffer::new(
-                &gpu.context.gl,
-                av.max_width.max(av.base_width),
-                av.max_height.max(av.base_height),
-                cb.depth,
-                cb.stencil,
-            )?;
-            gpu.hw = Some(fb);
-        }
-        host.gpu = Some(gpu);
+        host.renderer =
+            Renderer::new(hw.as_ref(), host.negotiation.as_ref(), host.av_info, target)?;
         if let Some(reset) = hw.and_then(|cb| cb.context_reset) {
-            // SAFETY: the context is current and the framebuffer exists, as
-            // libretro requires; no host reference is live.
+            // SAFETY: the context exists, current for GL and with its
+            // framebuffer, as libretro requires; no host reference is live.
             unsafe { reset() };
         }
         Ok(())
@@ -445,8 +424,8 @@ impl Session {
     pub fn run_frame(&mut self) {
         let host = self.host_mut();
         host.begin_frame_input();
-        if let Some(vulkan) = &mut host.vulkan {
-            vulkan.begin_frame();
+        if let Some(renderer) = &mut host.renderer {
+            renderer.begin_frame();
         }
         let frame_time = host.frame_time;
         if let Some(ffi::retro_frame_time_callback {
@@ -468,6 +447,9 @@ impl Session {
                 self.set_achievement_memory();
             }
             achievements.do_frame();
+        }
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+            save_ram.write_if_due(memory);
         }
     }
 
@@ -547,19 +529,8 @@ impl Session {
     /// Tells the session the window it presents to changed size.
     pub fn resize_window(&mut self, width: u32, height: u32) {
         let host = self.host_mut();
-        if let VideoOutput::Window {
-            width: w,
-            height: h,
-            ..
-        } = &mut host.video
-        {
-            (*w, *h) = (width, height);
-            if let Some(gpu) = &host.gpu {
-                gpu.context.resize(width, height);
-            }
-            if let Some(vulkan) = &mut host.vulkan {
-                vulkan.resize(width, height);
-            }
+        if let Some(renderer) = host.window_renderer() {
+            renderer.resize(width, height);
             host.redraw();
         }
     }
@@ -579,31 +550,8 @@ impl Session {
         window: Option<(NativeWindow, u32, u32)>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let VideoOutput::Window {
-            window: current,
-            width,
-            height,
-            ..
-        } = &mut host.video
-        else {
-            return Err(SessionError::NoWindowOutput);
-        };
-        *current = window.map(|(w, ..)| w);
-        if let Some((_, w, h)) = window {
-            (*width, *height) = (w, h);
-        }
-        let window = window
-            .as_ref()
-            .map(|(w, width, height)| (w, *width, *height));
-        let result: Result<(), SessionError> = match (&mut host.gpu, &mut host.vulkan) {
-            (Some(gpu), _) => gpu.context.set_window(window).map_err(Into::into),
-            (None, Some(vulkan)) => vulkan.set_window(window).map_err(Into::into),
-            (None, None) => return Ok(()),
-        };
-        if result.is_err() {
-            *current = None;
-        }
-        result?;
+        let renderer = host.window_renderer().ok_or(SessionError::NoWindowOutput)?;
+        renderer.set_window(window_ref(&window))?;
         host.redraw();
         Ok(())
     }
@@ -625,18 +573,8 @@ impl Session {
         window: Option<(NativeWindow, u32, u32)>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
-        if !matches!(host.video, VideoOutput::Window { .. }) {
-            return Err(SessionError::NoWindowOutput);
-        }
-        let window = window
-            .as_ref()
-            .map(|(w, width, height)| (w, *width, *height));
-        match (&mut host.gpu, &mut host.vulkan) {
-            (Some(gpu), _) => gpu.context.set_lower_window(window)?,
-            (None, Some(vulkan)) => vulkan.set_lower_window(window)?,
-            (None, None) if window.is_some() => return Err(SessionError::UnsupportedWindow),
-            (None, None) => return Ok(()),
-        }
+        let renderer = host.window_renderer().ok_or(SessionError::NoWindowOutput)?;
+        renderer.set_lower_window(window_ref(&window))?;
         host.redraw();
         Ok(())
     }
@@ -667,18 +605,11 @@ impl Session {
 
     /// The core's battery-backed save memory, if it has any.
     pub fn save_ram(&self) -> Option<&[u8]> {
-        // SAFETY: the core's memory stays valid while the game is loaded,
-        // and the core can't run while this borrow lives.
-        unsafe {
-            let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
-            let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
-            (size > 0 && !data.is_null())
-                .then(|| std::slice::from_raw_parts(data.cast::<u8>(), size))
-        }
+        save_memory(&self.core)
     }
 
-    pub(crate) fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
-        // SAFETY: as in `save_ram`.
+    fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
+        // SAFETY: as in `save_memory`.
         unsafe {
             let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
             let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
@@ -687,9 +618,21 @@ impl Session {
         }
     }
 
-    /// The core's complete state, which [`Session::unserialize_state`]
-    /// restores.
-    pub fn serialize_state(&mut self) -> Result<Vec<u8>, SessionError> {
+    /// Writes save memory to its file if it changed, and waits until it's on
+    /// disk.
+    pub fn flush_save_ram(&mut self) -> Result<(), SessionError> {
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+            save_ram.flush(memory)?;
+        }
+        Ok(())
+    }
+
+    /// Saves the core's state to `path`, replacing the file only once the new
+    /// contents are on disk.
+    pub fn save_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        if !self.host().states_persist() {
+            return Err(SessionError::StatesNotPersistent);
+        }
         // SAFETY: the game is loaded and no host reference is live.
         let size = unsafe { (self.core.serialize_size)() };
         if size == 0 {
@@ -697,18 +640,25 @@ impl Session {
         }
         let mut state = vec![0; size];
         // SAFETY: `state` has the size the core asked for.
-        if unsafe { (self.core.serialize)(state.as_mut_ptr().cast(), size) } {
-            Ok(state)
-        } else {
-            Err(SessionError::Serialize)
+        if !unsafe { (self.core.serialize)(state.as_mut_ptr().cast(), size) } {
+            return Err(SessionError::Serialize);
         }
+        Ok(write_atomically(path, &state)?)
     }
 
-    /// Restores a state from [`Session::serialize_state`]. Hardcore mode
-    /// doesn't allow it.
-    pub fn unserialize_state(&mut self, state: &[u8]) -> Result<(), SessionError> {
+    /// Restores a state that [`Session::save_state`] wrote, first copying
+    /// save memory, which the state replaces, to a backup beside its file.
+    /// Hardcore mode doesn't allow it.
+    pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        if !self.host().states_persist() {
+            return Err(SessionError::StatesNotPersistent);
+        }
         if self.hardcore_restricts() {
             return Err(SessionError::Hardcore);
+        }
+        let state = fs::read(path)?;
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+            save_ram.back_up(memory)?;
         }
         // SAFETY: the game is loaded, the core only reads `state`, and no
         // host reference is live.
@@ -720,47 +670,34 @@ impl Session {
         }
         Ok(())
     }
+}
 
-    /// Saves the core's state to `path`, replacing the file only once the new
-    /// contents are on disk.
-    pub fn save_state(&mut self, path: &Path) -> Result<(), SessionError> {
-        if !self.host().states_persist() {
-            return Err(SessionError::StatesNotPersistent);
-        }
-        let state = self.serialize_state()?;
-        Ok(write_atomically(path, &state)?)
-    }
-
-    /// Restores a state that [`Session::save_state`] wrote. Hardcore mode
-    /// doesn't allow it.
-    pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
-        if self.hardcore_restricts() {
-            return Err(SessionError::Hardcore);
-        }
-        if !self.host().states_persist() {
-            return Err(SessionError::StatesNotPersistent);
-        }
-        let state = fs::read(path)?;
-        self.unserialize_state(&state)
+/// The core's battery-backed save memory, if it has any.
+fn save_memory(core: &Core) -> Option<&[u8]> {
+    // SAFETY: the core's memory stays valid while the game is loaded, and
+    // the core doesn't run while this borrow lives, as the session runs it
+    // only through `&mut self`.
+    unsafe {
+        let size = (core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
+        let data = (core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
+        (size > 0 && !data.is_null()).then(|| std::slice::from_raw_parts(data.cast::<u8>(), size))
     }
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
+        if let Err(e) = self.flush_save_ram() {
+            log::error!("can't write save memory: {e}");
+        }
         // The client reads the core's memory until it's gone.
         self.achievements = None;
         if self.game_loaded {
             let host = self.host_mut();
             let destroy = host.hw_render.and_then(|cb| cb.context_destroy);
-            let ready = match (&host.gpu, &mut host.vulkan) {
-                (Some(gpu), _) => gpu.context.make_current().is_ok(),
-                (None, Some(vulkan)) => {
-                    // The core frees what the session's work may still use.
-                    vulkan.release_image();
-                    true
-                }
-                (None, None) => false,
-            };
+            let ready = host
+                .renderer
+                .as_mut()
+                .is_some_and(Renderer::prepare_context_destroy);
             if let (Some(destroy), true) = (destroy, ready) {
                 // SAFETY: the context is current; no host reference is live.
                 unsafe { destroy() };
@@ -768,10 +705,8 @@ impl Drop for Session {
             // SAFETY: the game is loaded.
             unsafe { (self.core.unload_game)() };
         }
-        if self.initialized {
-            // SAFETY: retro_init ran.
-            unsafe { (self.core.deinit)() };
-        }
+        // SAFETY: retro_init ran.
+        unsafe { (self.core.deinit)() };
         host::unregister();
         // SAFETY: the host came from `Box::leak`, and the core can no longer
         // reach it.
@@ -779,10 +714,8 @@ impl Drop for Session {
     }
 }
 
-fn path_cstring(path: &Path) -> CString {
-    use std::os::unix::ffi::OsStrExt;
-    CString::new(path.as_os_str().as_bytes()).unwrap_or_else(|_| {
-        log::warn!("path {} contains a null byte", path.display());
-        CString::default()
-    })
+fn window_ref(window: &Option<(NativeWindow, u32, u32)>) -> Option<WindowRef<'_>> {
+    window
+        .as_ref()
+        .map(|(w, width, height)| (w, *width, *height))
 }

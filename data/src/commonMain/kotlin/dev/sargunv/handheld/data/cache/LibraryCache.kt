@@ -143,18 +143,6 @@ private constructor(
       ?.toDomain(queries.filesOfRom(id).awaitAsList().map { it.toDomain() })
   }
 
-  /**
-   * The ROMs whose titles, alternative names or file names have words starting with each word of
-   * [text], best matches first. Accents and case don't matter.
-   */
-  suspend fun search(text: String, limit: Int = 50): List<Rom> {
-    val query = ftsQuery(text) ?: return emptyList()
-    return transaction {
-      val roms = queries.search(query, limit.toLong()).awaitAsList()
-      withFiles(roms, queries.filesOfRoms(roms.map { it.id }).awaitAsList())
-    }
-  }
-
   suspend fun romCount(): Long = transaction { queries.romCount().awaitAsOne() }
 
   internal suspend fun replacePlatforms(platforms: List<Platform>) = transaction {
@@ -196,14 +184,12 @@ private constructor(
 
   internal suspend fun romIds(): Set<Long> = transaction { queries.romIds().awaitAsList().toSet() }
 
-  /** Removes the ROMs whose ids aren't in [ids], and returns how many it removed. */
-  internal suspend fun retainRoms(ids: Set<Long>): Int = transaction {
-    val removed = queries.romIds().awaitAsList().filterNot { it in ids }
-    for (id in removed) {
+  /** Removes the ROMs whose ids aren't in [ids]. */
+  internal suspend fun retainRoms(ids: Set<Long>) = transaction {
+    for (id in queries.romIds().awaitAsList().filterNot { it in ids }) {
       queries.deleteRom(id)
       queries.deleteFilesOfRom(id)
     }
-    removed.size
   }
 
   internal suspend fun replaceCollections(collections: List<Pair<Collection, List<Long>>>) =
@@ -272,7 +258,7 @@ private constructor(
     fun open(path: String?, queryContext: CoroutineContext = Dispatchers.IO): LibraryCache {
       val driver =
         AndroidxSqliteDriver(
-          // The bundled SQLite has FTS5 on every platform. Android's own SQLite doesn't promise it.
+          // The JVM has no SQLite of its own.
           driver = BundledSQLiteDriver(),
           databaseType =
             if (path == null) AndroidxSqliteDatabaseType.Memory
@@ -283,15 +269,6 @@ private constructor(
     }
   }
 }
-
-/** An FTS5 query that matches rows with a word starting with each word of [text]. */
-internal fun ftsQuery(text: String): String? =
-  text
-    // Combining marks belong to their letter, as they do for the index's tokenizer.
-    .split(Regex("""[^\p{L}\p{M}\p{N}]+"""))
-    .filter { it.isNotEmpty() }
-    .joinToString(" ") { "\"$it\"*" }
-    .ifEmpty { null }
 
 private fun withFiles(roms: List<RomRow>, files: List<Rom_file>): List<Rom> {
   val filesByRom = files.groupBy({ it.rom_id }) { it.toDomain() }
@@ -350,8 +327,7 @@ private fun Rom.toRow() =
   )
 
 /**
- * Stores a list of strings in one column, separated by a control character that names don't hold
- * and that the search index's tokenizer treats as a word break.
+ * Stores a list of strings in one column, separated by a control character that names don't hold.
  */
 private object StringListAdapter : ColumnAdapter<List<String>, String> {
   private const val SEPARATOR = '\u001F'

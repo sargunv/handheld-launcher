@@ -7,14 +7,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.sargunv.handheld.data.cores.InstalledCores
-import dev.sargunv.handheld.data.saves.EmulatorState
 import dev.sargunv.handheld.data.saves.SaveCopy
-import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.data.saves.builtInGameSave
-import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
-import dev.sargunv.handheld.domain.emulator.LibretroCores
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import java.io.File
@@ -33,96 +30,67 @@ import kotlinx.io.files.Path
  */
 class BuiltInPlayer(private val activity: ComponentActivity, private val playSaves: PlaySaves) {
   private val coresDir = Path(activity.filesDir.path, "cores")
-  private val saveFolders = activity.handheldApp.builtInSaveFolders
-  private val saves = saveFolders.saves
+  private val saves = activity.handheldApp.builtInSaveFolders.saves
 
   /**
-   * Plays [request]'s game in [core], a libretro core's library name, or the platform's recommended
-   * core when it's null, and returns once the player is back from the game, telling [note] what the
-   * player should know. [onProgress] hears how a download of the core is going, and [chooseSave]
-   * which copy of the save to keep when both changed; null cancels the launch.
+   * Plays [request]'s game in [core], and returns once the player is back from the game, telling
+   * [note] what the player should know. [onProgress] hears how a download of the core is going, and
+   * [chooseSave] which copy of the save to keep when both changed; null cancels the launch.
    */
   suspend fun play(
     request: PlayRequest,
-    core: String?,
+    core: LibretroCore,
     onProgress: (String) -> Unit,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
     note: (String) -> Unit,
   ) {
-    val chosen =
-      core?.let(LibretroCores::byLibrary)
-        ?: LibretroCores.recommendedFor(request.platform)
-        ?: return note("No libretro core runs this game's platform.")
     val coreFile =
       try {
         // The app's native libraries are built for the device's first ABI.
         InstalledCores(coresDir, Build.SUPPORTED_ABIS.first()).use { cores ->
-          cores.ensure(chosen) { downloaded, total ->
+          cores.ensure(core) { downloaded, total ->
             val percent = total?.takeIf { it > 0 }?.let { " ${downloaded * 100 / it}%" } ?: ""
-            onProgress("Getting the core$percent")
+            onProgress("Downloading core$percent")
           }
         }
       } catch (e: IOException) {
-        return note("Couldn't download the game's core: ${e.message}")
+        return note("Core download failed · ${e.message}")
       }
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)
     val rom = request.game as? GameKey.Romm
-    // The scan that matched the game's file may not have handed its saves over yet.
-    rom?.let { saveFolders.adopt(listOf(Adoption(GameKey.Local(request.romPath), it))) }
     val settings =
       withContext(Dispatchers.IO) {
         // Made before the sync, which pulls a save only into a folder that exists.
         File(folder).mkdirs()
         activity.handheldApp.settingsFile.read()
       }
-    val game = rom?.let { builtInGameSave(it.romId, chosen.library, File(saveRam)) }
+    val game = rom?.let { builtInGameSave(it.romId, core.library, File(saveRam)) }
     if (game != null) {
-      val synced =
-        playSaves.beforeLaunch(
-          request.title,
-          game,
-          chooseSave,
-          note,
-          emulator = EmulatorState.NotRunning("the built-in session"),
-          canClose = false,
-          askStillRunning = { StillRunningChoice.QuitFirst },
-          close = { false },
-        )
-      if (!synced) return
+      if (!playSaves.beforeLaunch(request.title, game, chooseSave, note, emulator = null)) return
     }
-    val intent =
-      SessionActivity.intent(
-        activity,
+    val launch =
+      SessionLaunch(
         core = coreFile.toString(),
         content = request.romPath,
         systemDir = File(activity.filesDir, "system").path,
         saveDir = folder,
         saveRam = saveRam,
         states = saves.statesOf(folder, request.romPath),
-        aButtonPosition = settings.input.aButtonPosition,
-        stackedScreensOptions = chosen.stackedScreensOptions,
-        lowerScreenWidthShare = chosen.lowerScreenWidthShare,
+        input = settings.input,
+        stackedScreensOptions = core.stackedScreensOptions,
+        lowerScreenWidthShare = core.lowerScreenWidthShare,
         achievementsConsole = retroAchievementsConsole(request.platform),
         hardcore = settings.achievements.hardcore,
       )
-    // A failure an earlier session left unreported isn't this one's.
-    SessionActivity.takeUnreportedSaveError()
-    val result = awaitResult(intent)
-    val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)
-    val saveError =
-      result.data?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
-        ?: SessionActivity.takeUnreportedSaveError()
-    if (error != null) {
-      note("Couldn't start the game: $error")
-      return
+    val result = awaitResult(SessionActivity.intent(activity, launch)).data
+    result?.getStringExtra(SessionActivity.EXTRA_START_ERROR)?.let {
+      return note("Launch failed · $it")
     }
-    if (saveError != null) note("The game's save couldn't be written: $saveError")
-    else Log.i(TAG, "Back from the game in ${chosen.library}")
-    // The session writes its save memory as it stops, but one that ends without stopping, such as
-    // when the launcher comes to the front over it, writes as it's destroyed, which can come after
-    // this. So this only sends: a newer save on RomM waits for the next launch, where a change on
-    // both sides is a conflict. When a write failed, the file still holds the last whole save.
+    val saveError = result?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
+    if (saveError != null) note("Save write failed · $saveError")
+    else Log.i(TAG, "Back from the game in ${core.library}")
+    // When a write failed, the file still holds the last whole save.
     if (game != null) playSaves.afterPlay(game, note)
   }
 

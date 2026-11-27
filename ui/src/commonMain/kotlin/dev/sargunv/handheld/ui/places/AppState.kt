@@ -2,16 +2,16 @@ package dev.sargunv.handheld.ui.places
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.romm.RommSession
+import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
@@ -22,38 +22,45 @@ import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.RomHeaders
-import dev.sargunv.handheld.ui.input.AButtonPosition
-import dev.sargunv.handheld.ui.input.ConfirmButton
-import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.library.DeviceState
-import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
+import dev.sargunv.handheld.ui.library.deviceStatesOf
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
-import io.ktor.client.engine.HttpClientEngine
-import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** State the app's two screens share. */
 @Stable
 class AppState(
   settings: Settings,
+  /** The sign-in to the RomM server, its client and the library's sync. */
+  val romm: RommSession,
   val library: LibraryCache,
   val downloads: DownloadManager,
+  val games: DeviceGames,
   val launcher: GameLauncher,
   val apps: AppCatalog,
-  val credentials: CredentialStore,
-  httpEngine: () -> HttpClientEngine,
   device: DeviceDescription,
+  /** Shares the state's flows while the screens collect them. */
+  scope: CoroutineScope,
   /** The RetroAchievements account, on platforms whose games can earn achievements. */
   val retroAchievements: RetroAchievementsState? = null,
   /** What About says about this build. */
@@ -67,57 +74,54 @@ class AppState(
 ) {
   var settings: Settings by mutableStateOf(settings)
 
-  /**
-   * Everything kept per game: the settings, and what the platform keeps. Its [PerGameState.adopt]
-   * is the one step that hands a local game's state to the ROM its file becomes, which the app runs
-   * for every game on the device by its file each time the device's games change.
-   */
-  val gameState: PerGameState =
+  /** Everything kept per game: the settings, and what the platform keeps. */
+  private val gameState: PerGameState =
     PerGameState.of(
-      PerGameState { this.settings = this.settings.adopted(it) },
+      PerGameState {
+        this.settings = this.settings.adopted(it)
+        emptyList()
+      },
       platformState,
     )
 
-  /**
-   * The game a launch from its page is playing, whose state stays where it is until the game is
-   * over.
-   */
+  /** The game [play] is playing, whose state stays where it is until the game is over. */
   var playing: GameKey? by mutableStateOf(null)
+    private set
+
+  /** Held while adopting and while [play] sets [playing], so nothing adopts the game it plays. */
+  private val adoption = Mutex()
+
+  private val handover = MutableStateFlow(emptySet<Adoption>())
+
+  /** The adoptions still listed that the adopt step has handed over. */
+  val handedOver: StateFlow<Set<Adoption>> = handover.asStateFlow()
+
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
-  var sync: SyncStatus by mutableStateOf(SyncStatus.NotStarted)
-  val libraryView = LibraryState()
-  val settingsView = SettingsView()
-
-  /** Signs in to the RomM server, and out of it. */
-  val romm = RommSignIn(credentials, httpEngine)
-
-  val account = Account(credentials, romm, device)
-
-  private val syncRequested =
-    MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-
-  /** The syncs to run: one as collecting starts, and one for each [syncNow]. */
-  val syncRequests: Flow<Unit> = syncRequested.onStart { emit(Unit) }
 
   /**
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
    */
-  var deviceStates: Map<Long, DeviceState> by mutableStateOf(emptyMap())
+  val deviceStates: StateFlow<Map<Long, DeviceState>> =
+    downloads
+      .statuses()
+      .map(::deviceStatesOf)
+      .stateIn(scope, SharingStarted.WhileSubscribed(), emptyMap())
 
   /** The local games: files on the device that match none of the server's games. */
-  var localGames: List<LocalGame> by mutableStateOf(emptyList())
+  val localGames: StateFlow<List<LocalGame>> =
+    games.localGames().stateIn(scope, SharingStarted.WhileSubscribed(), emptyList())
 
-  /** The library's games on the device, by the path of their file or folder: their ROM ids. */
-  var onDevice: Map<String, Long> by mutableStateOf(emptyMap())
+  val libraryView = LibraryState(library, deviceStates, localGames) { libraryTab }
+  val settingsView = SettingsView()
 
-  /** Counts the times Home started over, so its focus and scroll positions start over too. */
-  var homeResets: Int by mutableIntStateOf(0)
-    private set
+  val account = Account(romm, device)
 
-  val inputSettings: InputSettings
-    get() = settings.input
+  private val homeStartRequests = Channel<Unit>(Channel.CONFLATED)
+
+  /** The requests to start over on Home, which [MainPrimary] carries out. */
+  internal val homeStarts: Flow<Unit> = homeStartRequests.receiveAsFlow()
 
   /** The Library tab that shows, which stays between launches. */
   var libraryTab: LibraryTab
@@ -128,14 +132,12 @@ class AppState(
     }
 
   /**
-   * Shows [next]. The lower screen describes nothing until something there takes focus. Leaving the
-   * Library closes a shelf that Home opened, since Back on it would go Home.
+   * Shows [next]. Leaving the Library closes a shelf that Home opened, since Back on it goes Home.
    */
   fun showPlace(next: Place) {
     if (next == place) return
     if (place == Place.Library && libraryView.openedFrom == OpenedFrom.Home) libraryView.close()
     place = next
-    focused = null
   }
 
   /**
@@ -146,7 +148,6 @@ class AppState(
     showPlace(Place.Library)
     libraryTab = tab
     libraryView.open(tab, shelfKey, from)
-    focused = null
   }
 
   /** Goes to [next] from the main menu: the screens over the places close, and [next] shows. */
@@ -160,14 +161,7 @@ class AppState(
    * close, and Home shows from its top with focus on its first item.
    */
   fun goHome() {
-    navigator.backToStart()
-    showPlace(Place.Home)
-    homeResets++
-  }
-
-  /** Syncs the library with the server again, starting over if a sync is under way. */
-  fun syncNow() {
-    syncRequested.tryEmit(Unit)
+    homeStartRequests.trySend(Unit)
   }
 
   /**
@@ -184,74 +178,9 @@ class AppState(
       // Before the credentials go, so the server hears of the canceled installs it asked for.
       if (!keepQueue) for (download in downloads.queue.value) downloads.cancel(download.romId)
       account.signOut(allowUploads)
-      downloads.signedIn(null)
       navigator.backToStart()
       place = Place.Home
-      focused = null
-      sync = SyncStatus.NotStarted
-      homeResets++
     }
-
-  /**
-   * Shows [target], on top of the places, as if the player had gone there. A game or platform that
-   * the cache doesn't hold yet shows once the sync under way brings it, if it does.
-   */
-  suspend fun open(target: OpenTarget) {
-    navigator.backToStart()
-    when (target) {
-      is OpenTarget.AtPlace -> showPlace(target.place)
-      is OpenTarget.Game -> {
-        val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
-        if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
-      }
-      is OpenTarget.Local -> {
-        suspend fun find() = downloads.localGame(target.path).first { it != null }
-        // A scan before the sync brings the platforms finds no local games, so a file not found
-        // yet gets a while after it for the scan that follows.
-        val local =
-          find().takeUnless { it == LocalGameState.Gone }
-            ?: awaitSync().let {
-              withTimeoutOrNull(LOCAL_SCAN_WAIT) {
-                downloads.localGame(target.path).first {
-                  it is LocalGameState.Local || it is LocalGameState.Matched
-                }
-              }
-            }
-        // The file may have matched a game of the library since.
-        when (local) {
-          is LocalGameState.Local -> navigator.push(Screen.Game(local.game.key, local.game.title))
-          is LocalGameState.Matched ->
-            library.rom(local.romId)?.let { navigator.push(Screen.Game(it.id, it.title)) }
-          LocalGameState.Gone,
-          null -> Unit
-        }
-      }
-      is OpenTarget.Library -> {
-        showPlace(Place.Library)
-        libraryView.close()
-        target.tab?.let { libraryTab = it }
-      }
-      is OpenTarget.LibraryPlatform -> {
-        showPlace(Place.Library)
-        libraryView.close()
-        suspend fun find() = library.platforms().first().find { it.slug == target.slug }
-        val platform = find() ?: awaitSync().let { find() } ?: return
-        openShelf(LibraryTab.Platforms, LibraryShelf.OfPlatform(platform).key)
-      }
-      is OpenTarget.LibraryCollection -> {
-        showPlace(Place.Library)
-        libraryView.close()
-        suspend fun find() =
-          library.collections().first().find { it.kind == target.kind && it.id == target.id }
-        val collection = find() ?: awaitSync().let { find() } ?: return
-        openShelf(LibraryTab.Collections, LibraryShelf.OfCollection(collection).key)
-      }
-      is OpenTarget.Settings -> {
-        showPlace(Place.Settings)
-        target.section?.let(settingsView::jumpTo)
-      }
-    }
-  }
 
   /**
    * The game [key] names: a ROM from the library, or a local game once the scan of the platforms'
@@ -262,31 +191,44 @@ class AppState(
     when (key) {
       is GameKey.Romm -> library.rom(key.romId)
       is GameKey.Local ->
-        (downloads.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
+        (games.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
     }
 
-  private suspend fun awaitSync() {
-    snapshotFlow { sync }.first { it.isDone }
+  /**
+   * Runs [launch], the launch of [game], once any file the latest scan matched to [game] has handed
+   * it what was kept for the file. What's kept for [game] stays where it is until [launch] returns.
+   */
+  suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> {
+    adoption.withLock {
+      adopt(games.adoptions.first().filter { it.rom == game })
+      playing = game
+    }
+    try {
+      return launch()
+    } finally {
+      playing = null
+    }
   }
 
-  fun swapConfirmButton() {
-    val swapped =
-      when (inputSettings.confirmButton) {
-        ConfirmButton.A -> ConfirmButton.B
-        ConfirmButton.B -> ConfirmButton.A
+  /**
+   * The one adopt step: each file on the device that's a ROM's hands what's kept for it as a local
+   * game to the ROM. The game [playing] holds waits until it's over. It runs until cancelled.
+   */
+  suspend fun adoptMatchedFiles() {
+    combine(games.adoptions, snapshotFlow { playing }) { adoptions, _ -> adoptions }
+      .collect { adoptions ->
+        adoption.withLock {
+          handover.update { it intersect adoptions.toSet() }
+          adopt(adoptions.filterNot { playing == it.local || playing == it.rom })
+        }
       }
-    settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
   }
 
-  fun switchAButtonPosition() {
-    val switched =
-      when (inputSettings.aButtonPosition) {
-        AButtonPosition.South -> AButtonPosition.East
-        AButtonPosition.East -> AButtonPosition.South
-      }
-    settings = settings.copy(input = inputSettings.copy(aButtonPosition = switched))
+  /** Hands over what's kept for each of [pending] that isn't handed over yet, under [adoption]. */
+  private suspend fun adopt(pending: List<Adoption>) {
+    val new = pending - handover.value
+    if (new.isEmpty()) return
+    val unfinished = gameState.adopt(new)
+    handover.update { it + (new - unfinished.toSet()) }
   }
 }
-
-/** How long opening a local game waits for the scan after a sync to find it. */
-private val LOCAL_SCAN_WAIT = 10.seconds

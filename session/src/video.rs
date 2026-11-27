@@ -13,19 +13,6 @@ pub struct Frame<'a> {
     pub pixels: &'a [u8],
 }
 
-impl Frame<'_> {
-    /// The RGBA value of the pixel at (`x`, `y`), counted from the top left.
-    ///
-    /// # Panics
-    ///
-    /// If the pixel is outside the frame.
-    pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        assert!(x < self.width && y < self.height, "pixel outside frame");
-        let i = (y as usize * self.width as usize + x as usize) * 4;
-        self.pixels[i..i + 4].try_into().expect("four bytes")
-    }
-}
-
 /// A copy of a frame, as tightly packed RGBA8 rows from top to bottom.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct CapturedFrame {
@@ -186,7 +173,7 @@ pub(crate) fn fit(
 /// the 3DS's is, centred under it, so the lower window shows only its share of
 /// the frame's width.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Region {
+pub enum Region {
     /// The whole frame.
     Whole,
     /// The upper half.
@@ -200,7 +187,7 @@ impl Region {
     /// The lower half of a frame whose bottom screen spans `share` of its
     /// width, centred, or the whole width when it's `None`, not positive or
     /// over 1.
-    pub(crate) fn bottom(share: Option<f32>) -> Self {
+    pub fn bottom(share: Option<f32>) -> Self {
         let share = share.filter(|s| *s > 0.0 && *s <= 1.0).unwrap_or(1.0);
         Self::Bottom { share }
     }
@@ -246,7 +233,7 @@ impl Region {
     /// Where the region of a `width` by `height` frame shown at `aspect` goes
     /// on a `win_w` by `win_h` window: scaled to fit and centred, as
     /// (x, y, width, height).
-    pub(crate) fn fit(
+    pub fn fit(
         self,
         width: u32,
         height: u32,

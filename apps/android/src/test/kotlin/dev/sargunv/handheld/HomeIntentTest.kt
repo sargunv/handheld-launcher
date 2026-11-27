@@ -1,11 +1,9 @@
 package dev.sargunv.handheld
 
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 
 class HomeIntentTest {
   @Test
@@ -40,10 +38,11 @@ class HomeIntentTest {
 
   @Test
   fun anOpenRequestWinsOverHome() {
-    val open = OpenRequest(OpenTarget.AtPlace(Place.Library))
-    val response = respondTo(home = true, open = open, wasInFront = true, playing = false)
-    assertIs<IntentResponse.Open>(response)
-    assertEquals(open, response.request)
+    val open = OpenTarget.AtPlace(Place.Library)
+    assertEquals(
+      IntentResponse.Open(open),
+      respondTo(home = true, open = open, wasInFront = true, playing = false),
+    )
   }
 
   @Test

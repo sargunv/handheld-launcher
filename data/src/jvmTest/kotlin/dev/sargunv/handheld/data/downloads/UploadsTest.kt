@@ -104,7 +104,7 @@ class UploadsTest {
       assertFailsWith<RommException.Forbidden> {
         uploadLocalGame(server.client, game, chunkSize = 4)
       }
-    assertEquals("The server didn't allow this: Forbidden", error.message)
+    assertEquals("Not allowed · Forbidden", error.message)
     assertEquals(listOf("roms/upload/start"), server.requests.map { it.apiPath })
   }
 

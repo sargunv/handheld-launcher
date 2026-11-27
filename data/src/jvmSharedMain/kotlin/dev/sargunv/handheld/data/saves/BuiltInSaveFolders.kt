@@ -7,41 +7,38 @@ import java.io.File
 import java.io.IOException
 import kotlin.time.Clock
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
  * The built-in session's save folders, one for each game ([BuiltInSaves]). When a local game
  * becomes a ROM, its folder becomes the ROM's, so its saves sync from then on. When the ROM's
  * folder holds saves already, those stay the ROM's, and the local game's files go to the ROM's save
- * history in [history], the history of a [SaveSync], as a conflict's other copy does. Neither copy
- * is lost.
+ * history, as a conflict's other copy does. Neither copy is lost.
+ *
+ * @param history finds the signed-in account's [SaveSync] history, or null when signed out. A local
+ *   game's saves stay in its folder until there's a history to keep them in.
  */
 class BuiltInSaveFolders(
   val saves: BuiltInSaves,
-  private val history: File,
   private val clock: Clock = Clock.System,
+  private val history: suspend () -> File?,
 ) : PerGameState {
-  private val lock = Mutex()
-
-  override suspend fun adopt(adoptions: List<Adoption>) =
+  override suspend fun adopt(adoptions: List<Adoption>): List<Adoption> =
     withContext(Dispatchers.IO) {
-      // A play and a scan may adopt the same game at once.
-      lock.withLock {
-        for (adoption in adoptions) {
-          try {
-            adopt(adoption)
-          } catch (e: IOException) {
-            // What's left stays in the local folder, which the next adoption tries again.
-          }
+      // What's left of one that fails stays in the local folder for the next adopt.
+      adoptions.filterNot {
+        try {
+          adopt(it)
+        } catch (_: IOException) {
+          false
         }
       }
     }
 
-  private fun adopt(adoption: Adoption) {
+  /** Hands [adoption]'s saves to its ROM. Returns false when they wait for a history. */
+  private suspend fun adopt(adoption: Adoption): Boolean {
     val local = File(saves.folderOf(adoption.local))
-    if (!local.isDirectory) return
+    if (!local.isDirectory) return true
     val own = File(saves.folderOf(adoption.rom))
     val files = filesIn(local)
     if (files.isNotEmpty() && (!own.exists() || own.isDirectory && filesIn(own).isEmpty())) {
@@ -51,6 +48,7 @@ class BuiltInSaveFolders(
       // Both are in the app's files, so the move is one step, or nothing moves.
       if (!local.renameTo(own)) throw IOException("Couldn't move $local to $own")
     } else {
+      val history = history() ?: return false
       val now = clock.now()
       for (file in files) {
         // The history is one folder, so a file in a subfolder is named for its path.
@@ -68,11 +66,12 @@ class BuiltInSaveFolders(
       local.deleteRecursively()
     }
     pruneEmpty(local.parentFile)
+    return true
   }
 
   /** Deletes [folder] and the folders above it, up to the local games' own, while they're empty. */
   private fun pruneEmpty(folder: File?) {
-    val root = File(saves.localFolderOf("/")).absoluteFile
+    val root = File(saves.localRoot).absoluteFile
     var current = folder?.absoluteFile
     while (current != null && current != root && current.startsWith(root)) {
       if (current.list()?.isEmpty() != true || !current.delete()) return

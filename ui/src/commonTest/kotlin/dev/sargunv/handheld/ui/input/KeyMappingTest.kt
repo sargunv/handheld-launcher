@@ -18,16 +18,6 @@ class KeyMappingTest {
   }
 
   @Test
-  fun aButtonPositionChangesNoAction() {
-    for (settings in listOf(confirmA, confirmB)) {
-      val aOnTheRight = settings.copy(aButtonPosition = AButtonPosition.East)
-      for (button in PadButton.entries) {
-        assertEquals(settings.actionFor(button), aOnTheRight.actionFor(button))
-      }
-    }
-  }
-
-  @Test
   fun confirmSettingLeavesTheOtherButtonsAlone() {
     for (settings in listOf(confirmA, confirmB)) {
       assertEquals(Action.Menu, settings.actionFor(Key.ButtonX))

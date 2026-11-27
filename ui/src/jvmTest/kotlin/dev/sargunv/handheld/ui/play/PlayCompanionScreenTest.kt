@@ -29,7 +29,7 @@ class PlayCompanionScreenTest {
         "Taiko",
         sync = {
           syncs++
-          "Sent the save to RomM."
+          "Sent to RomM"
         },
         onBackToLibrary = { backs++ },
       )
@@ -37,7 +37,7 @@ class PlayCompanionScreenTest {
 
     onNodeWithTag("companion:sync").performTouchInput { click() }
     waitForIdle()
-    onNodeWithTag("message").assertTextEquals("Sent the save to RomM.")
+    onNodeWithTag("message").assertTextEquals("Sent to RomM")
     assertEquals(1, syncs)
 
     onNodeWithTag("companion:back").performTouchInput { click() }

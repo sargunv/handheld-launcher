@@ -1,11 +1,12 @@
-import com.mikepenz.aboutlibraries.plugin.AboutLibrariesTask
-import dev.sargunv.handheld.gradle.RequireLicenceTexts
 import dev.sargunv.handheld.gradle.SessionLicences
+import dev.sargunv.handheld.gradle.androidAbis
 
 plugins {
-  alias(libs.plugins.android.application)
+  id("com.android.application")
   alias(libs.plugins.kotlin.compose)
-  alias(libs.plugins.aboutlibraries.android)
+  alias(libs.plugins.kotlin.serialization)
+  id("com.mikepenz.aboutlibraries.plugin.android")
+  id("handheld.licences")
 }
 
 val sessionLicences =
@@ -22,22 +23,15 @@ val sessionLicences =
       root.file("mise.toml"),
     )
     workspace = root
-    // The Rust targets of the ABIs below.
-    targets = listOf("aarch64-linux-android", "x86_64-linux-android")
+    targets = androidAbis.values.toList()
     checkedIn.from(root.dir("licences"), root.dir("session/licences"))
     rcheevosLicence = root.file("session/vendor/rcheevos/LICENSE")
     outputDir = layout.buildDirectory.dir("generated/licences")
   }
 
 // The About screen's list: the app's dependencies, which AboutLibraries puts in each variant's
-// `R.raw.aboutlibraries`, with the session's entries. It runs offline: licence texts come from the
-// entries, not the network.
-aboutLibraries {
-  offlineMode = true
-  collect { configPath = sessionLicences.flatMap { it.outputDir } }
-}
-
-tasks.withType<AboutLibrariesTask>().configureEach { doLast(RequireLicenceTexts) }
+// `R.raw.aboutlibraries`, with the session's entries.
+aboutLibraries { collect { configPath = sessionLicences.flatMap { it.outputDir } } }
 
 android {
   namespace = "dev.sargunv.handheld"
@@ -49,8 +43,7 @@ android {
     targetSdk = libs.versions.android.targetSdk.get().toInt()
     versionCode = 1
     versionName = libs.versions.handheld.get()
-    // The ABIs the game session builds for.
-    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    ndk { abiFilters += androidAbis.keys }
   }
 
   // The project's shared debug key, which `mise run android:debug-key` unpacks from fnox, so every
@@ -64,6 +57,31 @@ dependencies {
   implementation(project(":data"))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.core)
+  implementation(libs.kotlinx.serialization.json)
   implementation(project(":session"))
   testImplementation(libs.kotlin.test.junit)
+  testImplementation(libs.robolectric)
+}
+
+// Robolectric downloads Android's framework jar when a test first runs. Resolving it here instead
+// keeps test runs offline and lets Gradle cache it.
+val robolectricAndroidAll: Configuration by configurations.creating { isTransitive = false }
+
+dependencies { robolectricAndroidAll(libs.robolectric.android.all) }
+
+val robolectricJars =
+  tasks.register<Sync>("robolectricJars") {
+    from(robolectricAndroidAll)
+    into(layout.buildDirectory.dir("robolectric-jars"))
+  }
+
+tasks.withType<Test>().configureEach {
+  dependsOn(robolectricJars)
+  // Robolectric loads native libraries.
+  jvmArgs("--enable-native-access=ALL-UNNAMED")
+  systemProperty("robolectric.offline", "true")
+  systemProperty(
+    "robolectric.dependency.dir",
+    layout.buildDirectory.dir("robolectric-jars").get().asFile.absolutePath,
+  )
 }

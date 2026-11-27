@@ -12,6 +12,7 @@ mod achievements;
 mod audio;
 mod content;
 mod core;
+mod cstr;
 mod ffi;
 mod gl;
 mod handle;
@@ -20,6 +21,7 @@ mod input;
 mod options;
 mod pacing;
 mod platform;
+mod renderer;
 mod rom_header;
 mod save;
 mod session;
@@ -34,14 +36,12 @@ pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
 pub use crate::gl::{GlError, NativeWindow};
 pub use crate::handle::{
-    AchievementsHttp, GameSession, SessionInfo, SessionListener, SessionOptions, VideoMode,
-    WindowHandle,
+    AchievementsHttp, GameSession, SessionInfo, SessionListener, SessionOptions, WindowHandle,
 };
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
 pub use crate::rom_header::{HeaderField, rom_game_id, rom_header_fields};
-pub use crate::save::SaveRam;
 pub use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo, VideoOutput};
-pub use crate::video::{CapturedFrame, Frame, VideoSink};
+pub use crate::video::{CapturedFrame, Frame, Region, VideoSink};
 pub use crate::vulkan::VulkanError;
 
 uniffi::setup_scaffolding!();

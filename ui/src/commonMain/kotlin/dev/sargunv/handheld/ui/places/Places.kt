@@ -11,15 +11,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -30,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.formatSize
+import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
@@ -43,6 +50,7 @@ import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.game.GameScreen
 import dev.sargunv.handheld.ui.game.GameSecondary
+import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.OpenWithScreen
 import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
@@ -53,6 +61,8 @@ import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 
 /** The top-level pages, which the main menu goes to. */
 enum class Place(val title: String) {
@@ -65,10 +75,23 @@ enum class Place(val title: String) {
 /** The signed-in app's top screen. */
 @Composable
 fun MainPrimary(state: AppState) {
+  // Each place is a focus scope, which keeps its focus and scroll positions while another place,
+  // or a screen over the places, shows. Each start over on Home gives Home new ones.
+  val places = rememberSaveableStateHolder()
+  var homeStart by rememberSaveable { mutableIntStateOf(0) }
+  LaunchedEffect(state, places) {
+    state.homeStarts.collect {
+      places.removeState(homeKey(homeStart))
+      homeStart++
+      state.navigator.backToStart()
+      state.showPlace(Place.Home)
+    }
+  }
+  LaunchedEffect(state) { state.followAdoptions() }
   NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
     screen ->
     when (screen) {
-      Screen.Places -> NavEntry(screen) { PlacesScreen(state) }
+      Screen.Places -> NavEntry(screen) { PlacesScreen(state, places, homeKey(homeStart)) }
       is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
       is Screen.OpenWith -> NavEntry(screen) { OpenWithScreen(state, screen) }
       Screen.About -> NavEntry(screen) { AboutScreen(state) }
@@ -97,16 +120,8 @@ fun MainSecondary(state: AppState) {
           state.place == Place.Settings -> SettingsSecondary(state.settingsView)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
           focused is Focused.OnCollection -> {
-            Text(
-              focused.collection.name,
-              color = Placeholder.text,
-              fontSize = 24.sp,
-              modifier = Modifier.semantics { heading() },
-            )
-            Text(gameCount(focused.collection.romCount), color = Placeholder.mutedText)
-            if (focused.collection.description.isNotBlank()) {
-              Text(focused.collection.description, color = Placeholder.mutedText)
-            }
+            val collection = focused.collection
+            ShelfDescription(collection.name, collection.romCount, null, collection.description)
           }
         }
       }
@@ -114,11 +129,54 @@ fun MainSecondary(state: AppState) {
   }
 }
 
+/**
+ * Puts the ROM's screens in place of a local game's in the back stack once the adopt step has
+ * handed what was kept for the file to the ROM. It runs until cancelled.
+ */
+private suspend fun AppState.followAdoptions() {
+  val backStack = snapshotFlow { navigator.backStack.toList() }
+  combine(handedOver, backStack) { handedOver, screens ->
+      val roms = handedOver.associate { it.local to it.rom }
+      for (screen in screens) {
+        val replacement =
+          when (screen) {
+            is Screen.Game ->
+              roms[screen.key]?.let { library.rom(it.romId) }?.let { Screen.Game(it.id, it.title) }
+            is Screen.OpenWith ->
+              (screen.scope as? OpenWithScope.Game)
+                ?.let { roms[it.game] }
+                ?.let { screen.copy(scope = OpenWithScope.Game(it)) }
+            else -> null
+          }
+        if (replacement != null) navigator.replace(screen, replacement)
+      }
+    }
+    .collect()
+}
+
+/**
+ * The lower screen's description of a shelf of games: its [title], how many [games] it holds and
+ * how many are [onDevice] when that's known, and what it's [about].
+ */
+@Composable
+internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: String?) {
+  Text(
+    title,
+    color = Placeholder.text,
+    fontSize = 24.sp,
+    modifier = Modifier.semantics { heading() },
+  )
+  Text(gameCount(games), color = Placeholder.mutedText)
+  if (onDevice != null) Text(onDeviceCount(onDevice), color = Placeholder.mutedText)
+  if (!about.isNullOrBlank()) Text(about, color = Placeholder.mutedText)
+}
+
 /** The lower screen's description of a game. */
 @Composable
 internal fun GameDescription(state: AppState, game: LibraryGame) {
   val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
+  val deviceStates by state.deviceStates.collectAsState()
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
       (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
@@ -140,7 +198,7 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
       when (game) {
         is Rom -> {
           val onDevice =
-            when (state.deviceStates[game.id]) {
+            when (deviceStates[game.id]) {
               DeviceState.OnDevice -> "On this device"
               is DeviceState.Downloading -> "Downloading"
               null -> "Not on this device"
@@ -164,10 +222,14 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
   }
 }
 
+private fun homeKey(start: Int) = "${Place.Home.name}:$start"
+
 /** What a local game is marked with, wherever it shows. */
 internal const val NOT_ON_SERVER = "not on your server"
 
 internal fun gameCount(count: Int) = if (count == 1) "1 game" else "$count games"
+
+internal fun onDeviceCount(count: Int) = "$count on this device"
 
 /**
  * What accessibility services say for a game's cover: its title, and whether it's on the device,
@@ -189,22 +251,18 @@ internal fun coverDescription(rom: Rom, state: DeviceState?): String {
  * to Home; on Home it does nothing.
  */
 @Composable
-private fun PlacesScreen(state: AppState) {
-  val places = rememberSaveableStateHolder()
+private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: String) {
   BackHandler(
     onBack = { state.showPlace(Place.Home) },
     Modifier.fillMaxSize(),
     enabled = state.place != Place.Home,
   ) {
     Column(Modifier.fillMaxSize()) {
-      PlaceHeader(state.place, state.sync)
+      PlaceHeader(state.place, state.romm.sync.collectAsState().value)
       Box(Modifier.fillMaxWidth().weight(1f)) {
-        // Each place is a focus scope, which keeps its focus and scroll position while another
-        // place shows.
-        places.SaveableStateProvider(state.place.name) {
+        places.SaveableStateProvider(if (state.place == Place.Home) homeKey else state.place.name) {
           when (state.place) {
-            // A new key starts Home's state over, focus and scroll positions included.
-            Place.Home -> key(state.homeResets) { HomePlace(state) }
+            Place.Home -> HomePlace(state)
             Place.Library -> LibraryPlace(state)
             Place.Downloads ->
               DownloadsPlace(state.downloads) {
@@ -233,9 +291,9 @@ private fun PlaceHeader(place: Place, sync: SyncStatus) {
       modifier = Modifier.testTag("place:${place.name}").semantics { heading() },
     )
     Spacer(Modifier.weight(1f))
-    syncLabel(sync)?.let {
+    if (sync != SyncStatus.NotStarted && sync != SyncStatus.Synced) {
       Text(
-        it,
+        sync.label,
         color = Placeholder.mutedText,
         fontSize = 14.sp,
         modifier = Modifier.testTag("sync:status").semantics { liveRegion = LiveRegionMode.Polite },
@@ -243,17 +301,6 @@ private fun PlaceHeader(place: Place, sync: SyncStatus) {
     }
   }
 }
-
-/** What the header says about the sync, or null when there's nothing to say. */
-internal fun syncLabel(sync: SyncStatus): String? =
-  when (sync) {
-    SyncStatus.FirstSync,
-    SyncStatus.Syncing -> "Syncing"
-    SyncStatus.Failed -> "Offline"
-    SyncStatus.Unauthorized -> "RomM refused the sign-in · Settings → RomM"
-    SyncStatus.NotStarted,
-    SyncStatus.Synced -> null
-  }
 
 /**
  * A button in a menu.
@@ -270,7 +317,7 @@ internal fun MenuButton(
 ) {
   Box(
     Modifier.then(if (enabled) Modifier else Modifier.semantics { disabled() })
-      .focusItem(key, onConfirm = onConfirm)
+      .focusItem(key, onConfirm = onConfirm.takeIf { enabled }, role = Role.Button)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
   ) {

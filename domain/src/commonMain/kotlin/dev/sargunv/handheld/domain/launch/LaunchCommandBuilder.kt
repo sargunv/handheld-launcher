@@ -2,37 +2,25 @@
 
 package dev.sargunv.handheld.domain.launch
 
-import dev.sargunv.handheld.domain.emulator.LibretroCores
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /**
- * The game-specific facts a [LaunchRecipe] needs.
- *
- * [core] is the libretro core's library name, such as `snes9x_libretro`, for recipes that load one;
- * null picks [LibretroCores.recommendedFor] the platform. [titleId] is the game's title id where
- * the platform has one; null derives it from the file name where the recipe needs it.
- * [installedVersionName] is the target app's version name, for recipes that depend on its build.
+ * The game-specific facts a [LaunchRecipe] needs. [installedVersionName] is the target app's
+ * version name, for recipes that depend on its build.
  */
 data class LaunchInput(
   val romPath: String,
   val platform: PlatformSlug,
-  val core: String? = null,
-  val titleId: String? = null,
   val installedVersionName: String? = null,
-  val storageRoot: String = PRIMARY_STORAGE,
-) {
-  companion object {
-    /** The primary external storage root for Android's first user. */
-    const val PRIMARY_STORAGE = "/storage/emulated/0"
-  }
-}
+)
 
 /** The outcome of filling a [LaunchRecipe] with a game. */
 sealed interface LaunchBuild {
   data class Ready(val command: LaunchCommand) : LaunchBuild
 
-  /** The recipe loads a libretro core, and none was given or is recommended for [platform]. */
+  /** The recipe loads a libretro core, and none runs [platform]. */
   data class MissingCore(val platform: PlatformSlug) : LaunchBuild
 }
 
@@ -42,14 +30,20 @@ object LaunchCommandBuilder {
   private val placeholder = Regex("""\{(\w+)\}""")
   private val buildNumber = Regex("""^\d+\.\d+-(\d+)""")
 
-  /** The command that launches [input] in [packageName] the way [recipe] describes. */
-  fun build(recipe: LaunchRecipe, packageName: String, input: LaunchInput): LaunchBuild {
+  /**
+   * The command that launches [input] in [packageName] the way [recipe] describes. [core] is the
+   * libretro core for recipes that load one.
+   */
+  fun build(
+    recipe: LaunchRecipe,
+    packageName: String,
+    input: LaunchInput,
+    core: LibretroCore? = null,
+  ): LaunchBuild {
     val rom = LaunchUri.ProviderFile(input.romPath)
-    val core =
+    val loadedCore =
       if (recipe.loadsCore) {
-        input.core
-          ?: LibretroCores.recommendedFor(input.platform)?.androidLibrary
-          ?: return LaunchBuild.MissingCore(input.platform)
+        core?.androidLibrary ?: return LaunchBuild.MissingCore(input.platform)
       } else {
         null
       }
@@ -84,14 +78,15 @@ object LaunchCommandBuilder {
             }
           }
           is ExtraValue.Text ->
-            LaunchExtra.StringValue(key, fill(value.template, packageName, input, core))
+            LaunchExtra.StringValue(key, fill(value.template, packageName, loadedCore))
           is ExtraValue.Bool -> LaunchExtra.BooleanValue(key, value.value)
           is ExtraValue.PlatformName ->
             (value.names[input.platform] ?: value.names[PlatformCatalog.emulatedAs(input.platform)])
               ?.let { LaunchExtra.StringValue(key, it) }
           ExtraValue.VitaTitleArgs ->
-            (input.titleId ?: VitaTitleId.fromFileName(input.romPath.substringAfterLast('/')))
-              ?.let { LaunchExtra.StringArray(key, listOf("-r", it)) }
+            VitaTitleId.fromFileName(input.romPath.substringAfterLast('/'))?.let {
+              LaunchExtra.StringArray(key, listOf("-r", it))
+            }
         }
       }
 
@@ -108,11 +103,10 @@ object LaunchCommandBuilder {
         data = data,
         mimeType = recipe.mimeType.takeIf { data != null },
         extras = extras,
-        flags =
-          if (handsOverUri) recipe.flags + LaunchFlag.GrantReadUriPermission else recipe.flags,
+        flags = recipe.flags,
         clipData = rom.takeIf { handsOverUri },
-        method = recipe.method,
-        stopBeforeLaunch = recipe.stopBeforeLaunch,
+        // `am start` can't hand over content URIs.
+        method = if (handsOverUri) LaunchMethod.Intent else recipe.method,
       )
     return LaunchBuild.Ready(command)
   }
@@ -140,11 +134,14 @@ object LaunchCommandBuilder {
 
   private const val HEX = "0123456789ABCDEF"
 
-  private fun fill(template: String, packageName: String, input: LaunchInput, core: String?) =
+  /** The primary external storage root for Android's first user. */
+  private const val PRIMARY_STORAGE = "/storage/emulated/0"
+
+  private fun fill(template: String, packageName: String, core: String?) =
     placeholder.replace(template) { match ->
       when (val name = match.groupValues[1]) {
         "package" -> packageName
-        "storage" -> input.storageRoot
+        "storage" -> PRIMARY_STORAGE
         "core" -> checkNotNull(core) { "core placeholder without a core" }
         else -> error("unknown placeholder {$name}")
       }

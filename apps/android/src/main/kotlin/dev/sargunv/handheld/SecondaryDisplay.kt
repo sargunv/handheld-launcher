@@ -1,13 +1,13 @@
 package dev.sargunv.handheld
 
-import android.app.Activity
 import android.app.Presentation
-import android.content.Context
 import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.Looper
 import android.view.Display
 import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -21,9 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.setViewTreeLifecycleOwner
-import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 
 /**
@@ -77,7 +75,7 @@ fun SecondaryDisplayContent(
   onFailed: () -> Unit,
   content: @Composable () -> Unit,
 ) {
-  val activity = LocalContext.current.findActivity()
+  val activity = LocalActivity.current as ComponentActivity
   val parent = rememberCompositionContext()
   val currentContent by rememberUpdatedState(content)
   val currentOnFailed by rememberUpdatedState(onFailed)
@@ -86,8 +84,8 @@ fun SecondaryDisplayContent(
     presentation.window?.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
     presentation.setContentView(
       ComposeView(presentation.context).apply {
-        setViewTreeLifecycleOwner(activity as LifecycleOwner)
-        setViewTreeSavedStateRegistryOwner(activity as SavedStateRegistryOwner)
+        setViewTreeLifecycleOwner(activity)
+        setViewTreeSavedStateRegistryOwner(activity)
         setParentCompositionContext(parent)
         setContent { Box(Modifier.fillMaxSize().exposeTestTags()) { currentContent() } }
       },
@@ -100,10 +98,3 @@ fun SecondaryDisplayContent(
     onDispose { presentation.dismiss() }
   }
 }
-
-private tailrec fun Context.findActivity(): Activity =
-  when (this) {
-    is Activity -> this
-    is android.content.ContextWrapper -> baseContext.findActivity()
-    else -> error("Not in an activity")
-  }

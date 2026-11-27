@@ -9,6 +9,7 @@ import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.places.gameCount
+import dev.sargunv.handheld.ui.places.onDeviceCount
 import kotlinx.serialization.Serializable
 
 /** Library's tabs, in the order L and R step through them. */
@@ -43,7 +44,7 @@ sealed interface DeviceState {
  * The [DeviceState]s of the games with [statuses], by ROM id. A download that failed waits in the
  * queue for a retry, but the game is no closer to the device, so it has no state.
  */
-internal fun deviceStates(statuses: Map<Long, RomStatus>): Map<Long, DeviceState> = buildMap {
+internal fun deviceStatesOf(statuses: Map<Long, RomStatus>): Map<Long, DeviceState> = buildMap {
   for ((id, status) in statuses) {
     when (status) {
       is RomStatus.OnDevice -> put(id, DeviceState.OnDevice)
@@ -108,7 +109,7 @@ fun collectionShelfKey(kind: CollectionKind, id: Long) = "collection:${kind.name
  */
 fun platformShelves(
   platforms: List<Platform>,
-  localGames: List<LocalGame> = emptyList(),
+  localGames: List<LocalGame>,
 ): List<LibraryShelf> {
   val local = localGames.mapTo(mutableSetOf()) { it.platformId }
   return platforms.filter { it.romCount > 0 || it.id in local }.map { LibraryShelf.OfPlatform(it) }
@@ -137,7 +138,7 @@ fun List<LibraryShelf>.step(key: String?, step: Int): LibraryShelf? =
 data class ShelfSummary(val shelf: LibraryShelf, val games: Int, val onDevice: Int) {
   /** What a screen reader says for the shelf. */
   val description: String
-    get() = "${shelf.title}, ${gameCount(games)}, $onDevice on this device"
+    get() = "${shelf.title}, ${gameCount(games)}, ${onDeviceCount(onDevice)}"
 }
 
 /**
@@ -150,7 +151,7 @@ fun shelfSummaries(
   romPlatforms: Map<Long, Long>,
   collectionRoms: Map<Pair<CollectionKind, Long>, Set<Long>>,
   states: Map<Long, DeviceState>,
-  localGames: List<LocalGame> = emptyList(),
+  localGames: List<LocalGame>,
 ): List<ShelfSummary> {
   val onDevice = states.filterValues { it == DeviceState.OnDevice }.keys
   val onDeviceByPlatform = onDevice.mapNotNull(romPlatforms::get).groupingBy { it }.eachCount()

@@ -40,7 +40,6 @@ import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
@@ -59,7 +58,8 @@ import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalTestApi::class)
 class SettingsTest {
-  private val credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token"))
+  private val credentials =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player"))
   private val library = LibraryCache.open(path = null)
   private val saved = mutableListOf<Settings>()
 
@@ -105,7 +105,7 @@ class SettingsTest {
       storage = storage,
       saveSettings = { saved += it },
       apps = apps,
-      open = open?.let(::OpenRequest),
+      open = open,
     )
 
   /** Waits for Open with's list to take the focus, which comes a frame after its text. */
@@ -146,7 +146,7 @@ class SettingsTest {
     onNodeWithTag("settings:romm:signOut").assertIsFocused()
     assertNotNull(runBlocking { credentials.load() })
 
-    press(listOf(Key.ButtonA, Key.DirectionUp, Key.ButtonA))
+    press(listOf(Key.ButtonA, Key.DirectionRight, Key.ButtonA))
     // The sign-in itself, not the request for Settings shown again over it.
     awaitFocused("address")
     onNodeWithTag("settings:Controls").assertDoesNotExist()
@@ -167,7 +167,7 @@ class SettingsTest {
     focusDownTo("settings:romm:signOut")
     press(Key.ButtonA)
     awaitTag("signOut:cancel")
-    press(listOf(Key.DirectionUp, Key.ButtonA))
+    press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("address")
     assertEquals(emptyList(), downloads.queue.value)
   }
@@ -184,16 +184,16 @@ class SettingsTest {
   @Test
   fun aRefusedSignInSaysSoAndSignsInAgain() = runComposeUiTest {
     launch(refuses = true)
-    awaitText("RomM refused the sign-in · Settings → RomM")
-    onNodeWithTag("sync:status").assertTextEquals("RomM refused the sign-in · Settings → RomM")
+    awaitText("Sign-in refused")
+    onNodeWithTag("sync:status").assertTextEquals("Sign-in refused")
 
     press(Key.ButtonStart)
     awaitTag("main:Settings")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitTag("settings:Controls")
     press(listOf(Key.DirectionDown, Key.DirectionRight))
-    awaitTag("settings:romm:refused")
-    onNodeWithTag("settings:romm:sync").assertTextEquals("Library", "RomM refused the sign-in")
+    awaitTag("settings:romm:signInAgain")
+    onNodeWithTag("settings:romm:sync").assertTextEquals("Library", "Sign-in refused")
     focusDownTo("settings:romm:signInAgain")
     // The token is no good, so it signs in again without asking.
     press(Key.ButtonA)
@@ -216,7 +216,14 @@ class SettingsTest {
   fun showsThatADeviceSignInMayUpload() = runComposeUiTest {
     runBlocking {
       credentials.save(
-        RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read", "roms.write")),
+        RommCredentials(
+          TestServer,
+          "rmm_token",
+          1,
+          "player",
+          "d1",
+          listOf("roms.read", "roms.write"),
+        ),
       )
     }
     launch(OpenTarget.Settings(SettingsSection.RomM))
@@ -230,7 +237,9 @@ class SettingsTest {
     user =
       User.replace("\"role\": \"user\"", "\"role\": \"user\", \"oauth_scopes\": [\"roms.write\"]")
     runBlocking {
-      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(
+        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+      )
     }
     val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitFocused("settings:RomM")
@@ -299,7 +308,7 @@ class SettingsTest {
 
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
-    awaitText("Clearing it opens them in Built-in · Gambatte.")
+    awaitText("If cleared: Built-in · Gambatte")
     awaitFocusedApp()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")
@@ -370,8 +379,9 @@ class SettingsTest {
     awaitTag("settings:storage:primary")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitTag("settings:storage:refused")
-    press(Key.DirectionLeft)
+    press(listOf(Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown))
     awaitFocused("settings:Storage")
+    awaitTag("settings:storage:primary")
     onNodeWithTag("settings:storage:refused").assertDoesNotExist()
   }
 

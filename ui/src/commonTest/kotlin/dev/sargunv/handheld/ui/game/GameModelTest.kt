@@ -53,12 +53,12 @@ class GameModelTest {
       primaryAction(rom, RomStatus.OnDevice("/ROMs/gba/Game.gba"), playing = true),
     )
     assertEquals(
-      PrimaryAction.Waiting("Getting the core 40%"),
+      PrimaryAction.Waiting("Downloading core 40%"),
       primaryAction(
         rom,
         RomStatus.OnDevice("/ROMs/gba/Game.gba"),
         playing = true,
-        progress = "Getting the core 40%",
+        progress = "Downloading core 40%",
       ),
     )
   }

@@ -76,15 +76,66 @@ fn keeps_a_save_file_of_another_size_before_replacing_it() {
     let written = std::fs::read(saves.join("game.srm")).unwrap();
     assert_eq!(written.len(), SAVE_RAM_SIZE);
     assert_eq!(written[..short.len()], short);
-    let backups: Vec<_> = std::fs::read_dir(&saves)
+    assert_eq!(backups(&saves), [short]);
+}
+
+#[test]
+fn keeps_save_memory_before_loading_a_state() {
+    let _lock = lock();
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("blank.state");
+    {
+        let session = start(dir.path()).unwrap();
+        session
+            .save_state(state.to_string_lossy().into_owned())
+            .unwrap();
+        session.stop().unwrap();
+    }
+    let saves = dir.path().join("saves");
+    let pattern = pattern(SAVE_RAM_SIZE);
+    std::fs::create_dir_all(&saves).unwrap();
+    std::fs::write(saves.join("game.srm"), &pattern).unwrap();
+
+    let session = start(dir.path()).unwrap();
+    session
+        .load_state(state.to_string_lossy().into_owned())
+        .unwrap();
+    session.stop().unwrap();
+
+    assert_ne!(std::fs::read(saves.join("game.srm")).unwrap(), pattern);
+    assert_eq!(backups(&saves), [pattern]);
+}
+
+#[test]
+fn keeps_no_backup_when_a_state_doesnt_load() {
+    let _lock = lock();
+    let dir = tempfile::tempdir().unwrap();
+    let saves = dir.path().join("saves");
+    std::fs::create_dir_all(&saves).unwrap();
+    std::fs::write(saves.join("game.srm"), pattern(SAVE_RAM_SIZE)).unwrap();
+
+    let session = start(dir.path()).unwrap();
+    let missing = dir.path().join("missing.state");
+    assert!(matches!(
+        session.load_state(missing.to_string_lossy().into_owned()),
+        Err(SessionError::Io(_))
+    ));
+    session.stop().unwrap();
+
+    assert!(backups(&saves).is_empty());
+}
+
+/// The contents of the backups of `game.srm` in `saves`.
+fn backups(saves: &Path) -> Vec<Vec<u8>> {
+    std::fs::read_dir(saves)
         .unwrap()
         .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "bak"))
-        .collect();
-    assert_eq!(backups.len(), 1, "{backups:?}");
-    let name = backups[0].file_name().unwrap().to_str().unwrap();
-    assert!(name.starts_with("game.srm."), "{name}");
-    assert_eq!(std::fs::read(&backups[0]).unwrap(), short);
+        .filter(|p| {
+            let name = p.file_name().unwrap().to_string_lossy();
+            name.starts_with("game.srm.") && name.ends_with(".bak")
+        })
+        .map(|p| std::fs::read(p).unwrap())
+        .collect()
 }
 
 #[test]
@@ -94,7 +145,7 @@ fn a_stopped_session_refuses_work() {
     let session = start(dir.path()).unwrap();
     session.stop().unwrap();
     session.stop().unwrap();
-    assert!(matches!(session.advance(1), Err(SessionError::Stopped)));
+    assert!(matches!(session.pause(), Err(SessionError::Stopped)));
 }
 
 #[test]

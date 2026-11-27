@@ -35,9 +35,8 @@ object GameLayout {
    */
   fun playlist(platform: PlatformSlug, files: List<String>): List<String>? {
     if (PlatformCatalog.emulatedAs(platform) !in PlaylistPlatforms) return null
-    if (files.any { it.extension() == "m3u" }) return null
-    val descriptors = files.filter { it.extension() in DiscDescriptors }
-    val discs = descriptors.ifEmpty { files.filter { it.extension() in DiscImages } }
+    if (files.any(DiscSets::isPlaylist)) return null
+    val discs = DiscSets.discs(files)
     if (discs.size < 2) return null
     return discs.sortedWith(DiscOrder)
   }
@@ -47,17 +46,10 @@ object GameLayout {
    * its playlist, else its first disc (by descriptor, else image), else the first file by name.
    * Null when the folder is empty.
    */
-  fun launchFile(files: List<String>): String? {
-    files
-      .filter { it.extension() == "m3u" }
-      .minOrNull()
-      ?.let {
-        return it
-      }
-    val descriptors = files.filter { it.extension() in DiscDescriptors }
-    val discs = descriptors.ifEmpty { files.filter { it.extension() in DiscImages } }
-    return discs.minWithOrNull(DiscOrder) ?: files.minOrNull()
-  }
+  fun launchFile(files: List<String>): String? =
+    files.filter(DiscSets::isPlaylist).minOrNull()
+      ?: DiscSets.discs(files).minWithOrNull(DiscOrder)
+      ?: files.minOrNull()
 
   private val DiscOrder =
     compareBy<String>(
@@ -74,11 +66,6 @@ object GameLayout {
       PlatformCatalog.SEGA_CD,
       PlatformCatalog.TG_CD,
     )
-
-  private val DiscDescriptors = setOf("cue", "gdi", "ccd", "mds", "toc")
-  private val DiscImages = setOf("chd", "iso", "cdi", "pbp", "img", "bin")
-
-  private fun String.extension() = substringAfterLast('.', "").lowercase()
 
   private fun discNumber(name: String): Int? =
     Regex("""\b(?:disc|disk|cd)\s*(\d+)""", RegexOption.IGNORE_CASE)

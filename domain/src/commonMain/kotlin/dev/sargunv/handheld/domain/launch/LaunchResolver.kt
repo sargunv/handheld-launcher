@@ -2,6 +2,7 @@ package dev.sargunv.handheld.domain.launch
 
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.KnownEmulator
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
@@ -33,36 +34,25 @@ data class LaunchTarget(
   val emulator: KnownEmulator? = null,
   val core: String? = null,
 ) {
-  /**
-   * The command that launches [input] here, with this target's [core] unless [input] names one. A
-   * known core loads by its Android library name, which can differ from [core]'s.
-   */
-  fun commandFor(input: LaunchInput): LaunchBuild {
-    val androidCore = core?.let { LibretroCores.byLibrary(it)?.androidLibrary ?: it }
-    return LaunchCommandBuilder.build(
+  /** The command that launches [input] here, in the core [LibretroCores.resolve] picks. */
+  fun commandFor(input: LaunchInput): LaunchBuild =
+    LaunchCommandBuilder.build(
       recipe,
       packageName,
-      input.copy(core = input.core ?: androidCore),
+      input,
+      LibretroCores.resolve(core, input.platform),
     )
-  }
 
-  /**
-   * The libretro core, by library name, that a game on [platform] runs in here: this target's
-   * [core], or the platform's recommended one, which a libretro launch falls back to.
-   */
-  fun coreFor(platform: PlatformSlug): String? =
-    core ?: LibretroCores.recommendedFor(platform)?.library
+  /** The libretro core, by library name, that a game on [platform] runs in here. */
+  fun coreFor(platform: PlatformSlug): String? = LibretroCores.resolve(core, platform)?.library
 }
 
 /** The outcome of picking the app for a game. */
 sealed interface LaunchResolution {
   data class Resolved(val target: LaunchTarget, val rule: LaunchRule) : LaunchResolution
 
-  /**
-   * The game runs in the built-in session. [core] is the libretro core the rule named, by library
-   * name, or null for the platform's recommended core.
-   */
-  data class BuiltIn(val rule: LaunchRule, val core: String? = null) : LaunchResolution
+  /** The game runs in the built-in session, in [core]. */
+  data class BuiltIn(val rule: LaunchRule, val core: LibretroCore) : LaunchResolution
 
   /**
    * No rule named an installed app, and no known emulator for [platform] is installed.
@@ -96,7 +86,11 @@ object LaunchResolver {
           EmulatorRegistry.forPlatform(subject.platform),
         )
     return if (choice.isBuiltIn) {
-      LaunchResolution.BuiltIn(winner.rule, choice.core)
+      // The built-in session wins only on a platform with a recommended core.
+      LaunchResolution.BuiltIn(
+        winner.rule,
+        checkNotNull(LibretroCores.resolve(choice.core, subject.platform)),
+      )
     } else {
       LaunchResolution.Resolved(targetFor(choice), winner.rule)
     }

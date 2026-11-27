@@ -141,18 +141,12 @@ private suspend fun platformName(state: AppState, platform: PlatformSlug): Strin
  */
 @Composable
 internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
-  val context = rememberOpenWithContext(state, screen.scope)
+  val scope = screen.scope
+  val context = rememberOpenWithContext(state, scope)
   val launch = state.settings.launch
-  // A local game whose file became a server game while the screen was open is that game now, and
-  // its choice is the game's.
-  val scope =
-    screen.scope.let { scope ->
-      val local = (scope as? OpenWithScope.Game)?.game as? GameKey.Local
-      local?.let { state.onDevice[it.path] }?.let { OpenWithScope.Game(GameKey.Romm(it)) } ?: scope
-    }
   Column(Modifier.fillMaxSize()) {
     Text(
-      when (screen.scope) {
+      when (scope) {
         is OpenWithScope.Game -> "Open ${screen.title} with"
         is OpenWithScope.Platform -> "Open ${screen.title} games with"
         is OpenWithScope.Collection ->
@@ -191,7 +185,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         val options = appOptions(context.platform, context.apps)
         if (options.isEmpty()) {
           Text(
-            "No apps on this device can open games.",
+            "No app can open these games",
             color = Placeholder.mutedText,
             modifier = Modifier.weight(1f),
           )
@@ -228,19 +222,15 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             color = Placeholder.text,
             modifier = Modifier.testTag("openWith:current"),
           )
-          if ((screen.scope as? OpenWithScope.Game)?.game is GameKey.Local) {
+          if ((scope as? OpenWithScope.Game)?.game is GameKey.Local) {
             Text(
-              "A game that isn't on your server keeps this choice for its file, while the file " +
-                "keeps its name and folder. Once the file is a game on your server, the choice " +
-                "is that game's, unless it has one of its own.",
+              "Kept for this file · Moves to its game once on your server",
               color = Placeholder.mutedText,
             )
           }
           if (current != null) {
-            val after = context.opensIn(launch.withChoice(scope, null))
             Text(
-              after?.let { "Clearing it opens ${if (context.forGame) "it" else "them"} in $it." }
-                ?: "Clearing it leaves no app on this device that can open it.",
+              "If cleared: ${context.opensIn(launch.withChoice(scope, null)) ?: "no app"}",
               color = Placeholder.mutedText,
             )
             MenuButton("clear", "Clear this choice") { choose(null) }
@@ -312,13 +302,7 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       )
     }
     Text(
-      when (context.scope) {
-        is OpenWithScope.Game -> "The most specific choice wins."
-        is OpenWithScope.Platform ->
-          "A game's own choice, or its collection's, comes before the platform's."
-        is OpenWithScope.Collection ->
-          "A game's own choice comes before its collection's, which comes before the platform's."
-      },
+      "Game, then collection, then platform",
       color = Placeholder.mutedText,
     )
   }

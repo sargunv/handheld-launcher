@@ -10,13 +10,20 @@ lockfile_mode = "merge"
 "aqua:jdx/jactionlint" = "2.6.0"
 "aqua:koalaman/shellcheck" = "0.11.0"
 "core:java" = "zulu-25.38.201.0"
+# The targets of buildSrc's androidAbis.
 "core:rust" = { version = "1.100.0", profile = "minimal", components = "rustfmt,clippy", targets = "aarch64-linux-android,x86_64-linux-android" }
 "github:EmbarkStudios/cargo-about" = "0.9.3"
+"github:bbqsrc/cargo-ndk" = "4.1.2"
 "github:jdx/fnox" = "1.50.0"
 
 [env]
 # The runner images set ANDROID_HOME; locally it defaults to Android Studio's path.
 ANDROID_HOME = "{% if os() == 'macos' %}{% set sdk = env.HOME ~ '/Library/Android/sdk' %}{% else %}{% set sdk = env.HOME ~ '/Android/Sdk' %}{% endif %}{{ get_env(name='ANDROID_HOME', default=sdk) }}"
+# The NDK the session builds with, which cargo-ndk finds here. `mise run
+# android:ndk` installs it.
+ANDROID_NDK_HOME = "{{ env.ANDROID_HOME }}/ndk/30.0.16248370"
+# Where `mise run session:fixtures` puts the session's test fixtures.
+HANDHELD_SESSION_FIXTURES = "{{ get_env(name='XDG_CACHE_HOME', default=env.HOME ~ '/.cache') }}/handheld/session-fixtures"
 
 [tasks.check]
 description = "Run the formatters and linters"
@@ -42,6 +49,10 @@ run = "fnox exec -- ./gradlew :data:jvmTest --tests '*LiveLibrarySyncTest' --rer
 [tasks."run:desktop"]
 description = "Run the desktop app"
 run = "./gradlew :apps:desktop:run"
+
+[tasks."android:ndk"]
+description = "Install the NDK the session builds with"
+run = '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${ANDROID_NDK_HOME##*/}"'
 
 [tasks."android:debug-key"]
 description = "Unpack the project's shared debug signing key from fnox"
@@ -96,15 +107,15 @@ adb shell input -d 0 keyevent "KEYCODE_$key"
 """
 
 [tasks."android:open"]
-description = "Show a screen of the debug app on the connected device straight away"
-usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, local:<path>, library, library:tab:<tab>, library:<platform-slug>, library:collection:<id>, library:collection:smart:<id>, settings or settings:<section>"'
+description = "Show a screen of the app on the connected device straight away"
+usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, local:<path>, library, library:tab:<tab> (on-device, platforms, collections, all-games), library:<platform-slug>, library:collection:<id>, library:collection:smart:<id>, settings or settings:<section> (controls, romm, retroachievements, emulators, storage, about)"'
 # The device's shell reads the command again, so a path with spaces is quoted for it, with bash's
 # printf.
 shell = "bash -c"
 run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$(printf %q "$usage_target")" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
 
 [tasks."android:ui"]
-description = "Print the debug app's focused element and visible elements, on every display"
+description = "Print the app's focused element and visible elements, on every display"
 run = "apps/android/scripts/ui.sh"
 
 [hooks]

@@ -17,7 +17,6 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -51,7 +50,9 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.help
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
@@ -72,9 +73,6 @@ sealed interface SignInScreen {
   data class Token(val baseUrl: String) : SignInScreen
 }
 
-/** What the lower screen says about the focused item. */
-@Immutable data class Help(val title: String, val text: String)
-
 /**
  * State the sign-in's two screens share.
  *
@@ -94,7 +92,7 @@ class SignInState(
 
   /** Whether a sign-in with a code asks for permission to upload games to the server too. */
   internal var allowUploads: Boolean by mutableStateOf(allowUploads)
-  internal var help: Help? by mutableStateOf(null)
+  internal val help = HelpHolder()
 }
 
 /** The sign-in's top screen. */
@@ -117,8 +115,8 @@ fun SignInSecondary(state: SignInState) {
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    state.help?.let { help ->
-      Text(help.title, color = Placeholder.text)
+    state.help.shown?.let { help ->
+      Text(help.label, color = Placeholder.text)
       Text(help.text, color = Placeholder.mutedText)
     }
   }
@@ -129,8 +127,7 @@ private fun AddressScreen(state: SignInState) {
   var error by remember { mutableStateOf<String?>(null) }
   fun next(screen: (String) -> SignInScreen) {
     val url = serverUrl(state.address.text.toString())
-    error =
-      if (url == null) "Enter the address you open RomM at, such as romm.example.com." else null
+    error = if (url == null) "Valid server address required" else null
     if (url != null) state.navigator.push(screen(url))
   }
   ScreenColumn(canGoBack = false) {
@@ -141,16 +138,13 @@ private fun AddressScreen(state: SignInState) {
       modifier = Modifier.semantics { heading() },
     )
     TextEntry(
-      state = state,
+      state.help,
       key = "address",
       field = state.address,
       modifier = Modifier.fillMaxWidth(),
       placeholder = "romm.example.com",
-      help =
-        Help(
-          "Server address",
-          "The address you open RomM at in a browser, such as romm.example.com.",
-        ),
+      label = "Server address",
+      help = "The address you open RomM at in a browser, such as romm.example.com.",
       keyboardOptions =
         KeyboardOptions(
           autoCorrectEnabled = false,
@@ -166,11 +160,7 @@ private fun AddressScreen(state: SignInState) {
       "allowUploads",
       "Allow uploading games to your server",
       checked = state.allowUploads,
-      Help(
-        "Allow uploading games",
-        "Lets this device send games that aren't on your server to it, from the game's page. " +
-          "RomM asks you to approve it with the code. You can allow it later by signing in again.",
-      ),
+      "Lets this device upload games that aren't on your server.",
     ) {
       state.allowUploads = !state.allowUploads
     }
@@ -178,11 +168,11 @@ private fun AddressScreen(state: SignInState) {
       state,
       "continue",
       "Continue",
-      Help("Continue", "Get a code, then approve it in RomM on your phone or computer."),
+      "Get a code, then approve it in RomM on your phone or computer.",
     ) {
       next(SignInScreen::Code)
     }
-    SignInButton(state, "token", "Use an API token", TokenHelp) { next(SignInScreen::Token) }
+    SignInButton(state, "token", "Use an API token", TOKEN_HELP) { next(SignInScreen::Token) }
   }
 }
 
@@ -214,14 +204,11 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
     when {
       error != null ->
         Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
-      shown == null -> Text("Asking $baseUrl for a code…", color = Placeholder.mutedText)
+      shown == null -> Text("Getting a code", color = Placeholder.mutedText)
       else -> {
-        Text(
-          "On a phone or computer signed in to RomM, open this address:",
-          color = Placeholder.mutedText,
-        )
+        Text("Open", color = Placeholder.mutedText)
         Text(shown.verificationUrl, color = Placeholder.text)
-        Text("Check that it shows this code, then approve it:", color = Placeholder.mutedText)
+        Text("Code", color = Placeholder.mutedText)
         Text(
           shown.userCode,
           color = Placeholder.text,
@@ -231,21 +218,14 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
           modifier =
             Modifier.semantics { contentDescription = shown.userCode.toList().joinToString(" ") },
         )
-        Text("Waiting for approval…", color = Placeholder.mutedText)
+        Text("Waiting for approval", color = Placeholder.mutedText)
       }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
       if (error != null) {
-        SignInButton(
-          state,
-          "retry",
-          "Get a new code",
-          Help("Get a new code", "Ask for a new code."),
-        ) {
-          attempt++
-        }
+        SignInButton(state, "retry", "Get a new code") { attempt++ }
       }
-      SignInButton(state, "token", "Use an API token instead", TokenHelp) {
+      SignInButton(state, "token", "Use an API token instead", TOKEN_HELP) {
         state.navigator.push(SignInScreen.Token(baseUrl))
       }
     }
@@ -264,7 +244,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
     if (checking) return
     val token = field.text.toString()
     if (token.isBlank()) {
-      error = "Paste or type a client API token first."
+      error = "Token required"
       return
     }
     error = null
@@ -289,19 +269,17 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       fontSize = 28.sp,
       modifier = Modifier.semantics { heading() },
     )
-    Text(
-      "Create a client API token in RomM on another device, then paste or type it here.",
-      color = Placeholder.mutedText,
-    )
+    Text("Client API token from RomM", color = Placeholder.mutedText)
     UnencryptedNote(baseUrl)
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
       TextEntry(
-        state = state,
+        state.help,
         key = "token",
         field = field,
         modifier = Modifier.weight(1f),
         placeholder = "API token",
-        help = Help("API token", "A client API token from RomM, for $baseUrl."),
+        label = "API token",
+        help = "A client API token from RomM, for $baseUrl.",
         secure = true,
         keyboardOptions =
           KeyboardOptions(
@@ -311,11 +289,11 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
           ),
         onSubmit = ::submit,
       )
-      SignInButton(state, "paste", "Paste", Help("Paste", "Paste the token from the clipboard.")) {
+      SignInButton(state, "paste", "Paste") {
         scope.launch {
           val text = clipboard.readText()?.trim()
           if (text.isNullOrEmpty()) {
-            error = "The clipboard has no text to paste."
+            error = "Clipboard empty"
           } else {
             field.setTextAndPlaceCursorAtEnd(text)
             error = null
@@ -324,21 +302,16 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       }
     }
     when {
-      checking -> Text("Checking the token with $baseUrl…", color = Placeholder.mutedText)
+      checking -> Text("Checking token", color = Placeholder.mutedText)
       error != null ->
         Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
     }
-    SignInButton(state, "sign-in", "Sign in", Help("Sign in", "Check the token, then sign in.")) {
-      submit()
-    }
+    SignInButton(state, "sign-in", "Sign in", onConfirm = ::submit)
   }
 }
 
-private val TokenHelp =
-  Help(
-    "Use an API token",
-    "Sign in with a client API token that you create in RomM, instead of approving a code.",
-  )
+private const val TOKEN_HELP =
+  "Sign in with a client API token that you create in RomM, instead of approving a code."
 
 /** Says that the server at [url] isn't encrypted, when it isn't. */
 @Composable
@@ -365,51 +338,27 @@ private fun ScreenColumn(canGoBack: Boolean, content: @Composable () -> Unit) {
   }
 }
 
-/** A [TextEntry] on a sign-in screen, whose lower screen shows [help] while it has focus. */
-@Composable
-private fun TextEntry(
-  state: SignInState,
-  key: String,
-  field: TextFieldState,
-  placeholder: String,
-  help: Help,
-  keyboardOptions: KeyboardOptions,
-  onSubmit: () -> Unit,
-  modifier: Modifier = Modifier,
-  secure: Boolean = false,
-) =
-  TextEntry(
-    key = key,
-    field = field,
-    placeholder = placeholder,
-    label = help.title,
-    keyboardOptions = keyboardOptions,
-    onSubmit = onSubmit,
-    modifier = modifier,
-    secure = secure,
-    onFocused = { state.help = help },
-  )
-
 /**
  * A text field for a controller: an item that focus moves over like any other, and that opens the
  * system keyboard on [Action.Confirm] or a tap. [Action.Back], [Action.Confirm] or moving focus
- * away stops editing; the keyboard's action key also calls [onSubmit].
+ * away stops editing; the keyboard's action key also calls [onSubmit]. Focusing it puts [help] on
+ * [helpHolder]'s lower screen.
  *
- * @param label names the field to accessibility services.
+ * @param label names the field to accessibility services and titles its help.
  * @param secure hides what's typed, for secrets.
- * @param onFocused called when the field takes focus.
  */
 @Composable
 internal fun TextEntry(
+  helpHolder: HelpHolder,
   key: String,
   field: TextFieldState,
   placeholder: String,
   label: String,
+  help: String,
   keyboardOptions: KeyboardOptions,
   onSubmit: () -> Unit,
   modifier: Modifier = Modifier,
   secure: Boolean = false,
-  onFocused: () -> Unit = {},
 ) {
   var editing by remember { mutableStateOf(false) }
   val itemRequester = remember { FocusRequester() }
@@ -429,7 +378,7 @@ internal fun TextEntry(
     }
   Box(
     modifier
-      .onFocusChanged { if (it.hasFocus) onFocused() }
+      .help(helpHolder, key, label, help)
       .focusRequester(itemRequester)
       .focusItem(
         key,
@@ -503,11 +452,11 @@ private fun SignInButton(
   state: SignInState,
   key: String,
   label: String,
-  help: Help,
+  help: String? = null,
   onConfirm: () -> Unit,
 ) {
   Box(
-    Modifier.onFocusChanged { if (it.isFocused) state.help = help }
+    Modifier.help(state.help, key, label, help)
       .focusItem(key, onConfirm = onConfirm)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
@@ -523,11 +472,11 @@ private fun SignInToggle(
   key: String,
   label: String,
   checked: Boolean,
-  help: Help,
+  help: String,
   onToggle: () -> Unit,
 ) {
   Row(
-    Modifier.onFocusChanged { if (it.isFocused) state.help = help }
+    Modifier.help(state.help, key, label, help)
       .semantics { toggleableState = ToggleableState(checked) }
       .focusItem(key, onConfirm = onToggle, role = Role.Switch)
       .background(Placeholder.tile)

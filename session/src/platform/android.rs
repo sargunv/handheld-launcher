@@ -1,39 +1,23 @@
 //! Android's logging and windows.
 
 use std::ffi::c_void;
+use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
-use crate::NativeWindow;
+use ndk::native_window::NativeWindow as AndroidWindow;
 
-#[link(name = "android")]
-unsafe extern "C" {
-    fn ANativeWindow_fromSurface(env: *mut c_void, surface: *mut c_void) -> *mut c_void;
-    fn ANativeWindow_release(window: *mut c_void);
-}
-
-unsafe extern "C" {
-    fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
-}
-
-/// `struct timespec` on the 64-bit ABIs the session builds for.
-#[repr(C)]
-struct Timespec {
-    seconds: i64,
-    nanos: i64,
-}
-
-const CLOCK_MONOTONIC: i32 = 1;
+use crate::{NativeWindow, SessionError, WindowHandle};
 
 /// Now on `CLOCK_MONOTONIC`, the clock of Choreographer's and AAudio's
 /// timestamps, in nanoseconds.
 pub(crate) fn monotonic_nanos() -> i64 {
-    let mut time = Timespec {
-        seconds: 0,
-        nanos: 0,
+    let mut time = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
     };
-    // SAFETY: `time` is a valid `timespec` on 64-bit Android.
-    unsafe { clock_gettime(CLOCK_MONOTONIC, &mut time) };
-    time.seconds * 1_000_000_000 + time.nanos
+    // SAFETY: `time` is a valid `timespec`.
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut time) };
+    time.tv_sec * 1_000_000_000 + time.tv_nsec
 }
 
 /// Sends the session's logs, and its cores', to logcat.
@@ -46,31 +30,23 @@ pub(crate) fn init_logging() {
 }
 
 /// One reference to an `ANativeWindow`, released when dropped.
-pub(crate) struct AndroidWindow(NonNull<c_void>);
+pub(crate) struct PlatformWindow(AndroidWindow);
 
-impl AndroidWindow {
-    /// Takes over the reference that `pointer` stands for, or returns `None`
-    /// for a null pointer.
-    ///
-    /// # Safety
-    ///
-    /// `pointer` is null or an `ANativeWindow` the caller holds a reference
-    /// to, which it gives up.
-    pub(crate) unsafe fn adopt(pointer: u64) -> Option<Self> {
-        NonNull::new(pointer as usize as *mut c_void).map(Self)
+impl PlatformWindow {
+    /// Takes over the reference that `handle` hands over, as
+    /// [`WindowHandle::Android`] documents.
+    pub(crate) fn adopt(handle: WindowHandle) -> Result<Self, SessionError> {
+        let WindowHandle::Android { window } = handle;
+        let window =
+            NonNull::new(window as usize as *mut _).ok_or(SessionError::UnsupportedWindow)?;
+        // SAFETY: the handle hands over a reference to an `ANativeWindow`.
+        Ok(Self(unsafe { AndroidWindow::from_ptr(window) }))
     }
 
     pub(crate) fn native(&self) -> NativeWindow {
         // SAFETY: the reference keeps the window alive while `self` lives,
         // and the session detaches it before dropping `self`.
-        unsafe { NativeWindow::android(self.0) }
-    }
-}
-
-impl Drop for AndroidWindow {
-    fn drop(&mut self) {
-        // SAFETY: `self` holds one reference.
-        unsafe { ANativeWindow_release(self.0.as_ptr()) };
+        unsafe { NativeWindow::android(self.0.ptr().cast()) }
     }
 }
 
@@ -88,5 +64,9 @@ pub unsafe extern "system" fn Java_dev_sargunv_handheld_session_NativeWindows_ac
     surface: *mut c_void,
 ) -> i64 {
     // SAFETY: the JVM passes its environment and a Surface reference.
-    unsafe { ANativeWindow_fromSurface(env, surface) as usize as i64 }
+    let window = unsafe { AndroidWindow::from_surface(env.cast(), surface.cast()) };
+    // The reference goes to the caller.
+    window.map_or(0, |window| {
+        ManuallyDrop::new(window).ptr().as_ptr() as usize as i64
+    })
 }

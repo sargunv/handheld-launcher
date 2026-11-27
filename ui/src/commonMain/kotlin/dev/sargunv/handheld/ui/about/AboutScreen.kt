@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -45,6 +44,7 @@ import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.Screen
+import dev.sargunv.handheld.ui.places.describes
 import kotlinx.coroutines.launch
 
 /** The third-party components, or null until they're read. */
@@ -61,10 +61,6 @@ private fun rememberLibraries(info: AppInfo): List<Library>? {
 @Composable
 internal fun AboutScreen(state: AppState) {
   val libraries = rememberLibraries(state.appInfo)
-  // The lower screen describes a component only while this screen shows.
-  DisposableEffect(state) {
-    onDispose { if (state.focused is Focused.OnComponent) state.focused = null }
-  }
   Column(Modifier.fillMaxSize()) {
     Text(
       "About",
@@ -90,14 +86,13 @@ internal fun AboutScreen(state: AppState) {
           modifier = Modifier.semantics { heading() },
         )
         Text("Version ${state.appInfo.version}", color = Placeholder.mutedText)
+        Text("Licence · GPL-3.0-or-later", color = Placeholder.mutedText)
+        Text("No warranty", color = Placeholder.mutedText)
         Text(
-          "$AppName is free software under the GNU General Public License, version 3 or (at your " +
-            "option) any later version. You can share and change it under the licence's terms. " +
-            "It comes with no warranty.",
-          color = Placeholder.mutedText,
+          "Source · $SourceUrl",
+          color = Placeholder.text,
+          modifier = Modifier.testTag("about:source"),
         )
-        Text("Its source code and the licence's full text are at", color = Placeholder.mutedText)
-        Text(SourceUrl, color = Placeholder.text, modifier = Modifier.testTag("about:source"))
       }
       Column(Modifier.weight(3f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
@@ -107,8 +102,7 @@ internal fun AboutScreen(state: AppState) {
         )
         when {
           libraries == null -> Unit
-          libraries.isEmpty() ->
-            Text("This build doesn't list its components.", color = Placeholder.mutedText)
+          libraries.isEmpty() -> Text("No components listed", color = Placeholder.mutedText)
           else ->
             FocusLazyColumn(
               Modifier.weight(1f),
@@ -118,7 +112,7 @@ internal fun AboutScreen(state: AppState) {
               items(libraries, key = { it.uniqueId }) { library ->
                 ComponentRow(
                   library,
-                  onFocus = { state.focused = Focused.OnComponent(library) },
+                  Modifier.describes(state, Focused.OnComponent(library)),
                   onConfirm = {
                     state.navigator.push(Screen.Licence(library.uniqueId, library.name))
                   },
@@ -134,10 +128,10 @@ internal fun AboutScreen(state: AppState) {
 
 /** A component in About's list: its name, version and licences. */
 @Composable
-private fun ComponentRow(library: Library, onFocus: () -> Unit, onConfirm: () -> Unit) {
+private fun ComponentRow(library: Library, modifier: Modifier, onConfirm: () -> Unit) {
   Column(
-    Modifier.fillMaxWidth()
-      .onFocusChanged { if (it.isFocused) onFocus() }
+    modifier
+      .fillMaxWidth()
       .focusItem("component:${library.uniqueId}", onConfirm = onConfirm)
       .background(Placeholder.tile)
       .padding(horizontal = 20.dp, vertical = 10.dp),

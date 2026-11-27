@@ -21,7 +21,6 @@ data class LaunchCommand(
   val flags: Set<LaunchFlag> = emptySet(),
   val clipData: LaunchUri? = null,
   val method: LaunchMethod = LaunchMethod.Intent,
-  val stopBeforeLaunch: Boolean = false,
 ) {
   /** The files this command hands over by content URI, each to be granted once. */
   val readGrants: List<LaunchUri.ProviderFile>
@@ -39,17 +38,6 @@ data class LaunchCommand(
       }
       return uris.toList()
     }
-
-  /**
-   * Whether `am start` can carry this command. It can't hand over content URIs, since only the app
-   * that owns the provider can grant them, so a command with any must go as an intent.
-   */
-  val canUseShell: Boolean
-    get() = readGrants.isEmpty()
-
-  /** How this command goes: by [method], unless that's the shell and the command can't use it. */
-  val dispatchMethod: LaunchMethod
-    get() = if (canUseShell) method else LaunchMethod.Intent
 
   /**
    * The folders holding [readGrants], to grant [packageName] read access to along with the files,
@@ -114,7 +102,6 @@ enum class LaunchFlag {
   ClearTask,
   ClearTop,
   NoHistory,
-  GrantReadUriPermission,
 }
 
 /** How a launch command reaches the target app. */
@@ -124,8 +111,8 @@ enum class LaunchMethod {
 
   /**
    * `am start` from the app's own process. Emulators that hold all-files access read paths more
-   * reliably this way, since no URI grant is involved. A command that can't use the shell
-   * ([LaunchCommand.canUseShell]) goes as an intent instead.
+   * reliably this way, since no URI grant is involved. `am start` can't hand over content URIs, so
+   * a command with [LaunchCommand.readGrants] goes as an intent.
    */
   Shell,
 }

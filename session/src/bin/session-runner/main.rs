@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, SaveRam, Session, SessionConfig,
-    VideoOutput, VideoSink,
+    AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, Session,
+    SessionConfig, VideoOutput, VideoSink,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -92,20 +92,17 @@ fn main() {
     }
 }
 
-/// A frame's width, height and RGBA8 pixels.
-type OwnedFrame = (u32, u32, Vec<u8>);
-
 /// The last frame the session handed over, for presenting on the CPU.
 #[derive(Clone, Default)]
-struct FrameSlot(Rc<RefCell<Option<OwnedFrame>>>);
+struct FrameSlot(Rc<RefCell<Option<CapturedFrame>>>);
 
 impl VideoSink for FrameSlot {
     fn frame(&mut self, frame: Frame<'_>) {
-        let mut slot = self.0.borrow_mut();
-        let (w, h, pixels) = slot.get_or_insert_with(Default::default);
-        (*w, *h) = (frame.width, frame.height);
-        pixels.clear();
-        pixels.extend_from_slice(frame.pixels);
+        *self.0.borrow_mut() = Some(CapturedFrame {
+            width: frame.width,
+            height: frame.height,
+            pixels: frame.pixels.to_vec(),
+        });
     }
 }
 
@@ -125,7 +122,7 @@ impl CpuPresenter {
             return;
         };
         let slot = self.frames.0.borrow();
-        let Some((w, h, pixels)) = slot.as_ref() else {
+        let Some(frame) = slot.as_ref() else {
             return;
         };
         if self.surface.resize(win_w, win_h).is_err() {
@@ -134,26 +131,18 @@ impl CpuPresenter {
         let Ok(mut buffer) = self.surface.buffer_mut() else {
             return;
         };
-        let (win_w, win_h) = (win_w.get() as usize, win_h.get() as usize);
-        let aspect = if aspect > 0.0 {
-            f64::from(aspect)
-        } else {
-            f64::from(*w) / f64::from(*h)
-        };
-        let (dst_w, dst_h) = if win_w as f64 / win_h as f64 > aspect {
-            ((win_h as f64 * aspect) as usize, win_h)
-        } else {
-            (win_w, (win_w as f64 / aspect) as usize)
-        };
-        let (x0, y0) = ((win_w - dst_w) / 2, (win_h - dst_h) / 2);
+        let (x0, y0, dst_w, dst_h) =
+            Region::Whole.fit(frame.width, frame.height, aspect, win_w.get(), win_h.get());
+        let [x0, y0, dst_w, dst_h] = [x0, y0, dst_w, dst_h].map(|n| n as usize);
+        let win_w = win_w.get() as usize;
         buffer.fill(0);
         for y in 0..dst_h {
-            let src_y = y * *h as usize / dst_h;
+            let src_y = y * frame.height as usize / dst_h;
             let row = &mut buffer[(y0 + y) * win_w + x0..][..dst_w];
             for (x, out) in row.iter_mut().enumerate() {
-                let src_x = x * *w as usize / dst_w;
-                let i = (src_y * *w as usize + src_x) * 4;
-                let [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]].map(u32::from);
+                let src_x = x * frame.width as usize / dst_w;
+                let i = (src_y * frame.width as usize + src_x) * 4;
+                let [r, g, b] = [0, 1, 2].map(|c| u32::from(frame.pixels[i + c]));
                 *out = (r << 16) | (g << 8) | b;
             }
         }
@@ -169,18 +158,12 @@ struct App {
     cpu: Option<CpuPresenter>,
     window: Option<Rc<Window>>,
     input: Arc<InputState>,
-    /// The mapped keys held down.
-    keyboard: u16,
-    /// The mapped keys pressed since the last frame, which it holds even if
-    /// they were released before it.
-    keyboard_presses: u16,
-    gamepads: input::Gamepads,
+    controls: input::Controls,
     next_frame: Instant,
     frame_period: Duration,
     frames_run: u64,
     stats: (Instant, u64),
-    save_ram_path: PathBuf,
-    save_ram: Option<SaveRam>,
+    save_ram: PathBuf,
     state: PathBuf,
     error: Option<String>,
 }
@@ -213,17 +196,14 @@ impl App {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         Self {
-            save_ram_path: save_dir.join(format!("{stem}.srm")),
-            save_ram: None,
+            save_ram: save_dir.join(format!("{stem}.srm")),
             state: save_dir.join(format!("{stem}.state")),
             args,
             session: None,
             cpu: None,
             window: None,
             input: Arc::new(InputState::new()),
-            keyboard: 0,
-            keyboard_presses: 0,
-            gamepads: input::Gamepads::new(),
+            controls: input::Controls::new(),
             next_frame: Instant::now(),
             frame_period: Duration::from_secs_f64(1.0 / 60.0),
             frames_run: 0,
@@ -253,10 +233,8 @@ impl App {
 
         let video = match self.args.present {
             Present::Gl => VideoOutput::Window {
-                window: Some(native_window(&window)?),
-                width: size.width,
-                height: size.height,
-                lower_screen_width_share: None,
+                window: Some((native_window(&window)?, size.width, size.height)),
+                lower: Region::bottom(None),
             },
             Present::Cpu => {
                 let context =
@@ -293,6 +271,7 @@ impl App {
                 .clone()
                 .unwrap_or_else(|| save_dir.parent().expect("a data directory").join("system")),
             save_dir,
+            save_ram: Some(self.save_ram.clone()),
             video,
             audio,
             input: self.input.clone(),
@@ -301,12 +280,7 @@ impl App {
         };
         // SAFETY: the user named a libretro core, and the window outlives the
         // session, which `App` drops first.
-        let mut session = unsafe { Session::new(config) }.map_err(|e| error_chain(&e))?;
-
-        // Running anyway would replace the file with fresh save memory on exit.
-        let path = &self.save_ram_path;
-        self.save_ram = SaveRam::load(path, &mut session)
-            .map_err(|e| format!("can't load {}: {e}", path.display()))?;
+        let session = unsafe { Session::new(config) }.map_err(|e| error_chain(&e))?;
         let av = session.av_info();
         let info = session.system_info();
         window.set_title(&format!("{} {}", info.library_name, info.library_version));
@@ -314,7 +288,7 @@ impl App {
             av.base_width.max(1) * self.args.scale,
             av.base_height.max(1) * self.args.scale,
         ));
-        self.frame_period = frame_period(av.fps);
+        self.frame_period = av.frame_period();
         self.next_frame = Instant::now();
         self.session = Some(session);
         self.window = Some(window);
@@ -325,11 +299,10 @@ impl App {
         let Some(session) = &mut self.session else {
             return;
         };
-        let keyboard = self.keyboard | std::mem::take(&mut self.keyboard_presses);
-        self.gamepads.update(self.input.port(0), keyboard);
+        self.controls.update(self.input.port(0));
         session.run_frame();
         // The core may change its frame rate mid-game.
-        self.frame_period = frame_period(session.av_info().fps);
+        self.frame_period = session.av_info().frame_period();
         self.frames_run += 1;
         if let (Some(cpu), Some(window)) = (&mut self.cpu, &self.window) {
             cpu.present(window, session.av_info().aspect_ratio);
@@ -358,16 +331,7 @@ impl App {
                 Ok(()) => log::info!("loaded the state from {}", self.state.display()),
                 Err(e) => log::warn!("can't load the state: {}", error_chain(&e)),
             },
-            _ => {
-                if let Some(button) = input::key_button(key) {
-                    if pressed {
-                        self.keyboard |= button.mask();
-                        self.keyboard_presses |= button.mask();
-                    } else {
-                        self.keyboard &= !button.mask();
-                    }
-                }
-            }
+            _ => self.controls.key(self.input.port(0), key, pressed),
         }
     }
 }
@@ -430,22 +394,7 @@ impl ApplicationHandler for App {
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
-        if let (Some(session), Some(save_ram)) = (&self.session, &mut self.save_ram)
-            && let Err(e) = save_ram.flush(session)
-        {
-            log::error!("can't save {}: {e}", self.save_ram_path.display());
-        }
         self.session = None;
-    }
-}
-
-/// How long a frame lasts at `fps`, or at 60 frames a second if the core
-/// gives no usable rate.
-fn frame_period(fps: f64) -> Duration {
-    if fps.is_finite() && fps > 1.0 {
-        Duration::from_secs_f64(1.0 / fps)
-    } else {
-        Duration::from_secs_f64(1.0 / 60.0)
     }
 }
 

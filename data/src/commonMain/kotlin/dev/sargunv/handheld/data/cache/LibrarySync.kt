@@ -1,7 +1,5 @@
 package dev.sargunv.handheld.data.cache
 
-import dev.sargunv.handheld.data.romm.RomOrder
-import dev.sargunv.handheld.data.romm.RomQuery
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommCollection
 import dev.sargunv.handheld.data.romm.RommException
@@ -48,8 +46,7 @@ class LibrarySync(
     cache.replacePlatforms(platforms)
 
     var newest = cursor
-    val query = RomQuery(updatedAfter = cursor?.minus(CURSOR_OVERLAP), withFiles = true)
-    client.allRoms(query, pageSize).collect { page ->
+    client.allRoms(cursor?.minus(CURSOR_OVERLAP), pageSize).collect { page ->
       cache.upsertRoms(page.items.map { it.toDomain(client) })
       val pageNewest = page.items.maxOf { it.updatedAt }
       newest = newest?.let { maxOf(it, pageNewest) } ?: pageNewest
@@ -73,13 +70,7 @@ class LibrarySync(
         client.smartCollections().map { it.toDomain() to it.romIds }
     cache.replaceCollections(collections)
 
-    val played =
-      client
-        .roms(
-          RomQuery(lastPlayed = true, orderBy = RomOrder.LastPlayed, descending = true),
-          limit = RECENTLY_PLAYED_LIMIT,
-        )
-        .items
+    val played = client.recentlyPlayed(RECENTLY_PLAYED_LIMIT)
     cache.replaceRecentlyPlayed(
       played.mapNotNull { rom -> rom.romUser?.lastPlayed?.let { rom.id to it } }.toMap(),
     )

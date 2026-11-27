@@ -16,7 +16,7 @@ import kotlinx.serialization.Serializable
  *
  * Add a setting as a property with a default. The default is also its value on a device that stored
  * its settings before the property existed. A setting kept per game goes in a map keyed by
- * [GameKey], which [adopted] hands from a local game to its ROM with nothing more to do.
+ * [GameKey], which [adopted] hands from a local game to its ROM, so add the map there too.
  */
 @Serializable
 data class Settings(
@@ -34,9 +34,6 @@ data class Settings(
   /** Which storage new downloads go to, and in what order. */
   val storage: StorageSettings = StorageSettings(),
 ) {
-  /**
-   * These settings with what each of the [adoptions]' local games keeps handed to its ROM, in every
-   * map keyed by [GameKey]. What the ROM has already stays.
-   */
-  fun adopted(adoptions: List<Adoption>): Settings = adoptedIn(serializer(), this, adoptions)
+  /** These settings with what each of the [adoptions]' local games keeps handed to its ROM. */
+  fun adopted(adoptions: List<Adoption>): Settings = copy(launch = launch.adopted(adoptions))
 }

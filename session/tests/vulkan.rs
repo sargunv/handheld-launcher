@@ -9,7 +9,7 @@
 
 mod common;
 
-use common::near;
+use common::{near, pixel};
 use handheld_session::{SessionError, VulkanError};
 
 /// The core's clear color, (0.8, 0.6, 0.2).
@@ -27,7 +27,7 @@ fn renders_with_vulkan() {
         )
     };
     let Some(first) = render(1) else { return };
-    first.dump("testvulkan");
+    common::dump(&first, "testvulkan");
     assert_eq!((first.width, first.height), (320, 240));
     // The background in the corners and the bottom-right half of the middle,
     // and the triangle in the top-left half, which also catches a frame
@@ -41,13 +41,13 @@ fn renders_with_vulkan() {
         (112, 168),
     ] {
         assert!(
-            near(first.pixel(x, y), BACKGROUND),
+            near(pixel(&first, x, y), BACKGROUND),
             "background at ({x}, {y}) is {:?}",
-            first.pixel(x, y)
+            pixel(&first, x, y)
         );
     }
     assert!(
-        !near(first.pixel(112, 72), BACKGROUND),
+        !near(pixel(&first, 112, 72), BACKGROUND),
         "no triangle at (112, 72)"
     );
     // The triangle spins, so later frames differ.

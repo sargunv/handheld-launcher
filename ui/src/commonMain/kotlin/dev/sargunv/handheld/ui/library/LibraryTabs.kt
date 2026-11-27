@@ -19,7 +19,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,22 +50,20 @@ import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.places.emptyLabel
 import dev.sargunv.handheld.ui.places.gameCount
+import dev.sargunv.handheld.ui.places.onDeviceCount
 
-/** The tabs, with [tab] showing. L and R switch to the neighboring tab, stopping at the ends. */
+/**
+ * The tabs, with the player's showing: the grid of games from [source], or without one, the tab's
+ * shelves. L and R switch to the neighboring tab, stopping at the ends.
+ */
 @Composable
-internal fun LibraryTabs(
-  state: AppState,
-  tab: LibraryTab,
-  shelves: List<LibraryShelf>?,
-  focused: LibraryShelf?,
-  gridStates: SaveableStateHolder,
-) {
+internal fun LibraryTabs(state: AppState, source: GridSource?, gridStates: SaveableStateHolder) {
+  val tab = state.libraryTab
+  val sync by state.romm.sync.collectAsState()
   fun switchTo(next: LibraryTab?) {
-    if (next == null || next == tab) return
-    state.libraryTab = next
-    state.focused = null
+    if (next != null) state.libraryTab = next
   }
   Column(
     Modifier.fillMaxSize().onAction { action ->
@@ -82,11 +79,17 @@ internal fun LibraryTabs(
     Box(Modifier.fillMaxWidth().weight(1f)) {
       // Each tab is a focus scope of its own, which takes focus as it shows.
       key(tab) {
-        when (tab) {
-          LibraryTab.OnDevice,
-          LibraryTab.AllGames -> TabGames(state, tab, gridStates)
-          LibraryTab.Platforms,
-          LibraryTab.Collections -> ShelfList(state, tab, shelves, focused)
+        if (source != null) {
+          GameGridPane(
+            state = state,
+            gridStates = gridStates,
+            source = source,
+            title = tab.title,
+            empty = if (tab == LibraryTab.OnDevice) "No games" else sync.emptyLabel("No games"),
+            backHint = "Home",
+          )
+        } else {
+          ShelfList(state, tab)
         }
       }
     }
@@ -144,54 +147,17 @@ internal fun buttonLabel(action: Action): String {
   return PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
 }
 
-/** The games of a tab of games: those on the device or on their way, or the whole library. */
-@Composable
-private fun TabGames(state: AppState, tab: LibraryTab, gridStates: SaveableStateHolder) {
-  val cache = state.library
-  val all by remember(cache) { cache.allRoms() }.collectAsState(null)
-  val onDevice = tab == LibraryTab.OnDevice
-  // The local games are on the device, and in the whole library.
-  val local = state.localGames
-  val roms =
-    remember(all, onDevice, state.deviceStates, local) {
-      (if (onDevice) all?.onDevice(state.deviceStates) else all)?.let { it + local }
-    }
-  GameGridPane(
-    state = state,
-    gridStates = gridStates,
-    sourceKey = "tab:${tab.name}",
-    title = tab.title,
-    roms = roms,
-    // Every game on the On device tab is on the device, so it has nothing to filter.
-    filters = !onDevice,
-    empty =
-      if (onDevice) "No games on this device yet. A game's page downloads it."
-      else librarySyncText(state.sync),
-    backHint = "Home",
-  )
-}
-
-/** What a tab with nothing to show says, by how the sync with the server went. */
-internal fun librarySyncText(sync: SyncStatus, synced: String = "Your library has no games yet.") =
-  when (sync) {
-    SyncStatus.Failed -> "Couldn't reach your server to sync your library."
-    SyncStatus.Synced -> synced
-    else -> "Syncing your library"
-  }
-
 /**
- * The platforms or collections of [tab], focused on [focused]. Confirm opens the focused one, and
- * the menu offers Open with for its games.
+ * The platforms or collections of [tab]. Confirm opens the focused one, and the menu offers Open
+ * with for its games.
  */
 @Composable
-private fun ShelfList(
-  state: AppState,
-  tab: LibraryTab,
-  shelves: List<LibraryShelf>?,
-  focused: LibraryShelf?,
-) {
+private fun ShelfList(state: AppState, tab: LibraryTab) {
   val view = state.libraryView
-  val summaries = rememberShelfSummaries(state, shelves.orEmpty())
+  val sync by state.romm.sync.collectAsState()
+  val shelves = view.shelves(tab)
+  val focused = view.shelf
+  val summaries = view.summaries(tab)
   var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
   val menuShelf = shelves?.find { it.key == menuFor }
   val hasShelves = summaries.isNotEmpty()
@@ -212,11 +178,9 @@ private fun ShelfList(
       Box(Modifier.fillMaxWidth().weight(1f)) {
         if (shelves != null && shelves.isEmpty()) {
           Text(
-            if (tab == LibraryTab.Collections) {
-              librarySyncText(state.sync, synced = "Your server has no collections.")
-            } else {
-              librarySyncText(state.sync)
-            },
+            sync.emptyLabel(
+              if (tab == LibraryTab.Collections) "No collections" else "No platforms",
+            ),
             color = Placeholder.mutedText,
             modifier = Modifier.align(Alignment.Center),
           )
@@ -226,10 +190,7 @@ private fun ShelfList(
             summaries = summaries,
             focused = focused,
             onFocus = { view.focusShelf(tab, it.key) },
-            onOpen = {
-              view.open(tab, it.key, OpenedFrom.Tab)
-              state.focused = null
-            },
+            onOpen = { view.open(tab, it.key, OpenedFrom.Tab) },
           )
         }
       }
@@ -289,11 +250,7 @@ private fun ShelfTiles(
           Text(summary.shelf.title, color = Placeholder.text, fontSize = 18.sp)
           Text(gameCount(summary.games), color = Placeholder.mutedText, fontSize = 14.sp)
           if (summary.onDevice > 0) {
-            Text(
-              "${summary.onDevice} on this device",
-              color = Placeholder.mutedText,
-              fontSize = 14.sp,
-            )
+            Text(onDeviceCount(summary.onDevice), color = Placeholder.mutedText, fontSize = 14.sp)
           }
         }
       }
@@ -302,18 +259,3 @@ private fun ShelfTiles(
 }
 
 private fun shelfTileKey(shelf: LibraryShelf) = "library:${shelf.key}"
-
-/** The [shelves] with their counts of games, all and on this device. */
-@Composable
-internal fun rememberShelfSummaries(
-  state: AppState,
-  shelves: List<LibraryShelf>,
-): List<ShelfSummary> {
-  val cache = state.library
-  val romPlatforms by remember(cache) { cache.romPlatforms() }.collectAsState(emptyMap())
-  val collectionRoms by remember(cache) { cache.collectionRoms() }.collectAsState(emptyMap())
-  val local = state.localGames
-  return remember(shelves, romPlatforms, collectionRoms, state.deviceStates, local) {
-    shelfSummaries(shelves, romPlatforms, collectionRoms, state.deviceStates, local)
-  }
-}

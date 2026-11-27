@@ -32,28 +32,8 @@ pub enum Button {
 }
 
 impl Button {
-    /// Every button, in libretro's ID order.
-    pub const ALL: [Button; 16] = [
-        Button::B,
-        Button::Y,
-        Button::Select,
-        Button::Start,
-        Button::Up,
-        Button::Down,
-        Button::Left,
-        Button::Right,
-        Button::A,
-        Button::X,
-        Button::L,
-        Button::R,
-        Button::L2,
-        Button::R2,
-        Button::L3,
-        Button::R3,
-    ];
-
-    /// The button's bit in a [`Port::buttons`] mask.
-    pub fn mask(self) -> u16 {
+    /// The button's bit in a port's mask of buttons.
+    pub(crate) fn mask(self) -> u16 {
         1 << self as u16
     }
 }
@@ -90,22 +70,31 @@ impl InputState {
         &self.ports[index]
     }
 
-    /// The buttons pressed on each port since the last call, and whether its
-    /// pointer touched down, as [`Button::mask`] bits and [`POINTER_PRESS`],
-    /// which the session takes as a frame starts.
-    pub(crate) fn take_presses(&self) -> [u32; MAX_PORTS] {
+    /// What each port pressed since the last call, which the session takes as
+    /// a frame starts.
+    pub(crate) fn take_presses(&self) -> [Presses; MAX_PORTS] {
         std::array::from_fn(|i| {
             let port = &self.ports[i];
-            let buttons = u32::from(port.presses.swap(0, Ordering::Relaxed));
-            let pointer = port.pointer_touched.swap(false, Ordering::Relaxed);
-            buttons | if pointer { POINTER_PRESS } else { 0 }
+            Presses {
+                buttons: port.presses.swap(0, Ordering::Relaxed),
+                pointer: port.pointer_touched.swap(false, Ordering::Relaxed),
+            }
         })
     }
 
     /// The state the core sees, with the frame's `presses` held down.
-    pub(crate) fn snapshot(&self, presses: &[u32; MAX_PORTS]) -> [PortSnapshot; MAX_PORTS] {
+    pub(crate) fn snapshot(&self, presses: &[Presses; MAX_PORTS]) -> [PortSnapshot; MAX_PORTS] {
         std::array::from_fn(|i| self.ports[i].snapshot(presses[i]))
     }
+}
+
+/// What a port pressed between two frames, which the next frame holds down.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Presses {
+    /// [`Button::mask`] bits.
+    buttons: u16,
+    /// Whether the pointer touched down.
+    pointer: bool,
 }
 
 /// One controller port.
@@ -134,12 +123,6 @@ impl Port {
         } else {
             self.buttons.fetch_and(!button.mask(), Ordering::Relaxed);
         }
-    }
-
-    /// Replaces every button at once with a mask of [`Button::mask`] bits.
-    pub fn set_buttons(&self, mask: u16) {
-        let before = self.buttons.swap(mask, Ordering::Relaxed);
-        self.presses.fetch_or(mask & !before, Ordering::Relaxed);
     }
 
     /// Moves a stick. Each axis runs from -32768 to 32767, with positive `x`
@@ -189,9 +172,9 @@ impl Port {
         self.pointer_pressed.store(false, Ordering::Relaxed);
     }
 
-    fn snapshot(&self, presses: u32) -> PortSnapshot {
+    fn snapshot(&self, presses: Presses) -> PortSnapshot {
         let triggers: [i16; 2] = std::array::from_fn(|i| self.triggers[i].load(Ordering::Relaxed));
-        let mut buttons = self.buttons.load(Ordering::Relaxed) | presses as u16;
+        let mut buttons = self.buttons.load(Ordering::Relaxed) | presses.buttons;
         for (value, button) in triggers.iter().zip([Button::L2, Button::R2]) {
             if *value > TRIGGER_PRESSED {
                 buttons |= button.mask();
@@ -203,8 +186,7 @@ impl Port {
             sticks: std::array::from_fn(|i| self.sticks[i].load(Ordering::Relaxed)),
             triggers,
             pointer: [(position >> 16) as u16 as i16, position as u16 as i16],
-            pointer_pressed: self.pointer_pressed.load(Ordering::Relaxed)
-                || presses & POINTER_PRESS != 0,
+            pointer_pressed: self.pointer_pressed.load(Ordering::Relaxed) || presses.pointer,
         }
     }
 }
@@ -212,10 +194,6 @@ impl Port {
 /// How far an analog trigger is pulled, past which it counts as a pressed
 /// button.
 const TRIGGER_PRESSED: i16 = i16::MAX / 2;
-
-/// The bit of a port's presses that says its pointer touched down, above the
-/// buttons' bits.
-pub(crate) const POINTER_PRESS: u32 = 1 << 16;
 
 /// A port's state as the core sees it for one poll.
 #[derive(Clone, Copy, Debug, Default)]
@@ -291,7 +269,7 @@ mod tests {
     use super::*;
 
     fn query_one(state: &InputState, device: u32, index: u32, id: u32) -> i16 {
-        query(&state.snapshot(&[0; MAX_PORTS]), 0, device, index, id)
+        query(&state.snapshot(&Default::default()), 0, device, index, id)
     }
 
     #[test]
@@ -300,9 +278,6 @@ mod tests {
         assert_eq!(Button::Start as u32, ffi::RETRO_DEVICE_ID_JOYPAD_START);
         assert_eq!(Button::A as u32, ffi::RETRO_DEVICE_ID_JOYPAD_A);
         assert_eq!(Button::R3 as u32, ffi::RETRO_DEVICE_ID_JOYPAD_R3);
-        for (i, b) in Button::ALL.iter().enumerate() {
-            assert_eq!(*b as usize, i);
-        }
     }
 
     #[test]
@@ -326,7 +301,7 @@ mod tests {
         );
         assert_eq!(
             query(
-                &state.snapshot(&[0; MAX_PORTS]),
+                &state.snapshot(&Default::default()),
                 1,
                 joypad,
                 0,
@@ -336,7 +311,7 @@ mod tests {
         );
         assert_eq!(
             query(
-                &state.snapshot(&[0; MAX_PORTS]),
+                &state.snapshot(&Default::default()),
                 9,
                 joypad,
                 0,
@@ -406,8 +381,8 @@ mod tests {
     fn snapshot_is_stable_while_state_changes() {
         let state = InputState::new();
         state.port(0).set_button(Button::Start, true);
-        let snapshot = state.snapshot(&[0; MAX_PORTS]);
-        state.port(0).set_buttons(0);
+        let snapshot = state.snapshot(&Default::default());
+        state.port(0).set_button(Button::Start, false);
         let joypad = ffi::RETRO_DEVICE_JOYPAD;
         assert_eq!(
             query(&snapshot, 0, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_START),

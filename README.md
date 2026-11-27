@@ -8,10 +8,11 @@ It's early. See [docs/vision.md](docs/vision.md) for where it's going.
 
 ## Development
 
-Install [mise](https://mise.jdx.dev), then:
+Install [mise](https://mise.jdx.dev) and the Android SDK. Then:
 
 ```sh
 mise install
+mise run android:ndk
 mise run build
 mise run run:desktop
 ```

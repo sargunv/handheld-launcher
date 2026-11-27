@@ -189,4 +189,11 @@ object LibretroCores {
 
   /** The known core whose library is [library], or null when there's none. */
   fun byLibrary(library: String): LibretroCore? = all.firstOrNull { it.library == library }
+
+  /**
+   * The core a game on [platform] runs in when a choice names [library]: the core of that library,
+   * or the platform's recommended one when [library] is null or names no known core.
+   */
+  fun resolve(library: String?, platform: PlatformSlug): LibretroCore? =
+    library?.let(::byLibrary) ?: recommendedFor(platform)
 }

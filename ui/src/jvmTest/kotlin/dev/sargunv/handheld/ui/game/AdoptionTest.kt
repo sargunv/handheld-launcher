@@ -21,7 +21,6 @@ import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.lastPlayed
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
@@ -30,6 +29,8 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -99,8 +100,12 @@ class AdoptionTest {
         settings = Settings(launch = LaunchSettings(games = mapOf(local to choice))),
         saveSettings = { saved += it },
         launcher = launcher,
-        gameState = PerGameState { adopted += it },
-        open = OpenRequest(OpenTarget.Local(homebrew.path)),
+        gameState =
+          PerGameState {
+            adopted += it
+            emptyList()
+          },
+        open = OpenTarget.Local(homebrew.path),
       )
     awaitText("Play")
   }
@@ -131,8 +136,6 @@ class AdoptionTest {
     runBlocking { launcher.started.await() }
     serverGainsHomebrew()
     waitForIdle()
-    Thread.sleep(500)
-    waitForIdle()
     assertTrue(adopted.none { it.local == local }, "$adopted")
     assertTrue(saved.none { rom in it.launch.games }, "$saved")
 
@@ -140,6 +143,65 @@ class AdoptionTest {
     waitUntil(timeoutMillis = 5_000) { Adoption(local, rom) in adopted }
     waitUntil(timeoutMillis = 5_000) { saved.lastOrNull()?.launch?.games == mapOf(rom to choice) }
     assertEquals(choice, saved.last().launch.games[rom])
+  }
+
+  @Test
+  fun aRomWhoseFileStillHasLocalSavesPlaysWithThem() = runComposeUiTest {
+    serverHasHomebrew = true
+    // The saves kept per game, whose adoption waits until the test lets it.
+    val saves = ConcurrentHashMap(mapOf<GameKey, String>(local to "local save"))
+    val letAdopt = CompletableDeferred<Unit>()
+    val playedWith = CompletableDeferred<String?>()
+    launchApp(
+      server,
+      library = library,
+      storage = listOf(StorageTarget(storage.path, "Test storage")),
+      launcher = FakeLauncher(onPlay = { playedWith.complete(saves[rom]) }),
+      gameState =
+        PerGameState { adoptions ->
+          if (adoptions.isNotEmpty()) letAdopt.await()
+          for (adoption in adoptions) {
+            saves.remove(adoption.local)?.let { saves[adoption.rom] = it }
+          }
+          emptyList()
+        },
+      open = OpenTarget.Game(rom.romId),
+    )
+    awaitText("Play")
+    press(Key.ButtonA)
+    waitForIdle()
+    letAdopt.complete(Unit)
+    awaitText("Played")
+    assertEquals("local save", runBlocking { playedWith.await() })
+  }
+
+  @Test
+  fun anAdoptionThatCouldntFinishIsTriedAgainWhenTheRomPlays() = runComposeUiTest {
+    serverHasHomebrew = true
+    val saves = ConcurrentHashMap(mapOf<GameKey, String>(local to "local save"))
+    // The first try fails, as when the save folder can't move.
+    val tries = AtomicInteger()
+    val playedWith = CompletableDeferred<String?>()
+    launchApp(
+      server,
+      library = library,
+      storage = listOf(StorageTarget(storage.path, "Test storage")),
+      launcher = FakeLauncher(onPlay = { playedWith.complete(saves[rom]) }),
+      gameState =
+        PerGameState { adoptions ->
+          if (adoptions.isNotEmpty() && tries.getAndIncrement() == 0) return@PerGameState adoptions
+          for (adoption in adoptions) {
+            saves.remove(adoption.local)?.let { saves[adoption.rom] = it }
+          }
+          emptyList()
+        },
+      open = OpenTarget.Game(rom.romId),
+    )
+    awaitText("Play")
+    waitUntil(timeoutMillis = 5_000) { tries.get() > 0 }
+    press(Key.ButtonA)
+    awaitText("Played")
+    assertEquals("local save", runBlocking { playedWith.await() })
   }
 
   private companion object {

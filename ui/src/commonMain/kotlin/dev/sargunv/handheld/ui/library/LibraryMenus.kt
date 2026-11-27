@@ -7,9 +7,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -31,31 +28,15 @@ import dev.sargunv.handheld.ui.places.Screen
  */
 @Composable
 internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: () -> Unit) {
-  val cache = state.library
   val choices: List<Pair<String, OpenWithScope>>? =
     when (shelf) {
       is LibraryShelf.OfPlatform ->
         listOf("Open with" to OpenWithScope.Platform(PlatformSlug(shelf.platform.slug)))
       is LibraryShelf.OfCollection -> {
-        val platforms by remember(cache) { cache.platforms() }.collectAsState(null)
-        val romPlatforms by remember(cache) { cache.romPlatforms() }.collectAsState(null)
-        val collectionRoms by remember(cache) { cache.collectionRoms() }.collectAsState(null)
-        val loaded = platforms != null && romPlatforms != null && collectionRoms != null
-        if (!loaded) {
-          null
-        } else {
-          val among =
-            collectionPlatforms(
-              shelf.collection,
-              platforms.orEmpty(),
-              romPlatforms.orEmpty(),
-              collectionRoms.orEmpty(),
-            )
-          among.map { platform ->
-            val label = if (among.size == 1) "Open with" else "Open ${platform.name} games with"
-            label to
-              OpenWithScope.Collection(shelf.collection.launchId, PlatformSlug(platform.slug))
-          }
+        val among = state.libraryView.platformsOf(shelf.collection)
+        among?.map { platform ->
+          val label = if (among.size == 1) "Open with" else "Open ${platform.name} games with"
+          label to OpenWithScope.Collection(shelf.collection.launchId, PlatformSlug(platform.slug))
         }
       }
     }
@@ -67,7 +48,7 @@ internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: (
     ) {
       Text(shelf.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
       if (choices != null && choices.isEmpty()) {
-        Text("None of its games are in your library.", color = Placeholder.mutedText)
+        Text("No games", color = Placeholder.mutedText)
       }
       for ((label, scope) in choices.orEmpty()) {
         val tag =
@@ -93,10 +74,10 @@ internal fun GamesMenu(
   state: AppState,
   title: String,
   filters: Boolean,
-  letters: List<Char>,
   onDismissRequest: () -> Unit,
 ) {
   val view = state.libraryView
+  val letters = view.grid?.index?.keys.orEmpty()
   fun choose(action: () -> Unit) {
     action()
     onDismissRequest()
@@ -128,7 +109,7 @@ internal fun GamesMenu(
         Text("Jump to", color = Placeholder.mutedText)
         // One row that scrolls with focus, so the whole alphabet fits on the screen.
         FocusLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          items(letters) { letter ->
+          items(letters.toList()) { letter ->
             MenuButton("menu:jump:$letter", letter.toString()) {
               choose { view.jump = Jump(letter) }
             }

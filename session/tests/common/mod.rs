@@ -9,8 +9,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use handheld_session::{
-    AchievementOptions, AudioSink, Frame, InputState, SendAchievementsRequest, Session,
-    SessionConfig, SessionError, SessionOptions, VideoMode, VideoOutput, VideoSink,
+    AchievementOptions, AudioSink, CapturedFrame, Frame, InputState, SendAchievementsRequest,
+    Session, SessionConfig, SessionError, SessionOptions, VideoOutput, VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -18,17 +18,11 @@ use sha2::{Digest, Sha256};
 ///
 /// # Panics
 ///
-/// If the fixture is missing.
+/// If `HANDHELD_SESSION_FIXTURES` is unset or the fixture is missing.
 pub fn fixture(name: &str) -> PathBuf {
     let dir = std::env::var_os("HANDHELD_SESSION_FIXTURES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let cache = std::env::var_os("XDG_CACHE_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap()).join(".cache"));
-            cache.join("handheld/session-fixtures")
-        });
-    let path = dir.join(name);
+        .expect("HANDHELD_SESSION_FIXTURES is unset; run the tests with `mise run test`");
+    let path = Path::new(&dir).join(name);
     assert!(
         path.exists(),
         "missing test fixture {}; run `mise run session:fixtures` to build it",
@@ -55,10 +49,17 @@ pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions 
         save_dir: dir.join("saves").to_string_lossy().into_owned(),
         save_ram_path: None,
         core_options: HashMap::new(),
-        video: VideoMode::Offscreen,
         lower_screen_width_share: None,
         achievements: None,
     }
+}
+
+/// The RGBA value of `frame`'s pixel at (`x`, `y`), counted from the top
+/// left.
+pub fn pixel(frame: &CapturedFrame, x: u32, y: u32) -> [u8; 4] {
+    assert!(x < frame.width && y < frame.height, "pixel outside frame");
+    let i = (y as usize * frame.width as usize + x as usize) * 4;
+    frame.pixels[i..i + 4].try_into().unwrap()
 }
 
 /// Whether two colors are the same but for rounding.
@@ -74,9 +75,9 @@ pub fn render(
     frames: usize,
     require: &str,
     unavailable: fn(&SessionError) -> bool,
-) -> Option<OwnedFrame> {
+) -> Option<CapturedFrame> {
     let _lock = lock();
-    let mut h = match Harness::start(core, None, &[], None) {
+    let mut h = match Harness::start(core, None, &[], None, None) {
         Ok(h) => h,
         Err(e) if unavailable(&e) && std::env::var_os(require).is_none() => {
             eprintln!("skipping: {}", std::error::Error::source(&e).unwrap_or(&e));
@@ -89,66 +90,39 @@ pub fn render(
     Some(h.frames.last())
 }
 
-/// A frame the session produced.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OwnedFrame {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<u8>,
+pub fn sha256(frame: &CapturedFrame) -> String {
+    let digest = Sha256::digest(&frame.pixels);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-impl OwnedFrame {
-    pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        Frame {
-            width: self.width,
-            height: self.height,
-            pixels: &self.pixels,
-        }
-        .pixel(x, y)
-    }
-
-    pub fn sha256(&self) -> String {
-        let digest = Sha256::digest(&self.pixels);
-        digest.iter().map(|b| format!("{b:02x}")).collect()
-    }
-
-    /// The number of distinct colors, to tell a picture from a blank screen.
-    pub fn colors(&self) -> usize {
-        let mut colors: Vec<&[u8; 4]> = self.pixels.as_chunks::<4>().0.iter().collect();
-        colors.sort_unstable();
-        colors.dedup();
-        colors.len()
-    }
-
-    /// Writes the frame as a PNG to `$HANDHELD_SESSION_DUMP_DIR`, if set, for
-    /// looking at what a test saw.
-    pub fn dump(&self, name: &str) {
-        let Some(dir) = std::env::var_os("HANDHELD_SESSION_DUMP_DIR") else {
-            return;
-        };
-        let path = PathBuf::from(dir).join(format!("{name}.png"));
-        let file = std::fs::File::create(&path).unwrap();
-        let mut encoder = png::Encoder::new(file, self.width, self.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .unwrap()
-            .write_image_data(&self.pixels)
-            .unwrap();
-    }
+/// Writes `frame` as a PNG to `$HANDHELD_SESSION_DUMP_DIR`, if set, for
+/// looking at what a test saw.
+pub fn dump(frame: &CapturedFrame, name: &str) {
+    let Some(dir) = std::env::var_os("HANDHELD_SESSION_DUMP_DIR") else {
+        return;
+    };
+    let path = PathBuf::from(dir).join(format!("{name}.png"));
+    let file = std::fs::File::create(&path).unwrap();
+    let mut encoder = png::Encoder::new(file, frame.width, frame.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&frame.pixels)
+        .unwrap();
 }
 
 /// The frames a session produced, shared between the sink and the test.
 #[derive(Clone, Default)]
-pub struct Frames(Rc<RefCell<(usize, Option<OwnedFrame>)>>);
+pub struct Frames(Rc<RefCell<(usize, Option<CapturedFrame>)>>);
 
 impl Frames {
     pub fn count(&self) -> usize {
         self.0.borrow().0
     }
 
-    pub fn last(&self) -> OwnedFrame {
+    pub fn last(&self) -> CapturedFrame {
         self.0.borrow().1.clone().expect("no frame yet")
     }
 }
@@ -157,7 +131,7 @@ impl VideoSink for Frames {
     fn frame(&mut self, frame: Frame<'_>) {
         let mut inner = self.0.borrow_mut();
         inner.0 += 1;
-        inner.1 = Some(OwnedFrame {
+        inner.1 = Some(CapturedFrame {
             width: frame.width,
             height: frame.height,
             pixels: frame.pixels.to_vec(),
@@ -204,12 +178,14 @@ pub struct Harness {
 
 impl Harness {
     /// Starts `core` with `content` and the core option values `options`,
-    /// taking part in RetroAchievements as `achievements` says.
+    /// taking part in RetroAchievements as `achievements` says, and keeping
+    /// save memory in the file `save_ram`, if given.
     pub fn start(
         core: &str,
         content: Option<&str>,
         options: &[(&str, &str)],
         achievements: Option<(AchievementOptions, SendAchievementsRequest)>,
+        save_ram: Option<&Path>,
     ) -> Result<Self, SessionError> {
         let frames = Frames::default();
         let audio = Audio::default();
@@ -228,6 +204,7 @@ impl Harness {
             content_cache: Some(dirs.path().join("content")),
             system_dir: dirs.path().join("system"),
             save_dir: dirs.path().join("saves"),
+            save_ram: save_ram.map(Path::to_owned),
             video: VideoOutput::Sink(Box::new(frames.clone())),
             audio: Box::new(audio.clone()),
             input: input.clone(),

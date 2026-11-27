@@ -1,3 +1,7 @@
 plugins { `kotlin-dsl` }
 
-dependencies { implementation(libs.jna) }
+dependencies {
+  implementation(libs.android.gradle.plugin)
+  implementation(libs.kotlin.gradle.plugin)
+  implementation(libs.aboutlibraries.gradle.plugin)
+}

@@ -19,17 +19,18 @@ fun interface PerGameState {
   /**
    * Hands what's kept for each adoption's local game to its ROM. What the ROM has already wins, and
    * what it replaces is kept where it can't be lost when it's a save. Running it again, or for a
-   * local game that kept nothing, changes nothing.
+   * local game that kept nothing, changes nothing. Returns the adoptions it couldn't finish yet,
+   * such as one whose files couldn't move, which a later adopt tries again.
    */
-  suspend fun adopt(adoptions: List<Adoption>)
+  suspend fun adopt(adoptions: List<Adoption>): List<Adoption>
 
   companion object {
     /** Keeps nothing per game. */
-    val None = PerGameState {}
+    val None = PerGameState { emptyList() }
 
     /** Each of [states], one after the other. */
     fun of(vararg states: PerGameState) = PerGameState { adoptions ->
-      for (state in states) state.adopt(adoptions)
+      states.flatMap { it.adopt(adoptions) }.distinct()
     }
   }
 }

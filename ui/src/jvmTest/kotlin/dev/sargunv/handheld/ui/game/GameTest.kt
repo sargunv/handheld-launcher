@@ -89,7 +89,8 @@ class GameTest {
     gameFile.writeText("game")
     launchApp(
       server,
-      credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", "thor")),
+      credentials =
+        InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player", "thor")),
       storage = listOf(StorageTarget(storage.path, "Test storage")),
       launcher = launcher,
       apps = apps,
@@ -145,16 +146,16 @@ class GameTest {
     val launcher = FakeLauncher(hold = hold)
     openGame(launcher)
     press(Key.ButtonA)
-    awaitText("Getting the core 40%")
+    awaitText("Downloading core 40%")
     // The menu waits for the launch, since what it opens would leave the screen.
     onNodeWithTag("hint:Menu").assertDoesNotExist()
     press(Key.ButtonB)
     // Staying has focus first, so one press too many keeps the launch going.
-    onNodeWithTag("leave:stay").assertIsFocused()
+    onNodeWithTag("leave:cancel").assertIsFocused()
     press(Key.ButtonA)
-    onNodeWithTag("leave:stay").assertDoesNotExist()
+    onNodeWithTag("leave:cancel").assertDoesNotExist()
     assertFalse(launcher.canceled)
-    onNodeWithText("Getting the core 40%").assertExists()
+    onNodeWithText("Downloading core 40%").assertExists()
     // Leaving stops the launch.
     press(Key.ButtonB)
     press(listOf(Key.DirectionRight, Key.ButtonA))
@@ -169,12 +170,12 @@ class GameTest {
     val launcher = FakeLauncher(hold = hold)
     openGame(launcher)
     press(Key.ButtonA)
-    awaitText("Getting the core 40%")
+    awaitText("Downloading core 40%")
     press(Key.ButtonB)
-    onNodeWithTag("leave:stay").assertIsFocused()
+    onNodeWithTag("leave:cancel").assertIsFocused()
     hold.complete(Unit)
     awaitText("Played")
-    onNodeWithTag("leave:stay").assertDoesNotExist()
+    onNodeWithTag("leave:cancel").assertDoesNotExist()
     onNodeWithTag("primary").assertIsFocused()
   }
 
@@ -187,7 +188,7 @@ class GameTest {
     openGame(launcher)
 
     press(Key.ButtonA)
-    awaitText("Which save do you want to play?")
+    awaitText("Choose a save")
     // The newer copy, this device's, has focus.
     onNodeWithTag(SaveCopy.Device.name).assertIsFocused()
     press(Key.ButtonA)
@@ -205,7 +206,7 @@ class GameTest {
     openGame(launcher)
 
     press(Key.ButtonA)
-    awaitText("Which save do you want to play?")
+    awaitText("Choose a save")
     press(Key.ButtonB)
     awaitTag("primary")
     onNodeWithTag("primary").assertIsFocused()
@@ -254,10 +255,10 @@ class GameTest {
     openEmulatorsSettings()
     onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "Off")
     press(Key.ButtonA)
-    awaitText("built-in root service")
+    awaitTag("closeEmulators:cancel")
     // Cancel has focus first, so one press too many leaves it off.
     onNodeWithTag("closeEmulators:cancel").assertIsFocused()
-    press(listOf(Key.DirectionUp, Key.ButtonA))
+    press(listOf(Key.DirectionRight, Key.ButtonA))
     onNodeWithTag("settings:closeEmulators").assertTextEquals("Close emulators", "On")
     press(Key.ButtonB)
 
@@ -333,7 +334,7 @@ class GameTest {
     awaitText("Why it opens in Notes")
     onNodeWithText("→ Platform Game Boy: Built-in (default) · overridden").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Notes")
-    onNodeWithText("Clearing it opens it in Built-in · Gambatte.").assertExists()
+    onNodeWithText("If cleared: Built-in · Gambatte").assertExists()
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitText("Play")
     press(Key.ButtonA)

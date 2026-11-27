@@ -35,9 +35,7 @@ import dev.sargunv.handheld.achievements.SessionAchievementsHttp
 import dev.sargunv.handheld.achievements.message
 import dev.sargunv.handheld.achievements.retroAchievementsClient
 import dev.sargunv.handheld.achievements.retroAchievementsStore
-import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.exposeTestTags
-import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.session.AchievementEvent
@@ -48,11 +46,10 @@ import dev.sargunv.handheld.session.LowerScreenView
 import dev.sargunv.handheld.session.SessionException
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
-import dev.sargunv.handheld.session.VideoMode
+import dev.sargunv.handheld.session.startSession
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
-import dev.sargunv.handheld.ui.input.AButtonPosition
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.InputSettings
@@ -65,19 +62,43 @@ import dev.sargunv.handheld.ui.play.ToastState
 import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/**
+ * What [SessionActivity] plays: the core and content, where its saves and save states go, one file
+ * per slot, how it's controlled, and how it takes part in RetroAchievements.
+ */
+@Serializable
+data class SessionLaunch(
+  val core: String,
+  val content: String,
+  val systemDir: String,
+  val saveDir: String,
+  val saveRam: String,
+  val states: List<String>,
+  val input: InputSettings,
+  /**
+   * The core's options that draw a two-screen system's screens stacked, for playing on two
+   * displays, or none for a one-screen system.
+   */
+  val stackedScreensOptions: Map<String, String> = emptyMap(),
+  /** The bottom screen's share of the stacked frame's width, centred, or null for all of it. */
+  val lowerScreenWidthShare: Float? = null,
+  val achievementsConsole: Int? = null,
+  val hardcore: Boolean = false,
+)
 
 /**
  * A game in the built-in session, full screen. Back, or a controller's guide button, pauses it and
  * opens the quick menu over it, with the save-state slots on the second screen, while every game
  * button, Start included, goes to the game. It closes when the core quits on its own, on Quit in
  * the quick menu, on back before the game has started, or on HOME, which brings the launcher back,
- * and the session's save memory is written as it closes. A session that can't start closes it with
- * the reason as its result's [EXTRA_ERROR], and one whose save memory couldn't be written closes
- * with the reason as [EXTRA_SAVE_ERROR].
+ * and the session's save memory is written as it closes. A session that can't start closes with the
+ * reason as its result's [EXTRA_START_ERROR], and one whose save memory couldn't be written as it
+ * stopped closes with the reason as its [EXTRA_SAVE_ERROR], except on HOME, which leaves no result.
  *
  * The view fills the screen and the session fits the core's frame inside it at the core's aspect
  * ratio, following any change to it mid-game, so the view needs no new layout when that changes.
@@ -92,6 +113,9 @@ class SessionActivity : ComponentActivity() {
   private lateinit var view: GameSessionView
   private lateinit var menu: ComposeView
   private var session: GameSession? = null
+  private val launch by lazy {
+    Json.decodeFromString<SessionLaunch>(intent.getStringExtra(EXTRA_LAUNCH)!!)
+  }
 
   /** The game's lower screen on the second display, while it shows. */
   private var lowerView: LowerScreenView? = null
@@ -105,33 +129,15 @@ class SessionActivity : ComponentActivity() {
   /** Whether the session turned down the lower screen, so the game plays on one display. */
   private var lowerUnsupported by mutableStateOf(false)
   private val heldKeys = HeldKeys()
-  private var inputSettings = InputSettings()
 
-  private val quickMenu by lazy {
-    QuickMenuState(
-      SessionQuickMenu(
-        session = { session },
-        statePaths = intent.getStringArrayExtra(EXTRA_STATES)?.toList().orEmpty(),
-        saveRamPath = intent.getStringExtra(EXTRA_SAVE_RAM),
-        hardcore = achievementsOn && intent.getBooleanExtra(EXTRA_HARDCORE, false),
-        onResume = ::closeMenu,
-        onQuit = ::stopAndFinish,
-      ),
-      lifecycleScope,
-    )
-  }
+  /** The quick menu, once the session has started. */
+  private lateinit var quickMenu: QuickMenuState
 
   /** Whether the quick menu is open, and the game paused under it. */
   private var menuOpen by mutableStateOf(false)
 
   /** The toasts over the game, such as unlocked achievements. */
   private val toasts = ToastState()
-
-  /** Whether the session takes part in RetroAchievements, once it has started. */
-  private var achievementsOn = false
-
-  /** Sends the session's RetroAchievements requests, while it takes part. */
-  private var achievementsClient: RetroAchievementsClient? = null
 
   /**
    * The keys pressed in the menu, including the one that opened it, so the rest of each press
@@ -166,13 +172,11 @@ class SessionActivity : ComponentActivity() {
       hide(WindowInsetsCompat.Type.systemBars())
       systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
-    inputSettings = handheldApp.settingsFile.read().input
     twoScreens =
-      stackedScreensOptions().isNotEmpty() &&
+      launch.stackedScreensOptions.isNotEmpty() &&
         getSystemService(DisplayManager::class.java).secondaryDisplay() != null
     view = GameSessionView(this)
-    view.faceKeyCodes =
-      AButtonPosition.valueOf(intent.getStringExtra(EXTRA_A_BUTTON_POSITION)!!).faceKeyCodes()
+    view.faceKeyCodes = launch.input.aButtonPosition.faceKeyCodes()
     // The menu draws over the game's surface, which shows through where it's clear.
     menu =
       ComposeView(this).apply {
@@ -213,7 +217,7 @@ class SessionActivity : ComponentActivity() {
     if (!menuOpen) ToastHost(toasts, Modifier.exposeTestTags())
     if (menuOpen) {
       val layout = if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
-      ActionInputRoot(inputSettings, heldKeys, Modifier.exposeTestTags()) {
+      ActionInputRoot(launch.input, heldKeys, Modifier.exposeTestTags()) {
         FocusRoot {
           Box(Modifier.fillMaxSize()) {
             DualScreen(layout, primary = { QuickMenu(quickMenu) }, secondary = slots)
@@ -283,17 +287,17 @@ class SessionActivity : ComponentActivity() {
     view.isFocusableInTouchMode = focusable
   }
 
-  /**
-   * Stops the session, which writes its save memory, and closes. A save that couldn't be written
-   * goes back as [EXTRA_SAVE_ERROR], so the player hears of it rather than losing it unseen.
-   */
+  /** Stops the session, which writes its save memory, and closes with the outcome as its result. */
   private fun stopAndFinish() {
     if (isFinishing) return
     stopSession()?.let { setResult(RESULT_OK, Intent().putExtra(EXTRA_SAVE_ERROR, it)) }
     finish()
   }
 
-  /** Stops the session, which writes its save memory. Returns why the save couldn't be written. */
+  /**
+   * Stops the session, which writes its save memory, and returns why that failed, or null. Calls
+   * still on their way to the session, such as the quick menu's, find it stopped.
+   */
   private fun stopSession(): String? {
     val stopping = session ?: return null
     session = null
@@ -305,8 +309,6 @@ class SessionActivity : ComponentActivity() {
     } catch (e: SessionException) {
       Log.e(TAG, "couldn't write the save memory", e)
       e.message ?: e.toString()
-    } finally {
-      stopping.close()
     }
   }
 
@@ -314,43 +316,44 @@ class SessionActivity : ComponentActivity() {
     super.onPause()
     // Something else closed the session, such as HOME, which clears the launcher's task to bring
     // it to the front. The save memory is written now, before the launcher resumes and reads it.
-    // The result of an activity closed that way says nothing, so a failure waits for the launcher.
-    if (isFinishing) stopSession()?.let { unreportedSaveError = it }
+    // The activity is already finishing, so a failure is only logged.
+    if (isFinishing) stopSession()
   }
 
   private suspend fun start() {
     val achievements = achievementOptions()
     val ready = CompletableDeferred<GameSession>()
     val http = achievements?.let {
-      val client = retroAchievementsClient(this).also { achievementsClient = it }
+      val client = retroAchievementsClient(this)
+      // The requests go out on lifecycleScope, so the client lasts until it ends.
+      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
       SessionAchievementsHttp(client, lifecycleScope, ready)
     }
-    achievementsOn = http != null
-    val options = options(achievements)
-    // Starting can't be abandoned halfway. If the activity goes meanwhile, withContext throws on
-    // the way back and the session it started is closed here, since nothing will show it.
-    var unclaimed: GameSession? = null
-    try {
-      val started =
-        try {
-          withContext(Dispatchers.IO + NonCancellable) {
-            GameSession.start(options, listener, http).also { unclaimed = it }
-          }
-        } catch (e: SessionException) {
-          Log.e(TAG, "can't start the session", e)
-          ready.cancel()
-          setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_ERROR, e.message ?: e.toString()))
-          finish()
-          return
-        }
-      unclaimed = null
-      session = started
-      view.session = started
-      lowerView?.session = started
-      ready.complete(started)
-    } finally {
-      unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
-    }
+    val started =
+      try {
+        startSession(options(achievements), listener, http)
+      } catch (e: SessionException) {
+        Log.e(TAG, "can't start the session", e)
+        ready.cancel()
+        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.message ?: e.toString()))
+        finish()
+        return
+      }
+    quickMenu =
+      QuickMenuState(
+        SessionQuickMenu(
+          session = { session },
+          statePaths = launch.states,
+          hardcore = achievements?.hardcore == true,
+          onResume = ::closeMenu,
+          onQuit = ::stopAndFinish,
+        ),
+        lifecycleScope,
+      )
+    session = started
+    view.session = started
+    lowerView?.session = started
+    ready.complete(started)
   }
 
   /**
@@ -358,7 +361,7 @@ class SessionActivity : ComponentActivity() {
    * achievements, with the account's token and the hardcore setting the launcher passed.
    */
   private suspend fun achievementOptions(): AchievementOptions? {
-    val console = intent.getIntExtra(EXTRA_ACHIEVEMENTS_CONSOLE, -1).takeIf { it >= 0 }
+    val console = launch.achievementsConsole
     if (console == null) {
       Log.i(TAG, "RetroAchievements has no achievements for the game's platform")
       return null
@@ -372,35 +375,24 @@ class SessionActivity : ComponentActivity() {
       username = account.username,
       token = account.token,
       consoleId = console.toUInt(),
-      hardcore = intent.getBooleanExtra(EXTRA_HARDCORE, false),
+      hardcore = launch.hardcore,
     )
   }
 
   private fun options(achievements: AchievementOptions?) =
     SessionOptions(
-      corePath = intent.getStringExtra(EXTRA_CORE)!!,
-      contentPath = intent.getStringExtra(EXTRA_CONTENT),
+      corePath = launch.core,
+      contentPath = launch.content,
       // A zipped game whose core can't open zips is extracted here.
       contentCacheDir = File(cacheDir, "session-content").path,
-      systemDir = intent.getStringExtra(EXTRA_SYSTEM_DIR)!!,
-      saveDir = intent.getStringExtra(EXTRA_SAVE_DIR)!!,
-      saveRamPath = intent.getStringExtra(EXTRA_SAVE_RAM),
-      coreOptions = if (twoScreens) stackedScreensOptions() else emptyMap(),
-      video = VideoMode.WINDOW,
-      lowerScreenWidthShare =
-        intent.getFloatExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, 0f).takeIf { twoScreens && it > 0f },
+      systemDir = launch.systemDir,
+      saveDir = launch.saveDir,
+      saveRamPath = launch.saveRam,
+      coreOptions = if (twoScreens) launch.stackedScreensOptions else emptyMap(),
+      lowerScreenWidthShare = launch.lowerScreenWidthShare.takeIf { twoScreens },
       achievements = achievements,
     )
 
-  /** The core options that draw a two-screen system's screens stacked, or none for one screen. */
-  private fun stackedScreensOptions(): Map<String, String> {
-    val keys = intent.getStringArrayExtra(EXTRA_STACKED_SCREENS_KEYS).orEmpty()
-    val values = intent.getStringArrayExtra(EXTRA_STACKED_SCREENS_VALUES).orEmpty()
-    return keys.zip(values).toMap()
-  }
-
-  // Activity's dispatchKeyEvent is public; lint objects only because androidx.core's override is
-  // restricted.
   @SuppressLint("RestrictedApi")
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     heldKeys.track(ComposeKeyEvent(event))
@@ -430,83 +422,26 @@ class SessionActivity : ComponentActivity() {
     (!menuOpen && view.dispatchGenericMotionEvent(event)) || super.dispatchGenericMotionEvent(event)
 
   override fun onDestroy() {
-    view.session = null
-    lowerView?.session = null
-    // Closing stops the core and writes its save memory.
-    session?.close()
-    session = null
-    achievementsClient?.close()
-    achievementsClient = null
+    // The session still runs here only when the activity is destroyed without finishing, which
+    // leaves no result to report a failure in.
+    stopSession()
     super.onDestroy()
   }
 
   companion object {
     private const val TAG = "SessionActivity"
 
-    private const val EXTRA_CORE = "core"
-    private const val EXTRA_CONTENT = "content"
-    private const val EXTRA_SYSTEM_DIR = "system_dir"
-    private const val EXTRA_SAVE_DIR = "save_dir"
-    private const val EXTRA_SAVE_RAM = "save_ram"
-    private const val EXTRA_STATES = "states"
-    private const val EXTRA_A_BUTTON_POSITION = "a_button_position"
-    private const val EXTRA_STACKED_SCREENS_KEYS = "stacked_screens_keys"
-    private const val EXTRA_STACKED_SCREENS_VALUES = "stacked_screens_values"
-    private const val EXTRA_LOWER_SCREEN_WIDTH_SHARE = "lower_screen_width_share"
-    private const val EXTRA_ACHIEVEMENTS_CONSOLE = "achievements_console"
-    private const val EXTRA_HARDCORE = "hardcore"
+    private const val EXTRA_LAUNCH = "launch"
 
     /** Why the session couldn't start, in the result of one that couldn't. */
-    const val EXTRA_ERROR = "error"
+    const val EXTRA_START_ERROR = "start_error"
 
-    /** Why the game's save memory couldn't be written as the session closed. */
+    /** Why the session's save memory couldn't be written as it stopped, in its result. */
     const val EXTRA_SAVE_ERROR = "save_error"
 
-    @Volatile private var unreportedSaveError: String? = null
-
-    /**
-     * Why the save memory of a session that something else closed couldn't be written, once, or
-     * null. Such a session's result has no [EXTRA_SAVE_ERROR].
-     */
-    fun takeUnreportedSaveError(): String? = unreportedSaveError.also { unreportedSaveError = null }
-
-    /**
-     * The intent that runs [core] with [content], with [systemDir] for its system files, its own
-     * saves in [saveDir], its save memory in [saveRam] and its save states in [states], one file
-     * per slot, with the gamepad's face buttons where [aButtonPosition] puts them.
-     * [stackedScreensOptions] are the core's options that draw a two-screen system's screens
-     * stacked, for playing on two displays, or none for a one-screen system, and
-     * [lowerScreenWidthShare] is the bottom screen's share of that frame's width, centred, or null
-     * when it spans the whole width. The game takes part in RetroAchievements as console
-     * [achievementsConsole], when it has one and the device is signed in, in hardcore if
-     * [hardcore].
-     */
-    fun intent(
-      context: Context,
-      core: String,
-      content: String,
-      systemDir: String,
-      saveDir: String,
-      saveRam: String,
-      states: List<String>,
-      aButtonPosition: AButtonPosition,
-      stackedScreensOptions: Map<String, String> = emptyMap(),
-      lowerScreenWidthShare: Float? = null,
-      achievementsConsole: Int? = null,
-      hardcore: Boolean = false,
-    ): Intent =
+    /** The intent that plays [launch]. */
+    fun intent(context: Context, launch: SessionLaunch): Intent =
       Intent(context, SessionActivity::class.java)
-        .putExtra(EXTRA_CORE, core)
-        .putExtra(EXTRA_CONTENT, content)
-        .putExtra(EXTRA_SYSTEM_DIR, systemDir)
-        .putExtra(EXTRA_SAVE_DIR, saveDir)
-        .putExtra(EXTRA_SAVE_RAM, saveRam)
-        .putExtra(EXTRA_STATES, states.toTypedArray())
-        .putExtra(EXTRA_A_BUTTON_POSITION, aButtonPosition.name)
-        .putExtra(EXTRA_STACKED_SCREENS_KEYS, stackedScreensOptions.keys.toTypedArray())
-        .putExtra(EXTRA_STACKED_SCREENS_VALUES, stackedScreensOptions.values.toTypedArray())
-        .apply { lowerScreenWidthShare?.let { putExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, it) } }
-        .putExtra(EXTRA_ACHIEVEMENTS_CONSOLE, achievementsConsole ?: -1)
-        .putExtra(EXTRA_HARDCORE, hardcore)
+        .putExtra(EXTRA_LAUNCH, Json.encodeToString(launch))
   }
 }

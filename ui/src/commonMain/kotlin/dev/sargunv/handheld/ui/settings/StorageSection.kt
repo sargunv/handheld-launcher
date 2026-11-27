@@ -4,11 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -25,68 +20,19 @@ import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
-import dev.sargunv.handheld.ui.signin.Help
-
-@Composable
-internal fun rememberStorageSection(state: AppState): StorageSection =
-  rememberSaveable(state, saver = StorageSection.saver(state)) { StorageSection(state) }
-
-internal class StorageSection(val state: AppState) {
-  /** The storage whose menu is open, by its id. */
-  private var menu: String? by mutableStateOf(null)
-
-  /** Whether turning off the last storage that's on was just refused. */
-  var refused by mutableStateOf(false)
-
-  fun openMenu(target: StorageTarget) {
-    menu = target.id
-  }
-
-  fun toggle(target: StorageTarget, mounted: List<StorageTarget>) {
-    val settings = state.settings.storage
-    val changed =
-      if (settings.isOn(target)) settings.turnOff(target, mounted) else settings.turnOn(target)
-    refused = changed == null
-    changed?.let(::set)
-  }
-
-  private fun set(storage: StorageSettings) {
-    state.settings = state.settings.copy(storage = storage)
-  }
-
-  @Composable
-  fun Dialogs(spaces: List<StorageSpace>) {
-    val target = spaces.find { it.target.id == menu }?.target ?: return
-    StorageMenu(
-      target = target,
-      settings = state.settings.storage,
-      mounted = spaces.map { it.target },
-      onMove = ::set,
-      onToggle = { toggle(target, spaces.map { it.target }) },
-      onDismissRequest = { menu = null },
-    )
-  }
-
-  companion object {
-    fun saver(state: AppState) =
-      Saver<StorageSection, String>(
-        save = { it.menu },
-        restore = { StorageSection(state).apply { menu = it } },
-      )
-  }
-}
-
-private fun LazyListScope.note(key: String, text: String) {
-  item(key = key) { Text(text, color = Placeholder.mutedText, modifier = Modifier.testTag(key)) }
-}
 
 /**
  * The mounted storage, in the order new games fill it, each turned on or off with Confirm and moved
- * from its menu.
+ * from its menu. [refused] says that turning off the last storage that's on was just refused.
  */
-internal fun LazyListScope.storage(section: StorageSection, spaces: List<StorageSpace>) {
+internal fun LazyListScope.storage(
+  state: AppState,
+  spaces: List<StorageSpace>,
+  refused: Boolean,
+  onToggle: (StorageTarget) -> Unit,
+  open: (SettingsDialog) -> Unit,
+) {
   sectionHeading("Storage")
-  val state = section.state
   val settings = state.settings.storage
   val byId = spaces.associateBy { it.target.id }
   val view = state.settingsView
@@ -100,21 +46,17 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
           "settings:storage:${target.id}",
           target.label,
           "$free · ${if (on) "On" else "Off"}",
-          Help(
-            target.label,
-            "$free, at ${target.root}. New games go to the first storage that's on and has " +
-              "room, from the top. Games already on storage that's off still show and play.",
-          ),
-          onMenu = { section.openMenu(target) },
-          onConfirm = { section.toggle(target, spaces.map { it.target }) },
+          "$free, at ${target.root}",
+          onMenu = { open(SettingsDialog.StorageMenu(target.id)) },
+          onConfirm = { onToggle(target) },
         )
       }
     }
   }
-  if (section.refused) {
+  if (refused) {
     item(key = "refused") {
       Text(
-        "One storage stays on, so new games have somewhere to go.",
+        "Last storage stays on",
         color = Placeholder.text,
         modifier =
           Modifier.testTag("settings:storage:refused").semantics {
@@ -123,11 +65,26 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
       )
     }
   }
-  note(
-    "settings:storage:note",
-    "New games go to the first of these that's on and has room. Confirm turns one on or off, " +
-      "and its menu moves it.",
-  )
+  item(key = "note") {
+    Text(
+      "New games go to the first storage that's on and has room. Games on storage that's off " +
+        "still play.",
+      color = Placeholder.mutedText,
+      modifier = Modifier.testTag("settings:storage:note"),
+    )
+  }
+}
+
+/**
+ * Turns [target] on or off among the [mounted] storage. Returns false, changing nothing, when it's
+ * the last that's on.
+ */
+internal fun AppState.toggleStorage(target: StorageTarget, mounted: List<StorageTarget>): Boolean {
+  val storage = settings.storage
+  val changed =
+    if (storage.isOn(target)) storage.turnOff(target, mounted) else storage.turnOn(target)
+  changed?.let { settings = settings.copy(storage = it) }
+  return changed != null
 }
 
 /**

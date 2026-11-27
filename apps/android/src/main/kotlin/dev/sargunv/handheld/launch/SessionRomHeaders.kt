@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.launch
 
+import dev.sargunv.handheld.data.downloads.headerFile
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -18,7 +19,7 @@ object SessionRomHeaders : RomHeaders {
   override suspend fun read(rom: Rom, path: String): List<RomHeaderField> {
     val platform = headerPlatform(PlatformSlug(rom.platformSlug)) ?: return emptyList()
     return withContext(Dispatchers.IO) {
-      val file = launchFile(path) ?: return@withContext emptyList()
+      val file = launchFile(path)?.let(::headerFile) ?: return@withContext emptyList()
       romHeaderFields(platform, file).map { RomHeaderField(it.label, it.value) }
     }
   }
@@ -47,6 +48,7 @@ object SessionRomHeaders : RomHeaders {
       PlatformCatalog.PS2 -> Platform.PLAY_STATION2
       PlatformCatalog.PSP -> Platform.PSP
       PlatformCatalog.XBOX -> Platform.XBOX
+      PlatformCatalog.SWITCH -> Platform.SWITCH
       else -> null
     }
 }

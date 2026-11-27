@@ -15,6 +15,7 @@ import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
@@ -24,19 +25,21 @@ import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
-import dev.sargunv.handheld.ui.places.HomePress
-import dev.sargunv.handheld.ui.places.OpenRequest
+import dev.sargunv.handheld.ui.places.OpenTarget
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import kotlin.io.path.createTempDirectory
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.io.files.Path
 
 /** The server the tests sign in to. */
@@ -44,14 +47,15 @@ internal const val TestServer = "https://romm.test"
 
 /**
  * Shows the app, signed in to [TestServer] unless [credentials] says otherwise, with covers and the
- * download queue in new, empty directories. The app reads [homePress] as it composes, so a test
- * presses HOME by changing the state it reads.
+ * download queue in new, empty directories. It shows [open] once signed in, and takes each of
+ * [homePresses] as a press of HOME.
  *
- * @return the app's download queue, which downloads from a server that has nothing.
+ * @return the app's download queue, which downloads from [server].
  */
 internal fun ComposeUiTest.launchApp(
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
-  credentials: CredentialStore = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token")),
+  credentials: CredentialStore =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player")),
   library: LibraryCache = LibraryCache.open(path = null),
   storage: List<StorageTarget> = emptyList(),
   settings: Settings = Settings(),
@@ -60,43 +64,40 @@ internal fun ComposeUiTest.launchApp(
   apps: AppCatalog = AppCatalog.None,
   romHeaders: RomHeaders = RomHeaders.None,
   appInfo: AppInfo = AppInfo.Unknown,
+  retroAchievements: RetroAchievementsSignIn? = null,
   gameState: PerGameState = PerGameState.None,
-  open: OpenRequest? = null,
-  homePress: () -> HomePress? = { null },
+  open: OpenTarget? = null,
+  homePresses: Flow<Unit> = emptyFlow(),
   layout: DualScreenLayout = DualScreenLayout.Frame,
 ): DownloadManager {
   lateinit var downloads: DownloadManager
   setContent {
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
-    downloads = remember {
-      DownloadManager(
-        queueFile = Path(createTempDirectory("handheld-downloads").toString(), "downloads.json"),
-        library = library,
-        credentials = credentials,
-        storage = { storage },
-        scope = scope,
-        engine = { MockEngine { respondError(HttpStatusCode.NotFound) } },
-      )
+    val data = remember {
+      val dataDir = Path(createTempDirectory("handheld-data").toString())
+      HandheldData(credentials, library, dataDir, { storage }, scope, engine = server)
     }
+    downloads = data.downloads
     App(
       layout,
       heldKeys,
-      credentials,
+      data.romm,
       DeviceDescription("install-1", "Test device", "test", null),
-      library,
-      downloads,
+      data.library,
+      data.downloads,
+      data.games,
       remember { Path(createTempDirectory("handheld-covers").toString()) },
       Modifier.trackHeldKeys(heldKeys),
       initialSettings = settings,
       saveSettings = saveSettings,
-      httpEngine = server,
       launcher = launcher,
       apps = apps,
       romHeaders = romHeaders,
-      openRequest = open,
-      homePress = homePress(),
+      openRequests = remember { if (open != null) flowOf(open) else emptyFlow() },
+      homePresses = homePresses,
       appInfo = appInfo,
+      retroAchievements = retroAchievements,
       gameState = gameState,
     )
   }

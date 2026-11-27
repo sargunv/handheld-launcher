@@ -18,6 +18,8 @@ pub mod saturn;
 pub mod sfo;
 pub mod sms;
 pub mod snes;
+#[cfg(feature = "switch")]
+pub mod switch;
 pub mod xbox;
 #[cfg(feature = "zstd")]
 pub mod z3ds;
@@ -50,6 +52,8 @@ pub enum Platform {
     PlayStation2,
     Psp,
     Xbox,
+    #[cfg(feature = "switch")]
+    Switch,
 }
 
 /// A game's header, of the kind its platform has.
@@ -73,6 +77,8 @@ pub enum Header {
     /// A PSP game's PARAM.SFO, or a PlayStation game's in a PBP.
     ParamSfo(sfo::ParamSfo),
     Xbox(xbox::Certificate),
+    #[cfg(feature = "switch")]
+    Switch(switch::Header),
 }
 
 /// Why a header couldn't be read.
@@ -133,7 +139,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Reads the header of a game for `platform` from `reader`, which holds its
 /// file: a ROM, or a disc image in any form [`disc::Disc`] opens. A
 /// multi-file disc's file is its data track's, and a GD-ROM's is its third
-/// track's, unless it's a CHD, which holds every track.
+/// track's, unless it's a CHD, which holds every track. A Switch game's is
+/// read from its tickets, as `switch::read` reads it without the console's
+/// keys.
 pub fn identify<R: Read + Seek>(platform: Platform, mut reader: R) -> Result<Header> {
     let reader = &mut reader;
     Ok(match platform {
@@ -169,6 +177,8 @@ pub fn identify<R: Read + Seek>(platform: Platform, mut reader: R) -> Result<Hea
             Header::ParamSfo(sfo::parse(&param)?)
         }
         Platform::Xbox => Header::Xbox(xbox::read(reader)?),
+        #[cfg(feature = "switch")]
+        Platform::Switch => Header::Switch(switch::read(reader, None)?),
     })
 }
 

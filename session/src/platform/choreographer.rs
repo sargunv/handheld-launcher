@@ -1,42 +1,24 @@
 //! The display's vsync timing, from Choreographer on a thread of its own.
 
-use std::ffi::{c_int, c_void};
+use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::time::{Duration, Instant};
 
+use ndk::looper::{ForeignLooper, ThreadLooper};
+use ndk_sys::{AChoreographer, AChoreographer_getInstance, AChoreographer_postFrameCallback64};
+
 use crate::pacing::{Vsync, VsyncEstimator};
 use crate::platform::android::monotonic_nanos;
 
-#[link(name = "android")]
-unsafe extern "C" {
-    fn ALooper_prepare(opts: c_int) -> *mut c_void;
-    fn ALooper_acquire(looper: *mut c_void);
-    fn ALooper_wake(looper: *mut c_void);
-    fn ALooper_pollOnce(
-        timeout_millis: c_int,
-        out_fd: *mut c_int,
-        out_events: *mut c_int,
-        out_data: *mut *mut c_void,
-    ) -> c_int;
-    fn AChoreographer_getInstance() -> *mut c_void;
-    fn AChoreographer_postFrameCallback64(
-        choreographer: *mut c_void,
-        callback: unsafe extern "C" fn(i64, *mut c_void),
-        data: *mut c_void,
-    );
-}
-
 /// The clock's thread and what it shares with the sessions.
-#[derive(Default)]
 struct Shared {
     estimator: Mutex<VsyncEstimator>,
     /// How many sessions follow vsync. While none do, the thread sleeps.
     running: AtomicUsize,
-    /// The thread's looper, with a reference of ours that's never released,
-    /// to wake it.
-    looper: AtomicUsize,
+    /// The thread's looper, to wake it.
+    looper: ForeignLooper,
 }
 
 /// The process's one vsync thread, or `None` if Choreographer isn't
@@ -45,24 +27,16 @@ struct Shared {
 static CLOCK: OnceLock<Option<Arc<Shared>>> = OnceLock::new();
 
 fn start() -> Option<Arc<Shared>> {
-    let shared = Arc::new(Shared::default());
-    let (ready, looper) = mpsc::channel();
-    let thread_shared = shared.clone();
+    let (ready, shared) = mpsc::channel();
     std::thread::Builder::new()
         .name("vsync".into())
-        .spawn(move || follow(thread_shared, ready))
+        .spawn(move || follow(ready))
         .inspect_err(|e| log::warn!("can't start the vsync thread: {e}"))
         .ok()?;
-    match looper.recv() {
-        Ok(looper) => {
-            shared.looper.store(looper, Ordering::Release);
-            Some(shared)
-        }
-        Err(_) => {
-            log::warn!("no Choreographer, so frames are paced by a timer");
-            None
-        }
-    }
+    shared
+        .recv()
+        .inspect_err(|_| log::warn!("no Choreographer, so frames are paced by a timer"))
+        .ok()
 }
 
 /// A session's hold on the vsync thread, which follows vsync while any
@@ -93,8 +67,7 @@ impl VsyncClock {
         } else {
             self.shared.running.fetch_sub(1, Ordering::AcqRel);
         }
-        // SAFETY: the looper's reference is never released.
-        unsafe { ALooper_wake(self.shared.looper.load(Ordering::Acquire) as *mut c_void) };
+        self.shared.looper.wake();
     }
 
     /// The display's vsync timing, once known.
@@ -116,7 +89,7 @@ impl Drop for VsyncClock {
 /// The clock thread's state, which frame callbacks receive.
 struct Follower {
     shared: Arc<Shared>,
-    choreographer: *mut c_void,
+    choreographer: *mut AChoreographer,
     /// Whether a frame callback is posted.
     posted: bool,
 }
@@ -129,7 +102,7 @@ impl Follower {
         unsafe {
             AChoreographer_postFrameCallback64(
                 self.choreographer,
-                on_frame,
+                Some(on_frame),
                 ptr::from_mut(self).cast(),
             );
         }
@@ -137,17 +110,19 @@ impl Follower {
 }
 
 /// The clock's thread: posts a frame callback every vsync while running.
-fn follow(shared: Arc<Shared>, ready: mpsc::Sender<usize>) {
-    // SAFETY: called on this new thread, which has no looper yet.
-    let looper = unsafe { ALooper_prepare(0) };
+fn follow(ready: mpsc::Sender<Arc<Shared>>) {
+    let looper = ThreadLooper::prepare();
     // SAFETY: the instance is for this thread, which has a looper.
     let choreographer = unsafe { AChoreographer_getInstance() };
-    if looper.is_null() || choreographer.is_null() {
+    if choreographer.is_null() {
         return;
     }
-    // SAFETY: `looper` is this thread's; the reference is the clock's.
-    unsafe { ALooper_acquire(looper) };
-    if ready.send(looper as usize).is_err() {
+    let shared = Arc::new(Shared {
+        estimator: Mutex::default(),
+        running: AtomicUsize::new(0),
+        looper: looper.as_foreign().clone(),
+    });
+    if ready.send(shared.clone()).is_err() {
         return;
     }
     let mut follower = Box::new(Follower {
@@ -159,8 +134,7 @@ fn follow(shared: Arc<Shared>, ready: mpsc::Sender<usize>) {
         if follower.shared.running.load(Ordering::Acquire) > 0 && !follower.posted {
             follower.post();
         }
-        // SAFETY: the looper is this thread's; null outputs are allowed.
-        unsafe { ALooper_pollOnce(-1, ptr::null_mut(), ptr::null_mut(), ptr::null_mut()) };
+        let _ = looper.poll_once();
     }
 }
 

@@ -28,16 +28,9 @@ internal class SessionAchievementsHttp(
       val response = client.send(request.url, request.postData, request.contentType)
       if (response == null) Log.w(TAG, "RetroAchievements is out of reach")
       // The first requests go out while the session is starting.
-      val running = session.await()
-      try {
-        running.achievementsResponse(
-          id,
-          response?.status?.toUShort(),
-          response?.body ?: ByteArray(0),
-        )
-      } catch (_: IllegalStateException) {
-        // The session closed meanwhile.
-      }
+      session
+        .await()
+        .achievementsResponse(id, response?.status?.toUShort(), response?.body ?: ByteArray(0))
     }
   }
 
@@ -49,9 +42,10 @@ internal class SessionAchievementsHttp(
 /** What the player reads when the session's achievements fail. */
 internal fun AchievementFailure.message(): String =
   when (this) {
-    AchievementFailure.SignInExpired -> "Sign in to RetroAchievements again in Settings."
-    is AchievementFailure.SignIn -> "Couldn't sign in to RetroAchievements: $detail"
-    is AchievementFailure.LoadGame -> "Couldn't load the game's achievements: $detail"
+    AchievementFailure.SignInExpired ->
+      "RetroAchievements sign-in expired · Sign in again in Settings"
+    is AchievementFailure.SignIn -> "RetroAchievements sign-in failed · $detail"
+    is AchievementFailure.LoadGame -> "Achievements unavailable · $detail"
   }
 
 /** The session's achievements as the quick menu shows them. */

@@ -17,13 +17,14 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 
 /**
  * A value kept in [file] as JSON, encrypted with an AES key that lives in the Android Keystore and
  * never leaves it. Only this app can use the key, so a copy of the file is useless elsewhere.
  *
- * A file the key can't decrypt, such as one restored from a backup onto another device, reads as
- * missing.
+ * A file the key can't decrypt, such as one restored from a backup onto another device, or whose
+ * JSON doesn't decode, reads as missing.
  */
 internal class KeystoreFile<T : Any>(
   private val file: File,
@@ -47,7 +48,11 @@ internal class KeystoreFile<T : Any>(
       } catch (e: GeneralSecurityException) {
         return@io null
       }
-    LenientJson.decodeFromString(serializer, plain.decodeToString())
+    try {
+      LenientJson.decodeFromString(serializer, plain.decodeToString())
+    } catch (_: SerializationException) {
+      null
+    }
   }
 
   suspend fun save(value: T) = io {

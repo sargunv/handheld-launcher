@@ -17,19 +17,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.GameDescription
-import dev.sargunv.handheld.ui.places.gameCount
+import dev.sargunv.handheld.ui.places.ShelfDescription
 
 /**
  * Library's lower screen. On a tab of platforms or collections, the focused one. On a grid of
@@ -38,35 +36,20 @@ import dev.sargunv.handheld.ui.places.gameCount
  */
 @Composable
 internal fun LibrarySecondary(state: AppState) {
-  val tab = state.libraryTab
-  when {
-    state.libraryView.openedFrom != null && tab in ShelfTabs ->
-      GamesSecondary(state, filters = true)
-    tab in ShelfTabs -> ShelfListSecondary(state, tab)
-    else -> GamesSecondary(state, filters = tab != LibraryTab.OnDevice)
+  when (val source = state.libraryView.source) {
+    null -> ShelfListSecondary(state)
+    else -> GamesSecondary(state, source.filters)
   }
 }
 
-/** The tabs of platforms and collections, rather than of games. */
-private val ShelfTabs = setOf(LibraryTab.Platforms, LibraryTab.Collections)
-
 @Composable
-private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
-  val shelves = rememberShelves(state, tab).orEmpty()
-  val shelf = shelves.shelfAt(state.libraryView.shelfKey(tab))
-  val summary = rememberShelfSummaries(state, shelves).find { it.shelf == shelf }
+private fun ShelfListSecondary(state: AppState) {
+  val view = state.libraryView
+  val summary = view.summaries(state.libraryTab).find { it.shelf == view.shelf }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (summary != null) {
-      Text(
-        summary.shelf.title,
-        color = Placeholder.text,
-        fontSize = 24.sp,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(gameCount(summary.games), color = Placeholder.mutedText)
-      Text("${summary.onDevice} on this device", color = Placeholder.mutedText)
       val about = (summary.shelf as? LibraryShelf.OfCollection)?.collection?.description
-      if (!about.isNullOrBlank()) Text(about, color = Placeholder.mutedText)
+      ShelfDescription(summary.shelf.title, summary.games, summary.onDevice, about)
     }
   }
 }
@@ -75,6 +58,7 @@ private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
 @Composable
 private fun GamesSecondary(state: AppState, filters: Boolean) {
   val view = state.libraryView
+  val letters = view.grid?.index?.keys.orEmpty()
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Box(Modifier.fillMaxWidth().weight(1f)) {
       (state.focused as? Focused.OnGame)?.let { GameDescription(state, it.game) }
@@ -95,12 +79,12 @@ private fun GamesSecondary(state: AppState, filters: Boolean) {
         view.sort = nextSort
       }
     }
-    if (view.letters.isNotEmpty()) {
+    if (letters.isNotEmpty()) {
       FlowRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        for (letter in view.letters) {
+        for (letter in letters) {
           TouchChip("touch:jump:$letter", letter.toString(), selected = false) {
             view.jump = Jump(letter)
           }

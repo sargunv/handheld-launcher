@@ -7,9 +7,9 @@ mod common;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use common::{Harness, lock, options};
+use common::{Harness, lock, options, pixel};
 use handheld_session::{
     AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionListener,
 };
@@ -23,14 +23,14 @@ const BLACK: [u8; 4] = [0, 0, 0, 255];
 fn stripes(h: &Harness) -> Vec<[u8; 4]> {
     let frame = h.frames.last();
     (0..4)
-        .map(|port| frame.pixel(port * frame.width / 4 + 1, 0))
+        .map(|port| pixel(&frame, port * frame.width / 4 + 1, 0))
         .collect()
 }
 
 #[test]
 fn every_port_reaches_the_core() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None, &[], None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None, None).unwrap();
     h.run(1);
     // The core declares three ports, so the session sets a RetroPad on those.
     assert_eq!(stripes(&h), [GRAY, GRAY, GRAY, BLACK]);
@@ -40,8 +40,8 @@ fn every_port_reaches_the_core() {
     h.run(1);
     assert_eq!(stripes(&h), [GRAY, WHITE, GRAY, WHITE]);
 
-    h.input.port(1).set_buttons(0);
-    h.input.port(3).set_buttons(0);
+    h.input.port(1).set_button(Button::A, false);
+    h.input.port(3).set_button(Button::B, false);
     h.input.port(2).set_button(Button::Up, true);
     h.run(1);
     assert_eq!(stripes(&h), [GRAY, GRAY, WHITE, BLACK]);
@@ -50,13 +50,13 @@ fn every_port_reaches_the_core() {
 #[test]
 fn takes_a_new_video_and_audio_mode_mid_game() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None, &[], None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None, None).unwrap();
     h.run(1);
     assert_eq!(h.session.av_info().sample_rate, 44_100.0);
 
     h.input.port(0).set_button(Button::Select, true);
     h.run(1);
-    h.input.port(0).set_buttons(0);
+    h.input.port(0).set_button(Button::Select, false);
     let av = h.session.av_info();
     assert_eq!(
         av,
@@ -115,7 +115,12 @@ fn info_follows_a_new_video_mode() {
     let (session, _) = start(dir.path());
     assert_eq!(session.info().base_width, 320);
     session.set_button(0, Button::Select, true);
-    session.advance(1).unwrap();
+    session.resume();
+    let deadline = Instant::now() + WAIT;
+    while session.info().base_width == 320 {
+        assert!(Instant::now() < deadline, "info kept the first video mode");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let info = session.info();
     assert_eq!(
         (info.base_width, info.base_height, info.aspect_ratio),
@@ -132,7 +137,7 @@ fn tells_the_app_when_the_core_quits() {
     session.resume();
     session.set_button(0, Button::Start, true);
     heard.recv_timeout(WAIT).unwrap();
-    assert!(matches!(session.advance(1), Err(SessionError::Stopped)));
+    assert!(matches!(session.pause(), Err(SessionError::Stopped)));
     session.stop().unwrap();
     // The core is unloaded by the time the app hears, so another may start.
     let (_next, _) = start(dir.path());
@@ -166,6 +171,6 @@ fn the_listener_may_stop_the_session() {
     .unwrap();
     *listener.0.lock().unwrap() = Some(session.clone());
     session.set_button(0, Button::Start, true);
-    session.advance(1).unwrap();
+    session.resume();
     receiver.recv_timeout(WAIT).unwrap();
 }

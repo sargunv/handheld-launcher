@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.settings
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.JsonFile
 import kotlinx.io.IOException
 import kotlinx.io.files.Path
@@ -12,7 +13,11 @@ import kotlinx.serialization.json.Json
  * A setting missing from the file, or one whose stored value this version doesn't know, takes its
  * default from the settings class, so adding a setting with a default needs nothing else.
  */
-class SettingsFile<T : Any>(path: Path, serializer: KSerializer<T>, private val default: T) {
+class SettingsFile<T : Any>(
+  private val path: Path,
+  serializer: KSerializer<T>,
+  private val default: T,
+) {
   private val file = JsonFile(path, serializer, json, unreadableIsMissing = true)
 
   /**
@@ -28,10 +33,14 @@ class SettingsFile<T : Any>(path: Path, serializer: KSerializer<T>, private val 
   suspend fun write(settings: T) {
     try {
       file.write(settings)
-    } catch (_: IOException) {}
+    } catch (e: IOException) {
+      log.w(e) { "Couldn't write $path" }
+    }
   }
 
   private companion object {
+    val log = Logger.withTag("SettingsFile")
+
     val json = Json {
       encodeDefaults = true
       ignoreUnknownKeys = true

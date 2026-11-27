@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,7 +65,7 @@ data class StateSlot(
     get() = savedAt == null
 }
 
-/** The game session the quick menu works on. The menu calls it on its own coroutine scope. */
+/** The game session the quick menu works on. */
 interface QuickMenuSession {
   /** The game's save-state slots, in order. */
   suspend fun slots(): List<StateSlot>
@@ -133,7 +134,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
   var busy by mutableStateOf(false)
     private set
 
-  /** The game's achievements, as of the last opening of the menu or of their list. */
+  /** The game's achievements, read each time the menu shows its main list or their list. */
   var achievements by mutableStateOf<GameAchievements>(GameAchievements.Off)
     private set
 
@@ -172,25 +173,21 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
     // Until they're read, hardcore assumes the game has achievements.
     if (session.hardcore) achievements = GameAchievements.Loading
     scope.launch { slots = session.slots() }
-    readAchievements()
   }
 
-  /** Lists the game's achievements, read again. */
+  /** Lists the game's achievements. */
   fun showAchievements() {
     showsAchievements = true
     message = null
-    readAchievements()
   }
 
   /** Reads the game's achievements, and again while the session is still loading them. */
-  private fun readAchievements() {
-    scope.launch {
-      while (true) {
-        val read = session.achievements()
-        achievements = read
-        if (read != GameAchievements.Loading) break
-        delay(ACHIEVEMENTS_POLL)
-      }
+  internal suspend fun readAchievements() {
+    while (true) {
+      val read = session.achievements()
+      achievements = read
+      if (read != GameAchievements.Loading) break
+      delay(ACHIEVEMENTS_POLL)
     }
   }
 
@@ -234,7 +231,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
               message = failure
             } else {
               lastSlot = slot.number
-              message = "Saved to slot ${slot.number}."
+              message = "Saved · Slot ${slot.number}"
               picking = null
               focusedSlot = null
             }
@@ -276,6 +273,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
  */
 @Composable
 fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
+  LaunchedEffect(state, state.showsAchievements) { state.readAchievements() }
   Box(modifier.fillMaxSize()) {
     Dialog(
       onDismissRequest = state::back,
@@ -307,7 +305,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
         null if state.showsAchievements -> listOf(Hint(Action.Back, "Back"))
         null ->
           listOf(
-            Hint(Action.Confirm, "Select"),
+            Hint(Action.Confirm, "Choose"),
             Hint(Action.Back, "Resume"),
           )
         SlotAction.Save -> listOf(Hint(Action.Confirm, "Save"), Hint(Action.Back, "Back"))

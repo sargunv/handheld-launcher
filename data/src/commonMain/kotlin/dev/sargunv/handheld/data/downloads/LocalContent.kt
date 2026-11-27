@@ -20,10 +20,9 @@ import kotlinx.serialization.builtins.ListSerializer
 
 /**
  * A file in a platform's folder that no game of the library is named for or matched by content. A
- * disc set copied in loose is one: its playlist or descriptor, with the files it lists as
- * [otherFiles].
+ * disc set copied in loose is one: its sheet, with the files it lists as [otherFiles].
  */
-data class LocalFile(
+internal data class LocalFile(
   val path: String,
   /** The platform whose folder holds the file. */
   val platformId: Long,
@@ -40,20 +39,17 @@ data class LocalFile(
 }
 
 /** One of the other files of a disc set, as a scan found it. */
-data class LocalPart(val path: String, val sizeBytes: Long)
+internal data class LocalPart(val path: String, val sizeBytes: Long)
 
 /**
  * What the latest scan of the platforms' folders found besides the games named as RomM names them.
  */
-data class LocalScan(
+internal data class LocalScan(
   /** The library's games found by content in a file of another name, by ROM id: the file's path. */
   val matched: Map<Long, String> = emptyMap(),
-  /** The files no game of the library matched, by name or by content. */
+  /** The files that may be games and that no game of the library matched, by name or content. */
   val unmatched: List<LocalFile> = emptyList(),
 )
-
-/** One file in a zip, as its central directory lists it. */
-internal data class ZipMember(val name: String, val sizeBytes: Long, val crc: String)
 
 /**
  * What a file holds, as far as a scan read it, in lowercase hex. Each is null when the scan didn't
@@ -105,7 +101,8 @@ internal class ContentScanner(
   /**
    * Scans each platform's folder on each of the [targets] for files that aren't [roms] by name, and
    * matches them to [roms] by content. A ROM on the device by name isn't matched again. A disc set
-   * copied in loose is one file, its playlist or descriptor, and the files it lists aren't read.
+   * copied in loose is one file, its sheet, and the files it lists aren't read. Files that aren't
+   * games by [isGameFile] aren't read or listed.
    */
   suspend fun scan(
     targets: List<StorageTarget>,
@@ -126,22 +123,22 @@ internal class ContentScanner(
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
       // Each target's files in name order, the targets in the order they fill.
-      val loose = entries.filterNot { it.name in names || skipped(it.name) }
+      val loose = entries.filterNot { it.name in names || !isGameFile(it.name) }
       val candidates = folderRoms.filter {
         it.files.size == 1 && GameLayout.romName(it) !in present
       }
       val sizes = candidates.mapTo(mutableSetOf()) { it.files.single().sizeBytes }
       // A set's files are read only where that's quick, or where one could be a game by its size.
       // A set with a file that's a game of the library is its files, each on its own.
-      val sets =
-        discSets(loose).filterValues { parts ->
-          parts.none { part ->
-            // What it read stays in the cache.
-            seen += part.toString()
-            val content = quickContentOf(part, sizes, cache)
-            content != null && candidates.any { content.matches(it.files.single()) }
-          }
-        }
+      val allSets = discSets(loose)
+      val games = mutableSetOf<Path>()
+      for (part in allSets.values.flatten()) {
+        // What it read stays in the cache.
+        seen += part.toString()
+        val content = quickContentOf(part, sizes, cache)
+        if (content != null && candidates.any { content.matches(it.files.single()) }) games += part
+      }
+      val sets = allSets.filterValues { parts -> parts.none { it in games } }
       val listed = sets.values.flatten().toSet()
       val files = loose.filterNot { it in listed }
       for (path in files) {
@@ -218,7 +215,7 @@ internal class ContentScanner(
     val metadata = SystemFileSystem.metadataOrNull(path)
     if (metadata == null || !metadata.isRegularFile) return null
     return try {
-      contentOf(path, metadata.size, sizes, cache, wholeFileLimit = -1)
+      contentOf(path, metadata.size, sizes, cache, quick = true)
     } catch (e: IOException) {
       null
     }
@@ -226,8 +223,8 @@ internal class ContentScanner(
 
   /**
    * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
-   * game: a file bigger than [wholeFileLimit] is read whole only when it's one of the [sizes]. With
-   * [fresh], it reads the file even if the cache has it.
+   * game: a file bigger than [wholeFileLimit], or with [quick] any file, is read whole only when
+   * it's one of the [sizes]. With [fresh], it reads the file even if the cache has it.
    */
   private fun contentOf(
     path: Path,
@@ -235,7 +232,7 @@ internal class ContentScanner(
     sizes: Set<Long>,
     cache: MutableMap<String, CachedContent>,
     fresh: Boolean = false,
-    wholeFileLimit: Long = this.wholeFileLimit,
+    quick: Boolean = false,
   ): FileContent? {
     val modified = lastModified(path)
     cache[path.toString()]
@@ -245,10 +242,10 @@ internal class ContentScanner(
       }
     val content =
       when (path.name.substringAfterLast('.', "").lowercase()) {
-        "zip" -> FileContent(crc = zipMembers(path)?.singleOrNull()?.crc)
+        "zip" -> FileContent(crc = oneFileZipCrc(path))
         "chd" -> FileContent(chdSha1 = chdSha1(path, size))
         else -> {
-          if (size > wholeFileLimit && size !in sizes) return null
+          if ((quick || size > wholeFileLimit) && size !in sizes) return null
           val (crc, sha1) = crcAndSha1(path)
           FileContent(crc = crc, sha1 = sha1)
         }
@@ -307,56 +304,60 @@ private fun ByteArray.readInt(offset: Int): Int =
   (0 until 4).fold(0) { value, i -> (value shl 8) or (this[offset + i].toInt() and 0xff) }
 
 /**
- * The disc sets copied in loose among [files], the entries of platforms' folders: each playlist or
- * descriptor that no other lists, with the files beside it that it lists, and for a playlist, the
- * files its discs' descriptors list too.
+ * The disc sets copied in loose among [files], the entries of platforms' folders, as
+ * [DiscSets.sets] finds them.
  */
 private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
   for (folder in files.groupBy { it.parent }.values) {
     val byName = folder.associateBy { it.name }
-    val listed =
-      folder
-        .filter { DiscSets.isDescriptor(it.name) }
-        .mapNotNull { descriptor ->
-          val text = descriptorText(descriptor) ?: return@mapNotNull null
-          val names = DiscSets.listedFiles(descriptor.name, text) ?: return@mapNotNull null
-          descriptor.name to DiscSets.siblings(names, byName.keys).filter { it != descriptor.name }
-        }
-        .toMap()
-    fun membersOf(name: String, seen: MutableSet<String>): List<String> =
-      listed[name].orEmpty().flatMap {
-        listOf(it) + if (seen.add(it)) membersOf(it, seen) else emptyList()
-      }
-    val members = listed.values.flatten().toSet()
-    for (name in listed.keys - members) {
-      val all = membersOf(name, mutableSetOf(name)).distinct().filter { it != name }
-      put(byName.getValue(name), all.map { byName.getValue(it) })
+    for ((head, members) in
+      DiscSets.sets(folder.map { it.name }) { sheetText(byName.getValue(it)) }) {
+      put(byName.getValue(head), members.map(byName::getValue))
     }
   }
 }
 
 /**
- * The text of the playlist or descriptor at [path], or null when it's too big to be one or can't be
- * read. It's UTF-8, else Latin-1, as cue sheets made on Windows often are.
+ * The file that holds the header of the game an emulator opens at [path], as [DiscSets.headerFile]
+ * finds it.
  */
-private fun descriptorText(path: Path): String? {
-  val metadata = SystemFileSystem.metadataOrNull(path) ?: return null
-  if (!metadata.isRegularFile || metadata.size > DiscSets.DESCRIPTOR_LIMIT) return null
-  val bytes =
-    try {
+fun headerFile(path: String): String? = DiscSets.headerFile(path) { sheetText(Path(it)) }
+
+/** The text of the sheet at [path], as [DiscSets.sheetText] reads it, or null when it can't. */
+private fun sheetText(path: Path): String? {
+  val metadata = SystemFileSystem.metadataOrNull(path)?.takeIf { it.isRegularFile } ?: return null
+  return try {
+    DiscSets.sheetText(metadata.size) {
       SystemFileSystem.source(path).buffered().use { it.readByteArray() }
-    } catch (e: IOException) {
-      return null
     }
-  val text = bytes.decodeToString()
-  return if ('\uFFFD' in text) bytes.map { (it.toInt() and 0xff).toChar() }.joinToString("")
-  else text
+  } catch (e: IOException) {
+    null
+  }
 }
 
-/** Files a scan never takes for a game: hidden ones, and downloads under way. */
-private fun skipped(name: String) = name.startsWith('.') || name.endsWith(".part")
+/** Whether the file named [name] may be a game: hidden files, [NotGames] and save states aren't. */
+internal fun isGameFile(name: String): Boolean {
+  if (name.startsWith('.')) return false
+  val extension = name.substringAfterLast('.', "").lowercase()
+  return extension !in NotGames && !extension.matches(StateExtension)
+}
 
-private fun entriesOf(folder: Path): List<Path> =
+/**
+ * The extensions of files that sit beside games but aren't games: saves, pictures, patches and
+ * cheats, notes and settings, and files another app is still writing. Not `.md`, a Mega Drive
+ * ROM's.
+ */
+private val NotGames =
+  ("srm sav sa1 dsv eep fla sra mpk rtc mcr mcd png jpg jpeg gif bmp webp ips bps ups xdelta cht " +
+      "txt nfo pdf xml json ini cfg log db tmp bak part")
+    .split(' ')
+    .toSet()
+
+/** Save states, such as `.state`, `.state1` or `.st0`, and RetroArch's `.auto`. */
+private val StateExtension = Regex("""state\d*|st\d+|auto""")
+
+/** The entries of [folder] in name order, or none when it isn't a folder that can be read. */
+internal fun entriesOf(folder: Path): List<Path> =
   try {
     if (SystemFileSystem.metadataOrNull(folder)?.isDirectory == true) {
       SystemFileSystem.list(folder).sortedBy { it.name }

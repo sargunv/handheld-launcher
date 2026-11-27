@@ -17,10 +17,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -29,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
@@ -37,17 +43,25 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.auth.UploadAccess
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
+import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.LocalFocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.help
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.Help
+import dev.sargunv.handheld.ui.places.signedIn
+import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.launch
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
@@ -65,7 +79,7 @@ enum class SettingsSection(val title: String, internal val description: String) 
     "Storage",
     "Where new games download to, in what order, and the room each place has left.",
   ),
-  About("About", "The version, the license and source, and the third-party components' licenses.");
+  About("About", "The version, the licence and source, and the third-party components' licences.");
 
   /** The section's item in the list, and its test tag. */
   internal val key: String
@@ -79,20 +93,16 @@ class SettingsView {
   var section: SettingsSection by mutableStateOf(SettingsSection.Controls)
     internal set
 
-  /** What the lower screen says about the focused setting; null describes the section. */
-  internal var help: Help? by mutableStateOf(null)
+  /** What the lower screen says about the focused setting, in place of the section's. */
+  internal val help = HelpHolder()
 
-  /** The focused setting, when it has a menu, which the hints then offer. */
-  internal var menuKey: String? by mutableStateOf(null)
-
-  /** A section to move focus to once the page shows, for development tools. */
-  internal var pendingJump: SettingsSection? by mutableStateOf(null)
+  /** Sections to move focus to once the page shows, for development tools. */
+  internal val jumps = Channel<SettingsSection>(Channel.CONFLATED)
 
   /** Shows [section], with focus on it in the list. */
   fun jumpTo(section: SettingsSection) {
     this.section = section
-    help = null
-    pendingJump = section
+    jumps.trySend(section)
   }
 }
 
@@ -103,7 +113,9 @@ class SettingsView {
 @Composable
 internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val view = state.settingsView
-  val signedIn = state.account.signedIn == true
+  val romm by state.romm.state.collectAsState()
+  val sync by state.romm.sync.collectAsState()
+  val signedIn = romm.signedIn == true
   val sections =
     SettingsSection.entries.filter {
       when (it) {
@@ -116,22 +128,33 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val section = view.section.takeIf { it in sections } ?: sections.first()
   // A section left from before a sign-out isn't offered at sign-in, so the lower screen follows.
   if (section != view.section) SideEffect { view.section = section }
-  val rommSection = rememberRommSection(state, shown = section == SettingsSection.RomM)
-  val emulatorsSection = rememberEmulatorsSection(state)
-  val storageSection = rememberStorageSection(state)
+  val scope = rememberCoroutineScope()
+  var dialog by rememberSaveable(stateSaver = SettingsDialog.saver) { mutableStateOf(null) }
+  val open = { it: SettingsDialog -> dialog = it }
+  val close = { dialog = null }
+  // Asked again after each sync, since the account's permissions can change.
+  val uploadAccess by
+    produceState<UploadAccess?>(null, romm, sync, section) {
+      if (section == SettingsSection.RomM) value = state.romm.uploadAccess()
+    }
   val storageSpaces by
     rememberStorageSpaces(state.downloads, active = section == SettingsSection.Storage)
+  val mounted = storageSpaces.map { it.target }
+  var storageRefused by remember(section) { mutableStateOf(false) }
+  val toggleStorage = { target: StorageTarget ->
+    storageRefused = !state.toggleStorage(target, mounted)
+  }
   // The section's settings, which Right from the list enters at the top.
   val pane = remember { FocusRequester() }
 
   FocusScope(Modifier.fillMaxSize(), initialFocus = section.key) {
     val focusScope = LocalFocusScope.current
-    LaunchedEffect(view.pendingJump) {
-      val jump = view.pendingJump ?: return@LaunchedEffect
-      // The list composes its items during layout, so wait for a frame to find them.
-      withFrameNanos {}
-      focusScope?.focus(jump.key)
-      view.pendingJump = null
+    LaunchedEffect(view, focusScope) {
+      for (jump in view.jumps) {
+        // The list composes its items during layout, so wait for a frame to find them.
+        withFrameNanos {}
+        focusScope?.focus(jump.key)
+      }
     }
     Column(Modifier.fillMaxSize()) {
       Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp)) {
@@ -145,13 +168,10 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
         ) {
           items(sections, key = { it.key }) {
             SectionRow(
+              view,
               it,
               selected = it == section,
-              onFocus = {
-                view.section = it
-                view.help = null
-                storageSection.refused = false
-              },
+              onFocus = { view.section = it },
               // A section without settings to focus, such as About, keeps focus in the list.
               onRight = { pane.requestFocus(FocusDirection.Enter) || true },
             )
@@ -167,11 +187,12 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           ) {
             when (section) {
               SettingsSection.Controls -> controls(state)
-              SettingsSection.RomM -> romm(rommSection)
+              SettingsSection.RomM -> romm(state, romm, sync, uploadAccess, open)
               SettingsSection.RetroAchievements -> retroAchievements(state)
-              SettingsSection.Emulators -> emulators(emulatorsSection)
-              SettingsSection.Storage -> storage(storageSection, storageSpaces)
-              SettingsSection.About -> about(state)
+              SettingsSection.Emulators -> emulators(state, open)
+              SettingsSection.Storage ->
+                storage(state, storageSpaces, storageRefused, toggleStorage, open)
+              SettingsSection.About -> about(state, signedIn)
             }
           }
         }
@@ -180,15 +201,89 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
         listOf(
             Hint(Action.Confirm, "Choose"),
             Hint(Action.Back, backHint),
-            Hint(Action.Menu, "Menu").takeIf { view.menuKey != null },
+            Hint(Action.Menu, "Menu").takeIf { view.help.shown?.hasMenu == true },
             Hint(Action.MainMenu, "Main menu"),
           )
           .filterNotNull(),
       )
     }
-    storageSection.Dialogs(storageSpaces)
-    emulatorsSection.Dialogs()
-    rommSection.Dialogs()
+    when (val shown = dialog) {
+      null -> {}
+      SettingsDialog.SignOut ->
+        SignOutDialog(
+          onSignOut = {
+            close()
+            scope.launch { state.signOut() }
+          },
+          onDismissRequest = close,
+        )
+      SettingsDialog.AllowUploads ->
+        AllowUploadsDialog(
+          UPLOADS_NOT_REQUESTED,
+          onSignInAgain = {
+            close()
+            scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+          },
+          onDismissRequest = close,
+        )
+      SettingsDialog.CloseEmulators ->
+        CloseEmulatorsDialog(
+          onTurnOn = {
+            state.settings = state.settings.copy(closeEmulators = true)
+            close()
+          },
+          onDismissRequest = close,
+        )
+      // A restored menu shows once its storage is measured.
+      is SettingsDialog.StorageMenu ->
+        mounted
+          .find { it.id == shown.id }
+          ?.let { target ->
+            StorageMenu(
+              target,
+              state.settings.storage,
+              mounted,
+              onMove = { state.settings = state.settings.copy(storage = it) },
+              onToggle = { toggleStorage(target) },
+              onDismissRequest = close,
+            )
+          }
+    }
+  }
+}
+
+/** The dialog open over Settings. */
+internal sealed interface SettingsDialog {
+  data object SignOut : SettingsDialog
+
+  data object AllowUploads : SettingsDialog
+
+  data object CloseEmulators : SettingsDialog
+
+  /** The menu on the storage with [id]. */
+  data class StorageMenu(val id: String) : SettingsDialog
+
+  companion object {
+    val saver =
+      Saver<SettingsDialog?, String>(
+        save = {
+          when (it) {
+            null -> null
+            SignOut -> "signOut"
+            AllowUploads -> "allowUploads"
+            CloseEmulators -> "closeEmulators"
+            is StorageMenu -> "storage:${it.id}"
+          }
+        },
+        restore = {
+          when (it) {
+            "signOut" -> SignOut
+            "allowUploads" -> AllowUploads
+            "closeEmulators" -> CloseEmulators
+            else -> StorageMenu(it.removePrefix("storage:"))
+          }
+        },
+      )
   }
 }
 
@@ -197,6 +292,7 @@ private val VerticalWalls = setOf(FocusDirection.Up, FocusDirection.Down)
 
 @Composable
 private fun SectionRow(
+  view: SettingsView,
   section: SettingsSection,
   selected: Boolean,
   onFocus: () -> Unit,
@@ -209,6 +305,7 @@ private fun SectionRow(
     modifier =
       Modifier.fillMaxWidth()
         .semantics { this.selected = selected }
+        .help(view.help, section.key, section.title, help = null)
         .onFocusChanged { if (it.isFocused) onFocus() }
         // Confirming selects it too, for accessibility services, which move their own focus.
         .focusItem(section.key, onConfirm = onFocus) { action ->
@@ -233,22 +330,20 @@ internal fun SettingRow(
   key: String,
   label: String,
   value: String?,
-  help: Help,
+  help: String,
   enabled: Boolean = true,
   onMenu: (() -> Unit)? = null,
   onConfirm: (() -> Unit)? = null,
 ) {
   Row(
     Modifier.fillMaxWidth()
-      .onFocusChanged {
-        if (it.isFocused) view.help = help
-        when {
-          it.isFocused && onMenu != null -> view.menuKey = key
-          it.isFocused || view.menuKey == key -> view.menuKey = null
-        }
-      }
+      .help(view.help, key, label, help, hasMenu = onMenu != null)
       .then(if (enabled) Modifier else Modifier.semantics { disabled() })
-      .focusItem(key, onConfirm = onConfirm) { action ->
+      .focusItem(
+        key,
+        onConfirm = onConfirm?.takeIf { enabled },
+        role = Role.Button.takeIf { onConfirm != null },
+      ) { action ->
         action == Action.Menu && onMenu?.invoke() != null
       }
       .background(Placeholder.tile)
@@ -274,10 +369,10 @@ internal fun LazyListScope.sectionHeading(title: String) {
 /** The lower screen on Settings: the focused setting, or the focused section. */
 @Composable
 internal fun SettingsSecondary(view: SettingsView) {
-  val help = view.help
+  val help = view.help.shown
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
-      help?.title ?: view.section.title,
+      help?.label ?: view.section.title,
       color = Placeholder.text,
       fontSize = 24.sp,
       modifier = Modifier.testTag("settings:help:title").semantics { heading() },

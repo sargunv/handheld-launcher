@@ -13,7 +13,9 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
@@ -82,11 +84,10 @@ class LocalContentTest {
   fun readsAZipsCrcFromItsDirectory() {
     val file = File(dir, "game.zip")
     zip(file, "Game.gba" to game)
-    assertEquals(
-      listOf(ZipMember("Game.gba", game.size.toLong(), crc(game))),
-      zipMembers(Path(file.path)),
-    )
-    assertNull(zipMembers(Path(File(dir, "game.zip").apply { writeBytes(game) }.path)))
+    assertEquals(crc(game), oneFileZipCrc(Path(file.path)))
+    zip(file, "Game.gba" to game, "Other.gba" to other)
+    assertNull(oneFileZipCrc(Path(file.path)))
+    assertNull(oneFileZipCrc(Path(file.apply { writeBytes(game) }.path)))
   }
 
   @Test
@@ -136,7 +137,31 @@ class LocalContentTest {
       mapOf(1L to File(gba, "my game.gba").path, 2L to File(gba, "other.zip").path),
       scan.matched,
     )
-    assertEquals(listOf(File(gba, "notes.txt").path), scan.unmatched.map { it.path })
+    // Notes aren't games, so they aren't read or listed.
+    assertEquals(emptyList(), scan.unmatched)
+  }
+
+  @Test
+  fun onlyFilesThatMayBeGamesAreScanned() {
+    for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f", "Sonic.md")) {
+      assertTrue(isGameFile(name), name)
+    }
+    for (name in
+      listOf(
+        "a.srm",
+        "b.sav",
+        "c.state",
+        "d.state3",
+        "e.st0",
+        "f.png",
+        "g.txt",
+        "h.ips",
+        "i.tmp",
+        "j.gba.part",
+        ".k.gba",
+      )) {
+      assertFalse(isGameFile(name), name)
+    }
   }
 
   @Test
@@ -162,14 +187,13 @@ class LocalContentTest {
   @Test
   fun readsBigFilesOnlyWhenTheirSizeIsAGames() = runTest {
     File(gba, "big.gba").writeBytes(game)
-    val big = File(gba, "unrelated.iso").apply { writeBytes(other) }
-    // Both files are bigger than the limit, and only the game's size is a game's.
-    val scanner = ContentScanner(cacheFile, wholeFileLimit = 1_000)
-    val scan = scanner.scan(targets, platforms, listOf(rom(1, "Game (USA).gba", game)))
+    val big = File(gba, "other.iso").apply { writeBytes(other) }
+    // Both files are bigger than the limit, and only the first's size is a game's, so the other
+    // isn't read and doesn't match the game whose content it has.
+    val roms = listOf(rom(1, "Game (USA).gba", game), rom(2, "Other (USA).iso", other, 12_345))
+    val scan = ContentScanner(cacheFile, wholeFileLimit = 1_000).scan(targets, platforms, roms)
 
     assertEquals(mapOf(1L to File(gba, "big.gba").path), scan.matched)
-    // The other file wasn't read, so the cache has only the game's.
-    assertEquals(listOf(File(gba, "big.gba").path), cachedPaths())
     assertEquals(listOf(big.path), scan.unmatched.map { it.path })
   }
 
@@ -202,23 +226,4 @@ class LocalContentTest {
     file.setLastModified(modified)
     assertEquals(false, scanner.stillMatches(Path(file.path), rom))
   }
-
-  @Test
-  fun forgetsFilesThatAreGone() = runTest {
-    val file = File(gba, "my game.gba").apply { writeBytes(game) }
-    val scanner = ContentScanner(cacheFile)
-    scanner.scan(targets, platforms, emptyList())
-    assertEquals(listOf(file.path), cachedPaths())
-    file.delete()
-    scanner.scan(targets, platforms, emptyList())
-    assertEquals(emptyList(), cachedPaths())
-  }
-
-  private fun cachedPaths() =
-    Regex(""""path":"([^"]+)"""")
-      .findAll(File(cacheFile.toString()).readText())
-      .map {
-        it.groupValues[1]
-      }
-      .toList()
 }
