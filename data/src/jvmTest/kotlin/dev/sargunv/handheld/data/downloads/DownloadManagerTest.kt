@@ -5,6 +5,8 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.cache.takeInstallRequests
+import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
@@ -244,6 +246,12 @@ class DownloadManagerTest {
       canWrite = canWrite,
       storageSettings = { storageSettings },
     )
+
+  /** Takes the games that the server at [engine] sent to the device `dev-1` into [downloads]. */
+  private suspend fun takeSentGames(engine: () -> MockEngine, downloads: DownloadManager) =
+    RommClient(TEST_SERVER, "rmm_test", engine()).use {
+      takeInstallRequests(it, "dev-1", downloads)
+    }
 
   private suspend fun DownloadManager.awaitEmpty() = waitFor {
     queue.first { it.isEmpty() }
@@ -559,9 +567,10 @@ class DownloadManagerTest {
           else -> null
         }
       }
-    val downloads = manager(backgroundScope, server(installs = installs), deviceId = "dev-1")
+    val engine = server(installs = installs)
+    val downloads = manager(backgroundScope, engine, deviceId = "dev-1")
 
-    downloads.takeInstallRequests()
+    takeSentGames(engine, downloads)
     downloads.awaitEmpty()
     // The download reports to the server once it's out of the queue.
     waitFor { while (updates.size < 2) delay(10) }
@@ -602,7 +611,7 @@ class DownloadManagerTest {
         },
       )
     val downloads = manager(backgroundScope, engine, deviceId = "dev-1")
-    downloads.takeInstallRequests()
+    takeSentGames(engine, downloads)
     waitFor { downloads.queue.first { it.firstOrNull()?.bytesDownloaded == 65_536L } }
 
     downloads.cancel(1)
@@ -636,15 +645,16 @@ class DownloadManagerTest {
       }
     val tooBig = server(sizeOverride = 1L shl 60, installs = installs)
     val fitting = server(installs = installs)
-    val downloads = manager(backgroundScope, { if (fits) fitting() else tooBig() }, "dev-1")
+    val engine = { if (fits) fitting() else tooBig() }
+    val downloads = manager(backgroundScope, engine, "dev-1")
 
-    downloads.takeInstallRequests()
+    takeSentGames(engine, downloads)
     waitFor { downloads.queue.first { it.firstOrNull()?.state == DownloadState.Failed } }
 
     // Sent again from the web page once there's room.
     sent = "req-2"
     fits = true
-    downloads.takeInstallRequests()
+    takeSentGames(engine, downloads)
     downloads.awaitEmpty()
     waitFor { while (updates.none { it.first == "req-2" }) delay(10) }
 

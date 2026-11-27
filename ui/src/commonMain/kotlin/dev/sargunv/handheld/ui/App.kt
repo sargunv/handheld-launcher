@@ -31,6 +31,7 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
+import dev.sargunv.handheld.data.cache.takeInstallRequests
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.RomStatus
@@ -224,9 +225,11 @@ fun App(
   }
   LaunchedEffect(signedIn, downloads) {
     if (signedIn != true) return@LaunchedEffect
+    // A token pasted from the server's web page is no device's, so nothing is sent to it.
+    val deviceId = credentials.load()?.deviceId ?: return@LaunchedEffect
     while (true) {
       try {
-        downloads.takeInstallRequests()
+        state.romm.client()?.use { takeInstallRequests(it, deviceId, downloads) }
       } catch (_: RommException) {
         // The server is out of reach; the next poll tries again.
       }

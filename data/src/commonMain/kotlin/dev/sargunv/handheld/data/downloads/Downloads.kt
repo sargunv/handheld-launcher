@@ -4,9 +4,10 @@ import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.cache.reportInstall
 import dev.sargunv.handheld.data.cache.toDomain
 import dev.sargunv.handheld.data.romm.RommClient
-import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.data.romm.RommInstallRequest
 import dev.sargunv.handheld.data.romm.RommInstallStatus
 import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.platformHttpEngine
@@ -268,7 +269,7 @@ class DownloadManager(
         download.storageRoot?.let { deleteRecursively(stagingFolder(it, romId)) }
       }
       edit { list -> list.filterNot { it.romId == romId } }
-      if (report) report(download, RommInstallStatus.Cancelled)
+      if (report) reportInstall(credentials, engine, download, RommInstallStatus.Cancelled)
     }
 
   /**
@@ -305,47 +306,33 @@ class DownloadManager(
     withContext(Dispatchers.IO) { storage().map { StorageSpace(it, freeBytes(it.root)) } }
 
   /**
-   * Takes the games sent to this device from RomM's web page and queues them. A game that's on the
-   * device already is reported to the server as installed.
-   *
-   * @throws RommException when the server can't be reached.
+   * Queues [rom] for the server's install [request], or gives the request the download of [rom]
+   * that's in the queue already without one, which starts again if it failed. Returns false when
+   * the game is on the device, or another request's download has it.
    */
-  suspend fun takeInstallRequests() {
-    val credentials = credentials.load() ?: return
-    val deviceId = credentials.deviceId ?: return
-    client(credentials).use { client ->
-      val listed = client.installRequests(deviceId)
-      val taken =
-        if (listed.any { it.status == RommInstallStatus.Pending }) {
-          client.claimInstallRequests(deviceId)
-        } else listed
-      for (request in taken.filter { it.status == RommInstallStatus.Taken }) {
-        if (entries.value.any { it.installRequestId == request.id }) continue
-        val remote = client.rom(request.romId)
-        val rom = remote.toDomain(client)
-        val queued = edit { list ->
-          list.map {
-            when {
-              it.romId != rom.id -> it
-              // Sent again after it failed: this request takes it over and tries again.
-              it.state == DownloadState.Failed ->
-                it.copy(
-                  installRequestId = request.id,
-                  fileIds = request.fileIds,
-                  state = DownloadState.Queued,
-                  error = null,
-                )
-              it.installRequestId == null -> it.copy(installRequestId = request.id)
-              else -> it
-            }
-          }
-        }
-        if (queued) continue
-        if (!enqueue(rom, remote.platformFsSlug, request.fileIds, request.id)) {
-          client.updateInstallRequest(deviceId, request.id, RommInstallStatus.AlreadyInstalled)
+  internal suspend fun enqueue(
+    rom: Rom,
+    platformFolder: String,
+    request: RommInstallRequest,
+  ): Boolean {
+    val joined = edit { list ->
+      list.map {
+        when {
+          it.romId != rom.id -> it
+          // Sent again after it failed: this request takes it over and tries again.
+          it.state == DownloadState.Failed ->
+            it.copy(
+              installRequestId = request.id,
+              fileIds = request.fileIds,
+              state = DownloadState.Queued,
+              error = null,
+            )
+          it.installRequestId == null -> it.copy(installRequestId = request.id)
+          else -> it
         }
       }
     }
+    return joined || enqueue(rom, platformFolder, request.fileIds, request.id)
   }
 
   private suspend fun run(download: Download) {
@@ -360,7 +347,7 @@ class DownloadManager(
         list.find { it.romId == download.romId }?.let { current = it }
         list.filterNot { it.romId == download.romId }
       }
-      report(current, outcome)
+      reportInstall(credentials, engine, current, outcome)
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -371,7 +358,9 @@ class DownloadManager(
           else it
         }
       }
-      report(
+      reportInstall(
+        credentials,
+        engine,
         entries.value.find { it.romId == download.romId } ?: download,
         RommInstallStatus.Failed,
         error,
@@ -465,25 +454,6 @@ class DownloadManager(
     ) {
       SystemFileSystem.delete(path)
       client.downloadRomFile(file.id, file.fileName, path) { onBytes(it.bytesDownloaded) }
-    }
-  }
-
-  private suspend fun report(
-    download: Download,
-    status: RommInstallStatus,
-    reason: String? = null,
-  ) {
-    val requestId = download.installRequestId ?: return
-    val credentials = credentials.load() ?: return
-    val deviceId = credentials.deviceId ?: return
-    try {
-      client(credentials).use {
-        // A device reports how a request ended, but cancels one through its own endpoint.
-        if (status == RommInstallStatus.Cancelled) it.cancelInstallRequest(deviceId, requestId)
-        else it.updateInstallRequest(deviceId, requestId, status, reason)
-      }
-    } catch (e: RommException) {
-      // The request stays taken, and the next poll finds the game on the device or queues it.
     }
   }
 
