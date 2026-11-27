@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
@@ -42,10 +43,10 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
-import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.collectionShelfKey
+import dev.sargunv.handheld.ui.library.statusOf
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.MenuButton
@@ -73,7 +74,8 @@ internal fun HomePlace(state: AppState) {
   val played by remember(library) { library.recentlyPlayed(SHELF_SIZE) }.collectAsState(null)
   val added by remember(library) { library.recentlyAdded(SHELF_SIZE) }.collectAsState(null)
   val collections by remember(library) { library.collections() }.collectAsState(null)
-  val deviceStates by state.deviceStates.collectAsState()
+  val statuses by
+    remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   var gameMenuOpen by rememberSaveable { mutableStateOf(false) }
   // The shelf with focus, or null while the game being played has it.
@@ -101,7 +103,7 @@ internal fun HomePlace(state: AppState) {
   val continueRom = playedNow.firstOrNull()
   // The game being played plays at once when it's on the device; otherwise its page opens, which
   // the Game screen decides once it knows.
-  val continuePlays = continueRom != null && deviceStates[continueRom.id] == DeviceState.OnDevice
+  val continuePlays = continueRom != null && statuses[continueRom.id] is RomStatus.OnDevice
   val continueFocused = hasItems && continueRom != null && focusedShelf == null
 
   fun openGame(rom: Rom) = state.navigator.push(Screen.Game(rom.id, rom.title))
@@ -161,7 +163,7 @@ internal fun HomePlace(state: AppState) {
                     GameTile(
                       state = state,
                       rom = rom,
-                      deviceState = deviceStates[rom.id],
+                      status = statusOf(rom, statuses),
                       key = "continue:${rom.id}",
                       modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
                       onOpen = ::playGame,
@@ -178,7 +180,7 @@ internal fun HomePlace(state: AppState) {
                         state,
                         shelf,
                         playedNow.drop(1),
-                        deviceStates,
+                        statuses,
                         onFocusShelf,
                         ::openGame,
                       )
@@ -187,7 +189,7 @@ internal fun HomePlace(state: AppState) {
                         state,
                         shelf,
                         addedNow,
-                        deviceStates,
+                        statuses,
                         onFocusShelf,
                         ::openGame,
                       )
@@ -252,7 +254,7 @@ private fun GameShelf(
   state: AppState,
   shelf: HomeShelf,
   games: List<Rom>,
-  deviceStates: Map<Long, DeviceState>,
+  statuses: Map<Long, RomStatus>,
   onFocusShelf: () -> Unit,
   onOpen: (Rom) -> Unit,
 ) {
@@ -269,7 +271,7 @@ private fun GameShelf(
         GameTile(
           state = state,
           rom = rom,
-          deviceState = deviceStates[rom.id],
+          status = statusOf(rom, statuses),
           key = "${shelf.name}:${rom.id}",
           modifier = Modifier.size(120.dp, 160.dp),
           onOpen = onOpen,
@@ -283,7 +285,7 @@ private fun GameShelf(
 private fun GameTile(
   state: AppState,
   rom: Rom,
-  deviceState: DeviceState?,
+  status: RomStatus,
   key: String,
   modifier: Modifier,
   onOpen: (Rom) -> Unit,
@@ -297,7 +299,7 @@ private fun GameTile(
         .focusItem(
           key,
           onConfirm = { onOpen(rom) },
-          description = coverDescription(rom, deviceState),
+          description = coverDescription(rom, status),
         ),
   )
 }

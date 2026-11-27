@@ -14,7 +14,6 @@ import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
-import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.AppPlatform
 import dev.sargunv.handheld.ui.Settings
@@ -23,11 +22,9 @@ import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.RomHeaders
-import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
-import dev.sargunv.handheld.ui.library.deviceStatesOf
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
 import kotlinx.coroutines.CoroutineScope
@@ -35,14 +32,11 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -54,9 +48,7 @@ class AppState(
   settings: Settings,
   data: HandheldData,
   platform: AppPlatform,
-  /**
-   * Shares the state's flows while the screens collect them, and runs RetroAchievements sign-ins.
-   */
+  /** Runs the RetroAchievements sign-ins and sign-outs, so they finish when a screen goes away. */
   scope: CoroutineScope,
 ) {
   /** The sign-in to the RomM server, its client and the library's sync. */
@@ -105,20 +97,7 @@ class AppState(
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
 
-  /**
-   * The games on the device or on their way, by ROM id. A game missing here is only on the server.
-   */
-  val deviceStates: StateFlow<Map<Long, DeviceState>> =
-    downloads
-      .statuses()
-      .map(::deviceStatesOf)
-      .stateIn(scope, SharingStarted.WhileSubscribed(), emptyMap())
-
-  /** The local games: files on the device that match none of the server's games. */
-  val localGames: StateFlow<List<LocalGame>> =
-    games.localGames().stateIn(scope, SharingStarted.WhileSubscribed(), emptyList())
-
-  val libraryView = LibraryState(library, deviceStates, localGames) { libraryTab }
+  val libraryView = LibraryState(library, downloads.statuses(), games.localGames()) { libraryTab }
   val settingsView = SettingsView(romm, offersAchievements = retroAchievements != null)
 
   val account = Account(romm, platform.device)

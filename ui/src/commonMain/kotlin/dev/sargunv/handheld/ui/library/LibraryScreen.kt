@@ -12,6 +12,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.LibraryGame
@@ -54,20 +55,23 @@ internal sealed interface GridSource {
   }
 }
 
-/** A grid's [games], the ones [filter] keeps in [sort]'s order, and how many are on the device. */
+/**
+ * A grid's [games], the ones [filter] keeps in [sort]'s order, and how many are on the device by
+ * [statuses].
+ */
 @Immutable
 internal class GridGames(
   val games: List<LibraryGame>,
   filter: LibraryFilter,
   sort: LibrarySort,
-  states: Map<Long, DeviceState>,
+  val statuses: Map<Long, RomStatus>,
 ) {
-  val shown = games.shown(filter, sort, states)
+  val shown = games.shown(filter, sort, statuses)
 
   /** Each letter's first game in [shown], for the A–Z jump, which only the sort by name has. */
   val index: Map<Char, Int> = if (sort == LibrarySort.Name) jumpIndex(shown) else emptyMap()
 
-  val onDevice = games.count { deviceStateOf(it, states) == DeviceState.OnDevice }
+  val onDevice = games.count { statusOf(it, statuses) is RomStatus.OnDevice }
 }
 
 /**
@@ -79,7 +83,7 @@ internal class GridGames(
 class LibraryState
 internal constructor(
   private val cache: LibraryCache,
-  private val deviceStates: Flow<Map<Long, DeviceState>>,
+  private val romStatuses: Flow<Map<Long, RomStatus>>,
   private val localGames: Flow<List<LocalGame>>,
   private val tab: () -> LibraryTab,
 ) {
@@ -105,7 +109,7 @@ internal constructor(
   private var collections: List<Collection>? by mutableStateOf(null)
   private var romPlatforms: Map<Long, Long>? by mutableStateOf(null)
   private var collectionRoms: Map<Pair<CollectionKind, Long>, Set<Long>>? by mutableStateOf(null)
-  private var states: Map<Long, DeviceState>? by mutableStateOf(null)
+  private var statuses: Map<Long, RomStatus>? by mutableStateOf(null)
   private var local: List<LocalGame>? by mutableStateOf(null)
 
   /** The ROMs of the last source to load. */
@@ -181,13 +185,13 @@ internal constructor(
   internal val grid: GridGames? by derivedStateOf {
     val source = source ?: return@derivedStateOf null
     val roms = loaded?.takeIf { it.source == source.key }?.roms ?: return@derivedStateOf null
-    val states = states ?: return@derivedStateOf null
+    val statuses = statuses ?: return@derivedStateOf null
     val local = local ?: return@derivedStateOf null
     val games =
       when (source) {
         // The local games are on the device, and in the whole library.
         is GridSource.OfTab ->
-          (if (source.tab == LibraryTab.OnDevice) roms.onDevice(states) else roms) + local
+          (if (source.tab == LibraryTab.OnDevice) roms.onDevice(statuses) else roms) + local
         is GridSource.OfShelf ->
           when (val shelf = source.shelf) {
             // A platform's local games are in its grid too.
@@ -195,7 +199,7 @@ internal constructor(
             is LibraryShelf.OfCollection -> roms
           }
       }
-    GridGames(games, if (source.filters) filter else LibraryFilter.All, sort, states)
+    GridGames(games, if (source.filters) filter else LibraryFilter.All, sort, statuses)
   }
 
   /** Keeps what Library shows up to date with [cache] and the device. It runs until cancelled. */
@@ -204,7 +208,7 @@ internal constructor(
     launch { cache.collections().collect { collections = it } }
     launch { cache.romPlatforms().collect { romPlatforms = it } }
     launch { cache.collectionRoms().collect { collectionRoms = it } }
-    launch { deviceStates.collect { states = it } }
+    launch { romStatuses.collect { statuses = it } }
     launch { localGames.collect { local = it } }
     snapshotFlow { source }
       .distinctUntilChangedBy { it?.key }
@@ -229,7 +233,7 @@ internal constructor(
       shelves.orEmpty(),
       romPlatforms.orEmpty(),
       collectionRoms.orEmpty(),
-      states.orEmpty(),
+      statuses.orEmpty(),
       local.orEmpty(),
     )
 }
