@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.domain.Adoption
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
@@ -84,7 +86,13 @@ class DeviceGames(
     val platforms: List<Platform>,
     val roms: Map<Long, String>,
     val scan: LocalScan?,
-  )
+  ) {
+    /** Each file or folder of the library's games as the ROM it is: of several, the lowest id. */
+    val adoptions: List<Adoption> =
+      roms.entries.groupBy({ it.value }, { it.key }).map { (path, ids) ->
+        Adoption(GameKey.Local(path), GameKey.Romm(ids.min()))
+      }
+  }
 
   private val scanner = ContentScanner(contentCacheFile)
   private val listing = MutableStateFlow<Listing?>(null)
@@ -117,6 +125,13 @@ class DeviceGames(
     listing.filterNotNull().map { it.roms }.distinctUntilChanged()
 
   /**
+   * Every file or folder on the device that's a game of the library, as the ROM it is, as of the
+   * latest listing. A file that was a local game hands what's kept for it to that ROM.
+   */
+  val adoptions: Flow<List<Adoption>> =
+    listing.filterNotNull().map { it.adoptions }.distinctUntilChanged()
+
+  /**
    * Lists the platforms' folders again, for games put there or taken away, such as by a download or
    * outside the app, and scans them by content after. It returns once the listing shows.
    */
@@ -142,8 +157,9 @@ class DeviceGames(
       .map { listing ->
         val local = listing?.localGames() ?: return@map null
         local.find { it.path == path }?.let(LocalGameState::Local)
-          // Of several games on the file, the lowest id, as the device's games pick.
-          ?: listing.roms.filterValues { it == path }.keys.minOrNull()?.let(LocalGameState::Matched)
+          ?: listing.adoptions
+            .find { it.local.path == path }
+            ?.let { LocalGameState.Matched(it.rom.romId) }
           ?: LocalGameState.Gone
       }
       .distinctUntilChanged()

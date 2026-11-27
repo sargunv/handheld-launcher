@@ -100,14 +100,9 @@ internal fun chooseStorage(
   bytes: Long,
   free: (StorageTarget) -> Long,
 ): StorageTarget {
-  if (mounted.isEmpty()) throw DownloadException("There's no storage to download to")
+  if (mounted.isEmpty()) throw DownloadException("No storage")
   val enabled = settings.enabled(mounted)
-  if (enabled.isEmpty()) {
-    throw DownloadException(
-      "The storage that downloads go to isn't inserted. Insert it, or turn on other storage in " +
-        "Settings.",
-    )
-  }
+  if (enabled.isEmpty()) throw DownloadException("Download storage not inserted")
   val spaces = enabled.map { it to free(it) }
   spaces
     .firstOrNull { (_, room) -> room >= bytes }

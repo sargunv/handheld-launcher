@@ -90,7 +90,7 @@ class StorageSettingsTest {
   fun failsClearlyWhenNoStorageThatsOnIsMounted() {
     val settings = StorageSettings(off = setOf(own.id))
     val error = assertFailsWith<DownloadException> { choose(listOf(own), settings) }
-    assertTrue("isn't inserted" in error.message!!, error.message)
+    assertEquals("Download storage not inserted", error.message)
     assertFailsWith<DownloadException> { choose(emptyList()) }
   }
 

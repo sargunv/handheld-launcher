@@ -78,15 +78,11 @@ private sealed interface ShownGame {
 }
 
 /**
- * The game [screen] shows: a ROM from the library, or a local game while its file matches nothing.
- * A local game that a scan matches to a ROM, such as after the server gained it, becomes that ROM's
- * screen, unless [playing] holds it.
+ * The game [key] names: a ROM from the library, or a local game while its file matches nothing. A
+ * local game that a scan matches to a ROM shows as it was until the ROM's screen takes its place.
  */
 @Composable
-private fun rememberShownGame(state: AppState, screen: Screen.Game, playing: Boolean): ShownGame {
-  val key = screen.key
-  // The ROM a local game's file matched, whose screen takes this one's place.
-  var matched by remember(key) { mutableStateOf<Long?>(null) }
+private fun rememberShownGame(state: AppState, key: GameKey): ShownGame {
   val shown by
     produceState<ShownGame>(ShownGame.Loading, key) {
       when (key) {
@@ -94,24 +90,14 @@ private fun rememberShownGame(state: AppState, screen: Screen.Game, playing: Boo
         is GameKey.Local ->
           state.games.localGame(key.path).collect {
             when (it) {
-              is LocalGameState.Local -> {
-                value = ShownGame.Found(it.game)
-                matched = null
-              }
+              is LocalGameState.Local -> value = ShownGame.Found(it.game)
               LocalGameState.Gone -> value = ShownGame.Gone
-              // It shows as it was until its ROM's screen takes over.
-              is LocalGameState.Matched -> matched = it.romId
+              is LocalGameState.Matched,
               null -> Unit
             }
           }
       }
     }
-  LaunchedEffect(matched, playing) {
-    val romId = matched ?: return@LaunchedEffect
-    if (playing) return@LaunchedEffect
-    val rom = state.library.rom(romId) ?: return@LaunchedEffect
-    state.navigator.replace(screen, Screen.Game(rom.id, rom.title))
-  }
   return shown
 }
 
@@ -128,7 +114,7 @@ private fun rememberShownGame(state: AppState, screen: Screen.Game, playing: Boo
 internal fun GameScreen(state: AppState, screen: Screen.Game) {
   val scope = rememberCoroutineScope()
   val actions = remember { GameActions(state, scope) }
-  val shown = rememberShownGame(state, screen, actions.playing)
+  val shown = rememberShownGame(state, screen.key)
   val current = (shown as? ShownGame.Found)?.game
   // While the game plays, what's kept for it stays where the launch found it.
   DisposableEffect(actions.playing, current?.key) {

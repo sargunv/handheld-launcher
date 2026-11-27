@@ -31,14 +31,10 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
-import dev.sargunv.handheld.data.cache.takeInstallRequests
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.platformHttpEngine
-import dev.sargunv.handheld.domain.Adoption
-import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
@@ -176,27 +172,9 @@ fun App(
   LaunchedEffect(state) {
     downloads.statuses().collect { statuses ->
       state.deviceStates = deviceStates(statuses)
-      state.onDevice = buildMap {
-        // Of several games on one file, the lowest id, as the file's page picks.
-        for ((id, status) in statuses) {
-          if (status is RomStatus.OnDevice) merge(status.path, id, ::minOf)
-        }
-      }
     }
   }
-  // A game on the device whose file was a local game takes what was kept for it then.
-  LaunchedEffect(state) {
-    snapshotFlow { state.onDevice to state.playing }
-      .collect { (onDevice, playing) ->
-        state.gameState.adopt(
-          onDevice.mapNotNull { (path, id) ->
-            Adoption(GameKey.Local(path), GameKey.Romm(id)).takeIf {
-              playing != it.local && playing != it.rom
-            }
-          },
-        )
-      }
-  }
+  LaunchedEffect(state) { state.adoptMatchedFiles() }
   LaunchedEffect(state) { games.localGames().collect { state.localGames = it } }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
   LaunchedEffect(state) {
@@ -229,7 +207,7 @@ fun App(
     val deviceId = credentials.load()?.deviceId ?: return@LaunchedEffect
     while (true) {
       try {
-        state.romm.client()?.use { takeInstallRequests(it, deviceId, downloads) }
+        state.romm.client()?.use { downloads.takeInstallRequests(it, deviceId) }
       } catch (_: RommException) {
         // The server is out of reach; the next poll tries again.
       }

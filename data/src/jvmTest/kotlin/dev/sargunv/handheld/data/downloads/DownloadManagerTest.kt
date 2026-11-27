@@ -5,7 +5,6 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.cache.takeInstallRequests
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
@@ -254,7 +253,7 @@ class DownloadManagerTest {
   /** Takes the games that the server at [engine] sent to the device `dev-1` into [downloads]. */
   private suspend fun takeSentGames(engine: () -> MockEngine, downloads: DownloadManager) =
     RommClient(TEST_SERVER, "rmm_test", engine()).use {
-      takeInstallRequests(it, "dev-1", downloads)
+      downloads.takeInstallRequests(it, "dev-1")
     }
 
   private suspend fun DownloadManager.awaitEmpty() = waitFor {
