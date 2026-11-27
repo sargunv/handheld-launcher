@@ -52,6 +52,7 @@ import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.gameCount
+import dev.sargunv.handheld.ui.places.onDeviceCount
 
 /** The tabs, with [tab] showing. L and R switch to the neighboring tab, stopping at the ends. */
 @Composable
@@ -276,11 +277,7 @@ private fun ShelfTiles(
           Text(summary.shelf.title, color = Placeholder.text, fontSize = 18.sp)
           Text(gameCount(summary.games), color = Placeholder.mutedText, fontSize = 14.sp)
           if (summary.onDevice > 0) {
-            Text(
-              "${summary.onDevice} on this device",
-              color = Placeholder.mutedText,
-              fontSize = 14.sp,
-            )
+            Text(onDeviceCount(summary.onDevice), color = Placeholder.mutedText, fontSize = 14.sp)
           }
         }
       }

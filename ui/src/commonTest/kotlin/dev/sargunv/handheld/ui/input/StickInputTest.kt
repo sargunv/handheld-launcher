@@ -25,7 +25,7 @@ class StickDirectionTest {
 
   @Test
   fun heldDirectionLastsUntilBelowTheReleaseThreshold() {
-    val stick = StickDirection(pressThreshold = 0.5f, releaseThreshold = 0.3f)
+    val stick = StickDirection()
     assertEquals(Direction.Left, stick.update(-0.6f, 0f))
     assertEquals(Direction.Left, stick.update(-0.4f, 0f))
     assertNull(stick.update(-0.2f, 0f))
@@ -49,8 +49,6 @@ class DirectionRepeaterTest {
     val repeater =
       DirectionRepeater(
         scope = backgroundScope,
-        initialDelay = 400.milliseconds,
-        interval = 100.milliseconds,
         onPress = { direction, repeat -> events += "$direction${if (repeat) "+" else ""}" },
         onRelease = { events += "^$it" },
       )
