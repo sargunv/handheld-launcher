@@ -48,9 +48,13 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -266,24 +270,46 @@ class DownloadManagerTest {
   private suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
     withContext(Dispatchers.Default.limitedParallelism(1)) { withTimeout(10_000, block) }
 
+  /**
+   * Every status [rom] takes in [downloads] from now on, in order. The collector runs unconfined,
+   * in the thread of each change, so no status is skipped.
+   */
+  private fun TestScope.statuses(downloads: DownloadManager, rom: Rom): StateFlow<List<RomStatus>> {
+    val seen = MutableStateFlow(emptyList<RomStatus>())
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+      downloads.status(rom).collect { status -> seen.update { it + status } }
+    }
+    return seen
+  }
+
+  /**
+   * Asserts that [seen] went from not on the device to queued, through a download of [size] bytes
+   * whose progress only grew, and straight on to the device at [path].
+   */
+  private fun assertDownloaded(seen: List<RomStatus>, size: Long, path: File) {
+    assertEquals(listOf(RomStatus.NotOnDevice, RomStatus.Queued), seen.take(2), "$seen")
+    assertEquals(RomStatus.OnDevice(path.path), seen.last(), "$seen")
+    val downloading = seen.subList(2, seen.size - 1)
+    assertTrue(downloading.all { it is RomStatus.Downloading }, "$seen")
+    val bytes = downloading.map { (it as RomStatus.Downloading).bytesDownloaded }
+    assertEquals(bytes.sorted(), bytes, "$seen")
+    assertEquals(RomStatus.Downloading(size, size), downloading.last())
+  }
+
   @Test
   fun downloadsAGameIntoItsPlatformFolder() = runTest {
     fillLibrary()
     val downloads = manager(backgroundScope, server())
-    val seen = Collections.synchronizedList(mutableListOf<RomStatus>())
-    backgroundScope.launch(Dispatchers.Default) { downloads.status(gameRom).collect { seen += it } }
-    waitFor { while (seen.isEmpty()) delay(10) }
-    assertEquals(listOf<RomStatus>(RomStatus.NotOnDevice), seen)
+    val seen = statuses(downloads, gameRom)
+    waitFor { seen.first { it.isNotEmpty() } }
 
     assertTrue(downloads.enqueue(gameRom))
     downloads.awaitEmpty()
 
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
-    waitFor { while (seen.last() !is RomStatus.OnDevice) delay(10) }
-    assertEquals(RomStatus.OnDevice(target.path), seen.last())
-    // A finished download goes straight to on the device.
-    assertFalse(RomStatus.NotOnDevice in seen.drop(1))
+    // The progress only grows, and the finished download goes straight to on the device.
+    assertDownloaded(seen.value, game.size.toLong(), target)
     assertEquals(listOf("roms/11/files/content/Game%20(USA).gba"), contentRequests())
     // A game on the device isn't queued again.
     assertFalse(downloads.enqueue(gameRom))
@@ -318,24 +344,33 @@ class DownloadManagerTest {
     scope.coroutineContext[kotlinx.coroutines.Job]!!.cancelAndJoin()
   }
 
+  /** The tokens the content requests were made with, in order. */
+  private fun contentTokens() =
+    requests
+      .filter { "files/content" in it.apiPath }
+      .map { it.headers[HttpHeaders.Authorization]?.removePrefix("Bearer ") }
+
   // Signing in again to the same server keeps the queue, which waits for the sign-in.
   @Test
   fun aQueuedGameWaitsForItsServersSignIn() = runTest {
     fillLibrary()
     val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    // The queue can't start before the sign-out, since it waits for storage access.
     val writable = MutableStateFlow(false)
     val downloads =
       manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    val seen = statuses(downloads, gameRom)
+    waitFor { seen.first { it.isNotEmpty() } }
     assertTrue(downloads.enqueue(gameRom))
     credentials.clear()
     writable.value = true
-    waitFor { delay(300) }
-    assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
-    assertEquals(emptyList(), contentRequests())
 
     credentials.save(RommCredentials(TEST_SERVER, "rmm_new"))
     downloads.awaitEmpty()
-    assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
+    val target = file("ROMs/gba/Game (USA).gba")
+    assertContentEquals(game, target.readBytes())
+    assertDownloaded(seen.value, game.size.toLong(), target)
+    assertEquals(listOf("rmm_new"), contentTokens())
   }
 
   // The ids are the first server's, so another server's sign-in drops the games, even after a
@@ -357,33 +392,44 @@ class DownloadManagerTest {
     assertEquals(emptyList(), contentRequests())
   }
 
+  // A game downloads with the sign-in it started under, and the next one waits for a sign-in.
   @Test
-  fun signingOutAsADownloadEndsLeavesTheNextGameQueued() = runTest {
+  fun signingOutAsADownloadStartsLeavesTheNextGameQueued() = runTest {
     fillLibrary()
     val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
-    // The device signs out while the first game's file arrives.
-    val signingOut =
-      server(
-        content = { request, bytes ->
-          if (bytes === game) credentials.clear()
-          serve(request, bytes)
-        },
-      )
     val writable = MutableStateFlow(false)
     val downloads =
-      manager(backgroundScope, signingOut, canWrite = writable, credentials = credentials)
+      manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    val first = MutableStateFlow(emptyList<RomStatus>())
+    // The device signs out as the first game starts, before it asks the server for anything.
+    backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+      downloads.status(gameRom).collect { status ->
+        if (status is RomStatus.Downloading && first.value.none { it is RomStatus.Downloading }) {
+          credentials.clear()
+        }
+        first.update { it + status }
+      }
+    }
+    val next = statuses(downloads, sagaRom)
+    waitFor {
+      first.first { it.isNotEmpty() }
+      next.first { it.isNotEmpty() }
+    }
     assertTrue(downloads.enqueue(gameRom))
     assertTrue(downloads.enqueue(sagaRom))
-    val seen = Collections.synchronizedList(mutableListOf<RomStatus>())
-    backgroundScope.launch(Dispatchers.Default) { downloads.status(sagaRom).collect { seen += it } }
     writable.value = true
 
     waitFor { downloads.queue.first { queue -> queue.map { it.romId } == listOf(2L) } }
-    assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
-    credentials.save(RommCredentials(TEST_SERVER, "rmm_test"))
+    val target = file("ROMs/gba/Game (USA).gba")
+    assertDownloaded(first.value, game.size.toLong(), target)
+    assertEquals(listOf(RomStatus.NotOnDevice, RomStatus.Queued), next.value)
+    assertEquals(listOf("rmm_test"), contentTokens())
+
+    credentials.save(RommCredentials(TEST_SERVER, "rmm_new"))
     downloads.awaitEmpty()
-    assertTrue(file("ROMs/psx/Saga (USA)").isDirectory)
-    assertTrue(seen.none { it is RomStatus.Failed }, "$seen")
+    val folder = file("ROMs/psx/Saga (USA)")
+    assertDownloaded(next.value, disc1.size + disc2.size.toLong(), folder)
+    assertEquals(listOf("rmm_test", "rmm_new", "rmm_new"), contentTokens())
   }
 
   @Test
@@ -457,19 +503,16 @@ class DownloadManagerTest {
     try {
       val writable = MutableStateFlow(false)
       val downloads = manager(backgroundScope, server(), canWrite = writable)
-      val seen = Collections.synchronizedList(mutableListOf<RomStatus>())
-      backgroundScope.launch(Dispatchers.Default) {
-        downloads.status(gameRom).collect { seen += it }
-      }
+      val seen = statuses(downloads, gameRom)
+      waitFor { seen.first { it.isNotEmpty() } }
       assertTrue(downloads.enqueue(gameRom))
       writable.value = true
       downloads.awaitEmpty()
 
       val target = file("ROMs/gba/Game (USA).gba")
       assertContentEquals(game, target.readBytes())
-      waitFor { while (seen.lastOrNull() !is RomStatus.OnDevice) delay(10) }
-      assertEquals(RomStatus.OnDevice(target.path), seen.last())
-      assertTrue(seen.none { it is RomStatus.Failed }, "$seen")
+      assertDownloaded(seen.value, game.size.toLong(), target)
+      assertTrue(File(leftover, "Old (USA).gba").exists())
     } finally {
       leftover.setWritable(true)
     }
@@ -724,16 +767,26 @@ class DownloadManagerTest {
   fun waitsForStorageAccessInsteadOfFailing() = runTest {
     fillLibrary()
     val access = MutableStateFlow(false)
-    val downloads = manager(backgroundScope, server(), canWrite = access)
+    val withoutAccess = Collections.synchronizedList(mutableListOf<String>())
+    val engine =
+      server(
+        content = { request, bytes ->
+          if (!access.value) withoutAccess += request.apiPath
+          serve(request, bytes)
+        },
+      )
+    val downloads = manager(backgroundScope, engine, canWrite = access)
+    val seen = statuses(downloads, gameRom)
+    waitFor { seen.first { it.isNotEmpty() } }
 
-    downloads.enqueue(gameRom)
-    delay(200)
-    assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
-    assertEquals(emptyList(), contentRequests())
-
+    assertTrue(downloads.enqueue(gameRom))
     access.value = true
     downloads.awaitEmpty()
-    assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
+
+    val target = file("ROMs/gba/Game (USA).gba")
+    assertContentEquals(game, target.readBytes())
+    assertDownloaded(seen.value, game.size.toLong(), target)
+    assertEquals(emptyList(), withoutAccess)
   }
 
   @Test
