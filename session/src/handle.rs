@@ -9,7 +9,7 @@
 //! tell the app goes to its [`SessionListener`], on a thread of its own.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -23,7 +23,6 @@ use crate::achievements::{
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, Vsync};
 use crate::platform::{self, PlatformWindow, VsyncClock};
-use crate::save::SaveRam;
 use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo};
 use crate::video::{CapturedFrame, Region};
 
@@ -509,26 +508,12 @@ fn run(
     commands: Receiver<Command>,
     started: Sender<Result<Arc<Mutex<SessionInfo>>, SessionError>>,
 ) {
-    let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
     let mut session = match start_session(options, lower, input, &events) {
         Ok(session) => session,
         Err(e) => {
             let _ = started.send(Err(e));
             return;
         }
-    };
-    let save_ram = match &save_ram_path {
-        Some(path) => match SaveRam::load(path, &mut session) {
-            Ok(save_ram) => save_ram,
-            Err(e) => {
-                // Running anyway would replace the file with fresh save
-                // memory the first time the game saves.
-                log::error!("can't load save memory from {}: {e}", path.display());
-                let _ = started.send(Err(SessionError::ReadSaveRam(e)));
-                return;
-            }
-        },
-        None => None,
     };
     let info = SessionInfo::new(session.system_info(), session.av_info());
     session.set_audio_paused(true);
@@ -542,7 +527,6 @@ fn run(
         session,
         window: None,
         lower_window: None,
-        save_ram,
         paused: true,
         speed: 1,
         next_frame: Instant::now(),
@@ -570,6 +554,7 @@ fn start_session(
         content_cache: options.content_cache_dir.map(PathBuf::from),
         system_dir: options.system_dir.into(),
         save_dir: options.save_dir.into(),
+        save_ram: options.save_ram_path.map(PathBuf::from),
         video: platform::video_output(lower),
         audio: platform::audio_sink(),
         input,
@@ -595,9 +580,6 @@ struct Runner {
     events: Events,
     window: Option<PlatformWindow>,
     lower_window: Option<PlatformWindow>,
-    /// Keeps save memory's file up to date, if the core has save memory and
-    /// it has a file.
-    save_ram: Option<SaveRam>,
     paused: bool,
     /// How many frames run each time one is due: more than one to fast
     /// forward.
@@ -648,11 +630,11 @@ fn next(
 
 impl Runner {
     /// Runs the session until it's told to stop or the core quits, and
-    /// returns whether the core quit. The session is dropped when this
-    /// returns.
+    /// returns whether the core quit. The session is dropped, writing save
+    /// memory, when this returns.
     fn run(mut self, commands: &Receiver<Command>) -> bool {
         let mut next_idle = Instant::now() + ACHIEVEMENTS_IDLE_INTERVAL;
-        let quit = loop {
+        loop {
             let idle = self.session.has_achievements().then_some(next_idle);
             match next(commands, self.paused, self.next_frame, idle) {
                 Next::Command(Command::Stop(reply)) => {
@@ -675,11 +657,7 @@ impl Runner {
                 log::info!("the core asked to quit");
                 break true;
             }
-        };
-        if let Err(e) = self.stop() {
-            log::error!("can't write save memory: {e}");
         }
-        quit
     }
 
     /// Updates `info` to a frame size, aspect ratio or frame rate the core
@@ -706,9 +684,6 @@ impl Runner {
         let now = Instant::now();
         let fps = self.session.av_info().fps;
         let vsync = self.vsync();
-        if let Some(save_ram) = &mut self.save_ram {
-            save_ram.write_if_due(&self.session);
-        }
         let schedule = pacing::next_frame(self.next_frame, now, fps, vsync);
         self.next_frame = schedule.due;
         self.session.set_speed(schedule.speed);
@@ -765,7 +740,7 @@ impl Runner {
             }
             Command::Pause(reply) => {
                 self.set_paused(true);
-                let _ = reply.send(self.flush_save_ram());
+                let _ = reply.send(self.session.flush_save_ram());
             }
             Command::Resume => self.set_paused(false),
             Command::FastForward(speed) => {
@@ -782,7 +757,7 @@ impl Runner {
                 let _ = reply.send(self.session.save_state(&path));
             }
             Command::LoadState(path, reply) => {
-                let _ = reply.send(self.load_state(&path));
+                let _ = reply.send(self.session.load_state(&path));
             }
             Command::CaptureFrame(reply) => {
                 let _ = reply.send(Ok(self.session.capture_frame()));
@@ -811,26 +786,9 @@ impl Runner {
         }
     }
 
-    /// Loads the state at `path`, backing up save memory, which the state's
-    /// replaces, once the state is read.
-    fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
-        let state = self.session.read_state(path)?;
-        if let Some(save_ram) = &mut self.save_ram {
-            save_ram.back_up(&self.session)?;
-        }
-        self.session.unserialize_state(&state)
-    }
-
     fn stop(&mut self) -> Result<(), SessionError> {
         self.set_paused(true);
-        self.flush_save_ram()
-    }
-
-    fn flush_save_ram(&mut self) -> Result<(), SessionError> {
-        match &mut self.save_ram {
-            Some(save_ram) => Ok(save_ram.flush(&self.session)?),
-            None => Ok(()),
-        }
+        self.session.flush_save_ram()
     }
 }
 

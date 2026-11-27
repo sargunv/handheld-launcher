@@ -26,7 +26,7 @@ use crate::input::{InputState, MAX_PORTS};
 use crate::options::Options;
 use crate::pacing;
 use crate::renderer::Renderer;
-use crate::save::write_atomically;
+use crate::save::{SaveRam, write_atomically};
 use crate::video::{CapturedFrame, Region, VideoSink};
 use crate::vulkan::VulkanError;
 
@@ -66,6 +66,11 @@ pub struct SessionConfig {
     /// Where the core may write its own save files. The session creates it
     /// if it's missing.
     pub save_dir: PathBuf,
+    /// The file that keeps the core's save memory: the session loads save
+    /// memory from it, and writes save memory back within a few seconds of
+    /// it changing, on [`Session::flush_save_ram`] and when it drops. `None`
+    /// keeps save memory only in memory.
+    pub save_ram: Option<PathBuf>,
     pub video: VideoOutput,
     pub audio: Box<dyn AudioSink>,
     /// The controllers, which the platform layer keeps up to date.
@@ -205,6 +210,9 @@ pub struct Session {
     /// The game's achievements, while the session takes part in
     /// RetroAchievements. Dropped before the game unloads.
     achievements: Option<Achievements>,
+    /// Keeps save memory's file up to date, if the core has save memory and
+    /// it has a file.
+    save_ram: Option<SaveRam>,
     /// Content the core may keep pointers into.
     _content: Option<(CString, Option<Vec<u8>>)>,
     _claim: ActiveClaim,
@@ -251,6 +259,7 @@ impl Session {
             },
             game_loaded: false,
             achievements: None,
+            save_ram: None,
             _content: None,
             _claim: claim,
             _thread_bound: PhantomData,
@@ -308,6 +317,17 @@ impl Session {
         for port in 0..ports.min(MAX_PORTS) as u32 {
             // SAFETY: the game is loaded.
             unsafe { (session.core.set_controller_port_device)(port, ffi::RETRO_DEVICE_JOYPAD) };
+        }
+        if let Some(path) = config.save_ram
+            && let Some(memory) = session.save_ram_mut()
+        {
+            // Running anyway would replace the file with fresh save memory
+            // the first time the game saves.
+            let save_ram = SaveRam::load(&path, memory).map_err(|e| {
+                log::error!("can't load save memory from {}: {e}", path.display());
+                SessionError::ReadSaveRam(e)
+            })?;
+            session.save_ram = Some(save_ram);
         }
         Ok(session)
     }
@@ -427,6 +447,9 @@ impl Session {
                 self.set_achievement_memory();
             }
             achievements.do_frame();
+        }
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+            save_ram.write_if_due(memory);
         }
     }
 
@@ -582,18 +605,11 @@ impl Session {
 
     /// The core's battery-backed save memory, if it has any.
     pub fn save_ram(&self) -> Option<&[u8]> {
-        // SAFETY: the core's memory stays valid while the game is loaded,
-        // and the core can't run while this borrow lives.
-        unsafe {
-            let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
-            let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
-            (size > 0 && !data.is_null())
-                .then(|| std::slice::from_raw_parts(data.cast::<u8>(), size))
-        }
+        save_memory(&self.core)
     }
 
-    pub(crate) fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
-        // SAFETY: as in `save_ram`.
+    fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
+        // SAFETY: as in `save_memory`.
         unsafe {
             let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
             let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
@@ -602,32 +618,11 @@ impl Session {
         }
     }
 
-    /// The core's complete state, which [`Session::unserialize_state`]
-    /// restores.
-    fn serialize_state(&mut self) -> Result<Vec<u8>, SessionError> {
-        // SAFETY: the game is loaded and no host reference is live.
-        let size = unsafe { (self.core.serialize_size)() };
-        if size == 0 {
-            return Err(SessionError::StatesUnsupported);
-        }
-        let mut state = vec![0; size];
-        // SAFETY: `state` has the size the core asked for.
-        if unsafe { (self.core.serialize)(state.as_mut_ptr().cast(), size) } {
-            Ok(state)
-        } else {
-            Err(SessionError::Serialize)
-        }
-    }
-
-    /// Restores a state that [`Session::read_state`] read.
-    pub(crate) fn unserialize_state(&mut self, state: &[u8]) -> Result<(), SessionError> {
-        // SAFETY: the game is loaded, the core only reads `state`, and no
-        // host reference is live.
-        if !unsafe { (self.core.unserialize)(state.as_ptr().cast(), state.len()) } {
-            return Err(SessionError::Unserialize);
-        }
-        if let Some(achievements) = &self.achievements {
-            achievements.state_loaded();
+    /// Writes save memory to its file if it changed, and waits until it's on
+    /// disk.
+    pub fn flush_save_ram(&mut self) -> Result<(), SessionError> {
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+            save_ram.flush(memory)?;
         }
         Ok(())
     }
@@ -638,32 +633,62 @@ impl Session {
         if !self.host().states_persist() {
             return Err(SessionError::StatesNotPersistent);
         }
-        let state = self.serialize_state()?;
+        // SAFETY: the game is loaded and no host reference is live.
+        let size = unsafe { (self.core.serialize_size)() };
+        if size == 0 {
+            return Err(SessionError::StatesUnsupported);
+        }
+        let mut state = vec![0; size];
+        // SAFETY: `state` has the size the core asked for.
+        if !unsafe { (self.core.serialize)(state.as_mut_ptr().cast(), size) } {
+            return Err(SessionError::Serialize);
+        }
         Ok(write_atomically(path, &state)?)
     }
 
-    /// Restores a state that [`Session::save_state`] wrote. Hardcore mode
-    /// doesn't allow it.
+    /// Restores a state that [`Session::save_state`] wrote, first copying
+    /// save memory, which the state replaces, to a backup beside its file.
+    /// Hardcore mode doesn't allow it.
     pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
-        let state = self.read_state(path)?;
-        self.unserialize_state(&state)
-    }
-
-    /// Reads the state at `path` for [`Session::unserialize_state`], if the
-    /// session may load it.
-    pub(crate) fn read_state(&self, path: &Path) -> Result<Vec<u8>, SessionError> {
         if !self.host().states_persist() {
             return Err(SessionError::StatesNotPersistent);
         }
         if self.hardcore_restricts() {
             return Err(SessionError::Hardcore);
         }
-        Ok(fs::read(path)?)
+        let state = fs::read(path)?;
+        if let (Some(save_ram), Some(memory)) = (&mut self.save_ram, save_memory(&self.core)) {
+            save_ram.back_up(memory)?;
+        }
+        // SAFETY: the game is loaded, the core only reads `state`, and no
+        // host reference is live.
+        if !unsafe { (self.core.unserialize)(state.as_ptr().cast(), state.len()) } {
+            return Err(SessionError::Unserialize);
+        }
+        if let Some(achievements) = &self.achievements {
+            achievements.state_loaded();
+        }
+        Ok(())
+    }
+}
+
+/// The core's battery-backed save memory, if it has any.
+fn save_memory(core: &Core) -> Option<&[u8]> {
+    // SAFETY: the core's memory stays valid while the game is loaded, and
+    // the core doesn't run while this borrow lives, as the session runs it
+    // only through `&mut self`.
+    unsafe {
+        let size = (core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
+        let data = (core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
+        (size > 0 && !data.is_null()).then(|| std::slice::from_raw_parts(data.cast::<u8>(), size))
     }
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
+        if let Err(e) = self.flush_save_ram() {
+            log::error!("can't write save memory: {e}");
+        }
         // The client reads the core's memory until it's gone.
         self.achievements = None;
         if self.game_loaded {

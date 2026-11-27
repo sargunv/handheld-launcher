@@ -54,6 +54,14 @@ pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions 
     }
 }
 
+/// The RGBA value of `frame`'s pixel at (`x`, `y`), counted from the top
+/// left.
+pub fn pixel(frame: &CapturedFrame, x: u32, y: u32) -> [u8; 4] {
+    assert!(x < frame.width && y < frame.height, "pixel outside frame");
+    let i = (y as usize * frame.width as usize + x as usize) * 4;
+    frame.pixels[i..i + 4].try_into().unwrap()
+}
+
 /// Whether two colors are the same but for rounding.
 pub fn near(a: [u8; 4], b: [u8; 4]) -> bool {
     a.iter().zip(b).all(|(&a, b)| a.abs_diff(b) <= 1)
@@ -69,7 +77,7 @@ pub fn render(
     unavailable: fn(&SessionError) -> bool,
 ) -> Option<CapturedFrame> {
     let _lock = lock();
-    let mut h = match Harness::start(core, None, &[], None) {
+    let mut h = match Harness::start(core, None, &[], None, None) {
         Ok(h) => h,
         Err(e) if unavailable(&e) && std::env::var_os(require).is_none() => {
             eprintln!("skipping: {}", std::error::Error::source(&e).unwrap_or(&e));
@@ -170,12 +178,14 @@ pub struct Harness {
 
 impl Harness {
     /// Starts `core` with `content` and the core option values `options`,
-    /// taking part in RetroAchievements as `achievements` says.
+    /// taking part in RetroAchievements as `achievements` says, and keeping
+    /// save memory in the file `save_ram`, if given.
     pub fn start(
         core: &str,
         content: Option<&str>,
         options: &[(&str, &str)],
         achievements: Option<(AchievementOptions, SendAchievementsRequest)>,
+        save_ram: Option<&Path>,
     ) -> Result<Self, SessionError> {
         let frames = Frames::default();
         let audio = Audio::default();
@@ -194,6 +204,7 @@ impl Harness {
             content_cache: Some(dirs.path().join("content")),
             system_dir: dirs.path().join("system"),
             save_dir: dirs.path().join("saves"),
+            save_ram: save_ram.map(Path::to_owned),
             video: VideoOutput::Sink(Box::new(frames.clone())),
             audio: Box::new(audio.clone()),
             input: input.clone(),

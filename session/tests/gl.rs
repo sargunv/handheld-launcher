@@ -8,7 +8,7 @@
 
 mod common;
 
-use common::near;
+use common::{near, pixel};
 use handheld_session::{CapturedFrame, GlError, SessionError};
 
 const BACKGROUND: [u8; 4] = [77, 102, 128, 255];
@@ -21,14 +21,14 @@ fn check_first_frame(name: &str, frame: &CapturedFrame) {
     assert_eq!((frame.width, frame.height), (320, 240));
     for (x, y) in [(0, 0), (319, 0), (0, 239), (319, 239), (250, 180)] {
         assert!(
-            near(frame.pixel(x, y), BACKGROUND),
+            near(pixel(frame, x, y), BACKGROUND),
             "{name}: background at ({x}, {y}) is {:?}",
-            frame.pixel(x, y)
+            pixel(frame, x, y)
         );
     }
     for (x, y) in [(160, 120), (250, 60)] {
         assert!(
-            !near(frame.pixel(x, y), BACKGROUND),
+            !near(pixel(frame, x, y), BACKGROUND),
             "{name}: no quad at ({x}, {y})"
         );
     }
