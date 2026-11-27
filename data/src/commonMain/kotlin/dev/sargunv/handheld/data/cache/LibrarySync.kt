@@ -15,12 +15,22 @@ import dev.sargunv.handheld.domain.RomFile
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-/** Refreshes a [LibraryCache] from a RomM server. */
+/**
+ * Refreshes a [LibraryCache] from a RomM server, for the server's user [userId]. The cache holds
+ * one account's library, so a sync for another account, on this server or another, starts from an
+ * empty cache.
+ */
 internal class LibrarySync(
   private val client: RommClient,
   private val cache: LibraryCache,
+  userId: Long,
   private val pageSize: Int = 200,
 ) {
+  private val account = "${client.baseUrl} $userId"
+
+  /** Whether the cache holds nothing of the account's library yet. */
+  suspend fun isFirst(): Boolean = cache.syncValue(ACCOUNT_KEY) != account || cache.romCount() == 0L
+
   /**
    * Brings the cache up to date with the server. Platforms and collections are small, so they're
    * fetched whole every time. ROMs are fetched whole the first time, and afterwards only those the
@@ -34,10 +44,9 @@ internal class LibrarySync(
    * @throws RommException when a request fails.
    */
   suspend fun sync() {
-    val server = client.baseUrl.toString()
-    if (cache.syncValue(SERVER_KEY) != server) {
+    if (cache.syncValue(ACCOUNT_KEY) != account) {
       cache.clear()
-      cache.setSyncValue(SERVER_KEY, server)
+      cache.setSyncValue(ACCOUNT_KEY, account)
     }
     val cursor = cache.syncValue(ROM_CURSOR_KEY)?.let(Instant::parse)
 
@@ -78,7 +87,7 @@ internal class LibrarySync(
   }
 
   private companion object {
-    const val SERVER_KEY = "server"
+    const val ACCOUNT_KEY = "account"
     const val ROM_CURSOR_KEY = "rom_cursor"
 
     /**
