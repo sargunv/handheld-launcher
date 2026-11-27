@@ -29,15 +29,14 @@ data class KnownEmulator(
   val forkRecipe: LaunchRecipe? = null,
   val drawsBothScreens: Boolean = false,
 ) {
-  /** Whether [packageName] is another build of this app, matched by [packagePatterns]. */
-  fun matchesPattern(packageName: String): Boolean = packagePatterns.any {
-    globToRegex(it).matches(packageName)
+  private val patterns = packagePatterns.map { glob ->
+    Regex(glob.split('*').joinToString(".*") { Regex.escape(it) })
   }
+
+  /** Whether [packageName] is another build of this app, matched by [packagePatterns]. */
+  fun matchesPattern(packageName: String): Boolean = patterns.any { it.matches(packageName) }
 
   /** The recipe that launches games in [packageName], one of this app's builds. */
   fun recipeFor(packageName: String): LaunchRecipe =
     if (packageName == this.packageName) recipe else forkRecipe ?: recipe
-
-  private fun globToRegex(glob: String): Regex =
-    Regex(glob.split('*').joinToString(".*") { Regex.escape(it) })
 }
