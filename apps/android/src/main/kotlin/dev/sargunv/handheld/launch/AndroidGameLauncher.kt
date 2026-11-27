@@ -11,8 +11,10 @@ import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.data.saves.SaveLookup
 import dev.sargunv.handheld.data.saves.StandaloneEmulator
 import dev.sargunv.handheld.data.saves.StillRunningChoice
+import dev.sargunv.handheld.data.saves.gameSaveFor
 import dev.sargunv.handheld.data.saves.keptSaves
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
@@ -28,6 +30,7 @@ import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.saves.BiosKnowledge
 import dev.sargunv.handheld.domain.storage.GameLayout
+import dev.sargunv.handheld.session.romGameId
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
@@ -254,7 +257,9 @@ internal class AndroidGameLauncher(
     val romId = (request.game as? GameKey.Romm)?.romId ?: return null
     val lookup =
       withContext(Dispatchers.IO) {
-        gameSaveFor(target, request.platform, romId, request.romPath, volumes)
+        gameSaveFor(target, request.platform, romId, request.romPath, volumes) { file, keys ->
+          request.platform.headerPlatform()?.let { romGameId(it, file, keys) }
+        }
       }
     when (lookup) {
       is SaveLookup.Found -> log.i { "The save syncs as ${lookup.save}" }
