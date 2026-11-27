@@ -12,14 +12,7 @@ import java.io.File
 import java.io.IOException
 import kotlinx.io.files.Path
 
-/**
- * Runs a libretro core in a game session, for trying the session on a device. The `core` extra
- * names the core and the optional `content` extra the content, as paths relative to the app's
- * `files/session-test` directory or absolute ones. A `platform` extra, a platform slug such as
- * `gbc`, runs that platform's core instead, installing it first through [InstalledCores] if it
- * isn't installed or has an update. The optional `core_options` extra, a string array of
- * `key=value`, sets core options, such as a renderer. session/README.md has the commands.
- */
+/** Runs a libretro core in a game session, with the extras session/README.md lists. */
 class SessionTestActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -54,7 +47,6 @@ private suspend fun installedCoreFor(dir: File, platform: PlatformSlug): File {
     LibretroCores.recommendedFor(platform) ?: throw IOException("No libretro core runs $platform")
   // The app's native libraries are built for the device's first ABI.
   return InstalledCores(Path(dir.path), Build.SUPPORTED_ABIS.first()).use { cores ->
-    if (cores.hasUpdate(core)) cores.install(core)
-    File(cores.fileOf(core).toString())
+    File(cores.ensure(core).toString())
   }
 }
