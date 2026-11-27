@@ -69,7 +69,7 @@ class LaunchDispatcher(private val context: Context) {
           Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
         )
       }
-      context.startActivity(LaunchIntents.toIntent(command, contentUris))
+      context.startActivity(command.toIntent(contentUris))
       LaunchOutcome.Started(LaunchMethod.Intent)
     } catch (e: ActivityNotFoundException) {
       failed("Launch failed · ${command.packageName} can't open it", e)
@@ -92,7 +92,7 @@ class LaunchDispatcher(private val context: Context) {
   private suspend fun startByShell(command: LaunchCommand): Boolean =
     withContext(Dispatchers.IO) {
       try {
-        val process = ProcessBuilder(ShellLaunch.argv(command)).redirectErrorStream(true).start()
+        val process = ProcessBuilder(command.amStartArgv()).redirectErrorStream(true).start()
         val output = process.inputStream.bufferedReader().use { it.readText() }
         // am exits with 0 when it can't start the activity, and says why on lines like
         // "Error: Activity class {...} does not exist."
