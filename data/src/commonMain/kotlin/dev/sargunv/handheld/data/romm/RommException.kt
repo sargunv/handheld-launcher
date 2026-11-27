@@ -1,7 +1,8 @@
 package dev.sargunv.handheld.data.romm
 
 /** A request to a RomM server that failed. */
-sealed class RommException(message: String, cause: Throwable? = null) : Exception(message, cause) {
+sealed class RommException(override val message: String, cause: Throwable? = null) :
+  Exception(message, cause) {
   /** The server couldn't be reached, or the connection broke. Retrying may help. */
   class Unreachable(cause: Throwable) : RommException("RomM unreachable", cause)
 

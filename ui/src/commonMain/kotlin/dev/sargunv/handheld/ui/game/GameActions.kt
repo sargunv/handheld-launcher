@@ -238,7 +238,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
       } catch (e: RommException) {
         notes = listOf("Upload failed · ${e.message}")
       } catch (e: IOException) {
-        notes = listOf("File read failed · ${e.message}")
+        notes = listOf(listOfNotNull("File read failed", e.message).joinToString(" · "))
       } finally {
         upload = null
         uploadJob = null

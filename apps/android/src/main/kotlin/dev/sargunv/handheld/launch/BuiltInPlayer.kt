@@ -60,7 +60,7 @@ class BuiltInPlayer(
           }
         }
       } catch (e: IOException) {
-        return note("Core download failed · ${e.message}")
+        return note(listOfNotNull("Core download failed", e.message).joinToString(" · "))
       }
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)

@@ -160,7 +160,8 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   private fun chooseLater(label: String) = "$label · Choose at the next play"
 
   // A failed sync writes nothing, and its record stays as it was, so the next sync tries again.
-  private fun failed(e: Exception) = "Save sync failed · ${e.message}"
+  private fun failed(e: Exception) =
+    listOfNotNull("Save sync failed", e.message).joinToString(" · ")
 
   private fun describe(result: SaveSyncResult, note: (String) -> Unit) {
     when (result) {

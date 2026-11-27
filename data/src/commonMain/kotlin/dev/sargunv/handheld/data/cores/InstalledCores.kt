@@ -222,7 +222,7 @@ class InstalledCores(
       }
       if (total != null && downloaded != total) {
         log.w { "$url: cut short at $downloaded of $total bytes" }
-        throw CoreDownloadException("Download cut short")
+        throw CoreDownloadException("Core download cut short")
       }
       response.headers
     }
