@@ -60,7 +60,6 @@ dependencies {
   implementation(libs.kermit)
   implementation(libs.kotlinx.serialization.json)
   implementation(project(":session"))
-  debugImplementation(libs.kermit)
   testImplementation(libs.kotlin.test.junit)
   testImplementation(libs.robolectric)
 }
