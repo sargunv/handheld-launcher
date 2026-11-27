@@ -38,7 +38,6 @@ import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.library.LibrarySettings
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
@@ -143,7 +142,7 @@ class LocalGameTest {
   private fun ComposeUiTest.launch(
     launcher: GameLauncher = FakeLauncher(),
     settings: Settings = Settings(),
-    open: OpenRequest? = null,
+    open: OpenTarget? = null,
   ) {
     downloads =
       launchApp(
@@ -168,7 +167,7 @@ class LocalGameTest {
 
   /** Launches, and opens Homebrew's page from the Game Boy's games. */
   private fun ComposeUiTest.openHomebrew(launcher: GameLauncher = FakeLauncher()) {
-    launch(launcher, open = OpenRequest(OpenTarget.Local(homebrew.path)))
+    launch(launcher, open = OpenTarget.Local(homebrew.path))
     awaitText("Play")
     onNodeWithTag("primary").assertIsFocused()
   }
@@ -253,7 +252,7 @@ class LocalGameTest {
   fun aDiscSetOffersNoUpload() = runComposeUiTest {
     val cue = File(storage, "ROMs/gb/Disc.cue").apply { writeText("FILE \"Disc.bin\" BINARY\n") }
     File(storage, "ROMs/gb/Disc.bin").writeBytes(ByteArray(8))
-    launch(open = OpenRequest(OpenTarget.Local(cue.path)))
+    launch(open = OpenTarget.Local(cue.path))
     awaitText("Play")
     press(Key.ButtonX)
     awaitTag("menu:remove")

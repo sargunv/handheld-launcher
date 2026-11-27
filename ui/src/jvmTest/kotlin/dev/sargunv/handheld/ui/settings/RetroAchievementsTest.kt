@@ -20,7 +20,6 @@ import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.launchApp
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.press
 import io.ktor.client.engine.mock.MockEngine
@@ -57,7 +56,7 @@ class RetroAchievementsTest {
             },
           )
         },
-      open = OpenRequest(OpenTarget.Settings(SettingsSection.RetroAchievements)),
+      open = OpenTarget.Settings(SettingsSection.RetroAchievements),
     )
     awaitFocused("settings:RetroAchievements")
   }

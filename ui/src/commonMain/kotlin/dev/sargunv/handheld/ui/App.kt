@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -54,14 +55,11 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.onAction
-import dev.sargunv.handheld.ui.library.deviceStates
 import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.MainMenu
 import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.places.SyncStatus
@@ -73,8 +71,12 @@ import io.ktor.client.engine.HttpClientEngine
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 
@@ -103,10 +105,10 @@ import kotlinx.io.files.Path
  * @param romHeaders reads what a game's file says about itself, for the Game screen.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
- * @param openRequest a screen to show once signed in, for development tools. Before sign-in, only
- *   Settings shows.
- * @param homePress the system's HOME, pressed while the app is in front as the home app. It closes
- *   the open dialogs, or when there are none, starts over on Home.
+ * @param openRequests the screens to show, for development tools, each once signed in. Before
+ *   sign-in, a Settings one shows over the sign-in.
+ * @param homePresses the presses of the system's HOME while the app is in front as the home app.
+ *   Each closes the open dialogs, or when there are none, starts over on Home.
  * @param appInfo what About says about this build: its version and the components it's built from.
  * @param gameState what the platform keeps per game besides the settings, such as the built-in
  *   session's saves, which goes to a game's ROM with its settings once its file becomes one.
@@ -130,12 +132,13 @@ fun App(
   apps: AppCatalog = AppCatalog.None,
   romHeaders: RomHeaders = RomHeaders.None,
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
-  openRequest: OpenRequest? = null,
-  homePress: HomePress? = null,
+  openRequests: Flow<OpenTarget> = emptyFlow(),
+  homePresses: Flow<Unit> = emptyFlow(),
   appInfo: AppInfo = AppInfo.Unknown,
   gameState: PerGameState = PerGameState.None,
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
+  val scope = rememberCoroutineScope()
   val state =
     remember(
       library,
@@ -161,6 +164,7 @@ fun App(
         credentials,
         httpEngine,
         device,
+        scope,
         retroAchievements?.let(::RetroAchievementsState),
         appInfo,
         romHeaders,
@@ -169,13 +173,7 @@ fun App(
     }
   LaunchedEffect(state) { state.account.load() }
   LaunchedEffect(state) { state.retroAchievements?.load() }
-  LaunchedEffect(state) {
-    downloads.statuses().collect { statuses ->
-      state.deviceStates = deviceStates(statuses)
-    }
-  }
   LaunchedEffect(state) { state.adoptMatchedFiles() }
-  LaunchedEffect(state) { games.localGames().collect { state.localGames = it } }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
   LaunchedEffect(state) {
     snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }
@@ -214,24 +212,17 @@ fun App(
       delay(1.minutes)
     }
   }
-  // Each request shows once, so a sign-in or sign-out after it doesn't show it again.
-  var shownRequest by remember { mutableStateOf<OpenRequest?>(null) }
-  LaunchedEffect(openRequest, signedIn, state) {
-    if (openRequest == null || openRequest === shownRequest) return@LaunchedEffect
-    val target = openRequest.target
-    when (signedIn) {
-      true -> {
-        shownRequest = openRequest
+  LaunchedEffect(openRequests, state) {
+    openRequests.collectLatest { target ->
+      val signedIn = snapshotFlow { account.signedIn }.filterNotNull()
+      // Before sign-in, only Settings can show; anything else waits for the sign-in.
+      if (target is OpenTarget.Settings && !signedIn.first()) {
+        account.settingsOverSignIn = true
+        target.section?.let(state.settingsView::jumpTo)
+      } else {
+        signedIn.first { it }
         state.open(target)
       }
-      // Before sign-in, only Settings can show; anything else waits for the sign-in.
-      false ->
-        if (target is OpenTarget.Settings) {
-          shownRequest = openRequest
-          account.settingsOverSignIn = true
-          target.section?.let(state.settingsView::jumpTo)
-        }
-      null -> Unit
     }
   }
   var mainMenuOpen by rememberSaveable { mutableStateOf(false) }
@@ -278,12 +269,13 @@ fun App(
     ActionInputRoot(state.inputSettings, heldKeys, modifier) {
       FocusRoot {
         val scopes = LocalFocusScopes.current
-        LaunchedEffect(homePress) {
-          if (homePress == null) return@LaunchedEffect
-          when {
-            scopes?.isDialogOpen == true -> dialogs.closeAll()
-            signedIn == true -> state.goHome()
-            signedIn == false -> account.settingsOverSignIn = false
+        LaunchedEffect(homePresses, scopes, state) {
+          homePresses.collect {
+            when {
+              scopes?.isDialogOpen == true -> dialogs.closeAll()
+              account.signedIn == true -> state.goHome()
+              account.signedIn == false -> account.settingsOverSignIn = false
+            }
           }
         }
         DualScreen(layout = layout, primary = primary, secondary = secondary)

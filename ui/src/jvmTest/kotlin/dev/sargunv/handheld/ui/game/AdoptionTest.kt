@@ -21,7 +21,6 @@ import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.lastPlayed
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
@@ -101,7 +100,7 @@ class AdoptionTest {
         saveSettings = { saved += it },
         launcher = launcher,
         gameState = PerGameState { adopted += it },
-        open = OpenRequest(OpenTarget.Local(homebrew.path)),
+        open = OpenTarget.Local(homebrew.path),
       )
     awaitText("Play")
   }
@@ -160,7 +159,7 @@ class AdoptionTest {
             saves.remove(adoption.local)?.let { saves[adoption.rom] = it }
           }
         },
-      open = OpenRequest(OpenTarget.Game(rom.romId)),
+      open = OpenTarget.Game(rom.romId),
     )
     awaitText("Play")
     press(Key.ButtonA)

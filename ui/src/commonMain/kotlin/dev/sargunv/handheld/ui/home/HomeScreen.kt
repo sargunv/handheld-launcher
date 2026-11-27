@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -52,6 +51,7 @@ import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.places.coverDescription
+import dev.sargunv.handheld.ui.places.describes
 import dev.sargunv.handheld.ui.places.gameCount
 
 /** How many games a shelf of games holds. */
@@ -71,6 +71,7 @@ internal fun HomePlace(state: AppState) {
   val played by remember(library) { library.recentlyPlayed(SHELF_SIZE) }.collectAsState(null)
   val added by remember(library) { library.recentlyAdded(SHELF_SIZE) }.collectAsState(null)
   val collections by remember(library) { library.collections() }.collectAsState(null)
+  val deviceStates by state.deviceStates.collectAsState()
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   var gameMenuOpen by rememberSaveable { mutableStateOf(false) }
   // The shelf with focus, or null while the game being played has it.
@@ -98,8 +99,7 @@ internal fun HomePlace(state: AppState) {
   val continueRom = playedNow.firstOrNull()
   // The game being played plays at once when it's on the device; otherwise its page opens, which
   // the Game screen decides once it knows.
-  val continuePlays =
-    continueRom != null && state.deviceStates[continueRom.id] == DeviceState.OnDevice
+  val continuePlays = continueRom != null && deviceStates[continueRom.id] == DeviceState.OnDevice
   val continueFocused = hasItems && continueRom != null && focusedShelf == null
 
   fun openGame(rom: Rom) = state.navigator.push(Screen.Game(rom.id, rom.title))
@@ -110,15 +110,6 @@ internal fun HomePlace(state: AppState) {
       collectionShelfKey(collection.kind, collection.id),
       OpenedFrom.Home,
     )
-  fun onFocusGame(rom: Rom) {
-    state.focused = Focused.OnGame(rom)
-  }
-  fun onFocusCollection(collection: Collection) {
-    state.focused = Focused.OnCollection(collection)
-  }
-
-  // The lower screen describes nothing while Home has nothing to focus.
-  LaunchedEffect(hasItems) { if (!hasItems) state.focused = null }
 
   // Home is a focus scope of its own, so its menu opens even while it has nothing to focus. A new
   // game to continue starts it over with focus on that game, even when the play history lands
@@ -166,11 +157,11 @@ internal fun HomePlace(state: AppState) {
                     modifier = Modifier.onFocusChanged { if (it.hasFocus) focusedShelf = null },
                   ) {
                     GameTile(
+                      state = state,
                       rom = rom,
-                      deviceState = state.deviceStates[rom.id],
+                      deviceState = deviceStates[rom.id],
                       key = "continue:${rom.id}",
                       modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
-                      onFocus = ::onFocusGame,
                       onOpen = ::playGame,
                     )
                   }
@@ -182,29 +173,24 @@ internal fun HomePlace(state: AppState) {
                   when (shelf) {
                     HomeShelf.RecentlyPlayed ->
                       GameShelf(
+                        state,
                         shelf,
                         playedNow.drop(1),
-                        state.deviceStates,
+                        deviceStates,
                         onFocusShelf,
-                        ::onFocusGame,
                         ::openGame,
                       )
                     HomeShelf.RecentlyAdded ->
                       GameShelf(
+                        state,
                         shelf,
                         addedNow,
-                        state.deviceStates,
+                        deviceStates,
                         onFocusShelf,
-                        ::onFocusGame,
                         ::openGame,
                       )
                     HomeShelf.Collections ->
-                      CollectionShelf(
-                        collectionsNow,
-                        onFocusShelf,
-                        ::onFocusCollection,
-                        ::openCollection,
-                      )
+                      CollectionShelf(state, collectionsNow, onFocusShelf, ::openCollection)
                   }
                 }
               }
@@ -261,11 +247,11 @@ private fun ShelfColumn(
 
 @Composable
 private fun GameShelf(
+  state: AppState,
   shelf: HomeShelf,
   games: List<Rom>,
   deviceStates: Map<Long, DeviceState>,
   onFocusShelf: () -> Unit,
-  onFocusGame: (Rom) -> Unit,
   onOpen: (Rom) -> Unit,
 ) {
   ShelfColumn(
@@ -279,11 +265,11 @@ private fun GameShelf(
     ) {
       items(games, key = { it.id }) { rom ->
         GameTile(
+          state = state,
           rom = rom,
           deviceState = deviceStates[rom.id],
           key = "${shelf.name}:${rom.id}",
           modifier = Modifier.size(120.dp, 160.dp),
-          onFocus = onFocusGame,
           onOpen = onOpen,
         )
       }
@@ -293,11 +279,11 @@ private fun GameShelf(
 
 @Composable
 private fun GameTile(
+  state: AppState,
   rom: Rom,
   deviceState: DeviceState?,
   key: String,
   modifier: Modifier,
-  onFocus: (Rom) -> Unit,
   onOpen: (Rom) -> Unit,
 ) {
   Cover(
@@ -305,7 +291,7 @@ private fun GameTile(
     title = rom.title,
     modifier =
       modifier
-        .onFocusChanged { if (it.isFocused) onFocus(rom) }
+        .describes(state, Focused.OnGame(rom))
         .focusItem(
           key,
           onConfirm = { onOpen(rom) },
@@ -316,9 +302,9 @@ private fun GameTile(
 
 @Composable
 private fun CollectionShelf(
+  state: AppState,
   collections: List<Collection>,
   onFocusShelf: () -> Unit,
-  onFocusCollection: (Collection) -> Unit,
   onOpen: (Collection) -> Unit,
 ) {
   ShelfColumn(
@@ -333,7 +319,7 @@ private fun CollectionShelf(
       items(collections, key = { "${it.kind}:${it.id}" }) { collection ->
         val key = "collection:${collection.kind}:${collection.id}"
         Column(
-          Modifier.onFocusChanged { if (it.isFocused) onFocusCollection(collection) }
+          Modifier.describes(state, Focused.OnCollection(collection))
             .focusItem(
               key,
               onConfirm = { onOpen(collection) },
@@ -378,11 +364,9 @@ private fun GameMenu(
         onDismissRequest()
         state.navigator.push(Screen.OpenWith(OpenWithScope.Game(rom.key), rom.title))
       }
-      for (hidden in HomeShelf.entries.filter { it in settings.hidden }) {
-        MenuButton("menu:show:${hidden.name}", "Show “${hidden.title}”") {
-          onShowShelf(hidden)
-          onDismissRequest()
-        }
+      ShowShelfButtons(settings) {
+        onShowShelf(it)
+        onDismissRequest()
       }
     }
   }
@@ -420,11 +404,15 @@ private fun ShelfMenu(
           MenuButton("menu:down", "Move down") { choose(settings.moveDown(shelf, shown)) }
         }
       }
-      for (hidden in HomeShelf.entries.filter { it in settings.hidden }) {
-        MenuButton("menu:show:${hidden.name}", "Show “${hidden.title}”") {
-          choose(settings.show(hidden))
-        }
-      }
+      ShowShelfButtons(settings) { choose(settings.show(it)) }
     }
+  }
+}
+
+/** A button for each shelf [settings] hide, which shows it again. */
+@Composable
+private fun ShowShelfButtons(settings: HomeSettings, onShow: (HomeShelf) -> Unit) {
+  for (hidden in HomeShelf.entries.filter { it in settings.hidden }) {
+    MenuButton("menu:show:${hidden.name}", "Show “${hidden.title}”") { onShow(hidden) }
   }
 }

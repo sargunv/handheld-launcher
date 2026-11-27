@@ -20,19 +20,16 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
@@ -60,56 +57,31 @@ import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.places.Screen
+import dev.sargunv.handheld.ui.places.describes
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
 
 /**
- * The games of [shelf], open from its tab. L and R step between shelves, stopping at the ends, and
- * Back returns to the tab, or Home when Home opened it.
+ * The games of [source]'s shelf, open from its tab. L and R step between shelves, stopping at the
+ * ends, and Back returns to the tab, or Home when Home opened it.
  */
 @Composable
 internal fun ShelfGames(
   state: AppState,
-  shelves: List<LibraryShelf>,
-  shelf: LibraryShelf,
+  source: GridSource.OfShelf,
   gridStates: SaveableStateHolder,
 ) {
-  val cache = state.library
   val view = state.libraryView
   val tab = state.libraryTab
+  val shelves = view.shelves(tab).orEmpty()
+  val shelf = source.shelf
   val shelfKey = shelf.key
-  // A new shelf starts unloaded, so it never shows the games of the one before it.
-  val loaded by
-    key(shelfKey) {
-      remember(cache, shelf) {
-          when (shelf) {
-            is LibraryShelf.OfPlatform -> cache.romsOnPlatform(shelf.platform.id)
-            is LibraryShelf.OfCollection ->
-              cache.romsInCollection(shelf.collection.kind, shelf.collection.id)
-          }
-        }
-        .collectAsState(null)
-    }
-  // A platform's local games are in its grid too.
-  val local = state.localGames
-  val roms =
-    remember(loaded, shelf, local) {
-      loaded?.let { roms ->
-        when (shelf) {
-          is LibraryShelf.OfPlatform -> roms + local.filter { it.platformId == shelf.platform.id }
-          is LibraryShelf.OfCollection -> roms
-        }
-      }
-    }
 
   fun moveTo(next: LibraryShelf?) {
-    if (next == null) return
-    view.focusShelf(tab, next.key)
-    state.focused = null
+    if (next != null) view.focusShelf(tab, next.key)
   }
 
   fun close() {
-    state.focused = null
     if (view.openedFrom == OpenedFrom.Home) {
       // Leaving the Library closes the shelf too.
       state.showPlace(Place.Home)
@@ -133,57 +105,37 @@ internal fun ShelfGames(
     GameGridPane(
       state = state,
       gridStates = gridStates,
-      sourceKey = shelfKey,
+      source = source,
       title = shelf.title,
-      roms = roms,
-      filters = true,
       empty = "No games",
       backHint = if (view.openedFrom == OpenedFrom.Home) "Home" else "Back",
-    ) {
-      ShelfHeader(
-        shelves,
-        shelf,
-        roms?.size,
-        roms?.count { deviceStateOf(it, state.deviceStates) == DeviceState.OnDevice },
-      )
+    ) { grid ->
+      ShelfHeader(shelves, shelf, grid)
     }
   }
 }
 
 /**
- * A grid of [roms], with the sort, the filter when [filters] allows one, and the A–Z jump, which
- * the menu and the lower screen change. [sourceKey] names where the games come from, so each grid
- * keeps its own focus for each sort and filter. The grid says [empty] when [roms] is.
+ * The grid of games from [source], with the sort, the filter when the source has one, and the A–Z
+ * jump, which the menu and the lower screen change. Each source keeps its own focus for each sort
+ * and filter. The grid says [empty] when the source has no games, and [header] shows above it with
+ * them.
  */
 @Composable
 internal fun GameGridPane(
   state: AppState,
   gridStates: SaveableStateHolder,
-  sourceKey: String,
+  source: GridSource,
   title: String,
-  roms: List<LibraryGame>?,
-  filters: Boolean,
   empty: String,
   backHint: String,
-  header: @Composable () -> Unit = {},
+  header: @Composable (grid: GridGames?) -> Unit = {},
 ) {
   val view = state.libraryView
-  val filter = if (filters) view.filter else LibraryFilter.All
-  val shown =
-    remember(roms, filter, view.sort, state.deviceStates) {
-      roms?.shown(filter, view.sort, state.deviceStates)
-    }
-  val index =
-    remember(shown, view.sort) {
-      if (shown != null && view.sort == LibrarySort.Name) jumpIndex(shown) else emptyMap()
-    }
-  SideEffect { view.letters = index.keys.toList() }
-  // The lower screen describes nothing while the grid has no game to focus.
-  val nothingShown = shown.isNullOrEmpty()
-  LaunchedEffect(nothingShown) { if (nothingShown) state.focused = null }
+  val grid = view.grid
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   // The menu sorts and filters, which a grid with no games at all has no use for.
-  val hasMenu = !roms.isNullOrEmpty()
+  val hasMenu = !grid?.games.isNullOrEmpty()
 
   Box(
     Modifier.fillMaxSize().onAction { action ->
@@ -196,17 +148,18 @@ internal fun GameGridPane(
     },
   ) {
     Column(Modifier.fillMaxSize()) {
-      header()
+      header(grid)
       Box(Modifier.fillMaxWidth().weight(1f)) {
-        val stateKey = "$sourceKey/${view.sort}/$filter"
+        val filter = if (source.filters) view.filter else LibraryFilter.All
+        val stateKey = "${source.key}/${view.sort}/$filter"
         gridStates.SaveableStateProvider(stateKey) {
           key(stateKey) {
             FocusScope(Modifier.fillMaxSize()) {
               val message =
                 when {
-                  roms == null -> null
-                  roms.isEmpty() -> empty
-                  shown.isNullOrEmpty() -> "No matches"
+                  grid == null -> null
+                  grid.games.isEmpty() -> empty
+                  grid.shown.isEmpty() -> "No matches"
                   else -> null
                 }
               if (message != null) {
@@ -216,18 +169,14 @@ internal fun GameGridPane(
                   modifier = Modifier.align(Alignment.Center),
                 )
               }
-              if (!shown.isNullOrEmpty()) {
-                GameGrid(state, shown, index)
-              }
+              if (grid != null && grid.shown.isNotEmpty()) GameGrid(state, grid)
             }
           }
         }
       }
       HintBar(
         buildList {
-          if (state.focused is Focused.OnGame && !nothingShown) {
-            add(Hint(Action.Confirm, "Open"))
-          }
+          if (state.focused is Focused.OnGame) add(Hint(Action.Confirm, "Open"))
           add(Hint(Action.Back, backHint))
           if (hasMenu) add(Hint(Action.Menu, "Menu"))
           add(Hint(Action.MainMenu, "Main menu"))
@@ -238,8 +187,7 @@ internal fun GameGridPane(
       GamesMenu(
         state = state,
         title = title,
-        filters = filters,
-        letters = index.keys.toList(),
+        filters = source.filters,
         onDismissRequest = { menuOpen = false },
       )
     }
@@ -247,12 +195,7 @@ internal fun GameGridPane(
 }
 
 @Composable
-private fun ShelfHeader(
-  shelves: List<LibraryShelf>,
-  shelf: LibraryShelf,
-  games: Int?,
-  onDevice: Int?,
-) {
+private fun ShelfHeader(shelves: List<LibraryShelf>, shelf: LibraryShelf, grid: GridGames?) {
   val at = shelves.indexOf(shelf)
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 8.dp),
@@ -281,26 +224,30 @@ private fun ShelfHeader(
       )
     }
     Spacer(Modifier.weight(1f))
-    if (games != null && onDevice != null) {
-      Text("${gameCount(games)}, ${onDeviceCount(onDevice)}", color = Placeholder.mutedText)
+    if (grid != null) {
+      Text(
+        "${gameCount(grid.games.size)}, ${onDeviceCount(grid.onDevice)}",
+        color = Placeholder.mutedText,
+      )
     }
   }
 }
 
 @Composable
-private fun GameGrid(state: AppState, shown: List<LibraryGame>, index: Map<Char, Int>) {
+private fun GameGrid(state: AppState, games: GridGames) {
   val view = state.libraryView
+  val deviceStates by state.deviceStates.collectAsState()
   val grid = rememberLazyGridState()
   val scope = LocalFocusScope.current
   val jump = view.jump
   LaunchedEffect(jump) {
     if (jump == null) return@LaunchedEffect
     try {
-      val target = index[jump.letter] ?: return@LaunchedEffect
+      val target = games.index[jump.letter] ?: return@LaunchedEffect
       grid.scrollToItem(target)
       // The grid composes the items it scrolled to during the next layout.
       withFrameNanos {}
-      scope?.focus(gameTag(shown[target]))
+      scope?.focus(gameTag(games.shown[target]))
     } finally {
       // Clearing it any sooner would cancel this effect.
       if (view.jump === jump) view.jump = null
@@ -314,14 +261,14 @@ private fun GameGrid(state: AppState, shown: List<LibraryGame>, index: Map<Char,
     verticalArrangement = Arrangement.spacedBy(16.dp),
     horizontalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    items(shown, key = { gameTag(it) }) { game ->
-      val deviceState = deviceStateOf(game, state.deviceStates)
+    items(games.shown, key = { gameTag(it) }) { game ->
+      val deviceState = deviceStateOf(game, deviceStates)
       LibraryCover(
         game = game,
         deviceState = deviceState,
         modifier =
           Modifier.aspectRatio(3f / 4f)
-            .onFocusChanged { if (it.isFocused) state.focused = Focused.OnGame(game) }
+            .describes(state, Focused.OnGame(game))
             .focusItem(
               gameTag(game),
               onConfirm = { state.navigator.push(Screen.Game(game.key, game.title)) },

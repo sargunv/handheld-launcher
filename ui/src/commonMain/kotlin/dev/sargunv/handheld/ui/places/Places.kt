@@ -11,15 +11,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -65,10 +70,22 @@ enum class Place(val title: String) {
 /** The signed-in app's top screen. */
 @Composable
 fun MainPrimary(state: AppState) {
+  // Each place is a focus scope, which keeps its focus and scroll positions while another place,
+  // or a screen over the places, shows. Each start over on Home gives Home new ones.
+  val places = rememberSaveableStateHolder()
+  var homeStart by rememberSaveable { mutableIntStateOf(0) }
+  LaunchedEffect(state, places) {
+    state.homeStarts.collect {
+      places.removeState(homeKey(homeStart))
+      homeStart++
+      state.navigator.backToStart()
+      state.showPlace(Place.Home)
+    }
+  }
   NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
     screen ->
     when (screen) {
-      Screen.Places -> NavEntry(screen) { PlacesScreen(state) }
+      Screen.Places -> NavEntry(screen) { PlacesScreen(state, places, homeKey(homeStart)) }
       is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
       is Screen.OpenWith -> NavEntry(screen) { OpenWithScreen(state, screen) }
       Screen.About -> NavEntry(screen) { AboutScreen(state) }
@@ -128,6 +145,7 @@ internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: 
 internal fun GameDescription(state: AppState, game: LibraryGame) {
   val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
+  val deviceStates by state.deviceStates.collectAsState()
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
       (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
@@ -149,7 +167,7 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
       when (game) {
         is Rom -> {
           val onDevice =
-            when (state.deviceStates[game.id]) {
+            when (deviceStates[game.id]) {
               DeviceState.OnDevice -> "On this device"
               is DeviceState.Downloading -> "Downloading"
               null -> "Not on this device"
@@ -172,6 +190,8 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
     }
   }
 }
+
+private fun homeKey(start: Int) = "${Place.Home.name}:$start"
 
 /** What a local game is marked with, wherever it shows. */
 internal const val NOT_ON_SERVER = "not on your server"
@@ -200,8 +220,7 @@ internal fun coverDescription(rom: Rom, state: DeviceState?): String {
  * to Home; on Home it does nothing.
  */
 @Composable
-private fun PlacesScreen(state: AppState) {
-  val places = rememberSaveableStateHolder()
+private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: String) {
   BackHandler(
     onBack = { state.showPlace(Place.Home) },
     Modifier.fillMaxSize(),
@@ -210,12 +229,9 @@ private fun PlacesScreen(state: AppState) {
     Column(Modifier.fillMaxSize()) {
       PlaceHeader(state.place, state.sync)
       Box(Modifier.fillMaxWidth().weight(1f)) {
-        // Each place is a focus scope, which keeps its focus and scroll position while another
-        // place shows.
-        places.SaveableStateProvider(state.place.name) {
+        places.SaveableStateProvider(if (state.place == Place.Home) homeKey else state.place.name) {
           when (state.place) {
-            // A new key starts Home's state over, focus and scroll positions included.
-            Place.Home -> key(state.homeResets) { HomePlace(state) }
+            Place.Home -> HomePlace(state)
             Place.Library -> LibraryPlace(state)
             Place.Downloads ->
               DownloadsPlace(state.downloads) {
@@ -270,7 +286,7 @@ internal fun MenuButton(
 ) {
   Box(
     Modifier.then(if (enabled) Modifier else Modifier.semantics { disabled() })
-      .focusItem(key, onConfirm = onConfirm)
+      .focusItem(key, onConfirm = onConfirm.takeIf { enabled }, role = Role.Button)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
   ) {

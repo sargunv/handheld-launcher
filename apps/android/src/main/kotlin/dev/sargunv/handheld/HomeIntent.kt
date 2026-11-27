@@ -3,7 +3,7 @@ package dev.sargunv.handheld
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
-import dev.sargunv.handheld.ui.places.OpenRequest
+import dev.sargunv.handheld.ui.places.OpenTarget
 
 /** Whether an intent with [action] and [categories] is the system's HOME. */
 internal fun isHomeIntent(action: String?, categories: Set<String>?): Boolean =
@@ -35,7 +35,7 @@ internal const val EXTRA_TAKE_FOCUS = "dev.sargunv.handheld.TAKE_FOCUS"
 /** What the launcher does with an intent that reaches it while it runs. */
 internal sealed interface IntentResponse {
   /** Shows the screen a development tool asked for. */
-  data class Open(val request: OpenRequest) : IntentResponse
+  data class Open(val target: OpenTarget) : IntentResponse
 
   /** Takes HOME as a press in the app: it closes the dialogs, or starts over on Home. */
   data object PressHome : IntentResponse
@@ -56,7 +56,7 @@ internal sealed interface IntentResponse {
  */
 internal fun respondTo(
   home: Boolean,
-  open: OpenRequest?,
+  open: OpenTarget?,
   wasInFront: Boolean,
   playing: Boolean,
 ): IntentResponse =

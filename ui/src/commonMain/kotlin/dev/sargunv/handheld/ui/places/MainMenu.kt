@@ -27,10 +27,6 @@ import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.onAction
 
-/** The places the main menu offers: all of them once signed in, and only Settings before. */
-internal fun mainMenuPlaces(signedIn: Boolean): List<Place> =
-  if (signedIn) Place.entries else listOf(Place.Settings)
-
 /**
  * The main menu, on Start from any launcher screen: a side menu over the screen that goes to the
  * top-level places. Back or Start closes it. Before sign-in it offers only Settings, which shows
@@ -39,7 +35,7 @@ internal fun mainMenuPlaces(signedIn: Boolean): List<Place> =
 @Composable
 internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
   val signedIn = state.account.signedIn == true
-  val places = mainMenuPlaces(signedIn)
+  val places = if (signedIn) Place.entries else listOf(Place.Settings)
   // The place showing, when nothing covers it.
   val current =
     when {
