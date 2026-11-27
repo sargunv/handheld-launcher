@@ -5,10 +5,10 @@ which drives it through UniFFI.
 
 ## Build
 
-The directory is also the `:session` Gradle module, an Android library. It
-compiles the crate for the host to generate UniFFI's Kotlin bindings, and for
-each Android ABI listed in `buildSrc` with cargo-ndk, using the NDK that
-`mise.toml` pins, which `mise run android:ndk` installs.
+The directory is also the `:session` Gradle module, an Android library, with its
+Kotlin in `kotlin/`. It compiles the crate for the host to generate UniFFI's
+Kotlin bindings, and for each Android ABI listed in `buildSrc` with cargo-ndk,
+using the NDK that `mise.toml` pins, which `mise run android:ndk` installs.
 `-Phandheld.session.abis=x86_64` builds one ABI, for quicker work on an
 emulator.
 
@@ -46,11 +46,11 @@ adb shell am start -n dev.sargunv.handheld/.SessionTestActivity \
 
 The core and content paths are relative to the app's `files/session-test`, or
 absolute. Innkeeper has no `run-as`, so there, pass the absolute paths under
-`/data/local/tmp/session-test` instead of copying the files. `--es platform gbc`
-in place of `--es core` installs and runs that platform's core.
+`/data/local/tmp/session-test` instead of copying the files.
 `--esa core_options key=value,...` sets core options, such as
 `ppsspp_backend=vulkan` for PPSSPP to render with Vulkan. F2 saves a state and
-F4 loads it.
+F4 loads it. Games from the library run in the app's own player instead:
+`mise run android:open game:<romId>` or `local:<path>`.
 
 ## Run on the desktop
 

@@ -7,7 +7,7 @@ plugins { id("com.android.library") }
 val workspaceDir: Directory = rootProject.layout.projectDirectory
 val rustSources =
   files(
-    fileTree("src") { include("**/*.rs", "**/*.h") },
+    fileTree("src"),
     fileTree("vendor"),
     fileTree("bindgen") { include("Cargo.toml", "src/**") },
     // The workspace's crates the session links.
@@ -40,10 +40,13 @@ android {
   namespace = "dev.sargunv.handheld.session"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
   defaultConfig { minSdk = libs.versions.android.minSdk.get().toInt() }
+  // src holds the Rust crate.
+  sourceSets["main"].kotlin.directories += "kotlin"
 }
 
 dependencies {
   implementation("${libs.jna.get()}@aar")
+  implementation(libs.kermit)
   implementation(libs.kotlinx.coroutines.core)
 }
 

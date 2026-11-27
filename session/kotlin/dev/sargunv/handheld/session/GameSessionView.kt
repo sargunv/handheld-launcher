@@ -2,12 +2,12 @@ package dev.sargunv.handheld.session
 
 import android.content.Context
 import android.hardware.input.InputManager
-import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import co.touchlab.kermit.Logger
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -117,7 +117,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       session.attachWindow(window, frame.width().toUInt(), frame.height().toUInt())
       attached = true
     } catch (e: SessionException) {
-      Log.e(TAG, "can't present the session to its surface", e)
+      log.e(e) { "Can't present the session to its surface" }
     }
   }
 
@@ -134,8 +134,6 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
   }
 
   private companion object {
-    const val TAG = "GameSessionView"
-
     /** Runs pauses and resumes in the order the views ask for them. */
     val controlThread: ExecutorService = Executors.newSingleThreadExecutor {
       Thread(it, "session-control").apply { isDaemon = true }
@@ -148,12 +146,14 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
         } catch (_: SessionException.Stopped) {
           // The core quit, and the session stopped as it does when told to.
         } catch (e: SessionException) {
-          Log.e(TAG, "the session failed to ${if (resume) "resume" else "pause"}", e)
+          log.e(e) { "The session failed to ${if (resume) "resume" else "pause"}" }
         }
       }
     }
   }
 }
+
+private val log = Logger.withTag("GameSessionView")
 
 /**
  * Passes [event], a touch on [view], which shows the session on [screen], to the session as its
