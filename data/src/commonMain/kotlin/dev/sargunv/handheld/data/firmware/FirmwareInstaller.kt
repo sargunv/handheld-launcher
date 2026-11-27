@@ -1,8 +1,7 @@
 package dev.sargunv.handheld.data.firmware
 
-import dev.sargunv.handheld.data.digest
-import dev.sargunv.handheld.data.feed
 import dev.sargunv.handheld.data.hexDigest
+import dev.sargunv.handheld.data.hexDigests
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommFirmware
@@ -14,14 +13,7 @@ import java.io.IOException
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
-import java.util.concurrent.atomic.AtomicReference
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
-import kotlin.time.TimeSource
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 
@@ -54,14 +46,10 @@ sealed interface FirmwareInstall {
  * [staging] first and are checked against the hashes RomM lists. A file already at the target is
  * never replaced, even when it differs from the server's: the emulator may depend on it.
  *
- * A download fails when no data arrives for [stallTimeout], so a stalled server can't hold up the
- * launch that's waiting on it. What arrived stays in [staging], and the next install resumes it.
+ * A download that breaks, such as on a server that stays silent past the client's socket timeout,
+ * keeps what arrived in [staging], and the next install resumes it.
  */
-class FirmwareInstaller(
-  private val client: RommClient,
-  private val staging: File,
-  private val stallTimeout: Duration = 30.seconds,
-) {
+class FirmwareInstaller(private val client: RommClient, private val staging: File) {
   /**
    * Places the firmware the server has for [platform] in the first of [folders] the launcher can
    * write to, named as [location] says. A folder that doesn't exist yet is created.
@@ -131,7 +119,7 @@ class FirmwareInstaller(
       )
     val staged =
       File(staging, "${hexDigest("SHA-256", identity.joinToString("\n").encodeToByteArray())}.part")
-    download(file, staged)
+    client.downloadFirmware(file.id, file.fileName, Path(staged.path))
     try {
       mismatchedHash(staged, file)?.let { throw IOException("$it mismatch") }
       target.parentFile.mkdirs()
@@ -155,37 +143,15 @@ class FirmwareInstaller(
     }
   }
 
-  /**
-   * Downloads [file] to [staged], resuming from what [staged] already holds, and fails when no data
-   * arrives for [stallTimeout].
-   */
-  private suspend fun download(file: RommFirmware, staged: File) = coroutineScope {
-    val lastProgress = AtomicReference(TimeSource.Monotonic.markNow())
-    val watchdog = launch {
-      while (true) {
-        val idle = lastProgress.get().elapsedNow()
-        if (idle >= stallTimeout) throw IOException("No data arrived for $stallTimeout")
-        delay(stallTimeout - idle)
-      }
-    }
-    client.downloadFirmware(file.id, file.fileName, Path(staged.path)) {
-      lastProgress.set(TimeSource.Monotonic.markNow())
-    }
-    watchdog.cancel()
-  }
-
   /** The name of the first hash RomM lists for [file] that [staged] doesn't match, if any. */
   private fun mismatchedHash(staged: File, file: RommFirmware): String? {
     val expected =
       listOfNotNull(file.md5Hash?.let { "MD5" to it }, file.sha1Hash?.let { "SHA-1" to it })
     if (expected.isEmpty()) return null
-    val digests = expected.map { digest(it.first) }
-    staged.inputStream().use { it.feed(digests) }
+    val actual = hexDigests(staged, expected.map { it.first })
     return expected
-      .zip(digests)
-      .firstOrNull { (hash, digest) ->
-        !digest.digest().toHexString().equals(hash.second, ignoreCase = true)
-      }
+      .zip(actual)
+      .firstOrNull { (hash, hex) -> !hex.equals(hash.second, ignoreCase = true) }
       ?.first
       ?.first
   }

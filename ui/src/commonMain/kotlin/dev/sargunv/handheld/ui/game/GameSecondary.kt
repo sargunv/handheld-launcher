@@ -43,8 +43,6 @@ import dev.sargunv.handheld.ui.saves.ago
 import dev.sargunv.handheld.ui.saves.size
 import kotlin.time.Clock
 import kotlin.time.Instant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /** What the lower screen's save history holds. */
 private sealed interface SaveHistoryState {
@@ -239,7 +237,7 @@ private suspend fun loadAchievementProgress(
   romId: Long,
 ): RommAchievementProgress? =
   try {
-    withContext(Dispatchers.Default) { state.romm.account?.client?.achievementProgress(romId) }
+    state.romm.account?.client?.achievementProgress(romId)
   } catch (e: RommException) {
     log.w(e) { "Reading the achievement progress of ROM $romId failed" }
     null
@@ -247,10 +245,8 @@ private suspend fun loadAchievementProgress(
 
 private suspend fun loadSaveHistory(account: RommAccount, romId: Long): SaveHistoryState =
   try {
-    withContext(Dispatchers.Default) {
-      val saves = account.client.saves(romId = romId)
-      SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
-    }
+    val saves = account.client.saves(romId = romId)
+    SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
   } catch (e: RommException) {
     log.w(e) { "Reading the save history of ROM $romId failed" }
     SaveHistoryState.Failed(labelled("Saves unavailable", e.message))

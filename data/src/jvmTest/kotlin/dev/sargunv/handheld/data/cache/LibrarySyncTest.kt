@@ -10,7 +10,6 @@ import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.CollectionKind
-import dev.sargunv.handheld.domain.RomFileCategory
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import kotlin.coroutines.EmptyCoroutineContext
@@ -128,7 +127,6 @@ class LibrarySyncTest {
     )
     assertEquals(listOf("Platform", "Adventure"), rom.genres)
     assertEquals(Instant.fromEpochMilliseconds(1_000_000_000_000), rom.releaseDate)
-    assertEquals(RomFileCategory.Game, rom.files.single().category)
     // A ROM no metadata source matched goes by its file name.
     assertEquals("Game 3", cache.rom(3)!!.title)
 

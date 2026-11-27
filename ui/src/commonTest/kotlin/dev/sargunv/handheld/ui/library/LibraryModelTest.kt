@@ -22,18 +22,14 @@ class LibraryModelTest {
       platformSlug = "gb",
       title = sortKey,
       sortKey = sortKey,
-      alternativeNames = emptyList(),
       fileName = "$sortKey.gb",
       sizeBytes = 1,
       summary = null,
       genres = emptyList(),
-      regions = emptyList(),
       releaseDate = null,
       coverSmallUrl = null,
       coverLargeUrl = null,
-      hasMultipleFiles = false,
       files = emptyList(),
-      updatedAt = Instant.parse("2025-01-01T00:00:00Z"),
       createdAt = Instant.parse("2025-01-${addedDay.toString().padStart(2, '0')}T00:00:00Z"),
     )
 

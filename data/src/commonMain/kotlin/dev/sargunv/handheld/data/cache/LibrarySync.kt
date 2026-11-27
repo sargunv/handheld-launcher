@@ -12,7 +12,6 @@ import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
-import dev.sargunv.handheld.domain.RomFileCategory
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
@@ -105,18 +104,14 @@ internal fun RommRom.toDomain(client: RommClient): Rom {
     platformSlug = platformSlug,
     title = title,
     sortKey = nameSortKey?.takeIf { it.isNotBlank() } ?: title.lowercase(),
-    alternativeNames = alternativeNames,
     fileName = fsName,
     sizeBytes = fsSizeBytes,
     summary = summary,
     genres = metadatum?.genres.orEmpty(),
-    regions = regions,
     releaseDate = metadatum?.firstReleaseDate?.let(Instant::fromEpochMilliseconds),
     coverSmallUrl = coverUrl(pathCoverSmall, client),
     coverLargeUrl = coverUrl(pathCoverLarge, client),
-    hasMultipleFiles = hasMultipleFiles,
     files = files.map { it.toDomain() },
-    updatedAt = updatedAt,
     createdAt = createdAt,
   )
 }
@@ -130,7 +125,6 @@ internal fun RommRomFile.toDomain() =
     id = id,
     fileName = fileName,
     sizeBytes = fileSizeBytes,
-    category = fileCategory(category),
     crcHash = normalHash(crcHash)?.padStart(8, '0'),
     md5Hash = normalHash(md5Hash),
     sha1Hash = normalHash(sha1Hash),
@@ -145,22 +139,3 @@ internal fun RommCollection.toDomain() =
 
 internal fun RommSmartCollection.toDomain() =
   Collection(CollectionKind.Smart, id, name, description, romCount, isFavorite = false)
-
-private fun fileCategory(value: String?): RomFileCategory? =
-  when (value) {
-    "game" -> RomFileCategory.Game
-    "dlc" -> RomFileCategory.Dlc
-    "hack" -> RomFileCategory.Hack
-    "manual" -> RomFileCategory.Manual
-    "walkthrough" -> RomFileCategory.Walkthrough
-    "patch" -> RomFileCategory.Patch
-    "update" -> RomFileCategory.Update
-    "mod" -> RomFileCategory.Mod
-    "demo" -> RomFileCategory.Demo
-    "translation" -> RomFileCategory.Translation
-    "prototype" -> RomFileCategory.Prototype
-    "cheat" -> RomFileCategory.Cheat
-    "soundtrack" -> RomFileCategory.Soundtrack
-    "screenshot" -> RomFileCategory.Screenshot
-    else -> null
-  }

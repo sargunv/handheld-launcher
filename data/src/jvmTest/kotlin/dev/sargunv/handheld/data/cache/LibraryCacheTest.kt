@@ -5,7 +5,6 @@ import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
-import dev.sargunv.handheld.domain.RomFileCategory
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -26,7 +25,7 @@ class LibraryCacheTest {
     id: Long,
     title: String,
     platformId: Long = 1,
-    files: List<RomFile> = listOf(RomFile(id * 10, "$title.bin", 100, RomFileCategory.Game)),
+    files: List<RomFile> = listOf(RomFile(id * 10, "$title.bin", 100)),
     createdAt: Instant = Instant.parse("2024-06-01T00:00:00Z"),
   ) =
     Rom(
@@ -35,18 +34,14 @@ class LibraryCacheTest {
       platformSlug = "p$platformId",
       title = title,
       sortKey = title.lowercase().removePrefix("the "),
-      alternativeNames = emptyList(),
       fileName = "$title (USA).bin",
       sizeBytes = files.sumOf { it.sizeBytes },
       summary = null,
       genres = listOf("Platform", "Adventure"),
-      regions = listOf("USA"),
       releaseDate = Instant.fromEpochMilliseconds(1_000_000_000_000),
       coverSmallUrl = "https://romm.test/small/$id.png",
       coverLargeUrl = null,
-      hasMultipleFiles = files.size > 1,
       files = files,
-      updatedAt = Instant.parse("2025-01-01T00:00:00Z"),
       createdAt = createdAt,
     )
 
@@ -54,9 +49,9 @@ class LibraryCacheTest {
   fun readsBackWhatItStored() = runTest {
     val discs =
       listOf(
-        RomFile(20, "Disc Game (Disc 2).chd", 200, RomFileCategory.Game),
-        RomFile(21, "Disc Game (Disc 1).chd", 100, RomFileCategory.Game, "0000abcd", "md5", "sha1"),
-        RomFile(22, "readme.txt", 1, null),
+        RomFile(20, "Disc Game (Disc 2).chd", 200),
+        RomFile(21, "Disc Game (Disc 1).chd", 100, "0000abcd", "md5", "sha1"),
+        RomFile(22, "readme.txt", 1),
       )
     val roms =
       listOf(
@@ -90,8 +85,7 @@ class LibraryCacheTest {
   @Test
   fun replacesARomsFilesOnUpdate() = runTest {
     cache.upsertRoms(listOf(rom(1, "Game")))
-    val updated =
-      rom(1, "Game: Remastered", files = listOf(RomFile(11, "new.bin", 5, RomFileCategory.Game)))
+    val updated = rom(1, "Game: Remastered", files = listOf(RomFile(11, "new.bin", 5)))
     cache.upsertRoms(listOf(updated))
 
     assertEquals(updated, cache.rom(1))
@@ -101,7 +95,7 @@ class LibraryCacheTest {
   @Test
   fun movesAFileToAnotherRom() = runTest {
     cache.upsertRoms(listOf(rom(1, "One"), rom(2, "Two")))
-    val moved = RomFile(10, "One.bin", 100, RomFileCategory.Game)
+    val moved = RomFile(10, "One.bin", 100)
     cache.upsertRoms(listOf(rom(2, "Two", files = listOf(moved))))
 
     assertEquals(emptyList(), cache.rom(1)!!.files)

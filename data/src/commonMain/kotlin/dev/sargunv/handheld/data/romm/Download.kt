@@ -26,26 +26,20 @@ internal data class DownloadProgress(
   val totalBytes: Long?,
 )
 
-/** A finished download. */
-internal data class DownloadResult(
-  /** The size of the downloaded file. */
-  val totalBytes: Long,
-  /** The bytes the target already held, which this download kept and didn't fetch again. */
-  val resumedFrom: Long,
-)
-
 /**
  * Downloads the response to [request] into [target], asking for only the bytes past what [target]
  * already holds. A server that ignores the range sends the whole file, which replaces [target]'s
  * contents.
  *
  * When the connection breaks, [target] keeps what arrived, and the next call resumes from there.
+ *
+ * @return the bytes [target] already held, which this download kept and didn't fetch again.
  */
 internal suspend fun HttpClient.download(
   target: Path,
   onProgress: (DownloadProgress) -> Unit,
   request: HttpRequestBuilder.() -> Unit,
-): DownloadResult {
+): Long {
   val existing = SystemFileSystem.metadataOrNull(target)?.size ?: 0L
   val result = network {
     prepareRequest {
@@ -72,7 +66,7 @@ internal suspend fun HttpClient.download(
             // file is now.
             val total = parseUnsatisfiedRangeTotal(response.headers[HttpHeaders.ContentRange])
             when {
-              total == existing -> DownloadResult(existing, existing)
+              total == existing -> existing
               existing > 0 -> null
               else -> throw errorFor(response, response.bodyAsText())
             }
@@ -92,7 +86,7 @@ private suspend fun HttpResponse.writeTo(
   startAt: Long,
   totalBytes: Long?,
   onProgress: (DownloadProgress) -> Unit,
-): DownloadResult {
+): Long {
   val channel = bodyAsChannel()
   var downloaded = startAt
   onProgress(DownloadProgress(downloaded, totalBytes))
@@ -110,7 +104,7 @@ private suspend fun HttpResponse.writeTo(
     log.w { "${request.url}: cut short at $downloaded of $totalBytes bytes" }
     throw IOException("Download cut short")
   }
-  return DownloadResult(downloaded, if (append) startAt else 0)
+  return if (append) startAt else 0
 }
 
 private const val CHUNK_SIZE = 64L * 1024

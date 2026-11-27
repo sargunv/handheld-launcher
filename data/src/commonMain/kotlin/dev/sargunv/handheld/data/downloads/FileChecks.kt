@@ -2,7 +2,7 @@ package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.digest
 import dev.sargunv.handheld.data.feed
-import dev.sargunv.handheld.data.hexDigest
+import dev.sargunv.handheld.data.hexDigests
 import java.io.File
 import java.io.IOException
 import java.util.zip.ZipException
@@ -31,7 +31,7 @@ internal fun matchesServerHashes(
   fun matches(hex: String) = hex.equals(expected, ignoreCase = true)
 
   val file = File(path.toString())
-  if (matches(hexDigest(algorithm, file))) return true
+  if (matches(hexDigests(file, listOf(algorithm)).single())) return true
   val zip =
     try {
       ZipFile(file)
@@ -90,10 +90,8 @@ internal fun oneFileZipCrc(path: Path): String? =
 
 /** The CRC-32 and SHA-1 of the whole file at [path], in lowercase hex. */
 internal fun crcAndSha1(path: Path): Pair<String, String> {
-  val crc = digest("CRC32")
-  val sha1 = digest("SHA-1")
-  File(path.toString()).inputStream().use { it.feed(listOf(crc, sha1)) }
-  return crc.digest().toHexString() to sha1.digest().toHexString()
+  val (crc, sha1) = hexDigests(File(path.toString()), listOf("CRC32", "SHA-1"))
+  return crc to sha1
 }
 
 private val OtherArchives = setOf("7z", "rar", "tar", "gz", "tgz", "bz2", "xz")

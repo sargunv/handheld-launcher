@@ -53,7 +53,7 @@ class LiveLibrarySyncTest {
 
     println(
       "Live sync: ${platforms.size} platforms, $romCount ROMs with " +
-        "${roms.sumOf { it.files.size }} files (${roms.count { it.hasMultipleFiles }} with several), " +
+        "${roms.sumOf { it.files.size }} files (${roms.count { it.files.size > 1 }} with several), " +
         "${cache.collections().first().size} collections",
     )
   }

@@ -14,11 +14,11 @@ internal fun digest(algorithm: String): MessageDigest =
 internal fun hexDigest(algorithm: String, bytes: ByteArray): String =
   digest(algorithm).digest(bytes).toHexString()
 
-/** The [algorithm] digest of [file]'s bytes, in lowercase hex. */
-internal fun hexDigest(algorithm: String, file: File): String {
-  val digest = digest(algorithm)
-  file.inputStream().use { it.feed(listOf(digest)) }
-  return digest.digest().toHexString()
+/** The digests of [file]'s bytes by each of [algorithms], in lowercase hex, from one read. */
+internal fun hexDigests(file: File, algorithms: List<String>): List<String> {
+  val digests = algorithms.map(::digest)
+  file.inputStream().use { it.feed(digests) }
+  return digests.map { it.digest().toHexString() }
 }
 
 /** Feeds the rest of this stream to each of [digests], 64 KiB at a time. */

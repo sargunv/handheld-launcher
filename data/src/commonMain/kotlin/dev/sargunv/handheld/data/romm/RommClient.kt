@@ -31,9 +31,11 @@ import io.ktor.http.takeFrom
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 import kotlinx.io.IOException
 import kotlinx.io.files.Path
 import kotlinx.serialization.KSerializer
@@ -238,24 +240,19 @@ internal constructor(
     fileName: String,
     target: Path,
     onProgress: (DownloadProgress) -> Unit = {},
-  ): DownloadResult =
+  ): Long =
     http.download(target, onProgress) {
       endpoint(HttpMethod.Get, listOf("roms", fileId.toString(), "files", "content", fileName))
     }
 
   /** Downloads a firmware file to [target], resuming from what [target] already holds. */
-  internal suspend fun downloadFirmware(
-    firmwareId: Long,
-    fileName: String,
-    target: Path,
-    onProgress: (DownloadProgress) -> Unit = {},
-  ): DownloadResult =
-    http.download(target, onProgress) {
+  internal suspend fun downloadFirmware(firmwareId: Long, fileName: String, target: Path): Long =
+    http.download(target, onProgress = {}) {
       endpoint(HttpMethod.Get, listOf("firmware", firmwareId.toString(), "content", fileName))
     }
 
   /** Downloads a save's file to [target], which must be empty or missing. */
-  internal suspend fun downloadSave(saveId: Long, target: Path): DownloadResult =
+  internal suspend fun downloadSave(saveId: Long, target: Path): Long =
     http.download(target, onProgress = {}) {
       endpoint(HttpMethod.Get, listOf("saves", saveId.toString(), "content"))
     }
@@ -453,13 +450,19 @@ internal constructor(
     noinline params: ParametersBuilder.() -> Unit = {},
   ): T = send(HttpMethod.Get, path.toList(), params)
 
-  /** Sends a request to the API's [path], and decodes the response's body. */
+  /**
+   * Sends a request to the API's [path], and decodes the response's body off the caller's thread,
+   * since a page of ROMs is large.
+   */
   private suspend inline fun <reified T> send(
     method: HttpMethod,
     path: List<String>,
     noinline params: ParametersBuilder.() -> Unit = {},
     noinline configure: HttpRequestBuilder.() -> Unit = {},
-  ): T = decode(serializer<T>(), request(method, path, params, configure))
+  ): T =
+    withContext(Dispatchers.Default) {
+      decode(serializer<T>(), request(method, path, params, configure))
+    }
 
   /** Sends a request to the API's [path], and returns the response's body. */
   private suspend fun request(
