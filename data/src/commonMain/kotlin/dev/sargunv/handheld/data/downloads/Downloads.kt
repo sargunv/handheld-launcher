@@ -541,10 +541,10 @@ class DownloadManager(
     path: Path,
     onBytes: (Long) -> Unit,
   ) {
-    val result =
+    val resumedFrom =
       client.downloadRomFile(file.id, file.fileName, path) { onBytes(it.bytesDownloaded) }
     if (
-      result.resumedFrom > 0 &&
+      resumedFrom > 0 &&
         matchesServerHashes(path, file.md5Hash, file.sha1Hash, file.crcHash) == false
     ) {
       SystemFileSystem.delete(path)

@@ -50,14 +50,10 @@ private constructor(
         CollectionRomRow.Adapter(collection_kindAdapter = EnumColumnAdapter()),
       romAdapter =
         RomRow.Adapter(
-          alternative_namesAdapter = StringListAdapter,
           genresAdapter = StringListAdapter,
-          regionsAdapter = StringListAdapter,
           release_dateAdapter = InstantAdapter,
-          updated_atAdapter = InstantAdapter,
           created_atAdapter = InstantAdapter,
         ),
-      rom_fileAdapter = Rom_file.Adapter(categoryAdapter = EnumColumnAdapter()),
       recently_playedAdapter = Recently_played.Adapter(last_playedAdapter = InstantAdapter),
     )
   private val queries = database.libraryQueries
@@ -171,7 +167,6 @@ private constructor(
             rom_id = rom.id,
             file_name = file.fileName,
             size_bytes = file.sizeBytes,
-            category = file.category,
             crc_hash = file.crcHash,
             md5_hash = file.md5Hash,
             sha1_hash = file.sha1Hash,
@@ -276,7 +271,7 @@ private fun withFiles(roms: List<RomRow>, files: List<Rom_file>): List<Rom> {
 }
 
 private fun Rom_file.toDomain() =
-  RomFile(id, file_name, size_bytes, category, crc_hash, md5_hash, sha1_hash, chd_sha1_hash)
+  RomFile(id, file_name, size_bytes, crc_hash, md5_hash, sha1_hash, chd_sha1_hash)
 
 private fun PlatformRow.toDomain() = Platform(id, slug, fs_slug, name, rom_count.toInt())
 
@@ -293,15 +288,11 @@ private fun RomRow.toDomain(files: List<RomFile>) =
     fileName = file_name,
     sizeBytes = size_bytes,
     summary = summary,
-    alternativeNames = alternative_names,
     genres = genres,
-    regions = regions,
     releaseDate = release_date,
     coverSmallUrl = cover_small_url,
     coverLargeUrl = cover_large_url,
-    hasMultipleFiles = has_multiple_files,
     files = files,
-    updatedAt = updated_at,
     createdAt = created_at,
   )
 
@@ -315,14 +306,10 @@ private fun Rom.toRow() =
     file_name = fileName,
     size_bytes = sizeBytes,
     summary = summary,
-    alternative_names = alternativeNames,
     genres = genres,
-    regions = regions,
     release_date = releaseDate,
     cover_small_url = coverSmallUrl,
     cover_large_url = coverLargeUrl,
-    has_multiple_files = hasMultipleFiles,
-    updated_at = updatedAt,
     created_at = createdAt,
   )
 

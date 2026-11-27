@@ -11,9 +11,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
-import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.writeFully
 import java.io.File
 import java.nio.file.Files
 import java.security.MessageDigest
@@ -27,7 +25,6 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.test.runTest
 
 class FirmwareInstallerTest {
@@ -48,8 +45,8 @@ class FirmwareInstallerTest {
     val md5: String?,
   )
 
-  /** While set, a firmware download sends this many bytes and then stalls. */
-  private var stallAfter: Int? = null
+  /** While set, a firmware download's connection breaks after this many bytes. */
+  private var breakAfter: Int? = null
 
   private fun md5(bytes: ByteArray) =
     MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }
@@ -87,14 +84,7 @@ class FirmwareInstallerTest {
         val start =
           request.headers[HttpHeaders.Range]?.removePrefix("bytes=")?.removeSuffix("-")?.toInt()
         val rest = file.bytes.copyOfRange(start ?: 0, file.bytes.size)
-        val stall = stallAfter?.takeIf { it < rest.size }
-        val body =
-          if (stall == null) ByteReadChannel(rest)
-          else
-            ByteChannel().apply {
-              writeFully(rest, 0, stall)
-              flush()
-            }
+        val body = ByteReadChannel(rest.copyOf(minOf(breakAfter ?: rest.size, rest.size)))
         if (start == null) {
           respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentLength, "${rest.size}"))
         } else {
@@ -169,25 +159,25 @@ class FirmwareInstallerTest {
   }
 
   @Test
-  fun aStalledDownloadFailsAndResumesNextTime() = runTest {
+  fun aBrokenDownloadFailsAndResumesNextTime() = runTest {
     val big = Random(42).nextBytes(200_000)
     val server =
       server(
         ServedFile(1, 51, "scph5501.bin", big, md5(big)),
         ServedFile(2, 51, "scph1001.bin", bios, md5(bios)),
       )
-    val installer = FirmwareInstaller(server.client, staging, stallTimeout = 300.milliseconds)
+    val installer = FirmwareInstaller(server.client, staging)
 
-    stallAfter = 100_000
-    val stalled = installer.install(PlatformCatalog.PSX, duckStation, listOf(folder.path))
-    val done = assertIs<FirmwareInstall.Done>(stalled)
+    breakAfter = 100_000
+    val broken = installer.install(PlatformCatalog.PSX, duckStation, listOf(folder.path))
+    val done = assertIs<FirmwareInstall.Done>(broken)
     assertEquals(setOf("scph5501.bin"), done.failed.keys)
-    assertEquals(listOf("scph1001.bin"), done.placed, "The stalled file doesn't hold up the rest")
+    assertEquals(listOf("scph1001.bin"), done.placed, "The broken file doesn't hold up the rest")
     assertFalse(File(folder, "scph5501.bin").exists())
     val kept = staging.listFiles()!!.single().length()
     assertTrue(kept in 1..<big.size, "What arrived is kept")
 
-    stallAfter = null
+    breakAfter = null
     assertEquals(
       FirmwareInstall.Done(folder.path, listOf("scph5501.bin"), listOf("scph1001.bin"), emptyMap()),
       installer.install(PlatformCatalog.PSX, duckStation, listOf(folder.path)),
@@ -204,15 +194,11 @@ class FirmwareInstallerTest {
   fun doesntResumeOntoAFileThatChanged() = runTest {
     val old = Random(1).nextBytes(200_000)
     val new = Random(2).nextBytes(200_000)
-    stallAfter = 100_000
-    FirmwareInstaller(
-        server(ServedFile(1, 51, "scph5501.bin", old, md5(old))).client,
-        staging,
-        300.milliseconds,
-      )
+    breakAfter = 100_000
+    FirmwareInstaller(server(ServedFile(1, 51, "scph5501.bin", old, md5(old))).client, staging)
       .install(PlatformCatalog.PSX, duckStation, listOf(folder.path))
 
-    stallAfter = null
+    breakAfter = null
     val server = server(ServedFile(1, 51, "scph5501.bin", new, md5(new)))
     val result =
       FirmwareInstaller(server.client, staging)

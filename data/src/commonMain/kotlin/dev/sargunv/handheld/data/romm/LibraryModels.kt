@@ -41,15 +41,12 @@ internal data class RommRom(
   @SerialName("fs_name_no_tags") val fsNameNoTags: String,
   @SerialName("fs_size_bytes") val fsSizeBytes: Long,
   val summary: String? = null,
-  @SerialName("alternative_names") val alternativeNames: List<String> = emptyList(),
   val metadatum: RommRomMetadata? = null,
   /** Server-relative paths of the cover art RomM keeps. */
   @SerialName("path_cover_small") val pathCoverSmall: String? = null,
   @SerialName("path_cover_large") val pathCoverLarge: String? = null,
   /** The metadata source's cover URL, which RomM may not have downloaded. */
   @SerialName("url_cover") val urlCover: String? = null,
-  val regions: List<String> = emptyList(),
-  @SerialName("has_multiple_files") val hasMultipleFiles: Boolean = false,
   /** The ROM's files. `GET /api/roms` includes them only when asked to. */
   val files: List<RommRomFile> = emptyList(),
   /** What the signed-in user keeps about the ROM, or null when they've kept nothing. */
@@ -92,8 +89,6 @@ internal data class RommRomFile(
   @SerialName("file_path") val filePath: String,
   @SerialName("file_size_bytes") val fileSizeBytes: Long,
   @SerialName("is_top_level") val isTopLevel: Boolean = true,
-  /** RomM's category for the file, such as `game` or `dlc`. */
-  val category: String? = null,
   @SerialName("crc_hash") val crcHash: String? = null,
   @SerialName("md5_hash") val md5Hash: String? = null,
   @SerialName("sha1_hash") val sha1Hash: String? = null,

@@ -16,7 +16,7 @@ object Fixtures {
     }
     """
 
-  fun file(id: Long, romId: Long, name: String, size: Long, category: String? = "game") =
+  fun file(id: Long, romId: Long, name: String, size: Long) =
     """
     {
       "id": $id, "rom_id": $romId, "file_name": "$name", "file_path": "roms/test/$name",
@@ -24,7 +24,7 @@ object Fixtures {
       "created_at": "2025-01-01T00:00:00+00:00", "updated_at": "2025-01-01T00:00:00+00:00",
       "last_modified": "2025-01-01T00:00:00.123456+00:00", "crc_hash": "0badf00d",
       "md5_hash": null, "sha1_hash": null, "ra_hash": null, "chd_sha1_hash": null,
-      "archive_members": null, "category": ${category?.let { "\"$it\"" } ?: "null"}
+      "archive_members": null, "category": "game"
     }
     """
 
@@ -35,7 +35,6 @@ object Fixtures {
     name: String? = "Test Game $id",
     fsName: String = "Test Game $id (USA).bin",
     updatedAt: String = "2025-01-01T00:00:00+00:00",
-    alternativeNames: List<String> = emptyList(),
     files: List<String> = listOf(file(id * 10, id, fsName, 1024)),
     multi: Boolean = files.size > 1,
     hasCover: Boolean = true,
@@ -55,7 +54,7 @@ object Fixtures {
       "name": ${name?.let { "\"$it\"" } ?: "null"},
       "name_sort_key": ${name?.let { "\"${it.lowercase()}\"" } ?: "null"},
       "slug": null, "summary": "A synthetic game.",
-      "alternative_names": [${alternativeNames.joinToString { "\"$it\"" }}],
+      "alternative_names": [],
       "youtube_video_id": null,
       "metadatum": {
         "rom_id": $id, "genres": ["Platform", "Adventure"], "franchises": [], "collections": [],

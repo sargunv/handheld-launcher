@@ -52,22 +52,18 @@ class DeviceGamesTest {
       platformSlug = if (platformId == 1L) "gba" else "psx",
       title = "Game $id",
       sortKey = "game $id",
-      alternativeNames = emptyList(),
       fileName = fileName,
       sizeBytes = files.sumOf { it.sizeBytes },
       summary = null,
       genres = emptyList(),
-      regions = emptyList(),
       releaseDate = null,
       coverSmallUrl = null,
       coverLargeUrl = null,
-      hasMultipleFiles = files.size > 1,
       files = files,
-      updatedAt = Instant.fromEpochSeconds(0),
       createdAt = Instant.fromEpochSeconds(0),
     )
 
-  private val single = RomFile(11, "Game (USA).gba", game.size.toLong(), null)
+  private val single = RomFile(11, "Game (USA).gba", game.size.toLong())
   private val gameRom = Rom(1, 1, single.fileName, listOf(single))
   private val sagaRom =
     Rom(
@@ -75,8 +71,8 @@ class DeviceGamesTest {
       2,
       "Saga (USA)",
       listOf(
-        RomFile(22, "Saga (USA) (Disc 2).chd", disc2.size.toLong(), null),
-        RomFile(21, "Saga (USA) (Disc 1).chd", disc1.size.toLong(), null),
+        RomFile(22, "Saga (USA) (Disc 2).chd", disc2.size.toLong()),
+        RomFile(21, "Saga (USA) (Disc 1).chd", disc1.size.toLong()),
       ),
     )
 
