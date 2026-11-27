@@ -7,7 +7,7 @@ mod common;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common::{Harness, lock, options};
 use handheld_session::{
@@ -115,7 +115,12 @@ fn info_follows_a_new_video_mode() {
     let (session, _) = start(dir.path());
     assert_eq!(session.info().base_width, 320);
     session.set_button(0, Button::Select, true);
-    session.advance(1).unwrap();
+    session.resume();
+    let deadline = Instant::now() + WAIT;
+    while session.info().base_width == 320 {
+        assert!(Instant::now() < deadline, "info kept the first video mode");
+        std::thread::sleep(Duration::from_millis(10));
+    }
     let info = session.info();
     assert_eq!(
         (info.base_width, info.base_height, info.aspect_ratio),
@@ -132,7 +137,7 @@ fn tells_the_app_when_the_core_quits() {
     session.resume();
     session.set_button(0, Button::Start, true);
     heard.recv_timeout(WAIT).unwrap();
-    assert!(matches!(session.advance(1), Err(SessionError::Stopped)));
+    assert!(matches!(session.pause(), Err(SessionError::Stopped)));
     session.stop().unwrap();
     // The core is unloaded by the time the app hears, so another may start.
     let (_next, _) = start(dir.path());
@@ -166,6 +171,6 @@ fn the_listener_may_stop_the_session() {
     .unwrap();
     *listener.0.lock().unwrap() = Some(session.clone());
     session.set_button(0, Button::Start, true);
-    session.advance(1).unwrap();
+    session.resume();
     receiver.recv_timeout(WAIT).unwrap();
 }

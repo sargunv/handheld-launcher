@@ -94,7 +94,7 @@ fn a_stopped_session_refuses_work() {
     let session = start(dir.path()).unwrap();
     session.stop().unwrap();
     session.stop().unwrap();
-    assert!(matches!(session.advance(1), Err(SessionError::Stopped)));
+    assert!(matches!(session.pause(), Err(SessionError::Stopped)));
 }
 
 #[test]
