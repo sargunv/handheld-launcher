@@ -13,7 +13,16 @@ pub struct Frame<'a> {
     pub pixels: &'a [u8],
 }
 
-impl Frame<'_> {
+/// A copy of a frame, as tightly packed RGBA8 rows from top to bottom.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct CapturedFrame {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height * 4` bytes, in R, G, B, A order with A always 255.
+    pub pixels: Vec<u8>,
+}
+
+impl CapturedFrame {
     /// The RGBA value of the pixel at (`x`, `y`), counted from the top left.
     ///
     /// # Panics
@@ -24,15 +33,6 @@ impl Frame<'_> {
         let i = (y as usize * self.width as usize + x as usize) * 4;
         self.pixels[i..i + 4].try_into().expect("four bytes")
     }
-}
-
-/// A copy of a frame, as tightly packed RGBA8 rows from top to bottom.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
-pub struct CapturedFrame {
-    pub width: u32,
-    pub height: u32,
-    /// `width * height * 4` bytes, in R, G, B, A order with A always 255.
-    pub pixels: Vec<u8>,
 }
 
 /// Receives the frames a session produces when it doesn't present them to a

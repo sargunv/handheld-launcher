@@ -27,7 +27,7 @@ fn renders_with_vulkan() {
         )
     };
     let Some(first) = render(1) else { return };
-    first.dump("testvulkan");
+    common::dump(&first, "testvulkan");
     assert_eq!((first.width, first.height), (320, 240));
     // The background in the corners and the bottom-right half of the middle,
     // and the triangle in the top-left half, which also catches a frame

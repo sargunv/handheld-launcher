@@ -8,16 +8,16 @@
 
 mod common;
 
-use common::{OwnedFrame, near};
-use handheld_session::{GlError, SessionError};
+use common::near;
+use handheld_session::{CapturedFrame, GlError, SessionError};
 
 const BACKGROUND: [u8; 4] = [77, 102, 128, 255];
 
 /// Checks the first frame: the background in the corners, the large quad in
 /// the middle, and the small one in the top right but not the bottom right,
 /// which also catches a frame upside down.
-fn check_first_frame(name: &str, frame: &OwnedFrame) {
-    frame.dump(name);
+fn check_first_frame(name: &str, frame: &CapturedFrame) {
+    common::dump(frame, name);
     assert_eq!((frame.width, frame.height), (320, 240));
     for (x, y) in [(0, 0), (319, 0), (0, 239), (319, 239), (250, 180)] {
         assert!(

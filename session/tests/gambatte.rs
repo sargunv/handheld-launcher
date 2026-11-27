@@ -20,10 +20,10 @@ fn plays_the_title_screen_with_sound() {
     let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     h.run(600);
     let frame = h.frames.last();
-    frame.dump("ucity-title");
+    common::dump(&frame, "ucity-title");
     assert_eq!((frame.width, frame.height), (160, 144));
     assert_eq!(
-        frame.sha256(),
+        common::sha256(&frame),
         "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
         "the title screen changed; see it with HANDHELD_SESSION_DUMP_DIR"
     );
@@ -51,7 +51,7 @@ fn plays_the_game_from_a_zip() {
     assert!(extracted.exists());
     h.run(600);
     assert_eq!(
-        h.frames.last().sha256(),
+        common::sha256(&h.frames.last()),
         "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
         "the zipped game shows the same title screen"
     );
@@ -101,7 +101,7 @@ fn restoring_a_state_replays_identically() {
         h.frames.last()
     };
     let first = play(&mut h);
-    first.dump("ucity-after-start");
+    common::dump(&first, "ucity-after-start");
     h.session.unserialize_state(&state).unwrap();
     let second = play(&mut h);
     assert_eq!(first, second);

@@ -9,8 +9,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use handheld_session::{
-    AchievementOptions, AudioSink, Frame, InputState, SendAchievementsRequest, Session,
-    SessionConfig, SessionError, SessionOptions, VideoOutput, VideoSink,
+    AchievementOptions, AudioSink, CapturedFrame, Frame, InputState, SendAchievementsRequest,
+    Session, SessionConfig, SessionError, SessionOptions, VideoOutput, VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -67,7 +67,7 @@ pub fn render(
     frames: usize,
     require: &str,
     unavailable: fn(&SessionError) -> bool,
-) -> Option<OwnedFrame> {
+) -> Option<CapturedFrame> {
     let _lock = lock();
     let mut h = match Harness::start(core, None, &[], None) {
         Ok(h) => h,
@@ -82,66 +82,39 @@ pub fn render(
     Some(h.frames.last())
 }
 
-/// A frame the session produced.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OwnedFrame {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<u8>,
+pub fn sha256(frame: &CapturedFrame) -> String {
+    let digest = Sha256::digest(&frame.pixels);
+    digest.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-impl OwnedFrame {
-    pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        Frame {
-            width: self.width,
-            height: self.height,
-            pixels: &self.pixels,
-        }
-        .pixel(x, y)
-    }
-
-    pub fn sha256(&self) -> String {
-        let digest = Sha256::digest(&self.pixels);
-        digest.iter().map(|b| format!("{b:02x}")).collect()
-    }
-
-    /// The number of distinct colors, to tell a picture from a blank screen.
-    pub fn colors(&self) -> usize {
-        let mut colors: Vec<&[u8; 4]> = self.pixels.as_chunks::<4>().0.iter().collect();
-        colors.sort_unstable();
-        colors.dedup();
-        colors.len()
-    }
-
-    /// Writes the frame as a PNG to `$HANDHELD_SESSION_DUMP_DIR`, if set, for
-    /// looking at what a test saw.
-    pub fn dump(&self, name: &str) {
-        let Some(dir) = std::env::var_os("HANDHELD_SESSION_DUMP_DIR") else {
-            return;
-        };
-        let path = PathBuf::from(dir).join(format!("{name}.png"));
-        let file = std::fs::File::create(&path).unwrap();
-        let mut encoder = png::Encoder::new(file, self.width, self.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .unwrap()
-            .write_image_data(&self.pixels)
-            .unwrap();
-    }
+/// Writes `frame` as a PNG to `$HANDHELD_SESSION_DUMP_DIR`, if set, for
+/// looking at what a test saw.
+pub fn dump(frame: &CapturedFrame, name: &str) {
+    let Some(dir) = std::env::var_os("HANDHELD_SESSION_DUMP_DIR") else {
+        return;
+    };
+    let path = PathBuf::from(dir).join(format!("{name}.png"));
+    let file = std::fs::File::create(&path).unwrap();
+    let mut encoder = png::Encoder::new(file, frame.width, frame.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&frame.pixels)
+        .unwrap();
 }
 
 /// The frames a session produced, shared between the sink and the test.
 #[derive(Clone, Default)]
-pub struct Frames(Rc<RefCell<(usize, Option<OwnedFrame>)>>);
+pub struct Frames(Rc<RefCell<(usize, Option<CapturedFrame>)>>);
 
 impl Frames {
     pub fn count(&self) -> usize {
         self.0.borrow().0
     }
 
-    pub fn last(&self) -> OwnedFrame {
+    pub fn last(&self) -> CapturedFrame {
         self.0.borrow().1.clone().expect("no frame yet")
     }
 }
@@ -150,7 +123,7 @@ impl VideoSink for Frames {
     fn frame(&mut self, frame: Frame<'_>) {
         let mut inner = self.0.borrow_mut();
         inner.0 += 1;
-        inner.1 = Some(OwnedFrame {
+        inner.1 = Some(CapturedFrame {
             width: frame.width,
             height: frame.height,
             pixels: frame.pixels.to_vec(),

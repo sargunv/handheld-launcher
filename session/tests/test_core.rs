@@ -28,7 +28,7 @@ fn draws_the_checkerboard() {
     let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.run(1);
     let frame = h.frames.last();
-    frame.dump("test-core");
+    common::dump(&frame, "test-core");
     assert_eq!((frame.width, frame.height), (320, 240));
     for (x, y) in [(0, 0), (16, 0), (0, 16), (100, 200), (319, 239)] {
         assert_eq!(frame.pixel(x, y), checker(x, y, 0, 0), "pixel ({x}, {y})");
