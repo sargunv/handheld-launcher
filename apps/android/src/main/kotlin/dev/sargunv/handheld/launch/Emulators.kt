@@ -94,7 +94,7 @@ private class RootService(private val binder: IBinder) {
     return when {
       // pidof prints nothing when no process has the name, which the service sends as no bytes.
       output.isEmpty() -> false
-      output.split(Regex("\\s+")).all { pid -> pid.all { it.isDigit() } } -> true
+      output.split(WHITESPACE).all { pid -> pid.all { it.isDigit() } } -> true
       else -> null
     }
   }
@@ -142,6 +142,8 @@ private class RootService(private val binder: IBinder) {
 private val rootLog = Logger.withTag("RootService")
 
 private val PACKAGE_NAME = Regex("[a-zA-Z0-9_.]{1,255}")
+
+private val WHITESPACE = Regex("\\s+")
 
 /**
  * [packageName], checked to hold only letters, digits, `_` and `.`, so nothing else reaches the
