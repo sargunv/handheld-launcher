@@ -1,12 +1,8 @@
-import com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtension
 import dev.sargunv.handheld.gradle.CargoBuild
 import dev.sargunv.handheld.gradle.UniffiBindgen
 import dev.sargunv.handheld.gradle.androidAbis
 
-plugins {
-  alias(libs.plugins.kotlin.multiplatform)
-  alias(libs.plugins.android.kmp.library)
-}
+plugins { alias(libs.plugins.android.library) }
 
 val workspaceDir: Directory = rootProject.layout.projectDirectory
 val rustSources =
@@ -40,20 +36,13 @@ val generateBindings =
     outputDir = layout.buildDirectory.dir("generated/session/bindings")
   }
 
-kotlin {
-  android {
-    namespace = "dev.sargunv.handheld.session"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-    minSdk = libs.versions.android.minSdk.get().toInt()
-  }
-
-  sourceSets.androidMain {
-    kotlin.srcDir(generateBindings.map { it.outputDir })
-    dependencies { implementation("${libs.jna.get()}@aar") }
-  }
+android {
+  namespace = "dev.sargunv.handheld.session"
+  compileSdk = libs.versions.android.compileSdk.get().toInt()
+  defaultConfig { minSdk = libs.versions.android.minSdk.get().toInt() }
 }
 
-val androidComponents = extensions.getByType<KotlinMultiplatformAndroidComponentsExtension>()
+dependencies { implementation("${libs.jna.get()}@aar") }
 
 val cargoBuildAndroid =
   tasks.register<CargoBuild>("cargoBuildAndroid") {
@@ -73,5 +62,6 @@ val cargoBuildAndroid =
   }
 
 androidComponents.onVariants { variant ->
+  variant.sources.kotlin?.addGeneratedSourceDirectory(generateBindings, UniffiBindgen::outputDir)
   variant.sources.jniLibs?.addGeneratedSourceDirectory(cargoBuildAndroid, CargoBuild::outputDir)
 }
