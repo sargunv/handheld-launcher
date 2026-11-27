@@ -69,7 +69,7 @@ data class PlayRequest(
 class AndroidGameLauncher(private val activity: ComponentActivity) : GameLauncher {
   private val romm = activity.handheldApp.rommSession
   private val dispatcher = LaunchDispatcher(activity)
-  private val saves = PlaySaves(activity, romm)
+  private val saves = PlaySaves(activity.handheldApp.saveSync)
   private val builtIn = BuiltInPlayer(activity, saves)
   private val emulators = activity.handheldApp.emulators
 
@@ -99,12 +99,12 @@ class AndroidGameLauncher(private val activity: ComponentActivity) : GameLaunche
       is LaunchResolution.NoEmulatorInstalled -> noEmulator(resolution)
     }
 
-  override suspend fun keptSaves(game: LibraryGame): List<KeptSave> =
-    when (game) {
-      is Rom -> withContext(Dispatchers.IO) { keptSaves(saveHistory(activity), game.id) }
-      // Save sync keeps copies only of the saves it syncs.
-      else -> emptyList()
-    }
+  override suspend fun keptSaves(game: LibraryGame): List<KeptSave> {
+    // Save sync keeps copies only of the saves it syncs, in the signed-in account's history.
+    val history = romm.account?.saveHistory ?: return emptyList()
+    if (game !is Rom) return emptyList()
+    return withContext(Dispatchers.IO) { keptSaves(File(history.toString()), game.id) }
+  }
 
   override suspend fun play(
     game: LibraryGame,

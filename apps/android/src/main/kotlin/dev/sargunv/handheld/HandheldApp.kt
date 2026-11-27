@@ -12,18 +12,25 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommSession
+import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.data.saves.BuiltInSaveFolders
+import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import dev.sargunv.handheld.launch.Emulators
-import dev.sargunv.handheld.launch.saveHistory
 import dev.sargunv.handheld.ui.Settings
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.io.files.Path
 
 /** The app's process, which holds one of each thing its activities and services share. */
@@ -86,9 +93,31 @@ class HandheldApp : Application() {
   /** The standalone emulators the launcher started. */
   internal val emulators by lazy { Emulators(this) }
 
-  /** The built-in session's save folders, in the app's files, with save sync's history. */
+  /**
+   * The signed-in account's save sync, or null while signed out. There's one for each account, so
+   * its syncs run one at a time.
+   */
+  val saveSync: StateFlow<SaveSync?> by lazy {
+    rommSession.state
+      .map { account ->
+        (account as? RommAccount)?.let {
+          SaveSync(
+            it.client,
+            records = File(it.saveRecords.toString()),
+            history = File(it.saveHistory.toString()),
+            staging = File(cacheDir, "save-staging"),
+          )
+        }
+      }
+      .stateIn(scope, SharingStarted.Eagerly, null)
+  }
+
+  /** The built-in session's save folders, in the app's files, with the account's save history. */
   val builtInSaveFolders by lazy {
-    BuiltInSaveFolders(BuiltInSaves(File(filesDir, "saves").path), saveHistory(this))
+    BuiltInSaveFolders(BuiltInSaves(File(filesDir, "saves").path)) {
+      val account = rommSession.state.first { it != RommState.Unknown } as? RommAccount
+      account?.let { File(it.saveHistory.toString()) }
+    }
   }
 
   /** The system page where the user grants the launcher all-files access. */

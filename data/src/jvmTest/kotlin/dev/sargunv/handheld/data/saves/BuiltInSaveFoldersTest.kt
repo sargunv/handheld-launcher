@@ -19,14 +19,16 @@ class BuiltInSaveFoldersTest {
   private val saves = BuiltInSaves(File(dir, "saves").path)
   private val history = File(dir, "save-history")
   private val now = Instant.fromEpochMilliseconds(1_700_000_000_000)
+  @Volatile private var signedIn = true
   private val folders =
     BuiltInSaveFolders(
       saves,
-      history,
       object : Clock {
         override fun now() = now
       },
-    )
+    ) {
+      history.takeIf { signedIn }
+    }
 
   private val romPath = "/storage/emulated/0/ROMs/gbc/uCity.gbc"
   private val adoption = Adoption(GameKey.Local(romPath), GameKey.Romm(7))
@@ -81,6 +83,21 @@ class BuiltInSaveFoldersTest {
       ),
       kept.mapTo(mutableSetOf()) { File(it.path).name },
     )
+  }
+
+  @Test
+  fun signedOutTheLocalSavesWaitForAHistory() = runTest {
+    signedIn = false
+    File(local, "uCity.srm").apply { parentFile.mkdirs() }.writeText("local save")
+    File(own, "uCity.srm").apply { parentFile.mkdirs() }.writeText("rom save")
+
+    folders.adopt(listOf(adoption))
+    assertEquals("local save", File(local, "uCity.srm").readText())
+
+    signedIn = true
+    folders.adopt(listOf(adoption))
+    assertFalse(local.exists())
+    assertEquals(1, keptSaves(history, 7).size)
   }
 
   @Test
