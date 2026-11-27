@@ -10,6 +10,7 @@ import android.provider.Settings as AndroidSettings
 import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.achievements.KeystoreRetroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.KeystoreCredentialStore
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
@@ -17,7 +18,6 @@ import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.launch.Emulators
 import dev.sargunv.handheld.session.rcheevosUserAgentClause
 import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

@@ -1,9 +1,9 @@
 package dev.sargunv.handheld.ui
 
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.RomHeaders

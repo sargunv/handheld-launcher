@@ -7,10 +7,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import co.touchlab.kermit.Logger
-import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
-import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.data.achievements.RetroAchievementsException
-import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.signin.SIGN_IN_NOT_SAVED
 import kotlinx.coroutines.CoroutineScope
@@ -27,34 +25,6 @@ data class AchievementSettings(
    */
   val hardcore: Boolean = false,
 )
-
-/**
- * The device's RetroAchievements account: signing in with a username and password, which go only to
- * RetroAchievements, keeping the token it returns in [store], and signing out.
- *
- * @param client makes a client for each sign-in, which closes it after.
- */
-class RetroAchievementsSignIn(
-  private val store: RetroAchievementsStore,
-  private val client: () -> RetroAchievementsClient,
-) {
-  /** The account the device is signed in to, or null. */
-  suspend fun account(): RetroAchievementsAccount? = store.load()
-
-  /**
-   * Signs in and keeps the account.
-   *
-   * @throws RetroAchievementsException when it fails, with why as its message when that's known.
-   * @throws IOException when the account can't be saved.
-   */
-  suspend fun signIn(username: String, password: String): RetroAchievementsAccount {
-    val account = client().use { it.signIn(username, password) }
-    store.save(account)
-    return account
-  }
-
-  suspend fun signOut() = store.clear()
-}
 
 /**
  * Settings' view of the RetroAchievements account. A sign-in or sign-out runs in [scope], so it
