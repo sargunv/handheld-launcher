@@ -35,16 +35,6 @@ data class LaunchRecipe(
     /** The usual Android hand-off: `VIEW` the ROM's content URI, and let the app open it. */
     val ViewRom: LaunchRecipe = LaunchRecipe()
 
-    /** Open the app without a game, for apps that find their games themselves. */
-    val OpenApp: LaunchRecipe =
-      LaunchRecipe(
-        action = IntentAction.MAIN,
-        categories = listOf(IntentCategory.LAUNCHER),
-        data = null,
-        mimeType = null,
-        flags = setOf(LaunchFlag.NewTask),
-      )
-
     /** A launch for an app that takes the ROM in extras rather than as the intent's data. */
     fun withExtras(
       action: String,

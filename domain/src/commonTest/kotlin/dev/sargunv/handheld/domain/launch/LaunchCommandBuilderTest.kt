@@ -253,24 +253,6 @@ class LaunchCommandBuilderTest {
   }
 
   @Test
-  fun openAppPassesNoGame() {
-    val command =
-      assertIs<LaunchBuild.Ready>(
-          LaunchCommandBuilder.build(
-            LaunchRecipe.OpenApp,
-            "dev.example.app",
-            LaunchInput(rom, PlatformCatalog.PS2),
-          ),
-        )
-        .command
-    assertEquals(IntentAction.MAIN, command.action)
-    assertEquals(listOf(IntentCategory.LAUNCHER), command.categories)
-    assertNull(command.data)
-    assertNull(command.clipData)
-    assertEquals(setOf(LaunchFlag.NewTask), command.flags)
-  }
-
-  @Test
   fun flycastPassesAPathWithAType() {
     val command = build("flycast", PlatformCatalog.DREAMCAST, "/storage/emulated/0/ROMs/game.chd")
     assertEquals(LaunchUri.Raw("/storage/emulated/0/ROMs/game.chd"), command.data)

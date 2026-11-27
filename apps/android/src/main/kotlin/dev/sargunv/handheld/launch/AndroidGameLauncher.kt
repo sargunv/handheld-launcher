@@ -39,7 +39,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * A game to play, for [AndroidGameLauncher.play] and [BuiltInPlayer.play].
+ * A game to play, for [BuiltInPlayer.play].
  *
  * @param romPath the game's file.
  * @param title the game's name, as the save conflict screen shows it.

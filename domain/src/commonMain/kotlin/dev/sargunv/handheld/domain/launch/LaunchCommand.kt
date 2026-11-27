@@ -113,7 +113,6 @@ enum class LaunchFlag {
   NewTask,
   ClearTask,
   ClearTop,
-  SingleTop,
   NoHistory,
   GrantReadUriPermission,
 }
@@ -140,5 +139,4 @@ object IntentAction {
 /** Intent categories launch recipes use. */
 object IntentCategory {
   const val DEFAULT = "android.intent.category.DEFAULT"
-  const val LAUNCHER = "android.intent.category.LAUNCHER"
 }
