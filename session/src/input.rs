@@ -8,6 +8,12 @@ use crate::ffi;
 /// How many controller ports a session exposes.
 pub const MAX_PORTS: usize = 4;
 
+/// [`MAX_PORTS`], for the app.
+#[uniffi::export]
+pub fn max_ports() -> u32 {
+    MAX_PORTS as u32
+}
+
 /// A RetroPad button. The RetroPad follows the SNES layout: `B` is the bottom
 /// face button, `A` the right one, `Y` the left one and `X` the top one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]

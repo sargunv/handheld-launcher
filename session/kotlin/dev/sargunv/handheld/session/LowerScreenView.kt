@@ -52,7 +52,7 @@ class LowerScreenView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
   }
 
   override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-    // EGL follows an Android surface's size on its own.
+    session?.resizeWindow(Screen.LOWER, width.toUInt(), height.toUInt())
   }
 
   override fun surfaceDestroyed(holder: SurfaceHolder) {

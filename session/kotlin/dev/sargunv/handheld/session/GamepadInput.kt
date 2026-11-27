@@ -40,8 +40,9 @@ class GamepadInput(
 ) : AutoCloseable {
   /** The port of each gamepad, by device ID. */
   private val ports = HashMap<Int, UInt>()
-  private val hatX = IntArray(PORTS)
-  private val hatY = IntArray(PORTS)
+  private val portCount = maxPorts()
+  private val hatX = IntArray(portCount.toInt())
+  private val hatY = IntArray(portCount.toInt())
 
   private val listener =
     object : InputManager.InputDeviceListener {
@@ -67,7 +68,7 @@ class GamepadInput(
   private fun connect(deviceId: Int) {
     val device = inputManager.getInputDevice(deviceId) ?: return
     if (deviceId in ports || !device.isGamepad()) return
-    val port = (0u until PORTS.toUInt()).firstOrNull { it !in ports.values } ?: return
+    val port = (0u until portCount).firstOrNull { it !in ports.values } ?: return
     ports[deviceId] = port
   }
 
@@ -143,7 +144,7 @@ class GamepadInput(
    * as when the view loses focus, since a control released meanwhile sends this class no event.
    */
   fun releaseAll() {
-    for (port in 0u until PORTS.toUInt()) release(port)
+    for (port in 0u until portCount) release(port)
   }
 
   private fun release(port: UInt) {
@@ -169,9 +170,6 @@ class GamepadInput(
   }
 
   companion object {
-    /** The ports the session has. */
-    private const val PORTS = 4
-
     private fun InputDevice.isGamepad(): Boolean =
       !isVirtual &&
         (supportsSource(InputDevice.SOURCE_GAMEPAD) || supportsSource(InputDevice.SOURCE_JOYSTICK))

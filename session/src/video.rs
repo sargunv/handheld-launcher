@@ -52,6 +52,15 @@ impl VideoSink for NullVideoSink {
     fn frame(&mut self, _frame: Frame<'_>) {}
 }
 
+/// A window that shows the session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum Screen {
+    /// The window attached with [`crate::GameSession::attach_window`].
+    Main = 0,
+    /// The window attached with [`crate::GameSession::attach_lower_window`].
+    Lower = 1,
+}
+
 /// The pixel formats a software-rendering core can produce.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum PixelFormat {

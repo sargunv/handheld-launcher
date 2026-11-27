@@ -25,7 +25,7 @@ use crate::input::{InputState, MAX_PORTS};
 use crate::options::Options;
 use crate::renderer::Renderer;
 use crate::save::{SaveRam, write_atomically};
-use crate::video::{CapturedFrame, Region, VideoSink};
+use crate::video::{CapturedFrame, Region, Screen, VideoSink};
 use crate::vulkan::VulkanError;
 
 /// Where a session's frames go.
@@ -509,11 +509,11 @@ impl Session {
         self.host().shutdown_requested
     }
 
-    /// Tells the session the window it presents to changed size.
-    pub fn resize_window(&mut self, width: u32, height: u32) {
+    /// Tells the session `screen`'s window changed size.
+    pub fn resize_window(&mut self, screen: Screen, width: u32, height: u32) {
         let host = self.host_mut();
         if let Some(renderer) = host.window_renderer() {
-            renderer.resize(width, height);
+            renderer.resize(screen, width, height);
             host.redraw();
         }
     }

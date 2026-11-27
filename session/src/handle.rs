@@ -24,7 +24,7 @@ use crate::input::{Button, InputState, MAX_PORTS, Stick, Trigger};
 use crate::pacing::{self, Vsync};
 use crate::platform::{self, PlatformWindow, VsyncClock};
 use crate::session::{AvInfo, Session, SessionConfig, SessionError};
-use crate::video::{CapturedFrame, Region};
+use crate::video::{CapturedFrame, Region, Screen};
 
 /// What [`GameSession::start`] needs.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -37,7 +37,6 @@ pub struct SessionOptions {
     /// as RetroArch does. The session owns the directory and keeps only the
     /// last game extracted into it. `None` passes zips to the core as they
     /// are.
-    #[uniffi(default = None)]
     pub content_cache_dir: Option<String>,
     /// Where the core looks for BIOS and other system files.
     pub system_dir: String,
@@ -59,21 +58,10 @@ pub struct SessionOptions {
     /// screen under its 400-pixel-wide top one: 0.8. A lower window shows
     /// only those columns, and its touches land on them. `None` shows the
     /// frame's whole width.
-    #[uniffi(default = None)]
     pub lower_screen_width_share: Option<f32>,
     /// How the session takes part in RetroAchievements, or `None` for not at
     /// all. Its requests go to [`SessionListener::achievements_request`].
-    #[uniffi(default = None)]
     pub achievements: Option<AchievementOptions>,
-}
-
-/// A window that shows the session, for [`GameSession::touch`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum Screen {
-    /// The window attached with [`GameSession::attach_window`].
-    Main,
-    /// The window attached with [`GameSession::attach_lower_window`].
-    Lower,
 }
 
 /// What a session tells the app as it runs. The session calls it on a thread
@@ -180,7 +168,7 @@ type Reply<T> = Sender<Result<T, SessionError>>;
 
 enum Command {
     AttachWindow(PlatformWindow, u32, u32, Reply<()>),
-    ResizeWindow(u32, u32),
+    ResizeWindow(Screen, u32, u32),
     DetachWindow(Reply<()>),
     AttachLowerWindow(PlatformWindow, u32, u32, Reply<()>),
     DetachLowerWindow(Reply<()>),
@@ -250,15 +238,20 @@ impl GameSession {
         self.request(|reply| Command::AttachWindow(window, width, height, reply))
     }
 
-    /// Tells the session the attached window's new size in pixels.
-    pub fn resize_window(&self, width: u32, height: u32) {
-        let _ = self.commands.send(Command::ResizeWindow(width, height));
+    /// Tells the session the new size in pixels of `screen`'s window.
+    pub fn resize_window(&self, screen: Screen, width: u32, height: u32) {
+        let _ = self
+            .commands
+            .send(Command::ResizeWindow(screen, width, height));
     }
 
     /// Stops presenting to the attached window. When this returns, the
     /// session no longer uses it, so the platform may destroy it.
     pub fn detach_window(&self) {
-        let _ = self.request(Command::DetachWindow);
+        match self.request(Command::DetachWindow) {
+            Ok(()) | Err(SessionError::Stopped) => {}
+            Err(e) => log::warn!("can't detach the window: {e}"),
+        }
     }
 
     /// Presents the bottom half of each frame to `window` from now on, and
@@ -286,7 +279,10 @@ impl GameSession {
     /// so the platform may destroy it.
     pub fn detach_lower_window(&self) {
         self.split.store(false, Ordering::Relaxed);
-        let _ = self.request(Command::DetachLowerWindow);
+        match self.request(Command::DetachLowerWindow) {
+            Ok(()) | Err(SessionError::Stopped) => {}
+            Err(e) => log::warn!("can't detach the lower window: {e}"),
+        }
     }
 
     /// Touches `screen` at (`x`, `y`), in pixels from the top left of its
@@ -650,7 +646,9 @@ impl Runner {
                 self.window = result.is_ok().then_some(window);
                 let _ = reply.send(result);
             }
-            Command::ResizeWindow(width, height) => self.session.resize_window(width, height),
+            Command::ResizeWindow(screen, width, height) => {
+                self.session.resize_window(screen, width, height);
+            }
             Command::DetachWindow(reply) => {
                 // SAFETY: detaching needs no window.
                 let result = unsafe { self.session.set_window(None) };

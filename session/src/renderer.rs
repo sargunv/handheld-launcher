@@ -5,7 +5,7 @@ use crate::ffi;
 use crate::gl::{self, Framebuffer, GlApi, GlContext, Target, WindowRef};
 use crate::host::hw_api;
 use crate::session::{AvInfo, SessionError};
-use crate::video::{self, Frame, Region};
+use crate::video::{self, Frame, Region, Screen};
 use crate::vulkan::{Negotiation, VulkanContext};
 
 #[expect(
@@ -113,11 +113,11 @@ impl Renderer {
         Ok(())
     }
 
-    /// Tells the renderer its window's new size.
-    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+    /// Tells the renderer the new size of `screen`'s window.
+    pub(crate) fn resize(&mut self, screen: Screen, width: u32, height: u32) {
         match self {
-            Self::Gl(gpu) => gpu.context.resize(width, height),
-            Self::Vulkan(vulkan) => vulkan.resize(width, height),
+            Self::Gl(gpu) => gpu.context.resize(screen, width, height),
+            Self::Vulkan(vulkan) => vulkan.resize(screen, width, height),
         }
     }
 

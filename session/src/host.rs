@@ -603,7 +603,7 @@ impl Host {
                 );
                 return false;
             }
-            if let Err(e) = gl::Egl::get() {
+            if let Err(e) = gl::egl::instance() {
                 log::warn!("core asked for hardware rendering, but {e}");
                 self.hw_refused = Some(GlError::Unavailable(e).into());
                 return false;
@@ -730,13 +730,13 @@ unsafe extern "C" fn get_proc_address(sym: *const c_char) -> ffi::retro_proc_add
     if sym.is_null() {
         return None;
     }
-    let egl = gl::Egl::get().ok()?;
+    let egl = gl::egl::instance().ok()?;
     // SAFETY: the core passes a C string.
-    let address = egl.proc_address(unsafe { CStr::from_ptr(sym) });
-    // SAFETY: a non-null address is a function; the core casts it to the
+    let name = unsafe { CStr::from_ptr(sym) }.to_str().ok()?;
+    let f = egl.get_proc_address(name)?;
+    // SAFETY: the same function in the C ABI, which the core casts to the
     // signature it asked for.
-    (!address.is_null())
-        .then(|| unsafe { std::mem::transmute::<*const c_void, unsafe extern "C" fn()>(address) })
+    Some(unsafe { std::mem::transmute::<extern "system" fn(), unsafe extern "C" fn()>(f) })
 }
 
 unsafe extern "C" {
