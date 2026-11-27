@@ -20,10 +20,10 @@ fn plays_the_title_screen_with_sound() {
     let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     h.run(600);
     let frame = h.frames.last();
-    frame.dump("ucity-title");
+    common::dump(&frame, "ucity-title");
     assert_eq!((frame.width, frame.height), (160, 144));
     assert_eq!(
-        frame.sha256(),
+        common::sha256(&frame),
         "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
         "the title screen changed; see it with HANDHELD_SESSION_DUMP_DIR"
     );
@@ -51,7 +51,7 @@ fn plays_the_game_from_a_zip() {
     assert!(extracted.exists());
     h.run(600);
     assert_eq!(
-        h.frames.last().sha256(),
+        common::sha256(&h.frames.last()),
         "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
         "the zipped game shows the same title screen"
     );
@@ -77,11 +77,12 @@ fn save_ram_round_trips_through_its_file() {
     let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     let blank = h.session.save_ram().unwrap().to_vec();
     // A state of the game with blank save memory, which a state includes.
-    let state = h.session.serialize_state().unwrap();
+    let state = dir.path().join("blank.state");
+    h.session.save_state(&state).unwrap();
     let mut save_ram = SaveRam::load(&path, &mut h.session).unwrap().unwrap();
     assert_eq!(h.session.save_ram().unwrap(), pattern);
 
-    h.session.unserialize_state(&state).unwrap();
+    h.session.load_state(&state).unwrap();
     save_ram.flush(&h.session).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), blank);
 }
@@ -91,7 +92,8 @@ fn restoring_a_state_replays_identically() {
     let _lock = lock();
     let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     h.run(200);
-    let state = h.session.serialize_state().unwrap();
+    let state = h.dirs.path().join("ucity.state");
+    h.session.save_state(&state).unwrap();
 
     let play = |h: &mut Harness| {
         h.input.port(0).set_button(Button::Start, true);
@@ -101,8 +103,8 @@ fn restoring_a_state_replays_identically() {
         h.frames.last()
     };
     let first = play(&mut h);
-    first.dump("ucity-after-start");
-    h.session.unserialize_state(&state).unwrap();
+    common::dump(&first, "ucity-after-start");
+    h.session.load_state(&state).unwrap();
     let second = play(&mut h);
     assert_eq!(first, second);
 }

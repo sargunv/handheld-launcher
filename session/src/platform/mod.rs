@@ -26,8 +26,6 @@ pub(crate) use headless::{PlatformWindow, VsyncClock, audio_sink, init_logging, 
 pub(crate) fn video_output(lower: crate::Region) -> crate::VideoOutput {
     crate::VideoOutput::Window {
         window: None,
-        width: 0,
-        height: 0,
         lower,
     }
 }

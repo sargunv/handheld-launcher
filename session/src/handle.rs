@@ -811,13 +811,14 @@ impl Runner {
         }
     }
 
-    /// Loads the state at `path`, after backing up save memory, which the
-    /// state's replaces.
+    /// Loads the state at `path`, backing up save memory, which the state's
+    /// replaces, once the state is read.
     fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        let state = self.session.read_state(path)?;
         if let Some(save_ram) = &mut self.save_ram {
             save_ram.back_up(&self.session)?;
         }
-        self.session.load_state(path)
+        self.session.unserialize_state(&state)
     }
 
     fn stop(&mut self) -> Result<(), SessionError> {

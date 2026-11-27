@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, Region, SaveRam, Session,
-    SessionConfig, VideoOutput, VideoSink,
+    AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, SaveRam,
+    Session, SessionConfig, VideoOutput, VideoSink,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -92,20 +92,17 @@ fn main() {
     }
 }
 
-/// A frame's width, height and RGBA8 pixels.
-type OwnedFrame = (u32, u32, Vec<u8>);
-
 /// The last frame the session handed over, for presenting on the CPU.
 #[derive(Clone, Default)]
-struct FrameSlot(Rc<RefCell<Option<OwnedFrame>>>);
+struct FrameSlot(Rc<RefCell<Option<CapturedFrame>>>);
 
 impl VideoSink for FrameSlot {
     fn frame(&mut self, frame: Frame<'_>) {
-        let mut slot = self.0.borrow_mut();
-        let (w, h, pixels) = slot.get_or_insert_with(Default::default);
-        (*w, *h) = (frame.width, frame.height);
-        pixels.clear();
-        pixels.extend_from_slice(frame.pixels);
+        *self.0.borrow_mut() = Some(CapturedFrame {
+            width: frame.width,
+            height: frame.height,
+            pixels: frame.pixels.to_vec(),
+        });
     }
 }
 
@@ -125,7 +122,7 @@ impl CpuPresenter {
             return;
         };
         let slot = self.frames.0.borrow();
-        let Some((w, h, pixels)) = slot.as_ref() else {
+        let Some(frame) = slot.as_ref() else {
             return;
         };
         if self.surface.resize(win_w, win_h).is_err() {
@@ -134,17 +131,18 @@ impl CpuPresenter {
         let Ok(mut buffer) = self.surface.buffer_mut() else {
             return;
         };
-        let (x0, y0, dst_w, dst_h) = Region::Whole.fit(*w, *h, aspect, win_w.get(), win_h.get());
+        let (x0, y0, dst_w, dst_h) =
+            Region::Whole.fit(frame.width, frame.height, aspect, win_w.get(), win_h.get());
         let [x0, y0, dst_w, dst_h] = [x0, y0, dst_w, dst_h].map(|n| n as usize);
         let win_w = win_w.get() as usize;
         buffer.fill(0);
         for y in 0..dst_h {
-            let src_y = y * *h as usize / dst_h;
+            let src_y = y * frame.height as usize / dst_h;
             let row = &mut buffer[(y0 + y) * win_w + x0..][..dst_w];
             for (x, out) in row.iter_mut().enumerate() {
-                let src_x = x * *w as usize / dst_w;
-                let i = (src_y * *w as usize + src_x) * 4;
-                let [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]].map(u32::from);
+                let src_x = x * frame.width as usize / dst_w;
+                let i = (src_y * frame.width as usize + src_x) * 4;
+                let [r, g, b] = [0, 1, 2].map(|c| u32::from(frame.pixels[i + c]));
                 *out = (r << 16) | (g << 8) | b;
             }
         }
@@ -237,9 +235,7 @@ impl App {
 
         let video = match self.args.present {
             Present::Gl => VideoOutput::Window {
-                window: Some(native_window(&window)?),
-                width: size.width,
-                height: size.height,
+                window: Some((native_window(&window)?, size.width, size.height)),
                 lower: Region::bottom(None),
             },
             Present::Cpu => {

@@ -8,15 +8,18 @@
 //! keeps only the last game extracted into it.
 
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Read, Seek};
 use std::path::{Path, PathBuf};
+
+use zip::ZipArchive;
+use zip::result::ZipResult;
 
 use crate::session::{SessionError, SystemInfo};
 
 /// Whether `content` is an archive the core can't open, which the session
 /// extracts the game from.
 fn extracts(content: &Path, info: &SystemInfo) -> bool {
-    let Some(extension) = extension_of(content) else {
+    let Some(extension) = extension(content) else {
         return false;
     };
     // A core that lists no extensions says nothing of what to extract.
@@ -26,21 +29,33 @@ fn extracts(content: &Path, info: &SystemInfo) -> bool {
         && !accepts(info, &extension)
 }
 
-/// The index of the entry the core loads among an archive's `entries`, given
-/// as each file's name and uncompressed size: the largest whose extension the
-/// core accepts, the first of those if several are as large.
-fn choose_entry<'a>(
-    entries: impl IntoIterator<Item = (&'a str, u64)>,
-    info: &SystemInfo,
-) -> Option<usize> {
-    let mut chosen: Option<(usize, u64)> = None;
-    for (index, (name, size)) in entries.into_iter().enumerate() {
-        let accepted = extension_of(Path::new(name)).is_some_and(|e| accepts(info, &e));
-        if accepted && chosen.is_none_or(|(_, largest)| size > largest) {
-            chosen = Some((index, size));
+/// The index and file name of the largest file in `zip` whose lowercased
+/// extension `accepts`, the first of those if several are as large.
+/// Directories and names that would leave the directory they're extracted to
+/// count as nothing.
+pub(crate) fn largest_entry<R: Read + Seek>(
+    zip: &mut ZipArchive<R>,
+    accepts: impl Fn(&str) -> bool,
+) -> ZipResult<Option<(usize, String)>> {
+    let mut largest: Option<(usize, String, u64)> = None;
+    for index in 0..zip.len() {
+        let entry = zip.by_index_raw(index)?;
+        let Some(name) = entry
+            .is_file()
+            .then(|| entry.enclosed_name())
+            .flatten()
+            .and_then(|path| Some(path.file_name()?.to_string_lossy().into_owned()))
+        else {
+            continue;
+        };
+        let size = entry.size();
+        if extension(Path::new(&name)).is_some_and(|e| accepts(&e))
+            && largest.as_ref().is_none_or(|(.., most)| size > *most)
+        {
+            largest = Some((index, name, size));
         }
     }
-    chosen.map(|(index, _)| index)
+    Ok(largest.map(|(index, name, _)| (index, name)))
 }
 
 /// The file the core loads for `content`: the file itself, or the game
@@ -61,27 +76,12 @@ pub(crate) fn prepare(
 /// emptying the cache first, and returns its path.
 fn extract(archive: &Path, info: &SystemInfo, cache: &Path) -> Result<PathBuf, SessionError> {
     let file = File::open(archive).map_err(SessionError::ReadContent)?;
-    let mut zip = zip::ZipArchive::new(io::BufReader::new(file))?;
-    let mut entries = Vec::with_capacity(zip.len());
-    for index in 0..zip.len() {
-        let entry = zip.by_index_raw(index)?;
-        // Directories and names that would leave the cache count as nothing.
-        let name = entry
-            .is_file()
-            .then(|| entry.enclosed_name())
-            .flatten()
-            .and_then(|path| {
-                path.file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-            })
-            .unwrap_or_default();
-        entries.push((name, entry.size()));
-    }
-    let index = choose_entry(entries.iter().map(|(n, s)| (n.as_str(), *s)), info)
-        .ok_or(SessionError::NoContentInArchive)?;
+    let mut zip = ZipArchive::new(io::BufReader::new(file))?;
+    let (index, name) =
+        largest_entry(&mut zip, |e| accepts(info, e))?.ok_or(SessionError::NoContentInArchive)?;
 
     empty_dir(cache)?;
-    let path = cache.join(&entries[index].0);
+    let path = cache.join(&name);
     let mut entry = zip.by_index(index)?;
     let mut out = File::create(&path)?;
     if let Err(e) = io::copy(&mut entry, &mut out) {
@@ -90,8 +90,7 @@ fn extract(archive: &Path, info: &SystemInfo, cache: &Path) -> Result<PathBuf, S
         return Err(SessionError::Io(e));
     }
     log::info!(
-        "extracted {} from {} to {}",
-        entries[index].0,
+        "extracted {name} from {} to {}",
         archive.display(),
         path.display()
     );
@@ -113,7 +112,7 @@ fn empty_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// A path's extension, lowercased.
-fn extension_of(path: &Path) -> Option<String> {
+pub(crate) fn extension(path: &Path) -> Option<String> {
     path.extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
 }
@@ -179,29 +178,43 @@ mod tests {
         assert!(passes("/roms/game.zip", &core(&[])));
     }
 
+    /// The name of the file a core of `extensions` loads from a zip of
+    /// `files`.
+    fn chosen(extensions: &[&str], files: &[(&str, &[u8])]) -> Option<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("game.zip");
+        write_zip(&path, files);
+        let mut zip = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let info = core(extensions);
+        largest_entry(&mut zip, |e| accepts(&info, e))
+            .unwrap()
+            .map(|(_, name)| name)
+    }
+
     #[test]
     fn chooses_the_file_the_core_opens() {
-        let mesen = core(&["nes"]);
-        let entries = [("readme.txt", 9000), ("Tetris (USA).NES", 49_168)];
-        assert_eq!(choose_entry(entries, &mesen), Some(1));
+        let files: &[(&str, &[u8])] = &[("readme.txt", &[0; 90]), ("Tetris (USA).NES", &[0; 40])];
+        assert_eq!(chosen(&["nes"], files).as_deref(), Some("Tetris (USA).NES"));
     }
 
     #[test]
     fn chooses_the_largest_file_the_core_opens() {
-        let genesis = core(&["md", "gen", "bin"]);
-        let entries = [
-            ("Sonic (Proto).md", 262_144),
-            ("Sonic.txt", 900_000),
-            ("Sonic (USA).md", 524_288),
-            ("Sonic (Europe).gen", 524_288),
+        let files: &[(&str, &[u8])] = &[
+            ("Sonic (Proto).md", &[0; 20]),
+            ("Sonic.txt", &[0; 90]),
+            ("Sonic (USA).md", &[0; 40]),
+            ("Sonic (Europe).gen", &[0; 40]),
         ];
-        assert_eq!(choose_entry(entries, &genesis), Some(2));
+        assert_eq!(
+            chosen(&["md", "gen", "bin"], files).as_deref(),
+            Some("Sonic (USA).md")
+        );
     }
 
     #[test]
     fn chooses_nothing_when_the_core_opens_no_file() {
-        let mesen = core(&["nes"]);
-        assert_eq!(choose_entry([("readme.txt", 10), ("", 20)], &mesen), None);
+        let files: &[(&str, &[u8])] = &[("readme.txt", &[0; 10]), ("../Tetris.nes", &[0; 20])];
+        assert_eq!(chosen(&["nes"], files), None);
     }
 
     fn write_zip(path: &Path, files: &[(&str, &[u8])]) {

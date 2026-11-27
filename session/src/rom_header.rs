@@ -8,6 +8,8 @@ use std::path::Path;
 
 use rom_headers::{Header, Platform, switch};
 
+use crate::content::{extension, largest_entry};
+
 /// A platform whose games carry a header the session reads.
 #[uniffi::remote(Enum)]
 pub enum Platform {
@@ -76,7 +78,7 @@ pub fn rom_game_id(platform: Platform, path: String, keys: Option<String>) -> Op
 /// `switch_key`.
 fn read(platform: Platform, path: &Path, switch_key: Option<&[u8; 32]>) -> Option<Header> {
     let file = BufReader::new(File::open(path).ok()?);
-    if extension(path) == "zip" {
+    if extension(path).as_deref() == Some("zip") {
         return identify(platform, ZipEntry::open(file, platform).ok()?, switch_key);
     }
     identify(platform, file, switch_key)
@@ -94,13 +96,6 @@ fn identify(
     .ok()
 }
 
-fn extension(path: &Path) -> String {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-}
-
 /// The largest file in a zip that can be a game of the platform (see
 /// [`is_game`]), read and seeked as far as 64 MiB in, which it decompresses as
 /// reads reach it. Its length is the whole file's.
@@ -112,14 +107,10 @@ struct ZipEntry<R> {
     position: u64,
 }
 
-/// Whether a file named `name` can be a game of `platform`, by its extension:
-/// what a zip's game is chosen among, so a readme, manual or picture packed
-/// beside it never is.
-fn is_game(platform: Platform, name: &str) -> bool {
-    let extension = name
-        .rsplit_once('.')
-        .map_or("", |(_, e)| e)
-        .to_ascii_lowercase();
+/// Whether a file with the lowercased `extension` can be a game of
+/// `platform`: what a zip's game is chosen among, so a readme, manual or
+/// picture packed beside it never is.
+fn is_game(platform: Platform, extension: &str) -> bool {
     let extensions: &[&str] = match platform {
         Platform::Nes => &["nes", "unf", "unif"],
         Platform::Snes => &["sfc", "smc", "swc", "fig", "bs", "st"],
@@ -139,7 +130,7 @@ fn is_game(platform: Platform, name: &str) -> bool {
         Platform::Xbox => &["iso", "xiso", "xbe", "chd"],
         Platform::Switch => &["nsp", "nsz", "xci", "xcz"],
     };
-    extensions.contains(&extension.as_str())
+    extensions.contains(&extension)
 }
 
 /// How much of a zipped file [`ZipEntry`] decompresses at most.
@@ -148,17 +139,9 @@ const ZIP_LIMIT: u64 = 64 << 20;
 impl<R: Read + Seek> ZipEntry<R> {
     fn open(reader: R, platform: Platform) -> zip::result::ZipResult<Self> {
         let mut zip = zip::ZipArchive::new(reader)?;
-        let mut largest = None;
-        for i in 0..zip.len() {
-            let file = zip.by_index_raw(i)?;
-            if file.is_file()
-                && file.name().is_ok_and(|name| is_game(platform, &name))
-                && largest.is_none_or(|(_, size)| file.size() > size)
-            {
-                largest = Some((i, file.size()));
-            }
-        }
-        let (index, size) = largest.ok_or(zip::result::ZipError::FileNotFound)?;
+        let (index, _) = largest_entry(&mut zip, |e| is_game(platform, e))?
+            .ok_or(zip::result::ZipError::FileNotFound)?;
+        let size = zip.by_index_raw(index)?.size();
         Ok(Self {
             zip,
             index,
