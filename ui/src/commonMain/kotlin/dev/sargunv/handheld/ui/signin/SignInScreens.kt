@@ -129,8 +129,7 @@ private fun AddressScreen(state: SignInState) {
   var error by remember { mutableStateOf<String?>(null) }
   fun next(screen: (String) -> SignInScreen) {
     val url = serverUrl(state.address.text.toString())
-    error =
-      if (url == null) "Enter the address you open RomM at, such as romm.example.com." else null
+    error = if (url == null) "Valid server address required" else null
     if (url != null) state.navigator.push(screen(url))
   }
   ScreenColumn(canGoBack = false) {
@@ -213,14 +212,11 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
     when {
       error != null ->
         Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
-      shown == null -> Text("Asking $baseUrl for a code…", color = Placeholder.mutedText)
+      shown == null -> Text("Getting a code", color = Placeholder.mutedText)
       else -> {
-        Text(
-          "On a phone or computer signed in to RomM, open this address:",
-          color = Placeholder.mutedText,
-        )
+        Text("Open", color = Placeholder.mutedText)
         Text(shown.verificationUrl, color = Placeholder.text)
-        Text("Check that it shows this code, then approve it:", color = Placeholder.mutedText)
+        Text("Code", color = Placeholder.mutedText)
         Text(
           shown.userCode,
           color = Placeholder.text,
@@ -230,19 +226,12 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
           modifier =
             Modifier.semantics { contentDescription = shown.userCode.toList().joinToString(" ") },
         )
-        Text("Waiting for approval…", color = Placeholder.mutedText)
+        Text("Waiting for approval", color = Placeholder.mutedText)
       }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
       if (error != null) {
-        SignInButton(
-          state,
-          "retry",
-          "Get a new code",
-          Help("Get a new code", "Ask for a new code."),
-        ) {
-          attempt++
-        }
+        SignInButton(state, "retry", "Get a new code") { attempt++ }
       }
       SignInButton(state, "token", "Use an API token instead", TokenHelp) {
         state.navigator.push(SignInScreen.Token(baseUrl))
@@ -263,7 +252,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
     if (checking) return
     val token = field.text.toString()
     if (token.isBlank()) {
-      error = "Paste or type a client API token first."
+      error = "Token required"
       return
     }
     error = null
@@ -288,10 +277,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       fontSize = 28.sp,
       modifier = Modifier.semantics { heading() },
     )
-    Text(
-      "Create a client API token in RomM on another device, then paste or type it here.",
-      color = Placeholder.mutedText,
-    )
+    Text("Client API token from RomM", color = Placeholder.mutedText)
     UnencryptedNote(baseUrl)
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
       TextEntry(
@@ -310,11 +296,11 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
           ),
         onSubmit = ::submit,
       )
-      SignInButton(state, "paste", "Paste", Help("Paste", "Paste the token from the clipboard.")) {
+      SignInButton(state, "paste", "Paste") {
         scope.launch {
           val text = clipboard.readText()?.trim()
           if (text.isNullOrEmpty()) {
-            error = "The clipboard has no text to paste."
+            error = "Clipboard empty"
           } else {
             field.setTextAndPlaceCursorAtEnd(text)
             error = null
@@ -323,13 +309,11 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       }
     }
     when {
-      checking -> Text("Checking the token with $baseUrl…", color = Placeholder.mutedText)
+      checking -> Text("Checking token", color = Placeholder.mutedText)
       error != null ->
         Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
     }
-    SignInButton(state, "sign-in", "Sign in", Help("Sign in", "Check the token, then sign in.")) {
-      submit()
-    }
+    SignInButton(state, "sign-in", "Sign in", onConfirm = ::submit)
   }
 }
 
@@ -502,7 +486,7 @@ private fun SignInButton(
   state: SignInState,
   key: String,
   label: String,
-  help: Help,
+  help: Help? = null,
   onConfirm: () -> Unit,
 ) {
   Box(

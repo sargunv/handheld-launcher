@@ -94,7 +94,7 @@ private fun Download.status(progress: Map<Long, DownloadProgress>): RomStatus =
     DownloadState.Queued -> RomStatus.Queued
     DownloadState.Downloading ->
       progressIn(progress).let { RomStatus.Downloading(it.bytesDownloaded, it.totalBytes) }
-    DownloadState.Failed -> RomStatus.Failed(error.orEmpty())
+    DownloadState.Failed -> RomStatus.Failed(error)
   }
 
 /** Whether a ROM is on the device, or how far it's got. */
@@ -106,7 +106,7 @@ sealed interface RomStatus {
   data class Downloading(val bytesDownloaded: Long, val totalBytes: Long) : RomStatus
 
   /** The download failed, and waits in the queue for a retry. */
-  data class Failed(val error: String) : RomStatus
+  data class Failed(val error: String?) : RomStatus
 
   /** The ROM is at [path]: its file, or the folder that holds its files. */
   data class OnDevice(val path: String) : RomStatus
@@ -409,7 +409,7 @@ class DownloadManager(
 
   /** Marks [download] failed for [e], and tells its server, if the server asked for the game. */
   private suspend fun fail(download: Download, signedIn: RommCredentials, e: Exception) {
-    val error = e.message ?: "The download failed"
+    val error = e.message
     edit { list ->
       list.map {
         if (it.romId == download.romId) it.copy(state = DownloadState.Failed, error = error) else it

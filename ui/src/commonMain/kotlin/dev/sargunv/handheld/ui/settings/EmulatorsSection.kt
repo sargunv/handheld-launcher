@@ -99,7 +99,7 @@ private fun PlatformRows(state: AppState) {
   val loaded = platforms ?: return
   val installed = apps ?: return
   if (loaded.isEmpty()) {
-    Text("Your library has no platforms yet.", color = Placeholder.mutedText)
+    Text("No platforms", color = Placeholder.mutedText)
     return
   }
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -145,7 +145,7 @@ class HomeTest {
     onNodeWithTag("main:Downloads").assertIsNotSelected()
     onNodeWithTag("main:Downloads").performSemanticsAction(SemanticsActions.OnClick)
     awaitTag("place:Downloads")
-    onNodeWithText("Nothing is downloading.").assertExists()
+    onNodeWithText("Queue empty").assertExists()
     onNodeWithTag("main:Downloads").assertDoesNotExist()
   }
 
@@ -173,7 +173,7 @@ class HomeTest {
   fun anOpenRequestForAPlaceSwitchesToIt() = runComposeUiTest {
     launch(open = OpenRequest(OpenTarget.AtPlace(Place.Downloads)))
     waitUntil(timeoutMillis = 5_000) {
-      onAllNodesWithText("Nothing is downloading.").fetchSemanticsNodes().isNotEmpty()
+      onAllNodesWithText("Queue empty").fetchSemanticsNodes().isNotEmpty()
     }
     onNodeWithTag("place:Downloads").assertExists()
   }
@@ -434,7 +434,7 @@ class HomeTest {
     press(Key.ButtonX)
     assertFocused("menu:retry")
     press(listOf(Key.DirectionDown, Key.ButtonA))
-    awaitText("Nothing is downloading.")
+    awaitText("Queue empty")
   }
 
   @Test
@@ -496,7 +496,7 @@ class HomeTest {
   fun saysSoWhenTheFirstSyncFails() = runComposeUiTest {
     launch(fail = true)
     waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasText("Couldn't reach your server to sync your library."))
+      onAllNodes(hasText("Offline") and !hasTestTag("sync:status"))
         .fetchSemanticsNodes()
         .isNotEmpty()
     }

@@ -25,6 +25,7 @@ import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
@@ -61,6 +62,7 @@ internal fun ComposeUiTest.launchApp(
   apps: AppCatalog = AppCatalog.None,
   romHeaders: RomHeaders = RomHeaders.None,
   appInfo: AppInfo = AppInfo.Unknown,
+  retroAchievements: RetroAchievementsSignIn? = null,
   gameState: PerGameState = PerGameState.None,
   open: OpenRequest? = null,
   homePress: () -> HomePress? = { null },
@@ -104,6 +106,7 @@ internal fun ComposeUiTest.launchApp(
       openRequest = open,
       homePress = homePress(),
       appInfo = appInfo,
+      retroAchievements = retroAchievements,
       gameState = gameState,
     )
   }

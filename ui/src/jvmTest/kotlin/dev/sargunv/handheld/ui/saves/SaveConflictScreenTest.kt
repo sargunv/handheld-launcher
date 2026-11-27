@@ -74,10 +74,10 @@ class SaveConflictScreenTest {
     onNodeWithTag(SaveCopy.Server.name)
       .assert(expectValue(SemanticsProperties.Role, Role.Button))
       .assertTextEquals("RomM", "Saved 1 hour ago", "512 KB", "Newer")
-    onNodeWithText("Which save do you want to play?").assert(isHeading())
+    onNodeWithText("Choose a save · ${conflict.gameName}").assert(isHeading())
     // The hints say what choosing and Back do.
-    onNodeWithTag("hint:Confirm").assertTextEquals("A", "Play with this save")
-    onNodeWithTag("hint:Back").assertTextEquals("B", "Don't play")
+    onNodeWithTag("hint:Confirm").assertTextEquals("A", "Play")
+    onNodeWithTag("hint:Back").assertTextEquals("B", "Cancel")
   }
 
   @Test

@@ -78,7 +78,7 @@ class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
     val user = usernameField.text.toString().trim()
     val password = passwordField.text.toString()
     if (user.isEmpty() || password.isEmpty()) {
-      error = "Enter your RetroAchievements username and password."
+      error = "Username and password required"
       return
     }
     busy = true

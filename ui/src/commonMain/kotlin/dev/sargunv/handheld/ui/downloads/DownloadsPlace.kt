@@ -77,7 +77,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
       Box(Modifier.fillMaxWidth().weight(1f)) {
         if (queue.isEmpty()) {
           Text(
-            "Nothing is downloading.",
+            "Queue empty",
             color = Placeholder.mutedText,
             modifier = Modifier.align(Alignment.Center),
           )
@@ -169,7 +169,7 @@ private fun statusText(download: Download, progress: DownloadProgress): String =
       val percent = if (total > 0) bytes * 100 / total else 0
       "${formatSize(bytes)} of ${formatSize(total)} · $percent%"
     }
-    DownloadState.Failed -> download.error ?: "The download failed"
+    DownloadState.Failed -> listOfNotNull("Download failed", download.error).joinToString(" · ")
   }
 
 /**

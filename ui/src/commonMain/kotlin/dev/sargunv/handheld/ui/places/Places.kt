@@ -233,9 +233,9 @@ private fun PlaceHeader(place: Place, sync: SyncStatus) {
       modifier = Modifier.testTag("place:${place.name}").semantics { heading() },
     )
     Spacer(Modifier.weight(1f))
-    syncLabel(sync)?.let {
+    if (sync != SyncStatus.NotStarted && sync != SyncStatus.Synced) {
       Text(
-        it,
+        sync.label,
         color = Placeholder.mutedText,
         fontSize = 14.sp,
         modifier = Modifier.testTag("sync:status").semantics { liveRegion = LiveRegionMode.Polite },
@@ -243,17 +243,6 @@ private fun PlaceHeader(place: Place, sync: SyncStatus) {
     }
   }
 }
-
-/** What the header says about the sync, or null when there's nothing to say. */
-internal fun syncLabel(sync: SyncStatus): String? =
-  when (sync) {
-    SyncStatus.FirstSync,
-    SyncStatus.Syncing -> "Syncing"
-    SyncStatus.Failed -> "Offline"
-    SyncStatus.Unauthorized -> "RomM refused the sign-in · Settings → RomM"
-    SyncStatus.NotStarted,
-    SyncStatus.Synced -> null
-  }
 
 /**
  * A button in a menu.

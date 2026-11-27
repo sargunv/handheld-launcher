@@ -394,7 +394,8 @@ private fun statusLines(status: RomStatus?): List<String> =
   when (status) {
     is RomStatus.Downloading ->
       listOf("${formatSize(status.bytesDownloaded)} of ${formatSize(status.totalBytes)}")
-    is RomStatus.Failed -> listOf("The download failed: ${status.error}")
+    is RomStatus.Failed ->
+      listOf(listOfNotNull("Download failed", status.error).joinToString(" · "))
     else -> emptyList()
   }
 

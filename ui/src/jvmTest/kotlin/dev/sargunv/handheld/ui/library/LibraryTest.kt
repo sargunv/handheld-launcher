@@ -135,7 +135,7 @@ class LibraryTest {
     // At the last platform, R stays put rather than going on to Downloads.
     press(Key.ButtonR1)
     assertFocused("game:4")
-    onNodeWithText("Nothing is downloading.").assertDoesNotExist()
+    onNodeWithText("Queue empty").assertDoesNotExist()
     // Each platform keeps its own focus.
     press(Key.ButtonL1)
     assertFocused("game:2")
@@ -198,7 +198,7 @@ class LibraryTest {
     assertFocused("library:platform:1")
     press(Key.ButtonL1)
     onNodeWithTag("library:tab:OnDevice").assertIsSelected()
-    awaitText("No games on this device yet.")
+    awaitText("No games")
     // At the first tab, L stays.
     press(Key.ButtonL1)
     onNodeWithTag("library:tab:OnDevice").assertIsSelected()
@@ -262,7 +262,7 @@ class LibraryTest {
     // An empty collection is there too, as on Home, and opens to say so.
     press(Key.ButtonR1)
     awaitTag("shelf:collection:Regular:3")
-    awaitText("No games here yet.")
+    awaitText("No games")
     // At the last collection, R stays.
     press(Key.ButtonR1)
     onNodeWithTag("shelf:collection:Regular:3").assertExists()
@@ -313,14 +313,14 @@ class LibraryTest {
     assertFocused("library:platform:1")
     onNodeWithTag("hint:Menu").assertExists()
     press(Key.ButtonR1)
-    awaitText("Your server has no collections.")
+    awaitText("No collections")
     onNodeWithTag("hint:Menu").assertDoesNotExist()
     onNodeWithTag("hint:Confirm").assertDoesNotExist()
     press(Key.ButtonX)
     onNodeWithTag("menu:open-with").assertDoesNotExist()
     // On device has no games to sort.
     press(listOf(Key.ButtonL1, Key.ButtonL1))
-    awaitText("No games on this device yet.")
+    awaitText("No games")
     onNodeWithTag("hint:Menu").assertDoesNotExist()
   }
 
@@ -363,7 +363,7 @@ class LibraryTest {
     onNodeWithText("Open").assertExists()
     onNodeWithTag("touch:filter:OnDevice").performClick()
     waitForIdle()
-    onNodeWithText("No games here match the filter.").assertExists()
+    onNodeWithText("No matches").assertExists()
     onNodeWithText("Open").assertDoesNotExist()
     onNodeWithText("Alpha").assertDoesNotExist()
   }

@@ -138,7 +138,7 @@ internal fun ShelfGames(
       title = shelf.title,
       roms = roms,
       filters = true,
-      empty = "No games here yet.",
+      empty = "No games",
       backHint = if (view.openedFrom == OpenedFrom.Home) "Home" else "Back",
     ) {
       ShelfHeader(
@@ -207,7 +207,7 @@ internal fun GameGridPane(
                 when {
                   roms == null -> null
                   roms.isEmpty() -> empty
-                  shown.isNullOrEmpty() -> "No games here match the filter."
+                  shown.isNullOrEmpty() -> "No matches"
                   else -> null
                 }
               if (message != null) {

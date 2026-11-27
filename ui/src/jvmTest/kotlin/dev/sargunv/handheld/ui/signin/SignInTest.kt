@@ -133,7 +133,7 @@ class SignInTest {
     press(Key.DirectionDown)
     onNodeWithTag("continue").assertIsFocused()
     press(Key.ButtonA)
-    onNodeWithText("Enter the address", substring = true).assertExists()
+    onNodeWithText("Valid server address required").assertExists()
   }
 
   @Test
@@ -158,9 +158,9 @@ class SignInTest {
     press(Key.ButtonA)
     onNode(hasSetTextAction()).performTextInput("romm.example.com")
     waitForIdle()
-    onNodeWithText("This address isn't encrypted", substring = true).assertDoesNotExist()
+    onNodeWithText("Unencrypted connection").assertDoesNotExist()
     onNode(hasSetTextAction()).performTextReplacement("http://192.168.1.5:8080")
     waitForIdle()
-    onNodeWithText("This address isn't encrypted", substring = true).assertExists()
+    onNodeWithText("Unencrypted connection").assertExists()
   }
 }
