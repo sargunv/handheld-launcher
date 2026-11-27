@@ -13,7 +13,7 @@ plugins {
  * Writes the About screen's entries for what the game session builds in, in AboutLibraries' config
  * format, beside the entries every app shares: the Rust crates its Android library links, as
  * cargo-about finds them, each with the licence text from its own source, and the vendored C code,
- * with the licence texts from its files.
+ * whose entries are checked in, with rcheevos' text read from its LICENSE.
  */
 abstract class SessionLicences @Inject constructor(private val exec: ExecOperations) :
   DefaultTask() {
@@ -31,9 +31,6 @@ abstract class SessionLicences @Inject constructor(private val exec: ExecOperati
   @get:InputFile
   @get:PathSensitive(PathSensitivity.RELATIVE)
   abstract val rcheevosLicence: RegularFileProperty
-  @get:InputFile
-  @get:PathSensitive(PathSensitivity.RELATIVE)
-  abstract val libretroHeader: RegularFileProperty
   @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
   @TaskAction
@@ -52,13 +49,6 @@ abstract class SessionLicences @Inject constructor(private val exec: ExecOperati
       )
 
     licence("rcheevos", "MIT", "MIT License", rcheevosLicence.get().asFile.readText())
-    // The header's licence statement is in its opening comment, after `@paragraph LICENSE`.
-    val header = libretroHeader.get().asFile.readText()
-    val statement =
-      header.substringAfter("@paragraph LICENSE").substringBefore("*/").lines().joinToString("\n") {
-        it.trim().removePrefix("*").removePrefix(" ")
-      }
-    licence("libretro.h", "MIT", "MIT License", statement.trim() + "\n")
 
     // Offline, so the crates' licence texts come from their packaged sources, which the fetch
     // downloads once. It fetches every platform's crates, since cargo-about reads the metadata of
@@ -148,7 +138,6 @@ val sessionLicences =
     targets = listOf("aarch64-linux-android", "x86_64-linux-android")
     checkedIn.from(root.dir("licences"), root.dir("session/licences"))
     rcheevosLicence = root.file("session/vendor/rcheevos/LICENSE")
-    libretroHeader = root.file("session/vendor/libretro/libretro.h")
     outputDir = layout.buildDirectory.dir("generated/licences")
   }
 

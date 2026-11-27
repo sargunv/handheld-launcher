@@ -18,6 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
+      # Clippy builds the session's desktop runner, which needs ALSA and
+      # libudev.
+      - run: >-
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends
+          libasound2-dev libudev-dev
       - run: mise run check
 
   test:
@@ -27,12 +32,11 @@ jobs:
       - uses: jdx/mise-action@v5
       - uses: gradle/actions/setup-gradle@v6
       # The session's test cores build against GL and GL ES and render with
-      # Mesa's EGL, or with Vulkan on Mesa's lavapipe; its desktop runner needs
-      # ALSA and libudev.
+      # Mesa's EGL, or with Vulkan on Mesa's lavapipe.
       - run: >-
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           libgl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri libvulkan1
-          mesa-vulkan-drivers libasound2-dev libudev-dev
+          mesa-vulkan-drivers
       # The session's Android build uses the NDK that libs.versions.toml pins.
       - run: >-
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
@@ -51,9 +55,6 @@ jobs:
         env:
           HANDHELD_REQUIRE_EGL: "1"
           HANDHELD_REQUIRE_VULKAN: "1"
-      - run:
-          cargo clippy -p handheld-session --features runner --all-targets -- -D
-          warnings
       # The session's build script compiles rcheevos, so the Android check needs
       # the NDK's compiler, as Gradle's Android build sets it.
       - run: |

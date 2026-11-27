@@ -5,9 +5,8 @@ plugins {
   alias(libs.plugins.aboutlibraries)
 }
 
-// The About screen's list: the app's dependencies, with the entries every app shares, as a
-// resource.
-// It runs offline: licence texts come from the entries, not the network.
+// The About screen's list, as a resource: the app's dependencies, with the entries every app
+// shares. It runs offline: licence texts come from the entries, not the network.
 val licences = layout.buildDirectory.dir("generated/licences")
 
 aboutLibraries {
