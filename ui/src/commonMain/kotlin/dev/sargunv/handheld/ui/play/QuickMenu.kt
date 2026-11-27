@@ -234,7 +234,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
               message = failure
             } else {
               lastSlot = slot.number
-              message = "Saved to slot ${slot.number}."
+              message = "Saved · Slot ${slot.number}"
               picking = null
               focusedSlot = null
             }

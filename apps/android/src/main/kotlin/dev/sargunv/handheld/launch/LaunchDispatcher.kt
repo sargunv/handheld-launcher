@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.FileUriExposedException
+import android.util.Log
 import androidx.core.content.FileProvider
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchMethod
@@ -74,16 +75,21 @@ class LaunchDispatcher(private val context: Context) {
       context.startActivity(LaunchIntents.toIntent(command, contentUris))
       LaunchOutcome.Started(LaunchMethod.Intent)
     } catch (e: ActivityNotFoundException) {
-      LaunchOutcome.Failed("${command.packageName} can't open this: ${e.message}")
+      failed("Launch failed · ${command.packageName} can't open it", e)
     } catch (e: SecurityException) {
-      LaunchOutcome.Failed("${command.packageName} refused the launch: ${e.message}")
+      failed("Launch failed · ${command.packageName} refused it", e)
     } catch (e: FileUriExposedException) {
       // A `file://` URI, which only `am start` can hand over.
-      LaunchOutcome.Failed("${command.packageName} needs am start, which this device refused")
+      failed("Launch failed · ${command.packageName} needs am start", e)
     } catch (e: IllegalArgumentException) {
       // FileProvider serves only shared storage.
-      LaunchOutcome.Failed("Can't hand over the game's file: ${e.message}")
+      failed("Launch failed · Can't share the game's file", e)
     }
+
+  private fun failed(reason: String, cause: Exception): LaunchOutcome {
+    Log.w(TAG, reason, cause)
+    return LaunchOutcome.Failed(reason)
+  }
 
   /** Whether `am start` started [command]. */
   private suspend fun startByShell(command: LaunchCommand): Boolean =
@@ -98,4 +104,8 @@ class LaunchDispatcher(private val context: Context) {
         false
       }
     }
+
+  private companion object {
+    const val TAG = "LaunchDispatcher"
+  }
 }

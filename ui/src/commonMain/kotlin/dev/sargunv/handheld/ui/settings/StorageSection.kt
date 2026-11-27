@@ -110,7 +110,7 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
   if (section.refused) {
     item(key = "refused") {
       Text(
-        "One storage stays on, so new games have somewhere to go.",
+        "Last storage stays on",
         color = Placeholder.text,
         modifier =
           Modifier.testTag("settings:storage:refused").semantics {

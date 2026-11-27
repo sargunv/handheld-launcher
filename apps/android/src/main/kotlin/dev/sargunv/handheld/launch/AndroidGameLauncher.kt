@@ -117,9 +117,7 @@ class AndroidGameLauncher(
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
-    val file =
-      withContext(Dispatchers.IO) { launchFile(path) }
-        ?: return listOf("The game's folder is empty.")
+    val file = withContext(Dispatchers.IO) { launchFile(path) } ?: return listOf("Folder empty")
     val request = PlayRequest(file, PlatformSlug(game.platformSlug), game.title, game.key)
     // A set, since a sync that fails before the game and again after it says the same thing twice.
     val notes = linkedSetOf<String>()
@@ -164,8 +162,7 @@ class AndroidGameLauncher(
       )
     val command =
       when (val build = target.commandFor(input)) {
-        is LaunchBuild.MissingCore ->
-          return note("${appName(target)} has no libretro core for this platform.")
+        is LaunchBuild.MissingCore -> return note("No core for this platform · ${appName(target)}")
         is LaunchBuild.Ready -> build.command
       }
     val save = lookUpSave(request, target, note)
@@ -207,7 +204,7 @@ class AndroidGameLauncher(
           // Nothing started, so the emulator still holds whatever game it held.
           emulators.launchFailed(packageName, before)
           activity.startActivity(activity.handheldApp.allFilesAccessSettings())
-          return note("Allow access to all files, then play again.")
+          return note("Needs all-files access")
         }
         is LaunchOutcome.Failed -> {
           emulators.launchFailed(packageName, before)
@@ -222,7 +219,7 @@ class AndroidGameLauncher(
       // The emulator may still be writing its save as it goes to the background.
       delay(QUIT_DELAY)
       if (!emulators.close(packageName)) {
-        note("Couldn't close ${appName(target)}.")
+        note("Close failed · ${appName(target)}")
       }
     }
     if (save != null) saves.afterPlay(save, note)
@@ -244,8 +241,7 @@ class AndroidGameLauncher(
       SaveLookup.NotSupported -> Log.i(TAG, "${target.packageName}'s saves don't sync yet")
       SaveLookup.SharedCards ->
         Log.i(TAG, "${target.packageName} keeps its saves on a shared memory card")
-      SaveLookup.NoGameId ->
-        note("The save doesn't sync: couldn't read the game's id from its file.")
+      SaveLookup.NoGameId -> note("Save won't sync · No game id in the file")
     }
     return (lookup as? SaveLookup.Found)?.save
   }
@@ -257,7 +253,7 @@ class AndroidGameLauncher(
    */
   private suspend fun syncNow(save: GameSave?, target: LaunchTarget): String =
     withContext(NonCancellable) {
-      if (save == null) "${appName(target)}'s saves don't sync yet." else saves.push(save)
+      if (save == null) "Save sync unsupported · ${appName(target)}" else saves.push(save)
     }
 
   private suspend fun resolve(subject: LaunchSubject, rules: LaunchRules) =
@@ -275,8 +271,8 @@ class AndroidGameLauncher(
 
   private fun noEmulator(resolution: LaunchResolution.NoEmulatorInstalled): String {
     val suggestions = resolution.suggestions.take(2).map { it.displayName }
-    return if (suggestions.isEmpty()) "No app on this device can play this game."
-    else "No emulator installed. Install ${suggestions.joinToString(" or ")}."
+    return if (suggestions.isEmpty()) "No emulator"
+    else "No emulator · Install ${suggestions.joinToString(" or ")}"
   }
 
   /**
@@ -299,21 +295,18 @@ class AndroidGameLauncher(
       try {
         installFirmwareFor(activity, credentials, target, platform)
       } catch (e: RommException) {
-        note("Couldn't list the BIOS files on RomM: ${e.message}")
+        note("BIOS list failed · ${e.message}")
         return
       } catch (e: IOException) {
-        note("Couldn't put the BIOS files in place: ${e.message}")
+        note("BIOS not placed · ${e.message}")
         return
       }
     Log.i(TAG, "Firmware for $platform: $result")
     when (result) {
       is FirmwareInstall.Unreachable ->
-        note(
-          "Couldn't put the BIOS files where ${appName(target)} reads them: " +
-            result.folders.joinToString(),
-        )
+        note("BIOS not placed · Can't write ${result.folders.joinToString()}")
       is FirmwareInstall.Done ->
-        for ((name, reason) in result.failed) note("Couldn't put $name in place: $reason")
+        for ((name, reason) in result.failed) note("BIOS not placed · $name: $reason")
       FirmwareInstall.NoneOnServer,
       null -> Unit
     }

@@ -73,9 +73,9 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         is BeforeLaunch.Skipped -> {
           note(
             if (outcome.result is SaveSyncResult.Conflict) {
-              "Played this device's save. Choose between it and RomM's at the next play."
+              chooseLater("Played this device's save")
             } else {
-              "Played this device's save. RomM's newer save waits for the next play."
+              "Played this device's save · RomM's newer save comes at the next play"
             },
           )
           true
@@ -87,17 +87,16 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         BeforeLaunch.QuitFirst -> {
           note(
             if (emulator?.close != null) {
-              "Launch canceled. Quit the game in the emulator to get RomM's newer save."
+              "Launch canceled · Quit the game to get RomM's newer save"
             } else {
               // Without the root service, only a stopped app or a restart shows it quit.
-              "Launch canceled. To get RomM's newer save, quit the game, then force stop the " +
-                "emulator or restart the device."
+              "Launch canceled · Force stop the emulator to get RomM's newer save"
             },
           )
           false
         }
         BeforeLaunch.CloseFailed -> {
-          note("Launch canceled: couldn't close the emulator. Both saves are unchanged.")
+          note("Launch canceled · Emulator didn't close")
           false
         }
       }
@@ -123,17 +122,17 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
    * the emulator would write over a pulled save.
    */
   suspend fun push(game: GameSave): String =
-    withSync(signedOut = "Can't sync: not signed in.", failure = { it }) { sync ->
+    withSync(signedOut = "Not signed in", failure = { it }) { sync ->
       when (val result = sync.push(game)) {
-        SaveSyncResult.NoSave -> "No save yet."
-        is SaveSyncResult.Pushed -> "Sent the save to RomM."
+        SaveSyncResult.NoSave -> "No save yet"
+        is SaveSyncResult.Pushed -> "Sent to RomM"
         is SaveSyncResult.ServerNewer -> SERVER_NEWER
         is SaveSyncResult.Conflict -> conflictLater(result)
-        is SaveSyncResult.UpToDate -> "RomM already has this save."
+        is SaveSyncResult.UpToDate -> "Already on RomM"
         // A push never writes to the device or settles a conflict.
         is SaveSyncResult.Pulled,
         is SaveSyncResult.NoFolder,
-        is SaveSyncResult.Resolved -> "Synced the save."
+        is SaveSyncResult.Resolved -> "Save synced"
       }
     }
 
@@ -179,31 +178,28 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
     File(context.filesDir, "save-sync/${URLEncoder.encode(baseUrl, "UTF-8")}/$userId")
 
   private fun conflictLater(conflict: SaveSyncResult.Conflict) =
-    if (conflict.reverted) {
-      "Save not sent: the emulator wrote back the save from before RomM's. Choose which to " +
-        "keep at the next play."
-    } else {
-      "The save changed on RomM during the game too. Choose which to keep at the next play."
-    }
+    chooseLater(
+      if (conflict.reverted) "Emulator restored the old save" else "Save changed on RomM too",
+    )
+
+  private fun chooseLater(label: String) = "$label · Choose at the next play"
 
   // A failed sync writes nothing, and its record stays as it was, so the next sync tries again.
-  private fun failed(e: Exception) =
-    "Couldn't sync the save: ${e.message}. It stays on this device and syncs at the next play."
+  private fun failed(e: Exception) = "Save sync failed · ${e.message}"
 
   private fun describe(result: SaveSyncResult, note: (String) -> Unit) {
     when (result) {
       is SaveSyncResult.Pulled ->
         note(
-          "Got RomM's newer save." +
-            if (result.previous != null) " The device's old save is in the save history." else "",
+          if (result.previous != null) "Got RomM's newer save · Old save in the save history"
+          else "Got RomM's newer save",
         )
-      is SaveSyncResult.NoFolder ->
-        note("RomM's save stays on RomM. The emulator hasn't made its save folder yet.")
+      is SaveSyncResult.NoFolder -> note("RomM's save not placed · Emulator has no save folder yet")
       is SaveSyncResult.Resolved -> {
         val kept = if (result.kept == SaveCopy.Device) "this device's" else "RomM's"
         Log.i(TAG, "Kept $kept save; the other is in the save history at ${result.history}")
         result.uploadError?.let {
-          note("Kept $kept save. The other is in the save history but couldn't go to RomM: $it")
+          note("Kept $kept save · Other copy not sent: $it")
         }
       }
       SaveSyncResult.NoSave,
@@ -216,7 +212,7 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
 
   private companion object {
     const val TAG = "PlaySaves"
-    const val SERVER_NEWER = "RomM has a newer save. It comes to this device at the next play."
+    const val SERVER_NEWER = "Save not sent · RomM's copy is newer"
   }
 }
 
