@@ -62,20 +62,20 @@ import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
 
 /**
- * The games of [shelf], open from its tab. L and R step between shelves, stopping at the ends, and
- * Back returns to the tab, or Home when Home opened it.
+ * The games of [source]'s shelf, open from its tab. L and R step between shelves, stopping at the
+ * ends, and Back returns to the tab, or Home when Home opened it.
  */
 @Composable
 internal fun ShelfGames(
   state: AppState,
-  shelves: List<LibraryShelf>,
-  shelf: LibraryShelf,
+  source: GridSource.OfShelf,
   gridStates: SaveableStateHolder,
 ) {
   val view = state.libraryView
   val tab = state.libraryTab
+  val shelves = view.shelves(tab).orEmpty()
+  val shelf = source.shelf
   val shelfKey = shelf.key
-  val deviceStates by state.deviceStates.collectAsState()
 
   fun moveTo(next: LibraryShelf?) {
     if (next != null) view.focusShelf(tab, next.key)
@@ -105,17 +105,12 @@ internal fun ShelfGames(
     GameGridPane(
       state = state,
       gridStates = gridStates,
-      source = GridSource.OfShelf(shelf),
+      source = source,
       title = shelf.title,
       empty = "No games",
       backHint = if (view.openedFrom == OpenedFrom.Home) "Home" else "Back",
-    ) { games ->
-      ShelfHeader(
-        shelves,
-        shelf,
-        games?.size,
-        games?.count { deviceStateOf(it, deviceStates) == DeviceState.OnDevice },
-      )
+    ) { grid ->
+      ShelfHeader(shelves, shelf, grid)
     }
   }
 }
@@ -134,12 +129,10 @@ internal fun GameGridPane(
   title: String,
   empty: String,
   backHint: String,
-  header: @Composable (games: List<LibraryGame>?) -> Unit = {},
+  header: @Composable (grid: GridGames?) -> Unit = {},
 ) {
   val view = state.libraryView
-  val stateKey = view.gridKey(source)
-  // Until the grid catches up with the source, sort and filter, it's loading.
-  val grid = view.grid.collectAsState().value?.takeIf { it.key == stateKey }
+  val grid = view.grid
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   // The menu sorts and filters, which a grid with no games at all has no use for.
   val hasMenu = !grid?.games.isNullOrEmpty()
@@ -155,8 +148,10 @@ internal fun GameGridPane(
     },
   ) {
     Column(Modifier.fillMaxSize()) {
-      header(grid?.games)
+      header(grid)
       Box(Modifier.fillMaxWidth().weight(1f)) {
+        val filter = if (source.filters) view.filter else LibraryFilter.All
+        val stateKey = "${source.key}/${view.sort}/$filter"
         gridStates.SaveableStateProvider(stateKey) {
           key(stateKey) {
             FocusScope(Modifier.fillMaxSize()) {
@@ -200,12 +195,7 @@ internal fun GameGridPane(
 }
 
 @Composable
-private fun ShelfHeader(
-  shelves: List<LibraryShelf>,
-  shelf: LibraryShelf,
-  games: Int?,
-  onDevice: Int?,
-) {
+private fun ShelfHeader(shelves: List<LibraryShelf>, shelf: LibraryShelf, grid: GridGames?) {
   val at = shelves.indexOf(shelf)
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 8.dp),
@@ -234,8 +224,11 @@ private fun ShelfHeader(
       )
     }
     Spacer(Modifier.weight(1f))
-    if (games != null && onDevice != null) {
-      Text("${gameCount(games)}, ${onDeviceCount(onDevice)}", color = Placeholder.mutedText)
+    if (grid != null) {
+      Text(
+        "${gameCount(grid.games.size)}, ${onDeviceCount(grid.onDevice)}",
+        color = Placeholder.mutedText,
+      )
     }
   }
 }

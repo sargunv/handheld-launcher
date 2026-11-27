@@ -11,11 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -68,14 +66,6 @@ private const val SHELF_SIZE = 20
  */
 @Composable
 internal fun HomePlace(state: AppState) {
-  // Each start over is a new Home, focus and scroll positions included.
-  var start by rememberSaveable { mutableIntStateOf(0) }
-  LaunchedEffect(state) { state.homeStarts.collect { start++ } }
-  key(start) { HomeShelves(state) }
-}
-
-@Composable
-private fun HomeShelves(state: AppState) {
   val library = state.library
   // The first is the game being played, and the rest make the shelf of recent games.
   val played by remember(library) { library.recentlyPlayed(SHELF_SIZE) }.collectAsState(null)

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -37,24 +36,16 @@ import dev.sargunv.handheld.ui.places.ShelfDescription
  */
 @Composable
 internal fun LibrarySecondary(state: AppState) {
-  val tab = state.libraryTab
-  when {
-    state.libraryView.openedFrom != null && tab in ShelfTabs ->
-      GamesSecondary(state, filters = true)
-    tab in ShelfTabs -> ShelfListSecondary(state, tab)
-    else -> GamesSecondary(state, filters = tab != LibraryTab.OnDevice)
+  when (val source = state.libraryView.source) {
+    null -> ShelfListSecondary(state)
+    else -> GamesSecondary(state, source.filters)
   }
 }
 
-/** The tabs of platforms and collections, rather than of games. */
-private val ShelfTabs = setOf(LibraryTab.Platforms, LibraryTab.Collections)
-
 @Composable
-private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
+private fun ShelfListSecondary(state: AppState) {
   val view = state.libraryView
-  val summaries by view.summaries(tab).collectAsState()
-  val shelf = summaries.map { it.shelf }.shelfAt(view.shelfKey(tab))
-  val summary = summaries.find { it.shelf == shelf }
+  val summary = view.summaries(state.libraryTab).find { it.shelf == view.shelf }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (summary != null) {
       val about = (summary.shelf as? LibraryShelf.OfCollection)?.collection?.description
@@ -67,7 +58,7 @@ private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
 @Composable
 private fun GamesSecondary(state: AppState, filters: Boolean) {
   val view = state.libraryView
-  val letters = view.grid.collectAsState().value?.letters.orEmpty()
+  val letters = view.grid?.index?.keys.orEmpty()
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Box(Modifier.fillMaxWidth().weight(1f)) {
       (state.focused as? Focused.OnGame)?.let { GameDescription(state, it.game) }

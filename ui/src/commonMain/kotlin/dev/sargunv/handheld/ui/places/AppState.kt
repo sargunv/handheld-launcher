@@ -69,7 +69,7 @@ class AppState(
   val credentials: CredentialStore,
   httpEngine: () -> HttpClientEngine,
   device: DeviceDescription,
-  /** Runs what the state keeps up to date, for as long as the app shows. */
+  /** Shares the state's flows while the screens collect them. */
   scope: CoroutineScope,
   /** The RetroAchievements account, on platforms whose games can earn achievements. */
   val retroAchievements: RetroAchievementsState? = null,
@@ -107,13 +107,16 @@ class AppState(
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
    */
   val deviceStates: StateFlow<Map<Long, DeviceState>> =
-    downloads.statuses().map(::deviceStatesOf).stateIn(scope, SharingStarted.Eagerly, emptyMap())
+    downloads
+      .statuses()
+      .map(::deviceStatesOf)
+      .stateIn(scope, SharingStarted.WhileSubscribed(), emptyMap())
 
   /** The local games: files on the device that match none of the server's games. */
   val localGames: StateFlow<List<LocalGame>> =
-    games.localGames().stateIn(scope, SharingStarted.Eagerly, emptyList())
+    games.localGames().stateIn(scope, SharingStarted.WhileSubscribed(), emptyList())
 
-  val libraryView = LibraryState(library, deviceStates, localGames, { libraryTab }, scope)
+  val libraryView = LibraryState(library, deviceStates, localGames) { libraryTab }
   val settingsView = SettingsView()
 
   /** Signs in to the RomM server, and out of it. */
@@ -127,10 +130,10 @@ class AppState(
   /** The syncs to run: one as collecting starts, and one for each [syncNow]. */
   val syncRequests: Flow<Unit> = syncRequested.onStart { emit(Unit) }
 
-  private val homeStartsOver = Channel<Unit>(Channel.CONFLATED)
+  private val homeStartRequests = Channel<Unit>(Channel.CONFLATED)
 
-  /** Each time Home starts over, so its focus and scroll positions start over too. */
-  val homeStarts: Flow<Unit> = homeStartsOver.receiveAsFlow()
+  /** The requests to start over on Home, which [MainPrimary] carries out. */
+  internal val homeStarts: Flow<Unit> = homeStartRequests.receiveAsFlow()
 
   val inputSettings: InputSettings
     get() = settings.input
@@ -173,9 +176,7 @@ class AppState(
    * close, and Home shows from its top with focus on its first item.
    */
   fun goHome() {
-    navigator.backToStart()
-    showPlace(Place.Home)
-    homeStartsOver.trySend(Unit)
+    homeStartRequests.trySend(Unit)
   }
 
   /** Syncs the library with the server again, starting over if a sync is under way. */
@@ -200,7 +201,6 @@ class AppState(
       navigator.backToStart()
       place = Place.Home
       sync = SyncStatus.NotStarted
-      homeStartsOver.trySend(Unit)
     }
 
   /**

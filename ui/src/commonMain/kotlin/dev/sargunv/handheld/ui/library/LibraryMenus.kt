@@ -7,8 +7,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -35,11 +33,7 @@ internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: (
       is LibraryShelf.OfPlatform ->
         listOf("Open with" to OpenWithScope.Platform(PlatformSlug(shelf.platform.slug)))
       is LibraryShelf.OfCollection -> {
-        val view = state.libraryView
-        val among =
-          remember(view, shelf.collection) { view.platformsOf(shelf.collection) }
-            .collectAsState(null)
-            .value
+        val among = state.libraryView.platformsOf(shelf.collection)
         among?.map { platform ->
           val label = if (among.size == 1) "Open with" else "Open ${platform.name} games with"
           label to OpenWithScope.Collection(shelf.collection.launchId, PlatformSlug(platform.slug))
@@ -83,7 +77,7 @@ internal fun GamesMenu(
   onDismissRequest: () -> Unit,
 ) {
   val view = state.libraryView
-  val letters = view.grid.collectAsState().value?.letters.orEmpty()
+  val letters = view.grid?.index?.keys.orEmpty()
   fun choose(action: () -> Unit) {
     action()
     onDismissRequest()
@@ -115,7 +109,7 @@ internal fun GamesMenu(
         Text("Jump to", color = Placeholder.mutedText)
         // One row that scrolls with focus, so the whole alphabet fits on the screen.
         FocusLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          items(letters) { letter ->
+          items(letters.toList()) { letter ->
             MenuButton("menu:jump:$letter", letter.toString()) {
               choose { view.jump = Jump(letter) }
             }

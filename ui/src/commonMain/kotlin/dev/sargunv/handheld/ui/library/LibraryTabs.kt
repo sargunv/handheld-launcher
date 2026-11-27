@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -53,15 +52,13 @@ import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
 
-/** The tabs, with [tab] showing. L and R switch to the neighboring tab, stopping at the ends. */
+/**
+ * The tabs, with the player's showing: the grid of games from [source], or without one, the tab's
+ * shelves. L and R switch to the neighboring tab, stopping at the ends.
+ */
 @Composable
-internal fun LibraryTabs(
-  state: AppState,
-  tab: LibraryTab,
-  shelves: List<LibraryShelf>?,
-  focused: LibraryShelf?,
-  gridStates: SaveableStateHolder,
-) {
+internal fun LibraryTabs(state: AppState, source: GridSource?, gridStates: SaveableStateHolder) {
+  val tab = state.libraryTab
   fun switchTo(next: LibraryTab?) {
     if (next != null) state.libraryTab = next
   }
@@ -79,20 +76,18 @@ internal fun LibraryTabs(
     Box(Modifier.fillMaxWidth().weight(1f)) {
       // Each tab is a focus scope of its own, which takes focus as it shows.
       key(tab) {
-        when (tab) {
-          LibraryTab.OnDevice,
-          LibraryTab.AllGames ->
-            GameGridPane(
-              state = state,
-              gridStates = gridStates,
-              source = GridSource.OfTab(tab),
-              title = tab.title,
-              empty =
-                if (tab == LibraryTab.OnDevice) "No games" else state.sync.emptyLabel("No games"),
-              backHint = "Home",
-            )
-          LibraryTab.Platforms,
-          LibraryTab.Collections -> ShelfList(state, tab, shelves, focused)
+        if (source != null) {
+          GameGridPane(
+            state = state,
+            gridStates = gridStates,
+            source = source,
+            title = tab.title,
+            empty =
+              if (tab == LibraryTab.OnDevice) "No games" else state.sync.emptyLabel("No games"),
+            backHint = "Home",
+          )
+        } else {
+          ShelfList(state, tab)
         }
       }
     }
@@ -151,18 +146,15 @@ internal fun buttonLabel(action: Action): String {
 }
 
 /**
- * The platforms or collections of [tab], focused on [focused]. Confirm opens the focused one, and
- * the menu offers Open with for its games.
+ * The platforms or collections of [tab]. Confirm opens the focused one, and the menu offers Open
+ * with for its games.
  */
 @Composable
-private fun ShelfList(
-  state: AppState,
-  tab: LibraryTab,
-  shelves: List<LibraryShelf>?,
-  focused: LibraryShelf?,
-) {
+private fun ShelfList(state: AppState, tab: LibraryTab) {
   val view = state.libraryView
-  val summaries by view.summaries(tab).collectAsState()
+  val shelves = view.shelves(tab)
+  val focused = view.shelf
+  val summaries = view.summaries(tab)
   var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
   val menuShelf = shelves?.find { it.key == menuFor }
   val hasShelves = summaries.isNotEmpty()

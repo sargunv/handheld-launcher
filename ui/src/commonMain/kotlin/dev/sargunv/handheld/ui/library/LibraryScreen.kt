@@ -2,8 +2,9 @@ package dev.sargunv.handheld.ui.library
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -12,22 +13,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.domain.Collection
+import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
+import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.places.AppState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.launch
 
 /** A request to jump to the first game under [letter]. Each request is a new one. */
 class Jump(val letter: Char)
@@ -60,38 +56,34 @@ internal sealed interface GridSource {
   }
 }
 
-/**
- * A grid of games: [games], and the ones its filter keeps in its sort's order, [shown]. [key] names
- * its source, sort and filter.
- */
+/** A grid's [games], the ones [filter] keeps in [sort]'s order, and how many are on the device. */
 @Immutable
 internal class GridGames(
-  val key: String,
   val games: List<LibraryGame>,
-  val shown: List<LibraryGame>,
+  filter: LibraryFilter,
   sort: LibrarySort,
+  states: Map<Long, DeviceState>,
 ) {
+  val shown = games.shown(filter, sort, states)
+
   /** Each letter's first game in [shown], for the A–Z jump, which only the sort by name has. */
   val index: Map<Char, Int> = if (sort == LibrarySort.Name) jumpIndex(shown) else emptyMap()
 
-  /** The letters the A–Z jump goes to. */
-  val letters: List<Char>
-    get() = index.keys.toList()
+  val onDevice = games.count { deviceStateOf(it, states) == DeviceState.OnDevice }
 }
 
 /**
- * What Library shows, which its upper and lower screens share: the shelves and the grid of games on
- * [tab], from [cache]. The tab is in the settings.
+ * What Library shows, which its upper and lower screens share: the shelves of [tab], and the grid
+ * of games on it or on the shelf open over it, from [cache] while [load] runs. The tab is in the
+ * settings.
  */
-@OptIn(ExperimentalCoroutinesApi::class)
 @Stable
 class LibraryState
 internal constructor(
   private val cache: LibraryCache,
-  private val deviceStates: StateFlow<Map<Long, DeviceState>>,
-  private val localGames: StateFlow<List<LocalGame>>,
+  private val deviceStates: Flow<Map<Long, DeviceState>>,
+  private val localGames: Flow<List<LocalGame>>,
   private val tab: () -> LibraryTab,
-  private val scope: CoroutineScope,
 ) {
   /** The key of the shelf focused on each tab, or open; a tab without one focuses its first. */
   private val shelfKeys = mutableStateMapOf<LibraryTab, String>()
@@ -106,21 +98,23 @@ internal constructor(
   /** A jump that the shown games haven't carried out yet. */
   var jump: Jump? by mutableStateOf(null)
 
-  private fun <T> Flow<T>.shared(initial: T) =
-    stateIn(scope, SharingStarted.WhileSubscribed(), initial)
+  private var platforms: List<Platform>? by mutableStateOf(null)
+  private var collections: List<Collection>? by mutableStateOf(null)
+  private var romPlatforms: Map<Long, Long>? by mutableStateOf(null)
+  private var collectionRoms: Map<Pair<CollectionKind, Long>, Set<Long>>? by mutableStateOf(null)
+  private var states: Map<Long, DeviceState>? by mutableStateOf(null)
+  private var local: List<LocalGame>? by mutableStateOf(null)
 
-  private val platforms = cache.platforms().shared(null)
-  private val romPlatforms = cache.romPlatforms().shared(null)
-  private val collectionRoms = cache.collectionRoms().shared(null)
+  /** The ROMs of the last source to load. */
+  private var loaded: LoadedRoms? by mutableStateOf(null)
 
-  private val platformShelves =
-    combine(platforms, localGames) { platforms, local ->
-        platforms?.let { platformShelves(it, local) }
-      }
-      .shared(null)
-  private val collectionShelves = cache.collections().map(::collectionShelves).shared(null)
-  private val platformSummaries = summariesOf(platformShelves)
-  private val collectionSummaries = summariesOf(collectionShelves)
+  private val platformShelves by derivedStateOf {
+    val platforms = platforms ?: return@derivedStateOf null
+    platformShelves(platforms, local ?: return@derivedStateOf null)
+  }
+  private val collectionShelves by derivedStateOf { collections?.let(::collectionShelves) }
+  private val platformSummaries by derivedStateOf { summariesOf(platformShelves) }
+  private val collectionSummaries by derivedStateOf { summariesOf(collectionShelves) }
 
   /** The key of the shelf focused on [tab], or open, or null for its first. */
   fun shelfKey(tab: LibraryTab): String? = shelfKeys[tab]
@@ -141,106 +135,104 @@ internal constructor(
   }
 
   /** The shelves on [tab], or null while they load. Tabs of games have none. */
-  internal fun shelves(tab: LibraryTab): StateFlow<List<LibraryShelf>?> =
+  internal fun shelves(tab: LibraryTab): List<LibraryShelf>? =
     when (tab) {
       LibraryTab.Platforms -> platformShelves
       LibraryTab.Collections -> collectionShelves
       LibraryTab.OnDevice,
-      LibraryTab.AllGames -> NoShelves
+      LibraryTab.AllGames -> emptyList()
     }
 
   /** The shelves on [tab] with their counts of games, all and on this device. */
-  internal fun summaries(tab: LibraryTab): StateFlow<List<ShelfSummary>> =
+  internal fun summaries(tab: LibraryTab): List<ShelfSummary> =
     when (tab) {
       LibraryTab.Platforms -> platformSummaries
       LibraryTab.Collections -> collectionSummaries
       LibraryTab.OnDevice,
-      LibraryTab.AllGames -> NoSummaries
+      LibraryTab.AllGames -> emptyList()
     }
 
   /** The platforms of [collection]'s games, or null while they load. */
-  internal fun platformsOf(collection: Collection): Flow<List<Platform>?> =
-    combine(platforms, romPlatforms, collectionRoms) { platforms, romPlatforms, collectionRoms ->
-      if (platforms == null || romPlatforms == null || collectionRoms == null) null
-      else collectionPlatforms(collection, platforms, romPlatforms, collectionRoms)
+  internal fun platformsOf(collection: Collection): List<Platform>? =
+    collectionPlatforms(
+      collection,
+      platforms ?: return null,
+      romPlatforms ?: return null,
+      collectionRoms ?: return null,
+    )
+
+  /** The shelf focused on the tab that shows, or open over it. */
+  internal val shelf: LibraryShelf? by derivedStateOf { shelves(tab())?.shelfAt(shelfKey(tab())) }
+
+  /** Where the grid that shows gets its games, or null while a tab of shelves shows. */
+  internal val source: GridSource? by derivedStateOf {
+    when (val tab = tab()) {
+      LibraryTab.OnDevice,
+      LibraryTab.AllGames -> GridSource.OfTab(tab)
+      LibraryTab.Platforms,
+      LibraryTab.Collections -> shelf?.takeIf { openedFrom != null }?.let(GridSource::OfShelf)
     }
-
-  /** The [GridGames.key] of the grid from [source] under the current sort and filter. */
-  internal fun gridKey(source: GridSource): String = gridKey(source, sort, filter)
-
-  /**
-   * The grid of games on the tab, or on the shelf open over it, or null while a tab of shelves
-   * shows. A change of tab, shelf, sort or filter reaches it a moment later, and [GridGames.key]
-   * says which one it shows.
-   */
-  internal val grid: StateFlow<GridGames?> = snapshotFlow {
-    Triple(tab(), openedFrom, shelfKey(tab()))
   }
-    .flatMapLatest { (tab, from, key) ->
-      when (tab) {
-        LibraryTab.OnDevice,
-        LibraryTab.AllGames -> flowOf(GridSource.OfTab(tab))
-        LibraryTab.Platforms,
-        LibraryTab.Collections ->
-          if (from == null) flowOf(null)
-          else shelves(tab).map { shelves -> shelves?.shelfAt(key)?.let(GridSource::OfShelf) }
+
+  /** The games of [source] under the sort and the filter, or null while they load. */
+  internal val grid: GridGames? by derivedStateOf {
+    val source = source ?: return@derivedStateOf null
+    val roms = loaded?.takeIf { it.source == source.key }?.roms ?: return@derivedStateOf null
+    val states = states ?: return@derivedStateOf null
+    val local = local ?: return@derivedStateOf null
+    val games =
+      when (source) {
+        // The local games are on the device, and in the whole library.
+        is GridSource.OfTab ->
+          (if (source.tab == LibraryTab.OnDevice) roms.onDevice(states) else roms) + local
+        is GridSource.OfShelf ->
+          when (val shelf = source.shelf) {
+            // A platform's local games are in its grid too.
+            is LibraryShelf.OfPlatform -> roms + local.filter { it.platformId == shelf.platform.id }
+            is LibraryShelf.OfCollection -> roms
+          }
       }
-    }
-    .distinctUntilChanged()
-    .flatMapLatest { source -> source?.let(::gridOf) ?: flowOf(null) }
-    .shared(null)
+    GridGames(games, if (source.filters) filter else LibraryFilter.All, sort, states)
+  }
 
-  private fun gridOf(source: GridSource): Flow<GridGames> =
-    combine(gamesOf(source), deviceStates, snapshotFlow { sort to filter }) {
-      games,
-      states,
-      (sort, filter) ->
-      val kept = if (source.filters) filter else LibraryFilter.All
-      GridGames(gridKey(source, sort, filter), games, games.shown(kept, sort, states), sort)
-    }
+  /** Keeps what Library shows up to date with [cache] and the device. It runs until cancelled. */
+  internal suspend fun load() = coroutineScope {
+    launch { cache.platforms().collect { platforms = it } }
+    launch { cache.collections().collect { collections = it } }
+    launch { cache.romPlatforms().collect { romPlatforms = it } }
+    launch { cache.collectionRoms().collect { collectionRoms = it } }
+    launch { deviceStates.collect { states = it } }
+    launch { localGames.collect { local = it } }
+    snapshotFlow { source }
+      .distinctUntilChangedBy { it?.key }
+      .collectLatest { source ->
+        if (source != null) romsOf(source).collect { loaded = LoadedRoms(source.key, it) }
+      }
+  }
 
-  private fun gamesOf(source: GridSource): Flow<List<LibraryGame>> =
+  private fun romsOf(source: GridSource): Flow<List<Rom>> =
     when (source) {
-      // The local games are on the device, and in the whole library.
-      is GridSource.OfTab ->
-        combine(cache.allRoms(), deviceStates, localGames) { all, states, local ->
-          (if (source.tab == LibraryTab.OnDevice) all.onDevice(states) else all) + local
-        }
+      is GridSource.OfTab -> cache.allRoms()
       is GridSource.OfShelf ->
         when (val shelf = source.shelf) {
-          // A platform's local games are in its grid too.
-          is LibraryShelf.OfPlatform ->
-            combine(cache.romsOnPlatform(shelf.platform.id), localGames) { roms, local ->
-              roms + local.filter { it.platformId == shelf.platform.id }
-            }
+          is LibraryShelf.OfPlatform -> cache.romsOnPlatform(shelf.platform.id)
           is LibraryShelf.OfCollection ->
             cache.romsInCollection(shelf.collection.kind, shelf.collection.id)
         }
     }
 
-  private fun summariesOf(shelves: Flow<List<LibraryShelf>?>): StateFlow<List<ShelfSummary>> =
-    combine(shelves, romPlatforms, collectionRoms, deviceStates, localGames) {
-        loaded,
-        romPlatforms,
-        collectionRoms,
-        states,
-        local ->
-        shelfSummaries(
-          loaded.orEmpty(),
-          romPlatforms.orEmpty(),
-          collectionRoms.orEmpty(),
-          states,
-          local,
-        )
-      }
-      .shared(emptyList())
+  private fun summariesOf(shelves: List<LibraryShelf>?): List<ShelfSummary> =
+    shelfSummaries(
+      shelves.orEmpty(),
+      romPlatforms.orEmpty(),
+      collectionRoms.orEmpty(),
+      states.orEmpty(),
+      local.orEmpty(),
+    )
 }
 
-private fun gridKey(source: GridSource, sort: LibrarySort, filter: LibraryFilter) =
-  "${source.key}/$sort/${if (source.filters) filter else LibraryFilter.All}"
-
-private val NoShelves = MutableStateFlow(emptyList<LibraryShelf>())
-private val NoSummaries = MutableStateFlow(emptyList<ShelfSummary>())
+/** The [roms] of the grid source with the key [source]. */
+private class LoadedRoms(val source: String, val roms: List<Rom>)
 
 /**
  * Library: four tabs, which L and R switch between. On device and All games are grids of games.
@@ -250,14 +242,11 @@ private val NoSummaries = MutableStateFlow(emptyList<ShelfSummary>())
 @Composable
 internal fun LibraryPlace(state: AppState) {
   val view = state.libraryView
-  val tab = state.libraryTab
-  val shelves by view.shelves(tab).collectAsState()
-  val shelf = shelves?.shelfAt(view.shelfKey(tab))
+  LaunchedEffect(view) { view.load() }
   // Each grid of games, sort and filter keeps its own focus and scroll position.
   val gridStates = rememberSaveableStateHolder()
-  if (view.openedFrom != null && shelf != null) {
-    ShelfGames(state, shelves.orEmpty(), shelf, gridStates)
-  } else {
-    LibraryTabs(state, tab, shelves, shelf, gridStates)
+  when (val source = view.source) {
+    is GridSource.OfShelf -> ShelfGames(state, source, gridStates)
+    else -> LibraryTabs(state, source, gridStates)
   }
 }
