@@ -131,24 +131,7 @@ romPlatforms:
 SELECT id, platform_id FROM rom;
 
 upsertRom:
-INSERT INTO rom VALUES ?
-ON CONFLICT (id) DO UPDATE SET
-  platform_id = excluded.platform_id,
-  platform_slug = excluded.platform_slug,
-  title = excluded.title,
-  sort_key = excluded.sort_key,
-  file_name = excluded.file_name,
-  size_bytes = excluded.size_bytes,
-  summary = excluded.summary,
-  alternative_names = excluded.alternative_names,
-  genres = excluded.genres,
-  regions = excluded.regions,
-  release_date = excluded.release_date,
-  cover_small_url = excluded.cover_small_url,
-  cover_large_url = excluded.cover_large_url,
-  has_multiple_files = excluded.has_multiple_files,
-  updated_at = excluded.updated_at,
-  created_at = excluded.created_at;
+INSERT OR REPLACE INTO rom VALUES ?;
 
 deleteRom:
 DELETE FROM rom WHERE id = ?;
