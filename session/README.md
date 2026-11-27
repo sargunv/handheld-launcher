@@ -31,27 +31,6 @@ lavapipe (`mesa-vulkan-drivers` on Debian and Ubuntu). Set
 `HANDHELD_SESSION_DUMP_DIR` to a directory to see the frames the tests check, as
 PNGs.
 
-## Run on a device
-
-Debug builds of the Android app have `SessionTestActivity`, which runs a core:
-
-```sh
-mise run session:android-fixtures -- x86_64   # or arm64-v8a
-adb push "$HANDHELD_SESSION_FIXTURES-android/x86_64/." /data/local/tmp/session-test/
-adb shell run-as dev.sargunv.handheld sh -c \
-  'mkdir -p files/session-test && cp /data/local/tmp/session-test/* files/session-test/'
-adb shell am start -n dev.sargunv.handheld/.SessionTestActivity \
-  --es core gambatte_libretro_android.so --es content ucity.gbc
-```
-
-The core and content paths are relative to the app's `files/session-test`, or
-absolute. Innkeeper has no `run-as`, so there, pass the absolute paths under
-`/data/local/tmp/session-test` instead of copying the files.
-`--esa core_options key=value,...` sets core options, such as
-`ppsspp_backend=vulkan` for PPSSPP to render with Vulkan. F2 saves a state and
-F4 loads it. Games from the library run in the app's own player instead:
-`mise run android:open game:<romId>` or `local:<path>`.
-
 ## Run on the desktop
 
 `mise run session:run -- <core> [content]` runs a core in a window; `--help`

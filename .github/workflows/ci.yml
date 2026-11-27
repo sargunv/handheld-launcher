@@ -39,21 +39,16 @@ jobs:
           mesa-vulkan-drivers
       - run: mise run android:ndk
       # The session's test fixtures, which fixtures.sh builds from the sources
-      # fixture-sources.sh pins.
+      # it pins.
       - uses: actions/cache@v6
         with:
           path: ${{ env.HANDHELD_SESSION_FIXTURES }}
           key:
             session-fixtures-${{ hashFiles('session/fixtures.sh',
-            'session/fixture-sources.sh', 'session/tests/cores/events.c') }}
+            'session/tests/cores/events.c') }}
       - run: mise run build
       - run: mise run test
         env:
           HANDHELD_REQUIRE_EGL: "1"
           HANDHELD_REQUIRE_VULKAN: "1"
-      # The session's build script compiles rcheevos, so the Android check needs
-      # the NDK's compiler, which cargo-ndk sets, as in Gradle's build.
-      - run: |
-          source session/fixture-sources.sh
-          cargo ndk --target arm64-v8a --platform "$(android_min_sdk)" \
-            clippy -p handheld-session --all-targets -- -D warnings
+      - run: mise run check:android
