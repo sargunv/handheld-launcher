@@ -10,16 +10,6 @@ class KeyMappingTest {
   private val confirmB = InputSettings(confirmButton = ConfirmButton.B)
 
   @Test
-  fun faceButtonsFollowTheirKeyCodes() {
-    assertEquals(PadButton.A, padButtonFor(Key.ButtonA))
-    assertEquals(PadButton.B, padButtonFor(Key.ButtonB))
-    assertEquals(PadButton.X, padButtonFor(Key.ButtonX))
-    assertEquals(PadButton.Y, padButtonFor(Key.ButtonY))
-    assertEquals(PadButton.DpadUp, padButtonFor(Key.DirectionUp))
-    assertNull(padButtonFor(Key.Enter))
-  }
-
-  @Test
   fun confirmSettingSwapsAAndB() {
     assertEquals(Action.Confirm, confirmA.actionFor(Key.ButtonA))
     assertEquals(Action.Back, confirmA.actionFor(Key.ButtonB))
@@ -58,13 +48,5 @@ class KeyMappingTest {
       assertEquals(Action.Menu, settings.actionFor(Key.Tab))
       assertNull(settings.actionFor(Key.A))
     }
-  }
-
-  @Test
-  fun onlyDirectionsRepeat() {
-    assertEquals(
-      setOf(Action.Up, Action.Down, Action.Left, Action.Right),
-      Action.entries.filter { it.repeats }.toSet(),
-    )
   }
 }

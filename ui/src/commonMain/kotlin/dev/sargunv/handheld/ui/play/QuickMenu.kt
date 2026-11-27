@@ -142,10 +142,26 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
     private set
 
   /** Whether hardcore mode keeps the game from loading states and fast forwarding now. */
-  val hardcoreRestricts: Boolean
+  private val hardcoreRestricts: Boolean
     get() =
       session.hardcore &&
         (achievements == GameAchievements.Loading || achievements is GameAchievements.Ready)
+
+  /** Whether the game may load a state now. */
+  val canLoad: Boolean
+    get() = !hardcoreRestricts
+
+  /** Whether fast forward may be toggled now: it can always be turned off. */
+  val canFastForward: Boolean
+    get() = fastForward || !hardcoreRestricts
+
+  /** Whether choosing [slot] while the menu lists the slots does anything: a load needs a state. */
+  fun canChoose(slot: StateSlot): Boolean =
+    when (picking) {
+      SlotAction.Save -> true
+      SlotAction.Load -> canLoad && !slot.isEmpty
+      null -> false
+    }
 
   /** Starts an opening of the menu on its main list, and reads the slots again. */
   fun open() {
@@ -202,35 +218,33 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
 
   /**
    * Saves to or loads from [slot], as [picking] says. Saving goes back to the main list, which says
-   * so; loading resumes the game. Loading an empty slot does nothing.
+   * so; loading resumes the game. A slot [canChoose] refuses does nothing.
    */
-  fun choose(slot: Int) {
+  fun choose(slot: StateSlot) {
     val action = picking ?: return
-    if (busy) return
-    if (action == SlotAction.Load && slots.find { it.number == slot }?.isEmpty != false) return
-    if (action == SlotAction.Load && hardcoreRestricts) return
+    if (busy || !canChoose(slot)) return
     busy = true
     scope.launch {
       try {
         when (action) {
           SlotAction.Save -> {
-            val failure = session.saveState(slot)
+            val failure = session.saveState(slot.number)
             slots = session.slots()
             if (failure != null) {
               message = failure
             } else {
-              lastSlot = slot
-              message = "Saved to slot $slot."
+              lastSlot = slot.number
+              message = "Saved to slot ${slot.number}."
               picking = null
               focusedSlot = null
             }
           }
           SlotAction.Load -> {
-            val failure = session.loadState(slot)
+            val failure = session.loadState(slot.number)
             if (failure != null) {
               message = failure
             } else {
-              lastSlot = slot
+              lastSlot = slot.number
               session.resume()
             }
           }
@@ -242,7 +256,7 @@ class QuickMenuState(private val session: QuickMenuSession, private val scope: C
   }
 
   fun toggleFastForward() {
-    if (!fastForward && hardcoreRestricts) return
+    if (!canFastForward) return
     fastForward = !fastForward
     session.setFastForward(fastForward)
   }
@@ -315,23 +329,22 @@ private fun MainList(state: QuickMenuState) {
     )
     MenuItem("quick:resume", "Resume", onConfirm = state::resume)
     MenuItem("quick:save", "Save state") { state.pick(SlotAction.Save) }
-    val restricted = state.hardcoreRestricts
     MenuItem(
       "quick:load",
       "Load state",
-      value = if (restricted) "Not in hardcore" else null,
-      onConfirm = if (restricted) null else ({ state.pick(SlotAction.Load) }),
+      value = if (state.canLoad) null else "Not in hardcore",
+      onConfirm = if (state.canLoad) ({ state.pick(SlotAction.Load) }) else null,
     )
     MenuItem(
       "quick:fast-forward",
       "Fast forward",
       value =
         when {
-          restricted && !state.fastForward -> "Not in hardcore"
+          !state.canFastForward -> "Not in hardcore"
           state.fastForward -> "On"
           else -> "Off"
         },
-      onConfirm = if (restricted && !state.fastForward) null else state::toggleFastForward,
+      onConfirm = if (state.canFastForward) state::toggleFastForward else null,
     )
     MenuItem(
       "quick:achievements",
@@ -354,13 +367,12 @@ private fun SlotList(state: QuickMenuState, action: SlotAction) {
       modifier = Modifier.semantics { heading() },
     )
     for (slot in state.slots) {
-      val choosable = action == SlotAction.Save || !slot.isEmpty
       MenuItem(
         "slot:${slot.number}",
         "Slot ${slot.number}",
         value = slot.describe(now),
         modifier = Modifier.onFocusChanged { if (it.hasFocus) state.focusedSlot = slot.number },
-        onConfirm = if (choosable) ({ state.choose(slot.number) }) else null,
+        onConfirm = if (state.canChoose(slot)) ({ state.choose(slot) }) else null,
       )
     }
   }
@@ -416,11 +428,7 @@ fun StateSlotsPanel(state: QuickMenuState, modifier: Modifier = Modifier) {
             slot,
             now = now,
             marked = state.picking != null && state.focusedSlot == slot.number,
-            onTap =
-              state.picking?.let { action ->
-                if (action == SlotAction.Save || !slot.isEmpty) ({ state.choose(slot.number) })
-                else null
-              },
+            onTap = if (state.canChoose(slot)) ({ state.choose(slot) }) else null,
             modifier = Modifier.weight(1f),
           )
         }
