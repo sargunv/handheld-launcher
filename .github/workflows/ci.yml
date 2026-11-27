@@ -45,7 +45,7 @@ jobs:
       # fixture-sources.sh pins.
       - uses: actions/cache@v6
         with:
-          path: ~/.cache/handheld/session-fixtures
+          path: ${{ env.HANDHELD_SESSION_FIXTURES }}
           key:
             session-fixtures-${{ hashFiles('session/fixtures.sh',
             'session/fixture-sources.sh', 'session/tests/cores/events.c') }}
@@ -57,6 +57,6 @@ jobs:
       # The session's build script compiles rcheevos, so the Android check needs
       # the NDK's compiler, which cargo-ndk sets, as in Gradle's build.
       - run: |
-          min_sdk="$(sed -n 's/^android-minSdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)"
-          cargo ndk --target arm64-v8a --platform "$min_sdk" \
+          source session/fixture-sources.sh
+          cargo ndk --target arm64-v8a --platform "$(android_min_sdk)" \
             clippy -p handheld-session --all-targets -- -D warnings

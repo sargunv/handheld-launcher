@@ -42,8 +42,8 @@ private sealed interface Status {
 
 /**
  * Runs the core [core] gives with [content] and [coreOptions] in a game session, for trying the
- * session on a device. F2 saves a state and F4 loads it. Saves and states go in [dir]. When the
- * core quits, the screen closes the session.
+ * session on a device. Saves and states go in [dir]. When the core quits, the screen closes the
+ * session.
  */
 @Composable
 internal fun SessionTestScreen(

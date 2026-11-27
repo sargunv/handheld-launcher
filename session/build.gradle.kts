@@ -2,7 +2,7 @@ import dev.sargunv.handheld.gradle.CargoBuild
 import dev.sargunv.handheld.gradle.UniffiBindgen
 import dev.sargunv.handheld.gradle.androidAbis
 
-plugins { alias(libs.plugins.android.library) }
+plugins { id("com.android.library") }
 
 val workspaceDir: Directory = rootProject.layout.projectDirectory
 val rustSources =

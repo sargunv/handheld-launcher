@@ -17,13 +17,12 @@ emulator.
 The integration tests run real cores: libretro-samples' software, GL and Vulkan
 test cores, `tests/cores/events.c`, and Gambatte with µCity, a Game Boy Color
 game. `mise run session:fixtures` builds the cores from pinned commits and
-downloads the game into `~/.cache/handheld/session-fixtures`, or
-`$HANDHELD_SESSION_FIXTURES`. `mise run test` runs it first; the tests
-themselves stay offline. Building the cores needs a C and C++ toolchain and the
-OpenGL and OpenGL ES development libraries
-(`mesa-libGL-devel mesa-libGLES-devel` on Fedora, `libgl-dev libgles-dev` on
-Debian and Ubuntu). On macOS, the Xcode command line tools are enough: the GL
-and Vulkan test cores aren't built there.
+downloads the game into `$HANDHELD_SESSION_FIXTURES`, which `mise.toml` sets.
+`mise run test` runs it first; the tests themselves stay offline. Building the
+cores needs a C and C++ toolchain and the OpenGL and OpenGL ES development
+libraries (`mesa-libGL-devel mesa-libGLES-devel` on Fedora,
+`libgl-dev libgles-dev` on Debian and Ubuntu). On macOS, the Xcode command line
+tools are enough: the GL and Vulkan test cores aren't built there.
 
 The GL tests skip without a usable EGL, unless `HANDHELD_REQUIRE_EGL` is set,
 and the Vulkan test skips without a usable Vulkan, unless
@@ -38,7 +37,7 @@ Debug builds of the Android app have `SessionTestActivity`, which runs a core:
 
 ```sh
 mise run session:android-fixtures -- x86_64   # or arm64-v8a
-adb push ~/.cache/handheld/session-fixtures-android/x86_64/. /data/local/tmp/session-test/
+adb push "$HANDHELD_SESSION_FIXTURES-android/x86_64/." /data/local/tmp/session-test/
 adb shell run-as dev.sargunv.handheld sh -c \
   'mkdir -p files/session-test && cp /data/local/tmp/session-test/* files/session-test/'
 adb shell am start -n dev.sargunv.handheld/.SessionTestActivity \

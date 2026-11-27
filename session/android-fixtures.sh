@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the session's test cores for an Android ABI with the pinned NDK, for
 # trying the session on a device (session/README.md). They land, with µCity,
-# in ~/.cache/handheld/session-fixtures-android/<abi>.
+# in $HANDHELD_SESSION_FIXTURES-android/<abi>.
 #
 # Usage: android-fixtures.sh [arm64-v8a|x86_64]
 set -euo pipefail
@@ -12,12 +12,12 @@ here="$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=session/fixture-sources.sh
 source "$here/fixture-sources.sh"
 
-min_sdk="$(sed -n 's/^android-minSdk = "\(.*\)"$/\1/p' "$here/../gradle/libs.versions.toml")"
+min_sdk="$(android_min_sdk)"
 # The NDK's compiler for the ABI, as cargo-ndk finds it for the session's build.
 eval "$(cargo ndk-env --target "$abi" --platform "$min_sdk")"
 cc=("$CLANG_PATH" "--target=$CARGO_NDK_SYSROOT_TARGET$min_sdk")
 
-dest="${XDG_CACHE_HOME:-$HOME/.cache}/handheld/session-fixtures-android/$abi"
+dest="$HANDHELD_SESSION_FIXTURES-android/$abi"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 out="$work/out"

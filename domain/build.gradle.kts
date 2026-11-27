@@ -1,16 +1,9 @@
 plugins {
-  alias(libs.plugins.kotlin.multiplatform)
-  alias(libs.plugins.android.kmp.library)
+  id("handheld.kmp-library")
 }
 
 kotlin {
-  android {
-    namespace = "dev.sargunv.handheld.domain"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-    minSdk = libs.versions.android.minSdk.get().toInt()
-    withHostTest {}
-  }
-  jvm()
+  android { withHostTest {} }
 
   sourceSets {
     commonTest.dependencies { implementation(libs.kotlin.test) }
@@ -36,8 +29,6 @@ val robolectricJars =
 tasks.withType<Test>().configureEach {
   if (name.contains("AndroidHostTest")) {
     dependsOn(robolectricJars)
-    // Robolectric loads its native runtime with System.load.
-    jvmArgs("--enable-native-access=ALL-UNNAMED")
     systemProperty("robolectric.offline", "true")
     systemProperty(
       "robolectric.dependency.dir",

@@ -9,7 +9,7 @@ It's early. See [docs/vision.md](docs/vision.md) for where it's going.
 ## Development
 
 Install [mise](https://mise.jdx.dev), and the Android SDK with the NDK that
-`mise.toml` pins: `sdkmanager --install "ndk;30.0.16248370"`. Then:
+`mise.toml` pins: `sdkmanager --install "ndk;<version>"`. Then:
 
 ```sh
 mise install

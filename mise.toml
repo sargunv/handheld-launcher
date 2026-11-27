@@ -22,6 +22,8 @@ ANDROID_HOME = "{% if os() == 'macos' %}{% set sdk = env.HOME ~ '/Library/Androi
 # The NDK the session builds with, which cargo-ndk finds here. Install it with
 # `sdkmanager --install "ndk;<version>"`.
 ANDROID_NDK_HOME = "{{ env.ANDROID_HOME }}/ndk/30.0.16248370"
+# Where `mise run session:fixtures` puts the session's test fixtures.
+HANDHELD_SESSION_FIXTURES = "{{ get_env(name='XDG_CACHE_HOME', default=env.HOME ~ '/.cache') }}/handheld/session-fixtures"
 
 [tasks.check]
 description = "Run the formatters and linters"

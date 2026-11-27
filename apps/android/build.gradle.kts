@@ -1,13 +1,12 @@
-import com.mikepenz.aboutlibraries.plugin.AboutLibrariesTask
-import dev.sargunv.handheld.gradle.RequireLicenceTexts
 import dev.sargunv.handheld.gradle.SessionLicences
 import dev.sargunv.handheld.gradle.androidAbis
 
 plugins {
-  alias(libs.plugins.android.application)
+  id("com.android.application")
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.kotlin.serialization)
-  alias(libs.plugins.aboutlibraries.android)
+  id("com.mikepenz.aboutlibraries.plugin.android")
+  id("handheld.licences")
 }
 
 val sessionLicences =
@@ -31,14 +30,8 @@ val sessionLicences =
   }
 
 // The About screen's list: the app's dependencies, which AboutLibraries puts in each variant's
-// `R.raw.aboutlibraries`, with the session's entries. It runs offline: licence texts come from the
-// entries, not the network.
-aboutLibraries {
-  offlineMode = true
-  collect { configPath = sessionLicences.flatMap { it.outputDir } }
-}
-
-tasks.withType<AboutLibrariesTask>().configureEach { doLast(RequireLicenceTexts) }
+// `R.raw.aboutlibraries`, with the session's entries.
+aboutLibraries { collect { configPath = sessionLicences.flatMap { it.outputDir } } }
 
 android {
   namespace = "dev.sargunv.handheld"

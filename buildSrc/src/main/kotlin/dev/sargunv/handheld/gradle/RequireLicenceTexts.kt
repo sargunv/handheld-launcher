@@ -5,11 +5,7 @@ import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.Task
 
-/**
- * Fails an AboutLibraries task whose output has a component without a licence text. The About
- * screen shows each component's licence texts, and AboutLibraries runs offline here, so the texts
- * have to come from the entries in `licences/` or the session's.
- */
+/** Fails an AboutLibraries task whose output has a component without a licence text. */
 object RequireLicenceTexts : Action<Task> {
   override fun execute(task: Task) {
     val outputs =
