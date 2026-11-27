@@ -9,10 +9,10 @@ enum class FacePosition {
 }
 
 /**
- * Where the A button sits, and with it the other face buttons. A handheld's own layout setting
- * decides which physical button sends which key code. The app's navigation follows the key codes,
- * so it needs the layout only where position matters: the built-in session's RetroPad, which is
- * positional, and showing the buttons where they sit.
+ * Where the A button sits, and with it the other face buttons. Face buttons map by key code, not
+ * position: a handheld's own layout setting decides which physical button sends `BUTTON_A`, and
+ * navigation follows the key code. The layout matters only where position does: the built-in
+ * session's RetroPad, which is positional, and showing the buttons where they sit.
  */
 enum class AButtonPosition {
   /** A at the bottom: A south, B east, X west, Y north. Android's documented default. */
