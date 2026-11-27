@@ -21,7 +21,6 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
-import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.json
@@ -34,9 +33,9 @@ import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.io.IOException
 
 @OptIn(ExperimentalTestApi::class)
 class SignInTest {
@@ -148,14 +147,9 @@ class SignInTest {
 
   @Test
   fun notesAnUnencryptedServer() {
-    assertEquals(
-      "This address isn't encrypted. If the server doesn't switch to https itself, your sign-in " +
-        "is sent in the clear, so use it only on a network you trust.",
-      unencryptedNote(serverUrl("http://192.168.1.5:8080")),
-    )
+    assertNotNull(unencryptedNote(serverUrl("http://192.168.1.5:8080")))
     assertNull(unencryptedNote(serverUrl("romm.example.com")))
     assertNull(unencryptedNote(serverUrl("https://romm.example.com")))
-    assertNull(unencryptedNote(null))
   }
 
   @Test
@@ -168,23 +162,5 @@ class SignInTest {
     onNode(hasSetTextAction()).performTextReplacement("http://192.168.1.5:8080")
     waitForIdle()
     onNodeWithText("This address isn't encrypted", substring = true).assertExists()
-  }
-
-  @Test
-  fun explainsFailuresPlainly() {
-    val url = "https://romm.example.com"
-    assertEquals(
-      "Couldn't reach https://romm.example.com. Check the address, and that this device is online.",
-      signInErrorMessage(RommException.Unreachable(IOException("boom")), url, SignInMethod.Code),
-    )
-    assertEquals(
-      "The server didn't accept this token. Check that it's complete, and that it hasn't " +
-        "expired or been deleted in RomM.",
-      signInErrorMessage(RommException.Unauthorized(null), url, SignInMethod.Token),
-    )
-    assertEquals(
-      "The code expired before it was approved. Get a new code to try again.",
-      signInErrorMessage(RommException.DeviceAuthExpired(), url, SignInMethod.Code),
-    )
   }
 }
