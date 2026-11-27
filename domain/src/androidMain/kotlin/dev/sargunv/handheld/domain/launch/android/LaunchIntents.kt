@@ -31,7 +31,6 @@ object LaunchIntents {
           LaunchFlag.NewTask -> Intent.FLAG_ACTIVITY_NEW_TASK
           LaunchFlag.ClearTask -> Intent.FLAG_ACTIVITY_CLEAR_TASK
           LaunchFlag.ClearTop -> Intent.FLAG_ACTIVITY_CLEAR_TOP
-          LaunchFlag.SingleTop -> Intent.FLAG_ACTIVITY_SINGLE_TOP
           LaunchFlag.NoHistory -> Intent.FLAG_ACTIVITY_NO_HISTORY
           LaunchFlag.GrantReadUriPermission -> Intent.FLAG_GRANT_READ_URI_PERMISSION
         }

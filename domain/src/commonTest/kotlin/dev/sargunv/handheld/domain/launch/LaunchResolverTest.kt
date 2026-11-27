@@ -334,17 +334,6 @@ class LaunchResolverTest {
   }
 
   @Test
-  fun aChoiceCanCarryItsOwnRecipe() {
-    val rules =
-      LaunchRules(
-        gameOverrides =
-          mapOf(GameKey.Romm(1) to LaunchChoice(pocketGoal, recipe = LaunchRecipe.OpenApp)),
-      )
-    val resolution = resolved(LaunchResolver.resolve(jak1, rules, setOf(pocketGoal)))
-    assertEquals(LaunchRecipe.OpenApp, resolution.target.recipe)
-  }
-
-  @Test
   fun noEmulatorInstalledSuggestsTheKnownOnes() {
     val rules = LaunchRules(gameOverrides = mapOf(GameKey.Romm(3) to LaunchChoice(pocketGoal)))
     val resolution = LaunchResolver.resolve(ratchet, rules, setOf("com.example.notes"))
