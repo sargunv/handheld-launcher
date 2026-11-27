@@ -9,7 +9,7 @@ import kotlinx.serialization.UseSerializers
 
 /** A platform as `GET /api/platforms` lists it. */
 @Serializable
-data class RommPlatform(
+internal data class RommPlatform(
   val id: Long,
   val slug: String,
   @SerialName("fs_slug") val fsSlug: String,
@@ -20,7 +20,7 @@ data class RommPlatform(
 
 /** One page of a paginated list. */
 @Serializable
-data class RommPage<T>(
+internal data class RommPage<T>(
   val items: List<T>,
   /** The size of the whole result, or null when the request didn't ask for it. */
   val total: Int? = null,
@@ -28,7 +28,7 @@ data class RommPage<T>(
 
 /** A ROM as `GET /api/roms` and `GET /api/roms/{id}` return it. */
 @Serializable
-data class RommRom(
+internal data class RommRom(
   val id: Long,
   @SerialName("platform_id") val platformId: Long,
   @SerialName("platform_slug") val platformSlug: String,
@@ -63,21 +63,22 @@ data class RommRom(
 )
 
 /** What RomM keeps from RetroAchievements about a game. */
-@Serializable data class RommRaMetadata(val achievements: List<RommRaAchievement> = emptyList())
+@Serializable
+internal data class RommRaMetadata(val achievements: List<RommRaAchievement> = emptyList())
 
 /** One of a game's achievements, as RomM keeps it. */
-@Serializable data class RommRaAchievement(@SerialName("ra_id") val raId: Long? = null)
+@Serializable internal data class RommRaAchievement(@SerialName("ra_id") val raId: Long? = null)
 
 /** What one user keeps about a ROM. */
 @Serializable
-data class RommRomUser(
+internal data class RommRomUser(
   /** When the user last played the ROM, or null when they haven't. */
   @SerialName("last_played") val lastPlayed: Instant? = null,
 )
 
 /** The metadata RomM merges from its sources for a ROM. */
 @Serializable
-data class RommRomMetadata(
+internal data class RommRomMetadata(
   val genres: List<String> = emptyList(),
   /** The first release date, in milliseconds since the epoch. */
   @SerialName("first_release_date") val firstReleaseDate: Long? = null,
@@ -85,7 +86,7 @@ data class RommRomMetadata(
 
 /** One file of a ROM. */
 @Serializable
-data class RommRomFile(
+internal data class RommRomFile(
   val id: Long,
   @SerialName("file_name") val fileName: String,
   @SerialName("file_path") val filePath: String,
@@ -102,7 +103,7 @@ data class RommRomFile(
 
 /** A collection whose ROMs a user picked, as `GET /api/collections` lists it. */
 @Serializable
-data class RommCollection(
+internal data class RommCollection(
   val id: Long,
   val name: String,
   val description: String = "",
@@ -113,7 +114,7 @@ data class RommCollection(
 
 /** A collection of the ROMs that match a saved filter, as `GET /api/collections/smart` lists it. */
 @Serializable
-data class RommSmartCollection(
+internal data class RommSmartCollection(
   val id: Long,
   val name: String,
   val description: String = "",
@@ -123,7 +124,7 @@ data class RommSmartCollection(
 
 /** A BIOS or firmware file, as `GET /api/firmware` lists it. */
 @Serializable
-data class RommFirmware(
+internal data class RommFirmware(
   val id: Long,
   @SerialName("file_name") val fileName: String,
   @SerialName("file_size_bytes") val fileSizeBytes: Long,

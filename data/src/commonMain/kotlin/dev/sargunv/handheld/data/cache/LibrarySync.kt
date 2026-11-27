@@ -17,7 +17,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /** Refreshes a [LibraryCache] from a RomM server. */
-class LibrarySync(
+internal class LibrarySync(
   private val client: RommClient,
   private val cache: LibraryCache,
   private val pageSize: Int = 200,

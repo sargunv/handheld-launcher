@@ -19,7 +19,7 @@ import kotlinx.io.files.Path
 import kotlinx.serialization.Serializable
 
 /** The slot the launcher's saves pair on between devices. Argosy's default saves use it too. */
-const val SAVE_SLOT = "autosave"
+internal const val SAVE_SLOT = "autosave"
 
 /**
  * A game's save on this device.

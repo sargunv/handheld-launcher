@@ -21,7 +21,6 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
@@ -50,7 +49,7 @@ internal const val TestServer = "https://romm.test"
  * download queue in new, empty directories. It shows [open] once signed in, and takes each of
  * [homePresses] as a press of HOME.
  *
- * @return the app's download queue, which downloads from [server].
+ * @return the app's data, whose RomM client talks to [server].
  */
 internal fun ComposeUiTest.launchApp(
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
@@ -69,24 +68,23 @@ internal fun ComposeUiTest.launchApp(
   open: OpenTarget? = null,
   homePresses: Flow<Unit> = emptyFlow(),
   layout: DualScreenLayout = DualScreenLayout.Frame,
-): DownloadManager {
-  lateinit var downloads: DownloadManager
+): HandheldData {
+  lateinit var data: HandheldData
   setContent {
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
-    val data = remember {
+    data = remember {
       val dataDir = Path(createTempDirectory("handheld-data").toString())
       HandheldData(
-        credentials,
-        library,
-        dataDir,
+        credentials = credentials,
+        library = library,
+        dataDir = dataDir,
         cacheDir = dataDir,
-        { storage },
-        scope,
+        storage = { storage },
+        scope = scope,
         engine = server,
       )
     }
-    downloads = data.downloads
     App(
       layout,
       heldKeys,
@@ -110,7 +108,7 @@ internal fun ComposeUiTest.launchApp(
       homePresses = homePresses,
     )
   }
-  return downloads
+  return data
 }
 
 /** Presses each key in turn. */

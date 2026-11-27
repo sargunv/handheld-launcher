@@ -16,12 +16,11 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.cache.LibrarySync
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.ui.Settings
@@ -138,7 +137,7 @@ class LocalGameTest {
     launcher: GameLauncher = FakeLauncher(),
     settings: Settings = Settings(),
     open: OpenTarget? = null,
-  ) {
+  ): HandheldData =
     launchApp(
       server,
       credentials = credentials,
@@ -149,7 +148,6 @@ class LocalGameTest {
       launcher = launcher,
       open = open,
     )
-  }
 
   /** Launches, and goes to the Library once the sync has filled it. */
   private fun ComposeUiTest.openLibrary(tab: LibraryTab = LibraryTab.Platforms) {
@@ -160,10 +158,11 @@ class LocalGameTest {
   }
 
   /** Launches, and opens Homebrew's page from the Game Boy's games. */
-  private fun ComposeUiTest.openHomebrew(launcher: GameLauncher = FakeLauncher()) {
-    launch(launcher, open = OpenTarget.Local(homebrew.path))
+  private fun ComposeUiTest.openHomebrew(launcher: GameLauncher = FakeLauncher()): HandheldData {
+    val data = launch(launcher, open = OpenTarget.Local(homebrew.path))
     awaitText("Play")
     onNodeWithTag("primary").assertIsFocused()
+    return data
   }
 
   private val homebrewTag = "game:local:${homebrew.path}"
@@ -282,12 +281,10 @@ class LocalGameTest {
 
   @Test
   fun aLocalGameBecomesTheServersGameOnceTheServerHasIt() = runComposeUiTest {
-    openHomebrew()
+    val data = openHomebrew()
     onNodeWithTag("game:saves-local").assertExists()
     serverHasHomebrew = true
-    runBlocking {
-      RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
-    }
+    data.romm.syncNow()
     // The page is the server's game's now, which has its saves on RomM.
     awaitText("No saves on RomM")
     onNodeWithTag("game:saves-local").assertDoesNotExist()
@@ -298,16 +295,14 @@ class LocalGameTest {
   // A choice made while the file became the server's game is that game's.
   @Test
   fun aChoiceMadeAsTheFileBecomesAServerGameIsThatGames() = runComposeUiTest {
-    openHomebrew()
+    val data = openHomebrew()
     awaitText("Opens in Test Emulator")
     press(Key.ButtonX)
     awaitTag("menu:open-with")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Kept for this file")
     serverHasHomebrew = true
-    runBlocking {
-      RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
-    }
+    data.romm.syncNow()
     // The screen is the server's game's before the choice.
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasText("Chosen for this game")).fetchSemanticsNodes().isNotEmpty() &&

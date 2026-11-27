@@ -15,7 +15,7 @@ internal fun serverUrl(input: String): String? {
   val withScheme = if ("://" in trimmed) trimmed else "https://$trimmed"
   val url = parseUrl(withScheme) ?: return null
   if (url.protocol != URLProtocol.HTTP && url.protocol != URLProtocol.HTTPS) return null
-  if (url.host.isEmpty()) return null
+  if (url.host.split('.').any { it.isEmpty() }) return null
   return withScheme
 }
 

@@ -4,17 +4,14 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.cache.LibrarySync
-import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.TestServer
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.json
@@ -61,7 +58,7 @@ class AdoptionTest {
   /** What the platform's per-game state was asked to adopt. */
   private val adopted = Collections.synchronizedList(mutableListOf<Adoption>())
 
-  private lateinit var downloads: DownloadManager
+  private lateinit var data: HandheldData
 
   init {
     homebrew.parentFile.mkdirs()
@@ -92,7 +89,7 @@ class AdoptionTest {
 
   /** Opens Homebrew's page, with an Open with choice for its file. */
   private fun ComposeUiTest.openHomebrew(launcher: GameLauncher = FakeLauncher()) {
-    downloads =
+    data =
       launchApp(
         server,
         library = library,
@@ -110,11 +107,11 @@ class AdoptionTest {
     awaitText("Play")
   }
 
-  private fun serverGainsHomebrew() {
+  private fun ComposeUiTest.serverGainsHomebrew() {
     serverHasHomebrew = true
-    runBlocking {
-      RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
-      downloads.statuses().first { it[rom.romId] is RomStatus.OnDevice }
+    data.romm.syncNow()
+    waitUntil(timeoutMillis = 5_000) {
+      runBlocking { data.downloads.statuses().first() }[rom.romId] is RomStatus.OnDevice
     }
   }
 
