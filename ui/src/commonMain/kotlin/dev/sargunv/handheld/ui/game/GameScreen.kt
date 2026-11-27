@@ -128,6 +128,9 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   LaunchedEffect(shown, actions.removedLocalGame) {
     if (shown == ShownGame.Gone && actions.removedLocalGame) state.navigator.back()
   }
+  val gameBusy = state.launcher.playing.collectAsState().value != null
+  // The game's own play stays under way until its save has synced.
+  val playing = gameBusy || screen.key in state.launcher.unfinished.collectAsState().value
   val latestUpload by state.uploads.upload.collectAsState()
   val uploading = latestUpload?.isRunning == true
   val upload = latestUpload?.takeIf { it.game.key == screen.key }
@@ -136,21 +139,21 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       is UploadPhase.Sending -> PrimaryAction.StopUpload(phase.percent)
       UploadPhase.Finishing -> PrimaryAction.Waiting("Adding to your library")
       is UploadPhase.Ended,
-      null -> current?.let { primaryAction(it, status, actions.playing, actions.playProgress) }
+      null -> current?.let { primaryAction(it, status, playing, actions.playProgress) }
     }
   val hasMenu =
     current != null &&
       status != null &&
-      !actions.playing &&
+      !playing &&
       !actions.checkingUploads &&
       upload?.isRunning != true
-  BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = state.gameBusy) {
+  BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = gameBusy) {
     FocusScope(
       Modifier.fillMaxSize().onAction { action ->
         when {
           action == Action.Menu && hasMenu -> actions.dialog = GameDialog.Menu
           // The main menu waits for the launch, as it would leave the screen.
-          action == Action.MainMenu && state.gameBusy -> Unit
+          action == Action.MainMenu && gameBusy -> Unit
           else -> return@onAction false
         }
         true
@@ -232,7 +235,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             add(Hint(Action.Back, "Back"))
             if (hasMenu) add(Hint(Action.Menu, "Menu"))
           },
-          mainMenu = !state.gameBusy,
+          mainMenu = !gameBusy,
         )
       }
       val close = { actions.dialog = null }

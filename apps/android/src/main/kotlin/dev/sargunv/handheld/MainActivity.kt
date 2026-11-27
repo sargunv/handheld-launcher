@@ -97,7 +97,6 @@ class MainActivity : ComponentActivity() {
           BuiltInPlayer(
             this,
             app.playSaves,
-            app.plays,
             app.data.builtInSaveFolders.saves,
             app.settingsFile,
           ),

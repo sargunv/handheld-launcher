@@ -135,7 +135,7 @@ fun App(
       LaunchedEffect(homePresses, scopes, state) {
         homePresses.collect {
           when {
-            state.gameBusy -> Unit
+            state.launcher.playing.value != null -> Unit
             scopes?.isDialogOpen == true -> scopes.closeDialogs()
             data.romm.state.value.signedIn == true -> state.goHome()
             data.romm.state.value.signedIn == false -> state.signIn.closeSettings()

@@ -58,8 +58,8 @@ internal sealed interface GameDialog {
 internal class GameActions(private val state: AppState, private val scope: CoroutineScope) {
   var dialog: GameDialog? by mutableStateOf(null)
 
-  val playing: Boolean
-    get() = state.playing != null
+  private val playing: Boolean
+    get() = state.launcher.playing.value != null
 
   /** What the launch is doing before the game starts, such as getting its core. */
   var playProgress: String? by mutableStateOf(null)
@@ -85,16 +85,16 @@ internal class GameActions(private val state: AppState, private val scope: Corou
 
   fun play(game: LibraryGame, path: String) {
     notes = emptyList()
-    // Undispatched, so the play is under way in [AppState.playing] before this returns.
-    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    scope.launch {
       try {
+        val collections = collectionsOf(state, game)
         notes =
           state.play(game.key) {
             state.launcher.play(
               game,
               path,
               state.settings.launch.toRules(),
-              collectionsOf(state, game),
+              collections,
               onProgress = { playProgress = it },
               closeEmulators = state.settings.closeEmulators,
               askStillRunning = { prompt -> ask(prompt) { stillRunning = it } },
@@ -120,7 +120,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     }
   }
 
-  /** Back while [AppState.gameBusy]: it cancels a save choice, or asks before leaving. */
+  /** Back while a launch or game is under way: it cancels a save choice, or asks before leaving. */
   fun back() {
     val conflict = saveConflict
     when {

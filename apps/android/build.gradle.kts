@@ -63,4 +63,5 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(project(":session"))
   testImplementation(libs.kotlin.test.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
 }

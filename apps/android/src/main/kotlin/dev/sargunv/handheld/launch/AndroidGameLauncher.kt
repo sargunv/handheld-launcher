@@ -57,8 +57,8 @@ data class PlayRequest(
 /**
  * Plays games on Android. The resolver picks the app by the user's rules, and games it gives the
  * built-in session go to [BuiltInPlayer]. For a standalone emulator, the game's save syncs with
- * RomM, the emulator's firmware goes in place, and the dispatcher starts it. [plays] takes the play
- * from there.
+ * RomM, the emulator's firmware goes in place, and the dispatcher starts it. [plays] owns each
+ * play, from the start of its launch.
  *
  * An emulator stays in memory after the player goes back to the library, and Android doesn't let
  * the launcher stop it, so each one it starts counts as running until the device shows otherwise
@@ -85,6 +85,12 @@ internal class AndroidGameLauncher(
 
   override val canCloseEmulators: Boolean
     get() = emulators.canClose
+
+  override val playing: StateFlow<GameKey?>
+    get() = plays.playing
+
+  override val unfinished: StateFlow<Set<GameKey>>
+    get() = plays.unfinished
 
   override suspend fun opensIn(
     game: LibraryGame,
@@ -116,47 +122,51 @@ internal class AndroidGameLauncher(
     closeEmulators: Boolean,
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
-  ): List<String> {
-    val volumes = withContext(Dispatchers.IO) { storageVolumes() }
-    if (!allFilesAccess.value && volumes.any { File(path).startsWith(it) }) {
-      openAllFilesAccess()
-      return listOf("Needs all-files access")
-    }
-    val file = withContext(Dispatchers.IO) { launchFile(path) } ?: return listOf("Folder empty")
-    val request = PlayRequest(file, PlatformSlug(game.platformSlug), game.title, game.key)
-    // A set, since a sync that fails before the game and again after it says the same thing twice.
-    val notes = linkedSetOf<String>()
-    fun note(text: String) {
-      notes += text
-      log.i { text }
-    }
+  ): List<String> =
+    plays.play(game.key, game.title) {
+      val volumes = withContext(Dispatchers.IO) { storageVolumes() }
+      if (!allFilesAccess.value && volumes.any { File(path).startsWith(it) }) {
+        openAllFilesAccess()
+        return@play listOf("Needs all-files access")
+      }
+      val file =
+        withContext(Dispatchers.IO) { launchFile(path) } ?: return@play listOf("Folder empty")
+      val request = PlayRequest(file, PlatformSlug(game.platformSlug), game.title, game.key)
+      // A set, since a sync that fails before and after the game says the same thing twice.
+      val notes = linkedSetOf<String>()
+      fun note(text: String) {
+        notes += text
+        log.i { text }
+      }
 
-    when (
-      val resolution = resolve(LaunchSubject(request.game, request.platform, collections), rules)
-    ) {
-      is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution))
-      is LaunchResolution.BuiltIn ->
-        notes += builtIn.play(request, resolution.core, onProgress, chooseSave, ::note)
-      is LaunchResolution.Resolved ->
-        notes +=
-          playStandalone(
-            request,
-            resolution,
-            volumes,
-            closeEmulators && emulators.canClose,
-            askStillRunning,
-            chooseSave,
-            ::note,
-          )
+      when (
+        val resolution = resolve(LaunchSubject(request.game, request.platform, collections), rules)
+      ) {
+        is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution))
+        is LaunchResolution.BuiltIn ->
+          notes += builtIn.play(this, request, resolution.core, onProgress, chooseSave, ::note)
+        is LaunchResolution.Resolved ->
+          notes +=
+            playStandalone(
+              this,
+              request,
+              resolution,
+              volumes,
+              closeEmulators && emulators.canClose,
+              askStillRunning,
+              chooseSave,
+              ::note,
+            )
+      }
+      notes.toList()
     }
-    return notes.toList()
-  }
 
   /**
-   * Plays [request]'s game in the standalone emulator [resolution] picked, telling [note] what the
-   * player should know before the game and returning what they should know after it.
+   * Plays [request]'s game as [play] in the standalone emulator [resolution] picked, telling [note]
+   * what the player should know before the game and returning what they should know after it.
    */
   private suspend fun playStandalone(
+    play: Plays.Play,
     request: PlayRequest,
     resolution: LaunchResolution.Resolved,
     volumes: List<String>,
@@ -200,8 +210,7 @@ internal class AndroidGameLauncher(
     }
     // A game launches even when its firmware can't be placed: some emulators boot without it.
     volumes.firstOrNull()?.let { placeFirmware(target, request.platform, it, note) }
-    return plays.standalone(request.title, packageName, name, save, canQuit = closeEmulators) {
-      companion ->
+    return play.standalone(packageName, name, save, canQuit = closeEmulators) { companion ->
       // The companion goes first, so the emulator, started second, ends up with the focus.
       PlayCompanion.show(activity, companion)
       // Noted before the launch, so an emulator that starts counts as running even if the launcher

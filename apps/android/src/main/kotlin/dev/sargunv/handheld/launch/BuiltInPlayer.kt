@@ -23,26 +23,26 @@ import kotlinx.io.files.Path
  * Plays games in the built-in session. The platform's core comes from [InstalledCores], downloaded
  * the first time and updated when a newer build is out, and the game runs in [SessionActivity],
  * with its saves in a folder of its own in [saves]. The game's save memory syncs with RomM through
- * [playSaves] before the game starts, and through [plays] after it ends, filed under the core; its
- * save states stay on this device. [settingsFile] holds the controls and the hardcore setting the
- * game starts with.
+ * [playSaves] before the game starts, and through its [Plays.Play] after it ends, filed under the
+ * core; its save states stay on this device. [settingsFile] holds the controls and the hardcore
+ * setting the game starts with.
  */
 internal class BuiltInPlayer(
   private val activity: Activity,
   private val playSaves: PlaySaves,
-  private val plays: Plays,
   private val saves: BuiltInSaves,
   private val settingsFile: SettingsFile<Settings>,
 ) {
   private val coresDir = Path(activity.filesDir.path, "cores")
 
   /**
-   * Plays [request]'s game in [core], and returns once the player is back from the game, telling
-   * [note] what the player should know before it and returning what they should know after it.
-   * [onProgress] hears how a download of the core is going, and [chooseSave] which copy of the save
-   * to keep when both changed; null cancels the launch.
+   * Plays [request]'s game in [core] as [play], and returns once the player is back from the game,
+   * telling [note] what the player should know before it and returning what they should know after
+   * it. [onProgress] hears how a download of the core is going, and [chooseSave] which copy of the
+   * save to keep when both changed; null cancels the launch.
    */
   suspend fun play(
+    play: Plays.Play,
     request: PlayRequest,
     core: LibretroCore,
     onProgress: (String) -> Unit,
@@ -89,7 +89,7 @@ internal class BuiltInPlayer(
         achievementsConsole = retroAchievementsConsole(request.platform),
         hardcore = settings.achievements.hardcore,
       )
-    return plays.builtIn(request.title, game) {
+    return play.builtIn(game) {
       activity.startActivity(SessionActivity.intent(activity, launch))
     }
   }

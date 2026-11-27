@@ -4,7 +4,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
@@ -32,7 +31,10 @@ import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
 import dev.sargunv.handheld.ui.signin.SignInState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,17 +85,6 @@ class AppState(
       },
       platform.gameState,
     )
-
-  /** The game [play] is playing, whose state stays where it is until the game is over. */
-  var playing: GameKey? by mutableStateOf(null)
-    private set
-
-  /**
-   * Whether the Game screen is busy with a play, which leaving it would stop, so HOME, Back and the
-   * main menu wait.
-   */
-  val gameBusy: Boolean
-    get() = playing != null
 
   /** Held while adopting, so [play] waits for an adopt of its game that's under way. */
   private val adoption = Mutex()
@@ -190,30 +181,33 @@ class AppState(
     }
 
   /**
-   * Runs [launch], the launch of [game], once any file the latest scan matched to [game] has handed
-   * it what was kept for the file. [game] is [playing] from before this first suspends until
-   * [launch] returns, and what's kept for it stays where it is until then.
+   * Runs [launch], which calls [launcher]'s play of [game] before it first suspends, once any file
+   * the latest scan matched to [game] has handed it what was kept for the file. What's kept for
+   * [game] stays where it is until its play is over.
    */
-  suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> {
-    playing = game
-    try {
-      adoption.withLock { adopt(games.adoptions.first().filter { it.rom == game }) }
-      return launch()
-    } finally {
-      playing = null
+  suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> =
+    coroutineScope {
+      adoption
+        .withLock {
+          adopt(games.adoptions.first().filter { it.rom == game })
+          // The launch puts [game] in the launcher's unfinished plays before it first suspends, so
+          // before the next adopt.
+          async(start = CoroutineStart.UNDISPATCHED) { launch() }
+        }
+        .await()
     }
-  }
 
   /**
    * The one adopt step: each file on the device that's a ROM's hands what's kept for it as a local
-   * game to the ROM. The game [playing] holds waits until it's over. It runs until cancelled.
+   * game to the ROM. A game whose play isn't over waits until it is. It runs until cancelled.
    */
   suspend fun adoptMatchedFiles() {
-    combine(games.adoptions, snapshotFlow { playing }) { adoptions, _ -> adoptions }
+    combine(games.adoptions, launcher.unfinished) { adoptions, _ -> adoptions }
       .collect { adoptions ->
         adoption.withLock {
           handover.update { it intersect adoptions.toSet() }
-          adopt(adoptions.filterNot { playing == it.local || playing == it.rom })
+          val unfinished = launcher.unfinished.value
+          adopt(adoptions.filterNot { it.local in unfinished || it.rom in unfinished })
         }
       }
   }

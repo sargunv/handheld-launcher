@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.game
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.cache.LibraryCache
@@ -140,6 +141,27 @@ class AdoptionTest {
     waitUntil(timeoutMillis = 5_000) { Adoption(local, rom) in adopted }
     waitUntil(timeoutMillis = 5_000) { saved.lastOrNull()?.launch?.games == mapOf(rom to choice) }
     assertEquals(choice, saved.last().launch.games[rom])
+  }
+
+  @Test
+  fun aGameWhoseSaveIsStillSyncingKeepsItsStateAfterItsScreenGoesAway() = runComposeUiTest {
+    val afterGame = CompletableDeferred<Unit>()
+    val launcher = FakeLauncher(afterGame = afterGame)
+    openHomebrew(launcher)
+    press(Key.ButtonA)
+    waitUntil(timeoutMillis = 5_000) {
+      launcher.playing.value == null && local in launcher.unfinished.value
+    }
+    press(Key.ButtonB)
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodesWithTag("primary").fetchSemanticsNodes().isEmpty()
+    }
+    serverGainsHomebrew()
+    waitForIdle()
+    assertTrue(adopted.none { it.local == local }, "$adopted")
+
+    afterGame.complete(Unit)
+    waitUntil(timeoutMillis = 5_000) { Adoption(local, rom) in adopted }
   }
 
   @Test

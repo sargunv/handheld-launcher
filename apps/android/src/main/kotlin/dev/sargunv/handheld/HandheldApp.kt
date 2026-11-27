@@ -119,9 +119,9 @@ class HandheldApp : Application() {
   /** Syncs a game's save around a play. */
   internal val playSaves by lazy { PlaySaves(data.saveSync) }
 
-  /** The plays whose game has started, until their notes are in. */
+  /** The plays, from the start of each launch until its notes are in. */
   internal val plays by lazy {
-    Plays(scope, playSaves, emulators, launcherInFront) { BackgroundWorkService.start(this) }
+    Plays(scope, playSaves, emulators::close, launcherInFront) { BackgroundWorkService.start(this) }
   }
 
   /** The mounted shared storage volumes, the device's own first, then any SD card. */
