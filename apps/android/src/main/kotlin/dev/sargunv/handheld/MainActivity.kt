@@ -28,7 +28,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
-import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.launch.AndroidGameLauncher
 import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.SessionRomHeaders
@@ -215,7 +214,7 @@ class MainActivity : ComponentActivity() {
     lifecycleScope.launch {
       repeatOnLifecycle(Lifecycle.State.STARTED) {
         handheldApp.downloadManager.queue
-          .map { queue -> queue.any { it.state != DownloadState.Failed } }
+          .map { queue -> queue.any { it.isActive } }
           .distinctUntilChanged()
           .collect { active ->
             if (!active) return@collect

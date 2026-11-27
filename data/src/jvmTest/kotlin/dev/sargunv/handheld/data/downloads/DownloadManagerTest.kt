@@ -313,7 +313,7 @@ class DownloadManagerTest {
     val downloads = manager(scope, stalling)
     downloads.enqueue(gameRom)
     waitFor {
-      downloads.queue.first { list -> list.firstOrNull()?.bytesDownloaded == sent.size.toLong() }
+      downloads.progress.first { it[1L]?.bytesDownloaded == sent.size.toLong() }
     }
     scope.coroutineContext[kotlinx.coroutines.Job]!!.cancelAndJoin()
   }
@@ -451,7 +451,7 @@ class DownloadManagerTest {
     val downloads = manager(backgroundScope, stalling)
     downloads.enqueue(gameRom)
     waitFor {
-      downloads.queue.first { list -> list.firstOrNull()?.bytesDownloaded == 65_536L }
+      downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L }
     }
 
     downloads.cancel(1)
@@ -612,7 +612,7 @@ class DownloadManagerTest {
       )
     val downloads = manager(backgroundScope, engine, deviceId = "dev-1")
     takeSentGames(engine, downloads)
-    waitFor { downloads.queue.first { it.firstOrNull()?.bytesDownloaded == 65_536L } }
+    waitFor { downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L } }
 
     downloads.cancel(1)
 
@@ -695,7 +695,7 @@ class DownloadManagerTest {
     val downloads = manager(backgroundScope, stalling)
     downloads.enqueue(gameRom)
     waitFor {
-      downloads.queue.first { list -> list.firstOrNull()?.bytesDownloaded == 65_536L }
+      downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L }
     }
 
     // The screen that canceled goes away while the cancel waits for the download to stop.
