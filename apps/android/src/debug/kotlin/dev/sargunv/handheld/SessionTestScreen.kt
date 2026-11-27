@@ -25,12 +25,9 @@ import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.SessionException
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
-import dev.sargunv.handheld.session.VideoMode
+import dev.sargunv.handheld.session.startSession
 import java.io.File
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 
 private sealed interface Status {
   data object Loading : Status
@@ -76,26 +73,12 @@ internal fun SessionTestScreen(
       status = Status.Failed("No core: pass one with --es core <file in ${dir.path}>")
       return@LaunchedEffect
     }
-    // Starting can't be abandoned halfway. If the screen goes away meanwhile, withContext throws on
-    // the way back and the session it started is closed here, since nothing will show it.
-    var unclaimed: GameSession? = null
-    try {
-      status =
-        withContext(Dispatchers.IO + NonCancellable) {
-          try {
-            Status.Running(
-              GameSession.start(options(dir, core, content, coreOptions), listener).also {
-                unclaimed = it
-              },
-            )
-          } catch (e: SessionException) {
-            Status.Failed("Can't start ${core.name}: ${e.message}")
-          }
-        }
-      unclaimed = null
-    } finally {
-      unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
-    }
+    status =
+      try {
+        Status.Running(startSession(options(dir, core, content, coreOptions), listener))
+      } catch (e: SessionException) {
+        Status.Failed("Can't start ${core.name}: ${e.message}")
+      }
   }
 
   Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -116,7 +99,11 @@ internal fun SessionTestScreen(
           modifier = Modifier.fillMaxSize(),
           onRelease = { view ->
             view.session = null
-            s.session.close()
+            try {
+              s.session.stop()
+            } catch (e: SessionException) {
+              Log.e(TAG, "couldn't write the save memory", e)
+            }
           },
         )
         val info = remember(s.session) { s.session.info() }
@@ -138,7 +125,6 @@ private fun options(dir: File, core: File, content: File?, coreOptions: Map<Stri
     saveDir = dir.resolve("saves").path,
     saveRamPath = dir.resolve("saves/${(content ?: core).nameWithoutExtension}.srm").path,
     coreOptions = coreOptions,
-    video = VideoMode.WINDOW,
   )
 
 /** Saves or loads the state for a hotkey, and returns what happened, or null for other keys. */

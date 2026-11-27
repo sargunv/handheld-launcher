@@ -3,7 +3,7 @@
 
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::pacing::Vsync;
-use crate::{NativeWindow, SessionError, WindowHandle};
+use crate::{Frame, NativeWindow, Region, SessionError, VideoOutput, VideoSink, WindowHandle};
 
 /// The app's own logger takes the session's logs.
 pub(crate) fn init_logging() {}
@@ -38,4 +38,16 @@ impl VsyncClock {
 
 pub(crate) fn audio_sink() -> Box<dyn AudioSink> {
     Box::new(NullAudioSink)
+}
+
+/// Discards frames: the session keeps the last one itself, for
+/// `GameSession::capture_frame`.
+pub(crate) fn video_output(_lower: Region) -> VideoOutput {
+    VideoOutput::Sink(Box::new(DiscardFrames))
+}
+
+struct DiscardFrames;
+
+impl VideoSink for DiscardFrames {
+    fn frame(&mut self, _frame: Frame<'_>) {}
 }

@@ -42,7 +42,10 @@ android {
   defaultConfig { minSdk = libs.versions.android.minSdk.get().toInt() }
 }
 
-dependencies { implementation("${libs.jna.get()}@aar") }
+dependencies {
+  implementation("${libs.jna.get()}@aar")
+  implementation(libs.kotlinx.coroutines.core)
+}
 
 val cargoBuildAndroid =
   tasks.register<CargoBuild>("cargoBuildAndroid") {

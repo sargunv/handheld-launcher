@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use handheld_session::{
     AchievementOptions, AudioSink, Frame, InputState, SendAchievementsRequest, Session,
-    SessionConfig, SessionError, SessionOptions, VideoMode, VideoOutput, VideoSink,
+    SessionConfig, SessionError, SessionOptions, VideoOutput, VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -49,7 +49,6 @@ pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions 
         save_dir: dir.join("saves").to_string_lossy().into_owned(),
         save_ram_path: None,
         core_options: HashMap::new(),
-        video: VideoMode::Offscreen,
         lower_screen_width_share: None,
         achievements: None,
     }

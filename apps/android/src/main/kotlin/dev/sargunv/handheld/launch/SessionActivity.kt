@@ -35,7 +35,6 @@ import dev.sargunv.handheld.achievements.SessionAchievementsHttp
 import dev.sargunv.handheld.achievements.message
 import dev.sargunv.handheld.achievements.retroAchievementsClient
 import dev.sargunv.handheld.achievements.retroAchievementsStore
-import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
@@ -47,7 +46,7 @@ import dev.sargunv.handheld.session.LowerScreenView
 import dev.sargunv.handheld.session.SessionException
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
-import dev.sargunv.handheld.session.VideoMode
+import dev.sargunv.handheld.session.startSession
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
@@ -63,22 +62,14 @@ import dev.sargunv.handheld.ui.play.ToastState
 import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * What [SessionActivity] plays: [core] with [content], with [systemDir] for its system files, its
- * own saves in [saveDir], its save memory in [saveRam] and its save states in [states], one file
- * per slot, with the gamepad's face buttons and the quick menu's controls as [input] sets them.
- * [stackedScreensOptions] are the core's options that draw a two-screen system's screens stacked,
- * for playing on two displays, or none for a one-screen system, and [lowerScreenWidthShare] is the
- * bottom screen's share of that frame's width, centred, or null when it spans the whole width. The
- * game takes part in RetroAchievements as console [achievementsConsole], when it has one and the
- * device is signed in, in hardcore if [hardcore].
+ * What [SessionActivity] plays: the core and content, where its saves and save states go, one file
+ * per slot, how it's controlled, and how it takes part in RetroAchievements.
  */
 @Serializable
 data class SessionLaunch(
@@ -89,7 +80,12 @@ data class SessionLaunch(
   val saveRam: String,
   val states: List<String>,
   val input: InputSettings,
+  /**
+   * The core's options that draw a two-screen system's screens stacked, for playing on two
+   * displays, or none for a one-screen system.
+   */
   val stackedScreensOptions: Map<String, String> = emptyMap(),
+  /** The bottom screen's share of the stacked frame's width, centred, or null for all of it. */
   val lowerScreenWidthShare: Float? = null,
   val achievementsConsole: Int? = null,
   val hardcore: Boolean = false,
@@ -134,31 +130,14 @@ class SessionActivity : ComponentActivity() {
   private var lowerUnsupported by mutableStateOf(false)
   private val heldKeys = HeldKeys()
 
-  private val quickMenu by lazy {
-    QuickMenuState(
-      SessionQuickMenu(
-        session = { session },
-        statePaths = launch.states,
-        saveRamPath = launch.saveRam,
-        hardcore = achievementsOn && launch.hardcore,
-        onResume = ::closeMenu,
-        onQuit = ::stopAndFinish,
-      ),
-      lifecycleScope,
-    )
-  }
+  /** The quick menu, once the session has started. */
+  private lateinit var quickMenu: QuickMenuState
 
   /** Whether the quick menu is open, and the game paused under it. */
   private var menuOpen by mutableStateOf(false)
 
   /** The toasts over the game, such as unlocked achievements. */
   private val toasts = ToastState()
-
-  /** Whether the session takes part in RetroAchievements, once it has started. */
-  private var achievementsOn = false
-
-  /** Sends the session's RetroAchievements requests, while it takes part. */
-  private var achievementsClient: RetroAchievementsClient? = null
 
   /**
    * The keys pressed in the menu, including the one that opened it, so the rest of each press
@@ -345,38 +324,36 @@ class SessionActivity : ComponentActivity() {
     val achievements = achievementOptions()
     val ready = CompletableDeferred<GameSession>()
     val http = achievements?.let {
-      val client = retroAchievementsClient(this).also { achievementsClient = it }
+      val client = retroAchievementsClient(this)
+      // The requests go out on lifecycleScope, so the client lasts until it ends.
+      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
       SessionAchievementsHttp(client, lifecycleScope, ready)
     }
-    achievementsOn = http != null
-    val options = options(achievements)
-    // Starting can't be abandoned halfway. If the activity goes meanwhile, withContext throws on
-    // the way back and the session it started is closed here, since nothing will show it.
-    var unclaimed: GameSession? = null
-    try {
-      val started =
-        try {
-          withContext(Dispatchers.IO + NonCancellable) {
-            GameSession.start(options, listener, http).also { unclaimed = it }
-          }
-        } catch (e: SessionException) {
-          Log.e(TAG, "can't start the session", e)
-          ready.cancel()
-          setResult(
-            RESULT_CANCELED,
-            Intent().putExtra(EXTRA_START_ERROR, e.message ?: e.toString()),
-          )
-          finish()
-          return
-        }
-      unclaimed = null
-      session = started
-      view.session = started
-      lowerView?.session = started
-      ready.complete(started)
-    } finally {
-      unclaimed?.let { withContext(Dispatchers.IO + NonCancellable) { it.close() } }
-    }
+    val started =
+      try {
+        startSession(options(achievements), listener, http)
+      } catch (e: SessionException) {
+        Log.e(TAG, "can't start the session", e)
+        ready.cancel()
+        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.message ?: e.toString()))
+        finish()
+        return
+      }
+    quickMenu =
+      QuickMenuState(
+        SessionQuickMenu(
+          session = { session },
+          statePaths = launch.states,
+          hardcore = achievements?.hardcore == true,
+          onResume = ::closeMenu,
+          onQuit = ::stopAndFinish,
+        ),
+        lifecycleScope,
+      )
+    session = started
+    view.session = started
+    lowerView?.session = started
+    ready.complete(started)
   }
 
   /**
@@ -412,7 +389,6 @@ class SessionActivity : ComponentActivity() {
       saveDir = launch.saveDir,
       saveRamPath = launch.saveRam,
       coreOptions = if (twoScreens) launch.stackedScreensOptions else emptyMap(),
-      video = VideoMode.WINDOW,
       lowerScreenWidthShare = launch.lowerScreenWidthShare.takeIf { twoScreens },
       achievements = achievements,
     )
@@ -451,8 +427,6 @@ class SessionActivity : ComponentActivity() {
     // The session still runs here only when the activity is destroyed without finishing, which
     // leaves no result to report a failure in.
     stopSession()
-    achievementsClient?.close()
-    achievementsClient = null
     super.onDestroy()
   }
 

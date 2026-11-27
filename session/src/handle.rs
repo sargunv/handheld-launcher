@@ -24,8 +24,8 @@ use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, Vsync};
 use crate::platform::{self, PlatformWindow, VsyncClock};
 use crate::save::SaveRam;
-use crate::session::{AvInfo, Session, SessionConfig, SessionError, VideoOutput};
-use crate::video::{CapturedFrame, Frame, Region, VideoSink};
+use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo};
+use crate::video::{CapturedFrame, Region};
 
 /// What [`GameSession::start`] needs.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -54,7 +54,6 @@ pub struct SessionOptions {
     pub save_ram_path: Option<String>,
     /// Core option values to use instead of the core's defaults, by key.
     pub core_options: HashMap<String, String>,
-    pub video: VideoMode,
     /// The bottom screen's share of the frame's width, from 0 to 1, when a
     /// two-screen system's core draws it narrower than the top screen and
     /// centred under it, as Azahar draws the 3DS's 320-pixel-wide bottom
@@ -68,18 +67,6 @@ pub struct SessionOptions {
     /// so without one, the session doesn't take part either.
     #[uniffi(default = None)]
     pub achievements: Option<AchievementOptions>,
-}
-
-/// Where a session's frames go.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum VideoMode {
-    /// To the window attached with [`GameSession::attach_window`], through an
-    /// OpenGL ES context, or a Vulkan device for Vulkan cores, that the
-    /// session keeps while windows come and go.
-    Window,
-    /// Nowhere: the session only keeps the last frame, for
-    /// [`GameSession::capture_frame`].
-    Offscreen,
 }
 
 /// A window to present to, from the platform's own window system.
@@ -102,7 +89,7 @@ pub enum Screen {
 }
 
 /// What a running session's core says about itself.
-#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+#[derive(Clone, Debug, Default, PartialEq, uniffi::Record)]
 pub struct SessionInfo {
     pub library_name: String,
     pub library_version: String,
@@ -116,6 +103,16 @@ pub struct SessionInfo {
 }
 
 impl SessionInfo {
+    fn new(system: &SystemInfo, av: AvInfo) -> Self {
+        let mut info = Self {
+            library_name: system.library_name.clone(),
+            library_version: system.library_version.clone(),
+            ..Self::default()
+        };
+        info.set_av(av);
+        info
+    }
+
     /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
     /// whether they changed.
     fn set_av(&mut self, av: AvInfo) -> bool {
@@ -297,8 +294,7 @@ impl GameSession {
     }
 
     /// Presents to `window` from now on, instead of any window before it, and
-    /// shows the last frame on it at once. Only sessions in
-    /// [`VideoMode::Window`] present to windows.
+    /// shows the last frame on it at once.
     pub fn attach_window(
         &self,
         window: WindowHandle,
@@ -327,7 +323,6 @@ impl GameSession {
     /// half, it shows the share of the width that
     /// [`SessionOptions::lower_screen_width_share`] gives. It replaces
     /// any lower window before it and shows the last frame on it at once.
-    /// Only sessions in [`VideoMode::Window`] present to a lower window.
     pub fn attach_lower_window(
         &self,
         window: WindowHandle,
@@ -505,14 +500,6 @@ impl Drop for GameSession {
     }
 }
 
-/// The sink of a session in [`VideoMode::Offscreen`]. The session keeps the
-/// last frame itself, for [`Session::capture_frame`].
-struct DiscardFrames;
-
-impl VideoSink for DiscardFrames {
-    fn frame(&mut self, _frame: Frame<'_>) {}
-}
-
 /// The session thread: loads the session, then runs it until told to stop.
 fn run(
     options: SessionOptions,
@@ -523,7 +510,6 @@ fn run(
     started: Sender<Result<Arc<Mutex<SessionInfo>>, SessionError>>,
 ) {
     let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
-    let presents_to_window = options.video == VideoMode::Window;
     let mut session = match start_session(options, lower, input, &events) {
         Ok(session) => session,
         Err(e) => {
@@ -544,17 +530,8 @@ fn run(
         },
         None => None,
     };
-    let av = session.av_info();
-    let info = SessionInfo {
-        library_name: session.system_info().library_name.clone(),
-        library_version: session.system_info().library_version.clone(),
-        fps: av.fps,
-        base_width: av.base_width,
-        base_height: av.base_height,
-        aspect_ratio: av.aspect_ratio,
-    };
+    let info = SessionInfo::new(session.system_info(), session.av_info());
     session.set_audio_paused(true);
-    let vsync = presents_to_window.then(VsyncClock::new).flatten();
     let info = Arc::new(Mutex::new(info));
     if started.send(Ok(info.clone())).is_err() {
         return;
@@ -569,7 +546,7 @@ fn run(
         paused: true,
         speed: 1,
         next_frame: Instant::now(),
-        vsync,
+        vsync: VsyncClock::new(),
         vsyncs: None,
     };
     let quit = runner.run(&commands);
@@ -587,22 +564,13 @@ fn start_session(
     input: Arc<InputState>,
     events: &Events,
 ) -> Result<Session, SessionError> {
-    let video = match options.video {
-        VideoMode::Window => VideoOutput::Window {
-            window: None,
-            width: 0,
-            height: 0,
-            lower,
-        },
-        VideoMode::Offscreen => VideoOutput::Sink(Box::new(DiscardFrames)),
-    };
     let config = SessionConfig {
         core: options.core_path.into(),
         content: options.content_path.map(PathBuf::from),
         content_cache: options.content_cache_dir.map(PathBuf::from),
         system_dir: options.system_dir.into(),
         save_dir: options.save_dir.into(),
-        video,
+        video: platform::video_output(lower),
         audio: platform::audio_sink(),
         input,
         options: options.core_options,
