@@ -1,16 +1,16 @@
-package dev.sargunv.handheld.domain.emulator
+package dev.sargunv.handheld.launch
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class EmulatorCommandTest {
+class EmulatorsTest {
   @Test
   fun buildsTheTwoCommandsForAPackageName() {
-    assertEquals("pidof com.armsx2", EmulatorCommand.isRunning("com.armsx2").line)
+    assertEquals("pidof com.armsx2", isRunningCommand("com.armsx2"))
     assertEquals(
       "am force-stop org.dolphinemu.dolphinemu_handheld",
-      EmulatorCommand.forceStop("org.dolphinemu.dolphinemu_handheld").line,
+      forceStopCommand("org.dolphinemu.dolphinemu_handheld"),
     )
   }
 
@@ -40,8 +40,8 @@ class EmulatorCommandTest {
         "a".repeat(256),
       )
     for (name in bad) {
-      assertFailsWith<IllegalArgumentException>(name) { EmulatorCommand.isRunning(name) }
-      assertFailsWith<IllegalArgumentException>(name) { EmulatorCommand.forceStop(name) }
+      assertFailsWith<IllegalArgumentException>(name) { isRunningCommand(name) }
+      assertFailsWith<IllegalArgumentException>(name) { forceStopCommand(name) }
     }
   }
 }

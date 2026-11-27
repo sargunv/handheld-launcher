@@ -20,18 +20,11 @@ enum class RuleStatus {
 }
 
 /**
- * One level of the rules for a game. [packageName], [core] and [recipe] are its app, as in
- * [LaunchChoice], or null when it names none. For [LaunchRule.FirstInstalled], the app is the best
- * installed known emulator for the game's platform, and for [LaunchRule.BuiltInDefault], it's
- * [LaunchChoice.BUILT_IN].
+ * One level of the rules for a game. [choice] is its app, or null when it names none. For
+ * [LaunchRule.FirstInstalled], it's the best installed known emulator for the game's platform, and
+ * for [LaunchRule.BuiltInDefault], [LaunchChoice.BuiltIn].
  */
-data class RuleStep(
-  val rule: LaunchRule,
-  val status: RuleStatus,
-  val packageName: String? = null,
-  val core: String? = null,
-  val recipe: LaunchRecipe? = null,
-)
+data class RuleStep(val rule: LaunchRule, val status: RuleStatus, val choice: LaunchChoice? = null)
 
 /**
  * The rules that decide where a game opens, from most to least specific, each with what became of
@@ -71,7 +64,7 @@ object RuleChain {
             RuleStatus.Wins.also { decided = true }
           else -> RuleStatus.NotInstalled
         }
-      RuleStep(rule, status, choice?.packageName, choice?.core, choice?.recipe)
+      RuleStep(rule, status, choice)
     }
 
     val emulator = firstInstalled(subject.platform, installedPackages)
@@ -83,7 +76,7 @@ object RuleChain {
           decided -> RuleStatus.Outranked
           else -> RuleStatus.Wins
         },
-        LaunchChoice.BUILT_IN,
+        LaunchChoice.BuiltIn,
       )
     val firstInstalled =
       RuleStep(
@@ -93,7 +86,7 @@ object RuleChain {
           decided -> RuleStatus.Outranked
           else -> RuleStatus.Wins
         },
-        emulator,
+        emulator?.let(::LaunchChoice),
       )
     val defaults =
       when {

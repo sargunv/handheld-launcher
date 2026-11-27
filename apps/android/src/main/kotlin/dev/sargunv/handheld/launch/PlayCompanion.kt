@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.launch
 
 import android.app.ActivityOptions
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.hardware.display.DisplayManager
 import android.os.Bundle
@@ -63,8 +62,6 @@ object PlayCompanion {
         ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle(),
       )
     } catch (_: SecurityException) {
-      current.value = null
-    } catch (_: ActivityNotFoundException) {
       current.value = null
     }
   }

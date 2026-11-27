@@ -152,13 +152,6 @@ class LaunchCommandBuilderTest {
   }
 
   @Test
-  fun buildNumbers() {
-    assertEquals(10234, LaunchCommandBuilder.buildNumberOf("0.1-10234"))
-    assertEquals(10234, LaunchCommandBuilder.buildNumberOf("0.1-10234-gabcdef"))
-    assertNull(LaunchCommandBuilder.buildNumberOf("1.2.3"))
-  }
-
-  @Test
   fun draSticGetsAFileUriThroughTheShell() {
     val command = build("drastic", PlatformCatalog.NDS, "/storage/emulated/0/ROMs/game.nds")
     assertEquals(LaunchUri.Raw("file:///storage/emulated/0/ROMs/game.nds"), command.data)

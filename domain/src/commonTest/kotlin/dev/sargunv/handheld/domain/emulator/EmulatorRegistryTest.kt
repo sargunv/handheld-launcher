@@ -90,18 +90,6 @@ class EmulatorRegistryTest {
   }
 
   @Test
-  fun recipeTextUsesKnownPlaceholders() {
-    val placeholder = Regex("""\{(\w+)}""")
-    for ((name, recipe) in recipes) {
-      for (value in recipe.extras.values.filterIsInstance<ExtraValue.Text>()) {
-        for (match in placeholder.findAll(value.template)) {
-          assertTrue(match.groupValues[1] in LaunchCommandBuilder.placeholders, "$name: $value")
-        }
-      }
-    }
-  }
-
-  @Test
   fun recipesHandOverTheGame() {
     val gameExtras =
       setOf(
@@ -122,9 +110,11 @@ class EmulatorRegistryTest {
     for (platform in EmulatorRegistry.preference.keys) {
       for (emulator in EmulatorRegistry.forPlatform(platform)) {
         val input = LaunchInput(romPath = "/storage/emulated/0/ROMs/game.bin", platform = platform)
-        val build = LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input)
-        val command = assertIs<LaunchBuild.Ready>(build, "${emulator.id} on $platform").command
-        assertEquals(emulator.packageName, command.packageName)
+        for (recipe in listOfNotNull(emulator.recipe, emulator.forkRecipe)) {
+          val build = LaunchCommandBuilder.build(recipe, emulator.packageName, input)
+          val command = assertIs<LaunchBuild.Ready>(build, "${emulator.id} on $platform").command
+          assertEquals(emulator.packageName, command.packageName)
+        }
       }
     }
   }

@@ -198,7 +198,7 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
   private fun recordsDir(signedIn: RommCredentials): File {
     val account = "${signedIn.baseUrl}\n${signedIn.token}"
     val digest = MessageDigest.getInstance("SHA-256").digest(account.encodeToByteArray())
-    val key = digest.take(8).joinToString("") { "%02x".format(it) }
+    val key = digest.copyOf(8).toHexString()
     return File(context.filesDir, "save-sync/$key")
   }
 

@@ -54,29 +54,15 @@ data class LaunchTarget(
     core ?: LibretroCores.recommendedFor(platform)?.library
 }
 
-/** A rule that named an app that isn't installed, so resolution moved past it. */
-data class SkippedChoice(val rule: LaunchRule, val packageName: String)
-
-/** The outcome of picking the app for a game, with the reasons. */
+/** The outcome of picking the app for a game. */
 sealed interface LaunchResolution {
-  /** Rules that named an app that isn't installed, most specific first. */
-  val skipped: List<SkippedChoice>
-
-  data class Resolved(
-    val target: LaunchTarget,
-    val rule: LaunchRule,
-    override val skipped: List<SkippedChoice> = emptyList(),
-  ) : LaunchResolution
+  data class Resolved(val target: LaunchTarget, val rule: LaunchRule) : LaunchResolution
 
   /**
    * The game runs in the built-in session. [core] is the libretro core the rule named, by library
    * name, or null for the platform's recommended core.
    */
-  data class BuiltIn(
-    val rule: LaunchRule,
-    val core: String? = null,
-    override val skipped: List<SkippedChoice> = emptyList(),
-  ) : LaunchResolution
+  data class BuiltIn(val rule: LaunchRule, val core: String? = null) : LaunchResolution
 
   /**
    * No rule named an installed app, and no known emulator for [platform] is installed.
@@ -85,14 +71,13 @@ sealed interface LaunchResolution {
   data class NoEmulatorInstalled(
     val platform: PlatformSlug,
     val suggestions: List<KnownEmulator>,
-    override val skipped: List<SkippedChoice> = emptyList(),
   ) : LaunchResolution
 }
 
 /**
  * Picks the app a game launches in: the level of [RuleChain.explain] that wins. A rule may name any
- * app or the built-in session. One whose app isn't installed is skipped and reported, as is one
- * that picks the built-in session for a platform no libretro core runs.
+ * app or the built-in session. One whose app isn't installed is skipped, as is one that picks the
+ * built-in session for a platform no libretro core runs.
  */
 object LaunchResolver {
   fun resolve(
@@ -100,26 +85,20 @@ object LaunchResolver {
     rules: LaunchRules,
     installedPackages: Set<String>,
   ): LaunchResolution {
-    val steps = RuleChain.explain(subject, rules, installedPackages)
-    val skipped =
-      steps
-        // The built-in default is no one's choice, so it isn't reported where no core runs.
-        .filter { it.rule != LaunchRule.BuiltInDefault }
-        .filter { it.status == RuleStatus.NotInstalled || it.status == RuleStatus.NoCore }
-        .mapNotNull { step -> step.packageName?.let { SkippedChoice(step.rule, it) } }
-    val winner = steps.firstOrNull { it.status == RuleStatus.Wins }
-    val packageName =
-      winner?.packageName
+    val winner =
+      RuleChain.explain(subject, rules, installedPackages).firstOrNull {
+        it.status == RuleStatus.Wins
+      }
+    val choice =
+      winner?.choice
         ?: return LaunchResolution.NoEmulatorInstalled(
           subject.platform,
           EmulatorRegistry.forPlatform(subject.platform),
-          skipped,
         )
-    return if (packageName == LaunchChoice.BUILT_IN) {
-      LaunchResolution.BuiltIn(winner.rule, winner.core, skipped)
+    return if (choice.isBuiltIn) {
+      LaunchResolution.BuiltIn(winner.rule, choice.core)
     } else {
-      val choice = LaunchChoice(packageName, winner.recipe, winner.core)
-      LaunchResolution.Resolved(targetFor(choice), winner.rule, skipped)
+      LaunchResolution.Resolved(targetFor(choice), winner.rule)
     }
   }
 
