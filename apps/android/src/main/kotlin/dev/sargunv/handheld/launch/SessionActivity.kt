@@ -33,9 +33,8 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.SessionAchievementsHttp
 import dev.sargunv.handheld.achievements.message
-import dev.sargunv.handheld.achievements.retroAchievementsClient
-import dev.sargunv.handheld.achievements.retroAchievementsStore
 import dev.sargunv.handheld.exposeTestTags
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.session.AchievementEvent
@@ -310,7 +309,7 @@ class SessionActivity : ComponentActivity() {
     val achievements = achievementOptions()
     val ready = CompletableDeferred<GameSession>()
     val http = achievements?.let {
-      val client = retroAchievementsClient(this)
+      val client = handheldApp.retroAchievementsClient()
       // The requests go out on lifecycleScope, so the client lasts until it ends.
       lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
       SessionAchievementsHttp(client, lifecycleScope, ready)
@@ -352,7 +351,7 @@ class SessionActivity : ComponentActivity() {
       log.i { "RetroAchievements has no achievements for the game's platform" }
       return null
     }
-    val account = retroAchievementsStore(this).load()
+    val account = handheldApp.retroAchievementsStore.load()
     if (account == null) {
       log.i { "not signed in to RetroAchievements" }
       return null

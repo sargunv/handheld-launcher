@@ -29,48 +29,18 @@ data class LibrarySettings(
 )
 
 /**
- * Whether a game is on this device, or how far its download has got. A game with no state is only
- * on the server.
+ * [game]'s status, by [statuses] for a ROM. A local game is only on the device, so it's always
+ * there.
  */
-@Immutable
-sealed interface DeviceState {
-  data object OnDevice : DeviceState
-
-  /** On its way: [progress] runs from 0 to 1, or is null while the size isn't known. */
-  data class Downloading(val progress: Float?) : DeviceState
-}
-
-/**
- * The [DeviceState]s of the games with [statuses], by ROM id. A download that failed waits in the
- * queue for a retry, but the game is no closer to the device, so it has no state.
- */
-internal fun deviceStatesOf(statuses: Map<Long, RomStatus>): Map<Long, DeviceState> = buildMap {
-  for ((id, status) in statuses) {
-    when (status) {
-      is RomStatus.OnDevice -> put(id, DeviceState.OnDevice)
-      RomStatus.Queued -> put(id, DeviceState.Downloading(null))
-      is RomStatus.Downloading ->
-        put(
-          id,
-          DeviceState.Downloading(
-            status.totalBytes.takeIf { it > 0 }?.let { status.bytesDownloaded.toFloat() / it },
-          ),
-        )
-      is RomStatus.Failed,
-      RomStatus.NotOnDevice -> Unit
-    }
-  }
-}
-
-/**
- * Whether [game] is on this device, by [states] for a ROM. A local game is only on the device, so
- * it's always there.
- */
-fun deviceStateOf(game: LibraryGame, states: Map<Long, DeviceState>): DeviceState? =
+fun statusOf(game: LibraryGame, statuses: Map<Long, RomStatus>): RomStatus =
   when (game) {
-    is Rom -> states[game.id]
-    is LocalGame -> DeviceState.OnDevice
+    is Rom -> statuses[game.id] ?: RomStatus.NotOnDevice
+    is LocalGame -> RomStatus.OnDevice(game.path)
   }
+
+/** How far the download has got, from 0 to 1, or null while its size isn't known. */
+val RomStatus.Downloading.progress: Float?
+  get() = totalBytes.takeIf { it > 0 }?.let { bytesDownloaded.toFloat() / it }
 
 /** The test tag and focus key of [game]'s cover in a grid of games. */
 fun gameTag(game: LibraryGame): String =
@@ -143,17 +113,17 @@ data class ShelfSummary(val shelf: LibraryShelf, val games: Int, val onDevice: I
 
 /**
  * The [shelves] with their counts. [romPlatforms] gives each game's platform by ROM id,
- * [collectionRoms] each collection's games by its kind and id, and [states] says which games are on
- * the device. A platform counts its [localGames] too, which are on the device.
+ * [collectionRoms] each collection's games by its kind and id, and [statuses] says which games are
+ * on the device. A platform counts its [localGames] too, which are on the device.
  */
 fun shelfSummaries(
   shelves: List<LibraryShelf>,
   romPlatforms: Map<Long, Long>,
   collectionRoms: Map<Pair<CollectionKind, Long>, Set<Long>>,
-  states: Map<Long, DeviceState>,
+  statuses: Map<Long, RomStatus>,
   localGames: List<LocalGame>,
 ): List<ShelfSummary> {
-  val onDevice = states.filterValues { it == DeviceState.OnDevice }.keys
+  val onDevice = statuses.filterValues { it is RomStatus.OnDevice }.keys
   val onDeviceByPlatform = onDevice.mapNotNull(romPlatforms::get).groupingBy { it }.eachCount()
   val localByPlatform = localGames.groupingBy { it.platformId }.eachCount()
   return shelves.map { shelf ->
@@ -191,8 +161,14 @@ fun collectionPlatforms(
   return platforms.filter { it.id in ids }
 }
 
-/** The games the On device tab shows from [roms]: those on the device or on their way. */
-fun List<Rom>.onDevice(states: Map<Long, DeviceState>): List<Rom> = filter { it.id in states }
+/**
+ * The games the On device tab shows: those on the device or on their way. A failed download isn't
+ * on its way until it's retried.
+ */
+fun List<Rom>.onDevice(statuses: Map<Long, RomStatus>): List<Rom> = filter {
+  val status = statuses[it.id]
+  status is RomStatus.OnDevice || status is RomStatus.Downloading || status == RomStatus.Queued
+}
 
 enum class LibrarySort(val title: String) {
   Name("Name"),
@@ -206,19 +182,19 @@ enum class LibraryFilter(val title: String) {
 }
 
 /**
- * The games [filter] keeps, in [sort]'s order. [states] says which ROMs are on the device; local
+ * The games [filter] keeps, in [sort]'s order. [statuses] says which ROMs are on the device; local
  * games always are. Recently added puts a local game by when its file last changed.
  */
 fun <T : LibraryGame> List<T>.shown(
   filter: LibraryFilter,
   sort: LibrarySort,
-  states: Map<Long, DeviceState>,
+  statuses: Map<Long, RomStatus>,
 ): List<T> {
   val kept =
     when (filter) {
       LibraryFilter.All -> this
-      LibraryFilter.OnDevice -> filter { deviceStateOf(it, states) == DeviceState.OnDevice }
-      LibraryFilter.NotOnDevice -> filter { deviceStateOf(it, states) != DeviceState.OnDevice }
+      LibraryFilter.OnDevice -> filter { statusOf(it, statuses) is RomStatus.OnDevice }
+      LibraryFilter.NotOnDevice -> filter { statusOf(it, statuses) !is RomStatus.OnDevice }
     }
   return when (sort) {
     LibrarySort.Name ->

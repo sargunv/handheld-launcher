@@ -26,7 +26,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
@@ -44,7 +43,6 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
@@ -88,34 +86,32 @@ enum class SettingsSection(val title: String, internal val description: String) 
     get() = "settings:$name"
 }
 
+/**
+ * The sections Settings offers: those that need no server, and the rest once [signedIn], with
+ * RetroAchievements only on platforms that offer [achievements].
+ */
+internal fun settingsSections(signedIn: Boolean, achievements: Boolean): List<SettingsSection> =
+  SettingsSection.entries.filter {
+    when (it) {
+      SettingsSection.RetroAchievements -> signedIn && achievements
+      SettingsSection.Emulators,
+      SettingsSection.Storage -> signedIn
+      else -> true
+    }
+  }
+
 /** What the Settings page shows, which both screens follow. */
 @Stable
-class SettingsView(private val romm: RommSession, private val offersAchievements: Boolean) {
+class SettingsView {
   /** The section last focused in the list or jumped to, which shows while it's offered. */
   var section: SettingsSection by mutableStateOf(SettingsSection.Controls)
     internal set
 
-  internal val offered: List<SettingsSection>
-    @Composable
-    get() {
-      val signedIn = romm.state.collectAsState().value.signedIn == true
-      return SettingsSection.entries.filter {
-        when (it) {
-          SettingsSection.RetroAchievements -> signedIn && offersAchievements
-          SettingsSection.Emulators,
-          SettingsSection.Storage -> signedIn
-          else -> true
-        }
-      }
-    }
-
-  /** The section on the right and on the lower screen: [section], or else the first offered. */
-  internal val shown: SettingsSection
-    @Composable
-    get() {
-      val offered = offered
-      return section.takeIf { it in offered } ?: offered.first()
-    }
+  /**
+   * The section on the right and on the lower screen: [section], or else the first of [offered].
+   */
+  internal fun shown(offered: List<SettingsSection>): SettingsSection =
+    section.takeIf { it in offered } ?: offered.first()
 
   /** What the lower screen says about the focused setting, in place of the section's. */
   internal val help = HelpHolder()
@@ -138,8 +134,9 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val view = state.settingsView
   val romm by state.romm.state.collectAsState()
   val sync by state.romm.sync.collectAsState()
-  val sections = view.offered
-  val section = view.shown
+  val signedIn = romm.signedIn == true
+  val sections = settingsSections(signedIn, state.retroAchievements != null)
+  val section = view.shown(sections)
   val scope = rememberCoroutineScope()
   var dialog by rememberSaveable(stateSaver = SettingsDialog.saver) { mutableStateOf(null) }
   val open = { it: SettingsDialog -> dialog = it }
@@ -170,11 +167,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   FocusScope(Modifier.fillMaxSize(), initialFocus = section.key) {
     val focusScope = LocalFocusScope.current
     LaunchedEffect(view, focusScope) {
-      for (jump in view.jumps) {
-        // The list composes its items during layout, so wait for a frame to find them.
-        withFrameNanos {}
-        focusScope?.focus(jump.key)
-      }
+      for (jump in view.jumps) focusScope?.focus(jump.key)
     }
     Column(Modifier.fillMaxSize()) {
       Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp)) {
@@ -215,7 +208,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               SettingsSection.Emulators -> emulators(state, platforms, apps, open)
               SettingsSection.Storage ->
                 storage(state, storageSpaces, storageRefused, toggleStorage, open)
-              SettingsSection.About -> about(state, romm.signedIn == true)
+              SettingsSection.About -> about(state, signedIn)
             }
           }
         }
@@ -392,9 +385,10 @@ internal fun LazyListScope.sectionHeading(title: String) {
 
 /** The lower screen on Settings: the focused setting, or the focused section. */
 @Composable
-internal fun SettingsSecondary(view: SettingsView) {
+internal fun SettingsSecondary(state: AppState, signedIn: Boolean) {
+  val view = state.settingsView
   val help = view.help.shown
-  val section = view.shown
+  val section = view.shown(settingsSections(signedIn, state.retroAchievements != null))
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       help?.label ?: section.title,

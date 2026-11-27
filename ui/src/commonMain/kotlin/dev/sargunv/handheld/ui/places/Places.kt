@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.domain.LibraryGame
@@ -54,9 +55,10 @@ import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.OpenWithScreen
 import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
-import dev.sargunv.handheld.ui.library.DeviceState
 import dev.sargunv.handheld.ui.library.LibraryPlace
 import dev.sargunv.handheld.ui.library.LibrarySecondary
+import dev.sargunv.handheld.ui.library.progress
+import dev.sargunv.handheld.ui.library.statusOf
 import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.settings.SettingsPage
@@ -117,7 +119,7 @@ fun MainSecondary(state: AppState) {
         when {
           state.place == Place.Downloads -> StorageSummary(state.downloads)
           state.place == Place.Library -> LibrarySecondary(state)
-          state.place == Place.Settings -> SettingsSecondary(state.settingsView)
+          state.place == Place.Settings -> SettingsSecondary(state, signedIn = true)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
           focused is Focused.OnCollection -> {
             val collection = focused.collection
@@ -176,7 +178,8 @@ internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: 
 internal fun GameDescription(state: AppState, game: LibraryGame) {
   val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
-  val deviceStates by state.deviceStates.collectAsState()
+  val statuses by
+    remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
       (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
@@ -198,10 +201,12 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
       when (game) {
         is Rom -> {
           val onDevice =
-            when (deviceStates[game.id]) {
-              DeviceState.OnDevice -> "On this device"
-              is DeviceState.Downloading -> "Downloading"
-              null -> "Not on this device"
+            when (statusOf(game, statuses)) {
+              is RomStatus.OnDevice -> "On this device"
+              RomStatus.Queued,
+              is RomStatus.Downloading -> "Downloading"
+              is RomStatus.Failed,
+              RomStatus.NotOnDevice -> "Not on this device"
             }
           Text(onDevice, color = Placeholder.mutedText)
         }
@@ -235,13 +240,15 @@ internal fun onDeviceCount(count: Int) = "$count on this device"
  * What accessibility services say for a game's cover: its title, and whether it's on the device,
  * which the cover doesn't show.
  */
-internal fun coverDescription(rom: Rom, state: DeviceState?): String {
+internal fun coverDescription(rom: Rom, status: RomStatus): String {
   val where =
-    when (state) {
-      DeviceState.OnDevice -> "on this device"
-      is DeviceState.Downloading ->
-        state.progress?.let { "downloading ${(it * 100).toInt()}%" } ?: "downloading"
-      null -> "not on this device"
+    when (status) {
+      is RomStatus.OnDevice -> "on this device"
+      RomStatus.Queued -> "downloading"
+      is RomStatus.Downloading ->
+        status.progress?.let { "downloading ${(it * 100).toInt()}%" } ?: "downloading"
+      is RomStatus.Failed,
+      RomStatus.NotOnDevice -> "not on this device"
     }
   return "${rom.title}, $where"
 }

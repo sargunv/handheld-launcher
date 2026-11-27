@@ -12,6 +12,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.ui.App
+import dev.sargunv.handheld.ui.AppPlatform
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -23,28 +24,23 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 
 /**
- * Runs the app in one window, which shows both of the Thor's screens in a frame, or with `--folded`
- * the single-screen layout. Input comes from the keyboard.
- *
- * The credentials (unencrypted), the library cache, the download queue and the downloaded games go
- * under `$XDG_DATA_HOME/handheld`, the settings under `$XDG_CONFIG_HOME/handheld`, and covers under
- * `$XDG_CACHE_HOME/handheld/covers`.
+ * Runs the app in one window: the Thor's two screens in a frame, or with `--folded` the
+ * single-screen layout. Its files go in the XDG base directories, and the credentials unencrypted.
  */
 fun main(args: Array<String>) {
   val folded = "--folded" in args
   val dataDir = xdgDir("XDG_DATA_HOME", ".local/share")
-  val settingsFile =
-    SettingsFile(
-      Path(xdgDir("XDG_CONFIG_HOME", ".config"), "settings.json"),
-      Settings.serializer(),
-      Settings(),
-    )
+  val configDir = xdgDir("XDG_CONFIG_HOME", ".config")
+  val cacheDir = xdgDir("XDG_CACHE_HOME", ".cache")
   SystemFileSystem.createDirectories(dataDir)
+  val settingsFile =
+    SettingsFile(Path(configDir, "settings.json"), Settings.serializer(), Settings())
   val data =
     HandheldData(
       credentials = FileCredentialStore(Path(dataDir, "credentials.json")),
       library = LibraryCache.open(Path(dataDir, "library.db").toString()),
       dataDir = dataDir,
+      cacheDir = cacheDir,
       storage = { listOf(StorageTarget(dataDir.toString(), "Data folder")) },
       scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
       storageSettings = { settingsFile.read().storage },
@@ -59,6 +55,7 @@ fun main(args: Array<String>) {
         it.readBytes().decodeToString()
       }
     }
+  val platform = AppPlatform(device, appInfo = appInfo)
   val heldKeys = HeldKeys()
   val settings = settingsFile.read()
   application {
@@ -79,15 +76,11 @@ fun main(args: Array<String>) {
       App(
         layout = if (folded) DualScreenLayout.Folded else DualScreenLayout.Frame,
         heldKeys = heldKeys,
-        romm = data.romm,
-        device = device,
-        library = data.library,
-        downloads = data.downloads,
-        games = data.games,
-        coverCacheDir = Path(xdgDir("XDG_CACHE_HOME", ".cache"), "covers"),
+        data = data,
+        platform = platform,
+        coverCacheDir = Path(cacheDir, "covers"),
         initialSettings = settings,
         saveSettings = settingsFile::write,
-        appInfo = appInfo,
       )
     }
   }
