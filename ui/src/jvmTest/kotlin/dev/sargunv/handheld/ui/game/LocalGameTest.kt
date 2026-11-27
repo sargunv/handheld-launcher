@@ -363,10 +363,11 @@ class LocalGameTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     // A pasted token's permissions aren't known, so its sign-in may be why.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText("Upload refused · This sign-in may lack upload permission").assertExists()
     assertFocused("allowUploads:cancel")
     press(Key.ButtonA)
-    awaitText("Upload not allowed · Your account needs upload permission")
+    waitForIdle()
+    onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
+    onNodeWithText("Upload refused · No upload permission").assertExists()
     assertEquals(listOf("roms/upload/start"), uploadRequests.toList())
     onNodeWithTag("primary").assertTextEquals("Play")
     onNodeWithTag("game:saves-local").assertExists()
@@ -383,7 +384,7 @@ class LocalGameTest {
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitTag("upload:confirm")
     press(listOf(Key.DirectionRight, Key.ButtonA))
-    awaitText("Upload not allowed · Your account needs upload permission")
+    awaitText("Upload refused · No upload permission")
     onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
   }
 

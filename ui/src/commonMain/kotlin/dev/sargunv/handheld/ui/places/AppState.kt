@@ -87,7 +87,7 @@ class AppState(
     private set
 
   /** What [adoptMatchedFiles] last handed over. */
-  private val adopted = MutableStateFlow(emptyList<Adoption>())
+  private val handedOver = MutableStateFlow(emptyList<Adoption>())
 
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
@@ -268,17 +268,19 @@ class AppState(
     }
 
   /**
-   * Runs [play], the launch of [game], once any file the latest scan matched to [game] has handed
-   * it what was kept for the file. What's kept for [game] stays where it is until [play] returns.
+   * Runs [launch], the launch of [game], once any file the latest scan matched to [game] has handed
+   * it what was kept for the file. What's kept for [game] stays where it is until [launch] returns.
    */
-  suspend fun <T> play(game: GameKey, play: suspend () -> T): T {
+  suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> {
     if (game is GameKey.Romm) {
-      combine(games.adoptions, adopted) { all, done -> all.none { it.rom == game && it !in done } }
+      combine(games.adoptions, handedOver) { all, done ->
+          all.none { it.rom == game && it !in done }
+        }
         .first { it }
     }
     playing = game
     try {
-      return play()
+      return launch()
     } finally {
       playing = null
     }
@@ -296,13 +298,13 @@ class AppState(
       .distinctUntilChanged()
       .onEach {
         gameState.adopt(it)
-        adopted.value = it
+        handedOver.value = it
       }
       .combine(snapshotFlow { navigator.backStack.toList() }) { adoptions, _ -> adoptions }
       .collect { adoptions ->
         val roms = adoptions.associate { it.local to it.rom }
         for (screen in navigator.backStack.toList()) {
-          val adopted =
+          val replacement =
             when (screen) {
               is Screen.Game ->
                 roms[screen.key]
@@ -314,7 +316,7 @@ class AppState(
                   ?.let { screen.copy(scope = OpenWithScope.Game(it)) }
               else -> null
             }
-          if (adopted != null) navigator.replace(screen, adopted)
+          if (replacement != null) navigator.replace(screen, replacement)
         }
       }
   }

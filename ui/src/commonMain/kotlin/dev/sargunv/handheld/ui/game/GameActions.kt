@@ -233,12 +233,10 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         // The library learns of the game, and this page becomes its page.
         state.syncNow()
       } catch (_: RommException.Forbidden) {
-        notes = listOf("Upload not allowed · Your account needs upload permission")
+        val refused = "Upload refused · No upload permission"
+        notes = listOf(refused)
         // A sign-in whose permissions aren't known, or don't include uploading, may be why.
-        if (access != UploadAccess.Allowed) {
-          dialog =
-            GameDialog.AllowUploads("Upload refused · This sign-in may lack upload permission")
-        }
+        if (access != UploadAccess.Allowed) dialog = GameDialog.AllowUploads(refused)
       } catch (e: RommException.Status) {
         notes = listOf("Upload refused · ${e.detail ?: e.message}")
       } catch (e: RommException) {
