@@ -23,7 +23,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.awaitFocused
@@ -35,14 +34,11 @@ import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.lastPlayed
 import dev.sargunv.handheld.ui.launchApp
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
 import dev.sargunv.handheld.ui.rom
-import dev.sargunv.handheld.ui.settings.SettingsSection
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import kotlin.test.Test
@@ -80,13 +76,11 @@ class HomeTest {
     played: Boolean = true,
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
-    open: OpenTarget? = null,
   ) {
     launchApp(
       server(fail, played),
       settings = settings,
       saveSettings = saveSettings,
-      open = open,
       homePresses = homePresses.receiveAsFlow(),
       layout = DualScreenLayout.Separate,
     )
@@ -154,67 +148,6 @@ class HomeTest {
     awaitTag("main:Home")
     onNodeWithTag("main:Settings").assertHasClickAction()
     onNodeWithTag("continue:2").assertHasNoClickAction()
-  }
-
-  @Test
-  fun anOpenRequestShowsTheScreenItNames() = runComposeUiTest {
-    launch(open = OpenTarget.Game(3))
-    awaitTag("primary")
-    onNodeWithText("Game 3").assert(isHeading())
-    // Back goes to the places, as if the player had come from Home.
-    press(Key.ButtonB)
-    awaitTag("continue:2")
-  }
-
-  @Test
-  fun anOpenRequestForAPlaceSwitchesToIt() = runComposeUiTest {
-    launch(open = OpenTarget.AtPlace(Place.Downloads))
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodesWithText("Queue empty").fetchSemanticsNodes().isNotEmpty()
-    }
-    onNodeWithTag("place:Downloads").assertExists()
-  }
-
-  @Test
-  fun anOpenRequestForAPlatformOpensItsLibraryShelf() = runComposeUiTest {
-    launch(open = OpenTarget.LibraryPlatform("gb"))
-    // The shelf's games, rather than the list of shelves.
-    awaitTag("shelf:platform:1")
-    onNodeWithTag("place:Library").assertExists()
-    // Back goes to the platforms.
-    press(Key.ButtonB)
-    awaitFocused("library:platform:1")
-  }
-
-  @Test
-  fun anOpenRequestForACollectionOpensItsLibraryShelf() = runComposeUiTest {
-    launch(open = OpenTarget.LibraryCollection(CollectionKind.Regular, 1))
-    awaitTag("shelf:collection:Regular:1")
-    press(Key.ButtonB)
-    awaitFocused("library:collection:Regular:1")
-  }
-
-  @Test
-  fun anOpenRequestForLibraryShowsItsTab() = runComposeUiTest {
-    launch(open = OpenTarget.Library(null))
-    awaitTag("library:shelves")
-    onNodeWithTag("place:Library").assertExists()
-    onNodeWithTag("library:tab:Platforms").assertIsSelected()
-  }
-
-  @Test
-  fun anOpenRequestForALibraryTabShowsIt() = runComposeUiTest {
-    launch(open = OpenTarget.Library(LibraryTab.AllGames))
-    awaitTag("library:grid")
-    onNodeWithTag("library:tab:AllGames").assertIsSelected()
-  }
-
-  @Test
-  fun anOpenRequestForASettingsSectionFocusesIt() = runComposeUiTest {
-    launch(open = OpenTarget.Settings(SettingsSection.Storage))
-    awaitTag("settings:Storage")
-    awaitFocused("settings:Storage")
-    onNodeWithTag("settings:storage:note").assertExists()
   }
 
   @Test
