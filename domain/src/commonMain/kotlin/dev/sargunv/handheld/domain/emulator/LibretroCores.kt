@@ -54,7 +54,7 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
 data class LibretroCore(
   val library: String,
   val androidLibrary: String = library,
-  val retroArchFolder: String? = null,
+  val retroArchFolder: String?,
   val source: CoreSource = CoreSource.Buildbot,
   val stackedScreensOptions: Map<String, String> = emptyMap(),
   val lowerScreenWidthShare: Float? = null,
@@ -197,5 +197,6 @@ object LibretroCores {
    * is a core of that name on Android too.
    */
   fun resolve(library: String?, platform: PlatformSlug): LibretroCore? =
-    if (library == null) recommendedFor(platform) else byLibrary(library) ?: LibretroCore(library)
+    if (library == null) recommendedFor(platform)
+    else byLibrary(library) ?: LibretroCore(library, retroArchFolder = null)
 }
