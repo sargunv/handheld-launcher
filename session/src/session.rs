@@ -684,7 +684,7 @@ impl Session {
 
     /// The core's complete state, which [`Session::unserialize_state`]
     /// restores.
-    pub fn serialize_state(&mut self) -> Result<Vec<u8>, SessionError> {
+    fn serialize_state(&mut self) -> Result<Vec<u8>, SessionError> {
         // SAFETY: the game is loaded and no host reference is live.
         let size = unsafe { (self.core.serialize_size)() };
         if size == 0 {
@@ -699,12 +699,8 @@ impl Session {
         }
     }
 
-    /// Restores a state from [`Session::serialize_state`]. Hardcore mode
-    /// doesn't allow it.
-    pub fn unserialize_state(&mut self, state: &[u8]) -> Result<(), SessionError> {
-        if self.hardcore_restricts() {
-            return Err(SessionError::Hardcore);
-        }
+    /// Restores a state that [`Session::read_state`] read.
+    pub(crate) fn unserialize_state(&mut self, state: &[u8]) -> Result<(), SessionError> {
         // SAFETY: the game is loaded, the core only reads `state`, and no
         // host reference is live.
         if !unsafe { (self.core.unserialize)(state.as_ptr().cast(), state.len()) } {
@@ -729,11 +725,20 @@ impl Session {
     /// Restores a state that [`Session::save_state`] wrote. Hardcore mode
     /// doesn't allow it.
     pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        let state = self.read_state(path)?;
+        self.unserialize_state(&state)
+    }
+
+    /// Reads the state at `path` for [`Session::unserialize_state`], if the
+    /// session may load it.
+    pub(crate) fn read_state(&self, path: &Path) -> Result<Vec<u8>, SessionError> {
         if !self.host().states_persist() {
             return Err(SessionError::StatesNotPersistent);
         }
-        let state = fs::read(path)?;
-        self.unserialize_state(&state)
+        if self.hardcore_restricts() {
+            return Err(SessionError::Hardcore);
+        }
+        Ok(fs::read(path)?)
     }
 }
 

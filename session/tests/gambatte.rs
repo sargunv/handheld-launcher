@@ -77,11 +77,12 @@ fn save_ram_round_trips_through_its_file() {
     let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     let blank = h.session.save_ram().unwrap().to_vec();
     // A state of the game with blank save memory, which a state includes.
-    let state = h.session.serialize_state().unwrap();
+    let state = dir.path().join("blank.state");
+    h.session.save_state(&state).unwrap();
     let mut save_ram = SaveRam::load(&path, &mut h.session).unwrap().unwrap();
     assert_eq!(h.session.save_ram().unwrap(), pattern);
 
-    h.session.unserialize_state(&state).unwrap();
+    h.session.load_state(&state).unwrap();
     save_ram.flush(&h.session).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), blank);
 }
@@ -91,7 +92,8 @@ fn restoring_a_state_replays_identically() {
     let _lock = lock();
     let mut h = Harness::start(CORE, Some(GAME), &[], None).unwrap();
     h.run(200);
-    let state = h.session.serialize_state().unwrap();
+    let state = h.dirs.path().join("ucity.state");
+    h.session.save_state(&state).unwrap();
 
     let play = |h: &mut Harness| {
         h.input.port(0).set_button(Button::Start, true);
@@ -102,7 +104,7 @@ fn restoring_a_state_replays_identically() {
     };
     let first = play(&mut h);
     common::dump(&first, "ucity-after-start");
-    h.session.unserialize_state(&state).unwrap();
+    h.session.load_state(&state).unwrap();
     let second = play(&mut h);
     assert_eq!(first, second);
 }

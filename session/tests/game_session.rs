@@ -106,6 +106,25 @@ fn keeps_save_memory_before_loading_a_state() {
     assert_eq!(backups(&saves), [pattern]);
 }
 
+#[test]
+fn keeps_no_backup_when_a_state_doesnt_load() {
+    let _lock = lock();
+    let dir = tempfile::tempdir().unwrap();
+    let saves = dir.path().join("saves");
+    std::fs::create_dir_all(&saves).unwrap();
+    std::fs::write(saves.join("game.srm"), pattern(SAVE_RAM_SIZE)).unwrap();
+
+    let session = start(dir.path()).unwrap();
+    let missing = dir.path().join("missing.state");
+    assert!(matches!(
+        session.load_state(missing.to_string_lossy().into_owned()),
+        Err(SessionError::Io(_))
+    ));
+    session.stop().unwrap();
+
+    assert!(backups(&saves).is_empty());
+}
+
 /// The contents of the backups of `game.srm` in `saves`.
 fn backups(saves: &Path) -> Vec<Vec<u8>> {
     std::fs::read_dir(saves)

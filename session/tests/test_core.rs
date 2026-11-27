@@ -105,22 +105,14 @@ fn muted_audio_is_dropped() {
 fn states_round_trip() {
     let _lock = lock();
     let mut h = Harness::start(CORE, None, &[], None).unwrap();
+    let path = h.dirs.path().join("states/slot1.state");
     h.input.port(0).set_button(Button::Right, true);
     h.run(5);
-    let state = h.session.serialize_state().unwrap();
+    h.session.save_state(&path).unwrap();
     let saved = h.frames.last();
     h.run(5);
     assert_ne!(h.frames.last(), saved);
 
-    h.input.port(0).set_buttons(0);
-    h.session.unserialize_state(&state).unwrap();
-    h.run(1);
-    assert_eq!(h.frames.last(), saved);
-
-    let path = h.dirs.path().join("states/slot1.state");
-    h.session.save_state(&path).unwrap();
-    h.input.port(0).set_button(Button::Left, true);
-    h.run(4);
     h.input.port(0).set_buttons(0);
     h.session.load_state(&path).unwrap();
     h.run(1);
