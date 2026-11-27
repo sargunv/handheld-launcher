@@ -21,6 +21,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.ui.awaitTag
+import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.json
@@ -35,6 +37,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 
 @OptIn(ExperimentalTestApi::class)
 class SignInTest {
@@ -53,9 +57,22 @@ class SignInTest {
     )
   }
 
+  /** The presses of the system's HOME, which [pressHome] makes. */
+  private val homePresses = Channel<Unit>(Channel.UNLIMITED)
+
   /** Shows the app signed out. */
   private fun ComposeUiTest.launch() {
-    launchApp(server, credentials = InMemoryCredentialStore(), layout = DualScreenLayout.Separate)
+    launchApp(
+      server,
+      credentials = InMemoryCredentialStore(),
+      homePresses = homePresses.receiveAsFlow(),
+      layout = DualScreenLayout.Separate,
+    )
+    waitForIdle()
+  }
+
+  private fun ComposeUiTest.pressHome() {
+    homePresses.trySend(Unit)
     waitForIdle()
   }
 
@@ -92,6 +109,21 @@ class SignInTest {
     assertTrue("\"roms.read\"" in scopes)
     assertTrue("\"roms.write\"" in scopes)
     assertTrue("\"tasks.run\"" in scopes)
+  }
+
+  @Test
+  fun homeClosesSettingsBackToTheStepUnderIt() = runComposeUiTest {
+    pair(allowUploads = false)
+    awaitText("Approve this device")
+    press(Key.ButtonStart)
+    awaitTag("main:Settings")
+    press(Key.ButtonA)
+    awaitTag("place:Settings")
+    pressHome()
+    onNodeWithTag("place:Settings").assertDoesNotExist()
+    onNodeWithText("Approve this device").assertExists()
+    pressHome()
+    onNodeWithText("Approve this device").assertExists()
   }
 
   @Test

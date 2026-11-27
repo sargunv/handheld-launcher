@@ -121,6 +121,12 @@ class SignInState(
     if (settings < 0) navigator.push(SignInScreen.Settings)
     else while (navigator.backStack.lastIndex > settings) navigator.back()
   }
+
+  /** Leaves Settings and the screens over it, back to the sign-in step under them. */
+  fun closeSettings() {
+    val settings = navigator.backStack.indexOf(SignInScreen.Settings)
+    if (settings >= 0) while (navigator.backStack.size > settings) navigator.back()
+  }
 }
 
 /** The sign-in's top screen. */
