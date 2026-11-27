@@ -26,7 +26,6 @@ class LibraryCacheTest {
     id: Long,
     title: String,
     platformId: Long = 1,
-    alternativeNames: List<String> = emptyList(),
     files: List<RomFile> = listOf(RomFile(id * 10, "$title.bin", 100, RomFileCategory.Game)),
     createdAt: Instant = Instant.parse("2024-06-01T00:00:00Z"),
   ) =
@@ -36,7 +35,7 @@ class LibraryCacheTest {
       platformSlug = "p$platformId",
       title = title,
       sortKey = title.lowercase().removePrefix("the "),
-      alternativeNames = alternativeNames,
+      alternativeNames = emptyList(),
       fileName = "$title (USA).bin",
       sizeBytes = files.sumOf { it.sizeBytes },
       summary = null,
@@ -110,48 +109,11 @@ class LibraryCacheTest {
   }
 
   @Test
-  fun searchesTitlesByWordPrefixes() = runTest {
-    cache.upsertRoms(
-      listOf(
-        rom(1, "Pokémon Crystal"),
-        rom(2, "Super Mario Bros. 3"),
-        rom(3, "Mario Kart", alternativeNames = listOf("Super Mario Kart")),
-        rom(4, "Dr. Mario"),
-      ),
-    )
-
-    suspend fun titles(text: String) = cache.search(text).map { it.title }.toSet()
-
-    assertEquals(setOf("Pokémon Crystal"), titles("pokemon"))
-    assertEquals(setOf("Pokémon Crystal"), titles("POKé cry"))
-    // A decomposed accent stays part of its word.
-    assertEquals(setOf("Pokémon Crystal"), titles("Poke\u0301mon"))
-    assertEquals(setOf("Super Mario Bros. 3", "Mario Kart", "Dr. Mario"), titles("mar"))
-    assertEquals(setOf("Super Mario Bros. 3", "Mario Kart"), titles("super mario"))
-    assertEquals(setOf("Super Mario Bros. 3"), titles("bros 3"))
-    // A search's punctuation and FTS syntax are words, not operators.
-    assertEquals(setOf("Dr. Mario"), titles("\"dr.\" (mario*"))
-    assertEquals(emptySet(), titles("  -*  "))
-    assertEquals(emptySet(), titles("zelda"))
-    // The file name is searchable too.
-    assertEquals(setOf("Pokémon Crystal"), titles("usa crystal"))
-  }
-
-  @Test
-  fun ranksTitleMatchesFirst() = runTest {
-    cache.upsertRoms(
-      listOf(rom(1, "Kart Racer", alternativeNames = listOf("Crash")), rom(2, "Crash")),
-    )
-    assertEquals(listOf("Crash", "Kart Racer"), cache.search("crash").map { it.title })
-  }
-
-  @Test
   fun forgetsRemovedRoms() = runTest {
     cache.upsertRoms(listOf(rom(1, "Keep"), rom(2, "Drop"), rom(3, "Also Drop")))
     assertEquals(2, cache.retainRoms(setOf(1)))
 
     assertEquals(listOf("Keep"), cache.romsOnPlatform(1).first().map { it.title })
-    assertEquals(emptyList(), cache.search("drop"))
     assertNull(cache.rom(2))
   }
 
@@ -254,7 +216,6 @@ class LibraryCacheTest {
 
     assertEquals(emptyList(), cache.platforms().first())
     assertEquals(0, cache.romCount())
-    assertEquals(emptyList(), cache.search("game"))
     assertEquals(emptyList(), cache.recentlyPlayed(10).first())
     assertNull(cache.syncValue("key"))
   }

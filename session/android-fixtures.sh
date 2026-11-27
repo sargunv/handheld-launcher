@@ -7,28 +7,15 @@
 set -euo pipefail
 
 abi="${1:-arm64-v8a}"
-case "$abi" in
-  arm64-v8a) triple=aarch64-linux-android ;;
-  x86_64) triple=x86_64-linux-android ;;
-  *) echo "unsupported ABI $abi" >&2 && exit 1 ;;
-esac
 
 here="$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=session/fixture-sources.sh
 source "$here/fixture-sources.sh"
 
-ndk_version="$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p' "$here/../gradle/libs.versions.toml")"
 min_sdk="$(sed -n 's/^android-minSdk = "\(.*\)"$/\1/p' "$here/../gradle/libs.versions.toml")"
-ndk="${ANDROID_HOME:?set ANDROID_HOME}/ndk/$ndk_version"
-[[ -d "$ndk" ]] || {
-  echo "Android NDK $ndk_version isn't installed; install it with sdkmanager --install \"ndk;$ndk_version\"" >&2
-  exit 1
-}
-case "$(uname -s)" in
-  Darwin) host=darwin-x86_64 ;;
-  *) host=linux-x86_64 ;;
-esac
-cc="$ndk/toolchains/llvm/prebuilt/$host/bin/$triple$min_sdk-clang"
+# The NDK's compiler for the ABI, as cargo-ndk finds it for the session's build.
+eval "$(cargo ndk-env --target "$abi" --platform "$min_sdk")"
+cc=("$CLANG_PATH" "--target=$CARGO_NDK_SYSROOT_TARGET$min_sdk")
 
 dest="${XDG_CACHE_HOME:-$HOME/.cache}/handheld/session-fixtures-android/$abi"
 work="$(mktemp -d)"
@@ -40,28 +27,28 @@ echo "Building libretro-samples' test cores for $abi"
 fetch_samples "$work/samples"
 (
   cd "$work/samples/tests/test"
-  "$cc" -shared -fPIC -O2 -std=gnu99 libretro-test.c -Wl,--version-script=link.T -lm \
+  "${cc[@]}" -shared -fPIC -O2 -std=gnu99 libretro-test.c -Wl,--version-script=link.T -lm \
     -o "$out/test_libretro_android.so"
 )
 (
   cd "$work/samples/video/opengl/libretro_test_gl_shaders"
-  "$cc" -shared -fPIC -O2 -std=gnu99 -I. -DHAVE_OPENGLES -DHAVE_OPENGLES2 -w \
+  "${cc[@]}" -shared -fPIC -O2 -std=gnu99 -I. -DHAVE_OPENGLES -DHAVE_OPENGLES2 -w \
     libretro_gl_test.c glsym/rglgen.c glsym/glsym_es2.c -Wl,--version-script=link.T -lGLESv2 \
     -o "$out/testgl_gles_libretro_android.so"
 )
 (
   cd "$work/samples/video/vulkan/vk_rendering"
-  "$cc" -shared -fPIC -O2 -std=gnu99 -I. -Iinclude -w libretro-test.c vulkan_symbol_wrapper.c \
+  "${cc[@]}" -shared -fPIC -O2 -std=gnu99 -I. -Iinclude -w libretro-test.c vulkan_symbol_wrapper.c \
     -Wl,--version-script=link.T -lm -o "$out/testvulkan_libretro_android.so"
 )
 
 echo "Building the events test core for $abi"
-"$cc" -shared -fPIC -O2 -std=c99 -I"$here/vendor/libretro" "$here/tests/cores/events.c" \
+"${cc[@]}" -shared -fPIC -O2 -std=c99 -I"$here/vendor/libretro" "$here/tests/cores/events.c" \
   -o "$out/events_libretro_android.so"
 
 echo "Building Gambatte for $abi"
 fetch_gambatte "$work/gambatte"
-"$ndk/ndk-build" -s -C "$work/gambatte/libgambatte/libretro/jni" APP_ABI="$abi" \
+"$ANDROID_NDK_HOME/ndk-build" -s -C "$work/gambatte/libgambatte/libretro/jni" APP_ABI="$abi" \
   APP_PLATFORM="android-$min_sdk" -j"$(nproc 2>/dev/null || echo 4)" >/dev/null
 cp "$work/gambatte/libgambatte/libretro/libs/$abi/libretro.so" "$out/gambatte_libretro_android.so"
 

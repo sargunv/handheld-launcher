@@ -1,6 +1,7 @@
 import com.mikepenz.aboutlibraries.plugin.AboutLibrariesTask
 import dev.sargunv.handheld.gradle.RequireLicenceTexts
 import dev.sargunv.handheld.gradle.SessionLicences
+import dev.sargunv.handheld.gradle.androidAbis
 
 plugins {
   alias(libs.plugins.android.application)
@@ -22,8 +23,7 @@ val sessionLicences =
       root.file("mise.toml"),
     )
     workspace = root
-    // The Rust targets of the ABIs below.
-    targets = listOf("aarch64-linux-android", "x86_64-linux-android")
+    targets = androidAbis.values.toList()
     checkedIn.from(root.dir("licences"), root.dir("session/licences"))
     rcheevosLicence = root.file("session/vendor/rcheevos/LICENSE")
     outputDir = layout.buildDirectory.dir("generated/licences")
@@ -49,8 +49,7 @@ android {
     targetSdk = libs.versions.android.targetSdk.get().toInt()
     versionCode = 1
     versionName = libs.versions.handheld.get()
-    // The ABIs the game session builds for.
-    ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+    ndk { abiFilters += androidAbis.keys }
   }
 
   // The project's shared debug key, which `mise run android:debug-key` unpacks from fnox, so every

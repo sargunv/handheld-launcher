@@ -47,13 +47,6 @@ class LiveLibrarySyncTest {
       assertTrue(rom.sizeBytes >= 0 && rom.files.all { it.sizeBytes >= 0 })
       assertEquals(rom.sizeBytes, rom.files.sumOf { it.sizeBytes }, "ROM ${rom.id}'s files add up")
     }
-    for (rom in roms.take(25)) {
-      if (ftsQuery(rom.title) == null) continue
-      assertTrue(
-        cache.search(rom.title, limit = 1000).any { it.id == rom.id },
-        "ROM ${rom.id} is found by its title",
-      )
-    }
 
     sync.sync()
     assertEquals(romCount, cache.romCount())

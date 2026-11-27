@@ -234,7 +234,6 @@ enum Command {
     Pause(Reply<()>),
     Resume,
     FastForward(u32),
-    Advance(u32, Reply<()>),
     SaveState(PathBuf, Reply<()>),
     LoadState(PathBuf, Reply<()>),
     CaptureFrame(Reply<Option<CapturedFrame>>),
@@ -405,12 +404,6 @@ impl GameSession {
     /// is due and shows each of them.
     pub fn set_fast_forward(&self, speed: u32) {
         let _ = self.commands.send(Command::FastForward(speed));
-    }
-
-    /// Runs `frames` frames now, as fast as the core can, if the session is
-    /// paused. For stepping a frame at a time, and for tests.
-    pub fn advance(&self, frames: u32) -> Result<(), SessionError> {
-        self.request(|reply| Command::Advance(frames, reply))
     }
 
     /// Presses or releases `button` on controller `port`. Ports past the last
@@ -886,19 +879,6 @@ impl Runner {
                 };
                 // Audio at the core's rate can't keep up with more frames.
                 self.session.set_audio_muted(self.speed > 1);
-            }
-            Command::Advance(frames, reply) => {
-                if self.paused {
-                    for _ in 0..frames {
-                        if self.session.shutdown_requested() {
-                            break;
-                        }
-                        self.session.run_frame();
-                    }
-                    // So info() is current once advance() returns.
-                    self.update_info();
-                }
-                let _ = reply.send(Ok(()));
             }
             Command::SaveState(path, reply) => {
                 let _ = reply.send(self.session.save_state(&path));

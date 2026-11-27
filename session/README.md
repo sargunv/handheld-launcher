@@ -19,12 +19,12 @@ bindings generated from it.
 
 ## From Kotlin
 
-The directory is also the `:session` Gradle module, a Kotlin Multiplatform
-library for Android and the JVM. Its build runs cargo to make the host library,
-for the JVM and for UniFFI's Kotlin bindings, which aren't checked in, and one
-library per Android ABI with the NDK that `gradle/libs.versions.toml` pins.
-`-Phandheld.session.abis=x86_64` builds one ABI, for quicker work on an
-emulator.
+The directory is also the `:session` Gradle module, an Android library. Its
+build compiles the crate for the host only to generate UniFFI's Kotlin bindings,
+which aren't checked in. It compiles the crate for each Android ABI listed in
+`buildSrc` with cargo-ndk, using the NDK that `mise.toml` pins. Install that NDK
+with `sdkmanager`. `-Phandheld.session.abis=x86_64` builds one ABI, for quicker
+work on an emulator.
 
 ## Achievements
 
