@@ -7,7 +7,7 @@ here="$(dirname "${BASH_SOURCE[0]}")"
 # shellcheck source=session/fixture-sources.sh
 source "$here/fixture-sources.sh"
 
-dest="${HANDHELD_SESSION_FIXTURES:-${XDG_CACHE_HOME:-$HOME/.cache}/handheld/session-fixtures}"
+dest="$HANDHELD_SESSION_FIXTURES"
 stamp="$(cat "${BASH_SOURCE[0]}" "$here/fixture-sources.sh" "$here/tests/cores/events.c" |
   sha256sum | cut -d' ' -f1)"
 if [[ -f "$dest/.stamp" && "$(cat "$dest/.stamp")" == "$stamp" ]]; then

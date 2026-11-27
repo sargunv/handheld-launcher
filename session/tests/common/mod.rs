@@ -18,17 +18,11 @@ use sha2::{Digest, Sha256};
 ///
 /// # Panics
 ///
-/// If the fixture is missing.
+/// If `HANDHELD_SESSION_FIXTURES` is unset or the fixture is missing.
 pub fn fixture(name: &str) -> PathBuf {
     let dir = std::env::var_os("HANDHELD_SESSION_FIXTURES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let cache = std::env::var_os("XDG_CACHE_HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap()).join(".cache"));
-            cache.join("handheld/session-fixtures")
-        });
-    let path = dir.join(name);
+        .expect("HANDHELD_SESSION_FIXTURES is unset; run the tests with `mise run test`");
+    let path = Path::new(&dir).join(name);
     assert!(
         path.exists(),
         "missing test fixture {}; run `mise run session:fixtures` to build it",
