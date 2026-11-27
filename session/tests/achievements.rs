@@ -89,6 +89,7 @@ fn start(content: &str, hardcore: bool) -> (Harness, Waiting) {
             account(hardcore),
             Box::new(move |id, request| sent.borrow_mut().push((id, request))),
         )),
+        None,
     )
     .unwrap();
     (h, waiting)

@@ -22,19 +22,6 @@ pub struct CapturedFrame {
     pub pixels: Vec<u8>,
 }
 
-impl CapturedFrame {
-    /// The RGBA value of the pixel at (`x`, `y`), counted from the top left.
-    ///
-    /// # Panics
-    ///
-    /// If the pixel is outside the frame.
-    pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        assert!(x < self.width && y < self.height, "pixel outside frame");
-        let i = (y as usize * self.width as usize + x as usize) * 4;
-        self.pixels[i..i + 4].try_into().expect("four bytes")
-    }
-}
-
 /// Receives the frames a session produces when it doesn't present them to a
 /// window itself.
 ///

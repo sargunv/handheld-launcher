@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, SaveRam,
-    Session, SessionConfig, VideoOutput, VideoSink,
+    AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, Session,
+    SessionConfig, VideoOutput, VideoSink,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -163,8 +163,7 @@ struct App {
     frame_period: Duration,
     frames_run: u64,
     stats: (Instant, u64),
-    save_ram_path: PathBuf,
-    save_ram: Option<SaveRam>,
+    save_ram: PathBuf,
     state: PathBuf,
     error: Option<String>,
 }
@@ -197,8 +196,7 @@ impl App {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         Self {
-            save_ram_path: save_dir.join(format!("{stem}.srm")),
-            save_ram: None,
+            save_ram: save_dir.join(format!("{stem}.srm")),
             state: save_dir.join(format!("{stem}.state")),
             args,
             session: None,
@@ -273,6 +271,7 @@ impl App {
                 .clone()
                 .unwrap_or_else(|| save_dir.parent().expect("a data directory").join("system")),
             save_dir,
+            save_ram: Some(self.save_ram.clone()),
             video,
             audio,
             input: self.input.clone(),
@@ -281,12 +280,7 @@ impl App {
         };
         // SAFETY: the user named a libretro core, and the window outlives the
         // session, which `App` drops first.
-        let mut session = unsafe { Session::new(config) }.map_err(|e| error_chain(&e))?;
-
-        // Running anyway would replace the file with fresh save memory on exit.
-        let path = &self.save_ram_path;
-        self.save_ram = SaveRam::load(path, &mut session)
-            .map_err(|e| format!("can't load {}: {e}", path.display()))?;
+        let session = unsafe { Session::new(config) }.map_err(|e| error_chain(&e))?;
         let av = session.av_info();
         let info = session.system_info();
         window.set_title(&format!("{} {}", info.library_name, info.library_version));
@@ -404,11 +398,6 @@ impl ApplicationHandler for App {
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
-        if let (Some(session), Some(save_ram)) = (&self.session, &mut self.save_ram)
-            && let Err(e) = save_ram.flush(session)
-        {
-            log::error!("can't save {}: {e}", self.save_ram_path.display());
-        }
         self.session = None;
     }
 }

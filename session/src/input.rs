@@ -32,8 +32,8 @@ pub enum Button {
 }
 
 impl Button {
-    /// The button's bit in a [`Port::buttons`] mask.
-    pub fn mask(self) -> u16 {
+    /// The button's bit in a port's mask of buttons.
+    pub(crate) fn mask(self) -> u16 {
         1 << self as u16
     }
 }
@@ -123,12 +123,6 @@ impl Port {
         } else {
             self.buttons.fetch_and(!button.mask(), Ordering::Relaxed);
         }
-    }
-
-    /// Replaces every button at once with a mask of [`Button::mask`] bits.
-    pub fn set_buttons(&self, mask: u16) {
-        let before = self.buttons.swap(mask, Ordering::Relaxed);
-        self.presses.fetch_or(mask & !before, Ordering::Relaxed);
     }
 
     /// Moves a stick. Each axis runs from -32768 to 32767, with positive `x`
@@ -388,7 +382,7 @@ mod tests {
         let state = InputState::new();
         state.port(0).set_button(Button::Start, true);
         let snapshot = state.snapshot(&Default::default());
-        state.port(0).set_buttons(0);
+        state.port(0).set_button(Button::Start, false);
         let joypad = ffi::RETRO_DEVICE_JOYPAD;
         assert_eq!(
             query(&snapshot, 0, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_START),

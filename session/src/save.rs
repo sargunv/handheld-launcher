@@ -11,8 +11,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::session::Session;
-
 /// Writes `data` to a temporary file beside `path`, flushes it to disk, and
 /// renames it over `path`, so that a crash leaves either the old file or the
 /// new one.
@@ -77,7 +75,7 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Keeps the core's save memory in its file: the session's thread compares
 /// save memory with what it last wrote, and a writer thread writes the
 /// changes.
-pub struct SaveRam {
+pub(crate) struct SaveRam {
     path: PathBuf,
     writer: SaveWriter,
     /// Save memory as last handed to the writer, or as loaded.
@@ -94,16 +92,13 @@ pub struct SaveRam {
 impl SaveRam {
     /// Fills the core's save memory from the file at `path`, as a frontend
     /// does right after loading content, to keep the file up to date from
-    /// then on. It returns `None` if the core has no save memory.
+    /// then on.
     ///
     /// A missing file leaves save memory as the core made it. A file of
     /// another size fills what fits, but writing save memory back would lose
     /// the rest, so the file is copied to a backup beside it first, and
     /// loading fails if that copy can't be made.
-    pub fn load(path: &Path, session: &mut Session) -> io::Result<Option<Self>> {
-        let Some(memory) = session.save_ram_mut() else {
-            return Ok(None);
-        };
+    pub(crate) fn load(path: &Path, memory: &mut [u8]) -> io::Result<Self> {
         let rewrite = match fs::read(path) {
             Ok(data) => {
                 let mismatched = data.len() != memory.len();
@@ -125,23 +120,20 @@ impl SaveRam {
             Err(e) if e.kind() == io::ErrorKind::NotFound => false,
             Err(e) => return Err(e),
         };
-        Ok(Some(Self {
+        Ok(Self {
             path: path.to_owned(),
             written: memory.to_vec(),
             writer: SaveWriter::new(path.to_owned())?,
             rewrite,
             next_check: Instant::now() + CHECK_INTERVAL,
             backed_up: None,
-        }))
+        })
     }
 
     /// Copies save memory to a backup beside its file before something
     /// replaces all of it, as loading a state does, unless the last backup
     /// holds the same bytes.
-    pub(crate) fn back_up(&mut self, session: &Session) -> io::Result<()> {
-        let Some(memory) = session.save_ram() else {
-            return Ok(());
-        };
+    pub(crate) fn back_up(&mut self, memory: &[u8]) -> io::Result<()> {
         if self.backed_up.as_deref() != Some(memory) {
             back_up(&self.path, memory)?;
             self.backed_up = Some(memory.to_vec());
@@ -151,10 +143,7 @@ impl SaveRam {
 
     /// Hands save memory to the writer if it changed since the last write,
     /// or the file needs it anyway.
-    fn write_if_changed(&mut self, session: &Session) {
-        let Some(memory) = session.save_ram() else {
-            return;
-        };
+    fn write_if_changed(&mut self, memory: &[u8]) {
         if self.rewrite || self.writer.failed() || memory != self.written.as_slice() {
             self.rewrite = false;
             self.written.clear();
@@ -164,18 +153,18 @@ impl SaveRam {
     }
 
     /// Calls [`SaveRam::write_if_changed`] every [`CHECK_INTERVAL`].
-    pub(crate) fn write_if_due(&mut self, session: &Session) {
+    pub(crate) fn write_if_due(&mut self, memory: &[u8]) {
         let now = Instant::now();
         if now >= self.next_check {
             self.next_check = now + CHECK_INTERVAL;
-            self.write_if_changed(session);
+            self.write_if_changed(memory);
         }
     }
 
     /// Writes save memory if it changed, and waits until every write so far
     /// is on disk.
-    pub fn flush(&mut self, session: &Session) -> io::Result<()> {
-        self.write_if_changed(session);
+    pub(crate) fn flush(&mut self, memory: &[u8]) -> io::Result<()> {
+        self.write_if_changed(memory);
         self.writer.wait()
     }
 }
