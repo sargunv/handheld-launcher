@@ -43,11 +43,8 @@ pub enum VideoOutput {
         /// The window's size in pixels.
         width: u32,
         height: u32,
-        /// The bottom screen's share of the frame's width, centred, when a
-        /// two-screen system's core draws it narrower than the top screen
-        /// above it, so a lower window shows only those columns. `None`
-        /// shows the whole width.
-        lower_screen_width_share: Option<f32>,
+        /// What a lower window shows of each frame.
+        lower: Region,
     },
 }
 
@@ -196,7 +193,6 @@ pub struct Session {
     core: Core,
     host: NonNull<Host>,
     system_info: SystemInfo,
-    initialized: bool,
     game_loaded: bool,
     /// The game's achievements, while the session takes part in
     /// RetroAchievements. Dropped before the game unloads.
@@ -219,13 +215,6 @@ impl Session {
         fs::create_dir_all(&config.save_dir)?;
         // SAFETY: the caller vouches for the core.
         let core = unsafe { Core::load(&config.core)? };
-        let lower = Region::bottom(match config.video {
-            VideoOutput::Window {
-                lower_screen_width_share,
-                ..
-            } => lower_screen_width_share,
-            VideoOutput::Sink(_) => None,
-        });
         let host = Box::new(Host::new(
             path_cstring(&config.system_dir),
             path_cstring(&config.save_dir),
@@ -233,7 +222,6 @@ impl Session {
             config.input,
             config.audio,
             config.video,
-            lower,
         ));
         let host = NonNull::from(Box::leak(host));
         // SAFETY: the host lives until the session's drop unregisters it, and
@@ -249,7 +237,6 @@ impl Session {
                 need_fullpath: false,
                 block_extract: false,
             },
-            initialized: false,
             game_loaded: false,
             achievements: None,
             _content: None,
@@ -270,7 +257,6 @@ impl Session {
             (session.core.set_input_poll)(Some(host::input_poll));
             (session.core.set_input_state)(Some(host::input_state));
         }
-        session.initialized = true;
         session.system_info = session.read_system_info();
         log::info!(
             "loaded core {} {}",
@@ -768,10 +754,8 @@ impl Drop for Session {
             // SAFETY: the game is loaded.
             unsafe { (self.core.unload_game)() };
         }
-        if self.initialized {
-            // SAFETY: retro_init ran.
-            unsafe { (self.core.deinit)() };
-        }
+        // SAFETY: retro_init ran.
+        unsafe { (self.core.deinit)() };
         host::unregister();
         // SAFETY: the host came from `Box::leak`, and the core can no longer
         // reach it.

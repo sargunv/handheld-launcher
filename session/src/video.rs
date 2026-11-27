@@ -186,7 +186,7 @@ pub(crate) fn fit(
 /// the 3DS's is, centred under it, so the lower window shows only its share of
 /// the frame's width.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Region {
+pub enum Region {
     /// The whole frame.
     Whole,
     /// The upper half.
@@ -200,7 +200,7 @@ impl Region {
     /// The lower half of a frame whose bottom screen spans `share` of its
     /// width, centred, or the whole width when it's `None`, not positive or
     /// over 1.
-    pub(crate) fn bottom(share: Option<f32>) -> Self {
+    pub fn bottom(share: Option<f32>) -> Self {
         let share = share.filter(|s| *s > 0.0 && *s <= 1.0).unwrap_or(1.0);
         Self::Bottom { share }
     }

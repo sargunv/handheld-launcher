@@ -32,26 +32,6 @@ pub enum Button {
 }
 
 impl Button {
-    /// Every button, in libretro's ID order.
-    pub const ALL: [Button; 16] = [
-        Button::B,
-        Button::Y,
-        Button::Select,
-        Button::Start,
-        Button::Up,
-        Button::Down,
-        Button::Left,
-        Button::Right,
-        Button::A,
-        Button::X,
-        Button::L,
-        Button::R,
-        Button::L2,
-        Button::R2,
-        Button::L3,
-        Button::R3,
-    ];
-
     /// The button's bit in a [`Port::buttons`] mask.
     pub fn mask(self) -> u16 {
         1 << self as u16
@@ -300,9 +280,6 @@ mod tests {
         assert_eq!(Button::Start as u32, ffi::RETRO_DEVICE_ID_JOYPAD_START);
         assert_eq!(Button::A as u32, ffi::RETRO_DEVICE_ID_JOYPAD_A);
         assert_eq!(Button::R3 as u32, ffi::RETRO_DEVICE_ID_JOYPAD_R3);
-        for (i, b) in Button::ALL.iter().enumerate() {
-            assert_eq!(*b as usize, i);
-        }
     }
 
     #[test]

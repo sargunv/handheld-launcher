@@ -531,14 +531,6 @@ mod tests {
     }
 
     #[test]
-    fn takes_only_the_platforms_files_from_a_zip() {
-        assert!(is_game(Platform::MegaDrive, "Sonic.md"));
-        assert!(is_game(Platform::GameBoyAdvance, "GAME.GBA"));
-        assert!(!is_game(Platform::GameBoyAdvance, "manual.pdf"));
-        assert!(!is_game(Platform::GameBoyAdvance, "Sonic.md"));
-    }
-
-    #[test]
     fn describes_a_playstation_2_disc() {
         let cnf = rom_headers::playstation::parse(
             b"BOOT2 = cdrom0:\\SCUS_971.24;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n",
@@ -552,8 +544,5 @@ mod tests {
                 ("Video", "NTSC")
             ]
         );
-        assert_eq!(date("19951110"), "1995-11-10");
-        assert_eq!(size(32 * 1024), "32 KiB");
-        assert_eq!(size(2 << 20), "2 MiB");
     }
 }

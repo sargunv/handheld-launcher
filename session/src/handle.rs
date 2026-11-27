@@ -269,7 +269,7 @@ impl GameSession {
         let lower = Region::bottom(options.lower_screen_width_share);
         let thread = std::thread::Builder::new()
             .name("session".into())
-            .spawn(move || run(options, thread_input, events, receiver, started))?;
+            .spawn(move || run(options, lower, thread_input, events, receiver, started))?;
         match start_result.recv() {
             Ok(Ok(info)) => Ok(Arc::new(Self {
                 commands,
@@ -549,6 +549,7 @@ impl VideoSink for DiscardFrames {
 /// The session thread: loads the session, then runs it until told to stop.
 fn run(
     options: SessionOptions,
+    lower: Region,
     input: Arc<InputState>,
     events: Events,
     commands: Receiver<Command>,
@@ -556,7 +557,7 @@ fn run(
 ) {
     let save_ram_path = options.save_ram_path.clone().map(PathBuf::from);
     let presents_to_window = options.video == VideoMode::Window;
-    let mut session = match start_session(options, input, &events) {
+    let mut session = match start_session(options, lower, input, &events) {
         Ok(session) => session,
         Err(e) => {
             let _ = started.send(Err(e));
@@ -615,6 +616,7 @@ fn run(
 
 fn start_session(
     options: SessionOptions,
+    lower: Region,
     input: Arc<InputState>,
     events: &Events,
 ) -> Result<Session, SessionError> {
@@ -623,7 +625,7 @@ fn start_session(
             window: None,
             width: 0,
             height: 0,
-            lower_screen_width_share: options.lower_screen_width_share,
+            lower,
         },
         VideoMode::Offscreen => VideoOutput::Sink(Box::new(DiscardFrames)),
     };
