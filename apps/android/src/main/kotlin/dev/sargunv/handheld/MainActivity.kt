@@ -24,7 +24,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.withStarted
 import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
@@ -39,6 +39,7 @@ import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
@@ -205,19 +206,19 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Starts [DownloadService] whenever the activity shows and there's something to download, so the
-   * queue goes on in the background. An app in the background can't start one. It asks for
-   * all-files access, which writing games needs, and to show the download's progress in a
-   * notification, when it lacks them.
+   * Starts [DownloadService] when the queue gets something to download, so the queue goes on in the
+   * background. It waits for the activity to show, since an app in the background can't start one.
+   * It also asks for all-files access, which writing games needs, or else to show the download's
+   * progress in a notification, when it lacks them.
    */
   private fun keepDownloadsRunning() {
     lifecycleScope.launch {
-      repeatOnLifecycle(Lifecycle.State.STARTED) {
-        handheldApp.downloadManager.queue
-          .map { queue -> queue.any { it.isActive } }
-          .distinctUntilChanged()
-          .collect { active ->
-            if (!active) return@collect
+      handheldApp.downloadManager.queue
+        .map { queue -> queue.any { it.isActive } }
+        .distinctUntilChanged()
+        .filter { it }
+        .collect {
+          lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
             if (!Environment.isExternalStorageManager()) {
               startActivity(handheldApp.allFilesAccessSettings())
@@ -230,7 +231,7 @@ class MainActivity : ComponentActivity() {
             }
             DownloadService.start(this@MainActivity)
           }
-      }
+        }
     }
   }
 
