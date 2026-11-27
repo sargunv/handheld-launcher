@@ -30,7 +30,7 @@ object SessionRomHeaders : RomHeaders {
   internal fun headerFile(path: String): String? =
     DiscSets.headerFile(path) {
       try {
-        File(it).readText()
+        DiscSets.sheetText(File(it).length()) { File(it).readBytes() }
       } catch (e: IOException) {
         null
       }
@@ -60,6 +60,7 @@ object SessionRomHeaders : RomHeaders {
       PlatformCatalog.PS2 -> Platform.PLAY_STATION2
       PlatformCatalog.PSP -> Platform.PSP
       PlatformCatalog.XBOX -> Platform.XBOX
+      PlatformCatalog.SWITCH -> Platform.SWITCH
       else -> null
     }
 }

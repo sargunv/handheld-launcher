@@ -294,7 +294,7 @@ class DeviceGamesTest {
           File(psx, "Trilogy (Disc $n).bin").apply { writeBytes(disc2) },
         )
       }
-    // A file no descriptor lists is a game of its own.
+    // A file no sheet lists is a game of its own.
     val stray = File(psx, "Stray.bin").apply { writeBytes(disc1) }
     val games = games(backgroundScope)
 

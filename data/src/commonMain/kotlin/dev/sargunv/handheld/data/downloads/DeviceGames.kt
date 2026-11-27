@@ -183,8 +183,8 @@ class DeviceGames(
   /**
    * Deletes [game]'s file from the device, and for a disc set, the files it lists. Only files the
    * latest scan found matching nothing, at the sizes it found, are deleted, so no other file is
-   * taken for one. The playlist or descriptor goes last, so a removal that fails partway leaves the
-   * game to remove again.
+   * taken for one. The sheet goes last, so a removal that fails partway leaves the game to remove
+   * again.
    */
   suspend fun remove(game: LocalGame): Removal =
     // Once begun, a removal finishes even if the screen that asked goes away.
@@ -192,7 +192,7 @@ class DeviceGames(
       try {
         val unmatched = listing.value?.scan?.unmatched.orEmpty()
         val found = unmatched.find { it.path == game.path && it.totalBytes == game.sizeBytes }
-        // A track another local game's playlist or descriptor also lists stays, for that game.
+        // A track another local game's sheet also lists stays, for that game.
         val shared =
           unmatched
             .filter { it.path != game.path }

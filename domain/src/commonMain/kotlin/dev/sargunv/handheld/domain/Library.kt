@@ -66,7 +66,7 @@ data class LocalGame(
   override val sizeBytes: Long,
   /** When the file last changed. */
   override val addedAt: Instant,
-  /** The other files of a disc set, which its playlist or descriptor lists, by path. */
+  /** The other files of a disc set, which its sheet lists, by path. */
   val otherFiles: List<String> = emptyList(),
 ) : LibraryGame {
   override val key: GameKey

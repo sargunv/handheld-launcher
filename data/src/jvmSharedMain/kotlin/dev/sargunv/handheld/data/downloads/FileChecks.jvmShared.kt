@@ -60,15 +60,17 @@ internal actual fun freeBytes(root: String): Long = File(root).usableSpace
 
 internal actual fun lastModified(path: Path): Long = File(path.toString()).lastModified()
 
-internal actual fun zipMembers(path: Path): List<ZipMember>? =
+internal actual fun oneFileZipCrc(path: Path): String? =
   try {
     ZipFile(File(path.toString())).use { zip ->
       zip
         .entries()
         .asSequence()
         .filterNot { it.isDirectory }
-        .map { ZipMember(it.name, it.size, it.crc.toString(16).padStart(8, '0')) }
-        .toList()
+        .singleOrNull()
+        ?.crc
+        ?.toString(16)
+        ?.padStart(8, '0')
     }
   } catch (e: ZipException) {
     null

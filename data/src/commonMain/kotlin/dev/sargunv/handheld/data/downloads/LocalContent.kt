@@ -20,8 +20,7 @@ import kotlinx.serialization.builtins.ListSerializer
 
 /**
  * A file in a platform's folder that no game of the library is named for or matched by content. A
- * disc set copied in loose is one: its playlist or descriptor, with the files it lists as
- * [otherFiles].
+ * disc set copied in loose is one: its sheet, with the files it lists as [otherFiles].
  */
 internal data class LocalFile(
   val path: String,
@@ -51,9 +50,6 @@ internal data class LocalScan(
   /** The files no game of the library matched, by name or by content. */
   val unmatched: List<LocalFile> = emptyList(),
 )
-
-/** One file in a zip, as its central directory lists it. */
-internal data class ZipMember(val name: String, val sizeBytes: Long, val crc: String)
 
 /**
  * What a file holds, as far as a scan read it, in lowercase hex. Each is null when the scan didn't
@@ -105,7 +101,7 @@ internal class ContentScanner(
   /**
    * Scans each platform's folder on each of the [targets] for files that aren't [roms] by name, and
    * matches them to [roms] by content. A ROM on the device by name isn't matched again. A disc set
-   * copied in loose is one file, its playlist or descriptor, and the files it lists aren't read.
+   * copied in loose is one file, its sheet, and the files it lists aren't read.
    */
   suspend fun scan(
     targets: List<StorageTarget>,
@@ -245,7 +241,7 @@ internal class ContentScanner(
       }
     val content =
       when (path.name.substringAfterLast('.', "").lowercase()) {
-        "zip" -> FileContent(crc = zipMembers(path)?.singleOrNull()?.crc)
+        "zip" -> FileContent(crc = oneFileZipCrc(path))
         "chd" -> FileContent(chdSha1 = chdSha1(path, size))
         else -> {
           if (size > wholeFileLimit && size !in sizes) return null
@@ -307,20 +303,20 @@ private fun ByteArray.readInt(offset: Int): Int =
   (0 until 4).fold(0) { value, i -> (value shl 8) or (this[offset + i].toInt() and 0xff) }
 
 /**
- * The disc sets copied in loose among [files], the entries of platforms' folders: each playlist or
- * descriptor that no other lists, with the files beside it that it lists, and for a playlist, the
- * files its discs' descriptors list too.
+ * The disc sets copied in loose among [files], the entries of platforms' folders: each sheet that
+ * no other lists, with the files beside it that it lists, and for a playlist, the files its discs'
+ * sheets list too.
  */
 private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
   for (folder in files.groupBy { it.parent }.values) {
     val byName = folder.associateBy { it.name }
     val listed =
       folder
-        .filter { DiscSets.isDescriptor(it.name) }
-        .mapNotNull { descriptor ->
-          val text = descriptorText(descriptor) ?: return@mapNotNull null
-          val names = DiscSets.listedFiles(descriptor.name, text) ?: return@mapNotNull null
-          descriptor.name to DiscSets.siblings(names, byName.keys).filter { it != descriptor.name }
+        .filter { DiscSets.isSheet(it.name) }
+        .mapNotNull { sheet ->
+          val text = sheetText(sheet) ?: return@mapNotNull null
+          val names = DiscSets.listedFiles(sheet.name, text) ?: return@mapNotNull null
+          sheet.name to DiscSets.siblings(names, byName.keys).filter { it != sheet.name }
         }
         .toMap()
     fun membersOf(name: String, seen: MutableSet<String>): List<String> =
@@ -335,22 +331,16 @@ private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
   }
 }
 
-/**
- * The text of the playlist or descriptor at [path], or null when it's too big to be one or can't be
- * read. It's UTF-8, else Latin-1, as cue sheets made on Windows often are.
- */
-private fun descriptorText(path: Path): String? {
-  val metadata = SystemFileSystem.metadataOrNull(path) ?: return null
-  if (!metadata.isRegularFile || metadata.size > DiscSets.DESCRIPTOR_LIMIT) return null
-  val bytes =
-    try {
+/** The text of the sheet at [path], as [DiscSets.sheetText] reads it, or null when it can't. */
+private fun sheetText(path: Path): String? {
+  val metadata = SystemFileSystem.metadataOrNull(path)?.takeIf { it.isRegularFile } ?: return null
+  return try {
+    DiscSets.sheetText(metadata.size) {
       SystemFileSystem.source(path).buffered().use { it.readByteArray() }
-    } catch (e: IOException) {
-      return null
     }
-  val text = bytes.decodeToString()
-  return if ('\uFFFD' in text) bytes.map { (it.toInt() and 0xff).toChar() }.joinToString("")
-  else text
+  } catch (e: IOException) {
+    null
+  }
 }
 
 /** Files a scan never takes for a game: hidden ones, and another app's downloads under way. */

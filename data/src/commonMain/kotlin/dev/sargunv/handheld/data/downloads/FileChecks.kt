@@ -22,10 +22,10 @@ internal expect fun freeBytes(root: String): Long
 internal expect fun lastModified(path: Path): Long
 
 /**
- * The files in the zip at [path], from its central directory, without decompressing them. Null when
- * it isn't a zip this can read.
+ * The CRC-32 of the one file in the zip at [path], from its central directory, in lowercase hex.
+ * Null when it isn't a zip this can read or holds other than one file.
  */
-internal expect fun zipMembers(path: Path): List<ZipMember>?
+internal expect fun oneFileZipCrc(path: Path): String?
 
 /** The CRC-32 and SHA-1 of the whole file at [path], in lowercase hex. */
 internal expect fun crcAndSha1(path: Path): Pair<String, String>

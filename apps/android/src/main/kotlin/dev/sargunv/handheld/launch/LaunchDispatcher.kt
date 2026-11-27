@@ -3,7 +3,6 @@ package dev.sargunv.handheld.launch
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.os.Environment
 import android.os.FileUriExposedException
 import androidx.core.content.FileProvider
 import dev.sargunv.handheld.domain.launch.LaunchCommand
@@ -11,6 +10,7 @@ import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.android.ContentUris
 import dev.sargunv.handheld.domain.launch.android.LaunchIntents
 import dev.sargunv.handheld.domain.launch.android.ShellLaunch
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.launcherApps
 import java.io.File
 import java.io.IOException
@@ -53,7 +53,7 @@ class LaunchDispatcher(private val context: Context) {
     .getOrNull()
 
   suspend fun launch(command: LaunchCommand): LaunchOutcome {
-    if (command.readGrants.isNotEmpty() && !Environment.isExternalStorageManager()) {
+    if (command.readGrants.isNotEmpty() && !context.handheldApp.allFilesAccess.value) {
       return LaunchOutcome.NeedsAllFilesAccess
     }
     if (command.dispatchMethod == LaunchMethod.Shell && startByShell(command)) {
