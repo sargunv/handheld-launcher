@@ -33,7 +33,7 @@ class LiveLibrarySyncTest {
   }
 
   private suspend fun check(client: RommClient, cache: LibraryCache) {
-    val sync = LibrarySync(client, cache)
+    val sync = LibrarySync(client, cache, client.me().id)
     sync.sync()
     val romCount = cache.romCount()
     assertEquals(client.romIds().size.toLong(), romCount)
@@ -53,7 +53,7 @@ class LiveLibrarySyncTest {
 
     println(
       "Live sync: ${platforms.size} platforms, $romCount ROMs with " +
-        "${roms.sumOf { it.files.size }} files (${roms.count { it.hasMultipleFiles }} with several), " +
+        "${roms.sumOf { it.files.size }} files (${roms.count { it.files.size > 1 }} with several), " +
         "${cache.collections().first().size} collections",
     )
   }

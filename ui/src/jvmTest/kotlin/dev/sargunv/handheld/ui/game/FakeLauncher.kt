@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.game
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchRules
@@ -10,11 +11,18 @@ import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Plays nothing, but records what it was asked, and says "Played". It asks [conflict] first when
  * given, and then about [stillRunning] when given. [canCloseEmulators] stands in for a device with
- * a root service.
+ * a root service. Its plays are in [playing] and [unfinished] while they last.
  */
 internal class FakeLauncher(
   private val conflict: SaveConflict? = null,
@@ -25,7 +33,17 @@ internal class FakeLauncher(
   private val keptSaves: List<KeptSave> = emptyList(),
   /** Hears each launch as it starts. */
   private val onPlay: () -> Unit = {},
+  /** Holds each play's after-game half until it completes, in a scope of its own. */
+  private val afterGame: CompletableDeferred<Unit>? = null,
 ) : GameLauncher {
+  private val current = MutableStateFlow<GameKey?>(null)
+  override val playing: StateFlow<GameKey?> = current.asStateFlow()
+
+  private val unfinishedGames = MutableStateFlow(emptySet<GameKey>())
+  override val unfinished: StateFlow<Set<GameKey>> = unfinishedGames.asStateFlow()
+
+  private val afterGames = CoroutineScope(Dispatchers.Default)
+
   /** Completes once a launch starts. */
   val started = CompletableDeferred<Unit>()
   var canceled = false
@@ -47,6 +65,40 @@ internal class FakeLauncher(
     path: String,
     rules: LaunchRules,
     collections: Set<CollectionId>,
+    onProgress: (String) -> Unit,
+    closeEmulators: Boolean,
+    askStillRunning: suspend (StillRunning) -> StillRunningChoice,
+    chooseSave: suspend (SaveConflict) -> SaveCopy?,
+  ): List<String> {
+    val key = game.key
+    unfinishedGames.update { it + key }
+    current.value = key
+    var afterGameStarted = false
+    try {
+      val notes = launch(game, path, rules, onProgress, closeEmulators, askStillRunning, chooseSave)
+      val after = afterGame?.takeIf { notes.isNotEmpty() } ?: return notes
+      current.value = null
+      afterGameStarted = true
+      return afterGames
+        .async {
+          try {
+            after.await()
+            notes
+          } finally {
+            unfinishedGames.update { it - key }
+          }
+        }
+        .await()
+    } finally {
+      if (current.value == key) current.value = null
+      if (!afterGameStarted) unfinishedGames.update { it - key }
+    }
+  }
+
+  private suspend fun launch(
+    game: LibraryGame,
+    path: String,
+    rules: LaunchRules,
     onProgress: (String) -> Unit,
     closeEmulators: Boolean,
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,

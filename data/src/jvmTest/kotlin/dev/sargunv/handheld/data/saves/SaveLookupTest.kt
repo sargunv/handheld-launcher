@@ -32,8 +32,8 @@ class SaveLookupTest {
   @Test
   fun aFilePerGameNeedsNoGameId() {
     val lookup = lookUp("drastic", PlatformCatalog.NDS, "/roms/nds/Game.nds")
-    val shape = assertIs<SaveShape.Files>(assertIs<SaveLookup.Found>(lookup).save.shape)
-    assertEquals("Game.dsv", shape.candidates.first().name)
+    val unit = assertIs<FileUnit>(assertIs<SaveLookup.Found>(lookup).save.unit)
+    assertEquals("Game.dsv", unit.candidates.first().name)
   }
 
   @Test
@@ -48,8 +48,8 @@ class SaveLookupTest {
         "0100000000010000"
       }
     assertEquals("/roms/switch/Game.nsp" to keys.path, read)
-    val shape = assertIs<SaveShape.Folders>(assertIs<SaveLookup.Found>(lookup).save.shape)
-    assertEquals("0100000000010000.zip", shape.roots.save.name)
+    val unit = assertIs<FolderUnit>(assertIs<SaveLookup.Found>(lookup).save.unit)
+    assertEquals("0100000000010000.zip", unit.save.name)
   }
 
   @Test
@@ -57,7 +57,7 @@ class SaveLookupTest {
     val lookup =
       lookUp("nethersx2", PlatformCatalog.PS2, "/roms/ps2/Game.iso") { _, _ -> "SLUS_123.45" }
     val save = assertIs<SaveLookup.Found>(lookup).save
-    val cards = assertIs<SaveShape.Cards>(save.shape).roots
+    val cards = assertIs<Ps2CardUnit>(save.unit)
     assertEquals("SLUS_123.45" to "Game.ps2", cards.serial to cards.name)
     assertTrue("pcsx2" in save.sharesWith)
   }

@@ -45,6 +45,7 @@ import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
 import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
@@ -54,6 +55,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalTestApi::class)
@@ -69,11 +72,17 @@ class SettingsTest {
   /** How many syncs reached the server. */
   private val syncs = AtomicInteger()
 
+  /** Whether RomM's web page sent the game to the device `d1`. */
+  @Volatile private var sentGame = false
+
+  /** Completes once the device tells the server it canceled the game sent to it. */
+  private val sentGameCanceled = CompletableDeferred<Unit>()
+
   /**
    * A server with one game on the Game Boy, signed in as `player`. When [refuses], it refuses the
-   * token, as after it was revoked.
+   * token, as after it was revoked. It never answers a cancel of the game sent to the device.
    */
-  private fun server(refuses: Boolean = false) = fakeRomm { path, _ ->
+  private fun server(refuses: Boolean = false) = fakeRomm { path, request ->
     if (refuses) return@fakeRomm respondError(HttpStatusCode.Unauthorized)
     json(
       when (path) {
@@ -82,6 +91,15 @@ class SettingsTest {
           "[${platform()}]"
         }
         "roms" -> page(listOf(rom(1, lastPlayed = "2025-01-01")))
+        "roms/1" -> rom(1, lastPlayed = "2025-01-01")
+        "devices/d1/installs" -> if (sentGame) "[$SentGame]" else "[]"
+        "devices/d1/installs/req-1" -> {
+          if (request.method == HttpMethod.Delete) {
+            sentGameCanceled.complete(Unit)
+            awaitCancellation()
+          }
+          SentGame
+        }
         "roms/identifiers" -> "[1]"
         "collections",
         "collections/smart" -> "[]"
@@ -161,8 +179,8 @@ class SettingsTest {
     val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitText("player")
     waitUntil(timeoutMillis = 5_000) { runBlocking { library.rom(1) } != null }
-    runBlocking { downloads.enqueue(assertNotNull(library.rom(1))) }
-    assertEquals(1, downloads.queue.value.size)
+    downloads.enqueue(assertNotNull(runBlocking { library.rom(1) }))
+    waitUntil(timeoutMillis = 5_000) { downloads.queue.value.size == 1 }
 
     press(Key.DirectionRight)
     focusDownTo("settings:romm:signOut")
@@ -170,6 +188,25 @@ class SettingsTest {
     awaitTag("signOut:cancel")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("address")
+    waitUntil(timeoutMillis = 5_000) { downloads.queue.value.isEmpty() }
+  }
+
+  // The server hears of each canceled game it sent, but the sign-in doesn't wait for it to answer.
+  @Test
+  fun signingOutDoesNotWaitForTheServer() = runComposeUiTest {
+    sentGame = true
+    runBlocking { credentials.save(RommCredentials(TestServer, "rmm_token", 1, "player", "d1")) }
+    val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
+    awaitText("player")
+    waitUntil(timeoutMillis = 5_000) { downloads.queue.value.any { it.installRequestId != null } }
+
+    press(Key.DirectionRight)
+    focusDownTo("settings:romm:signOut")
+    press(Key.ButtonA)
+    awaitTag("signOut:cancel")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitFocused("address")
+    waitUntil(timeoutMillis = 5_000) { sentGameCanceled.isCompleted }
     assertEquals(emptyList(), downloads.queue.value)
   }
 
@@ -247,7 +284,8 @@ class SettingsTest {
     awaitText("Not allowed by this sign-in")
     // A download waiting for the same server's sign-in stays in the queue.
     waitUntil(timeoutMillis = 5_000) { runBlocking { library.rom(1) } != null }
-    runBlocking { downloads.enqueue(assertNotNull(library.rom(1))) }
+    downloads.enqueue(assertNotNull(runBlocking { library.rom(1) }))
+    waitUntil(timeoutMillis = 5_000) { downloads.queue.value.size == 1 }
     press(Key.DirectionRight)
     focusDownTo("settings:romm:allowUploads")
     // It asks first, as signing out does.
@@ -297,7 +335,7 @@ class SettingsTest {
     awaitText("Open Game Boy games with")
     awaitText("Why Game Boy games open in Built-in · Gambatte")
     // A game's own choice doesn't apply to the platform, so the chain starts at the platform.
-    onNodeWithText("Platform Game Boy: Built-in (default) · opens here").assertExists()
+    onNodeWithText("Platform Game Boy: Built-in · Gambatte (default) · opens here").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Nothing chosen")
     awaitFocusedApp()
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
@@ -326,10 +364,15 @@ class SettingsTest {
     onNodeWithTag("main:Home").assertDoesNotExist()
     press(Key.ButtonA)
     awaitTag("settings:Controls")
-    onNodeWithTag("settings:About").assertExists()
+    onNodeWithTag("settings:RomM").assertDoesNotExist()
     onNodeWithTag("settings:Emulators").assertDoesNotExist()
+    // About opens over the sign-in too.
     press(listOf(Key.DirectionDown, Key.DirectionRight))
-    onNodeWithTag("settings:romm:server").assertTextEquals("Server", "Not signed in")
+    awaitFocused("settings:about:open")
+    press(Key.ButtonA)
+    awaitTag("about:app")
+    press(Key.ButtonB)
+    awaitFocused("settings:about:open")
     // Back returns to the sign-in where it was.
     press(Key.ButtonB)
     onNodeWithTag("settings:Controls").assertDoesNotExist()
@@ -424,6 +467,11 @@ class SettingsTest {
   @AfterTest fun cleanUp() = tempDirs.forEach { it.deleteRecursively() }
 
   private companion object {
+    const val SentGame =
+      """{"id": "req-1", "user_id": 1, "device_id": "d1", "rom_id": 1, "file_ids": [],
+      "status": "taken", "reason": null, "created_at": "2025-01-01T00:00:00Z",
+      "updated_at": "2025-01-01T00:00:00Z"}"""
+
     const val User =
       """{"id": 1, "username": "player", "role": "user",
       "created_at": "2024-01-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00"}"""

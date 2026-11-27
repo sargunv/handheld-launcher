@@ -8,33 +8,60 @@ use crate::ffi;
 /// How many controller ports a session exposes.
 pub const MAX_PORTS: usize = 4;
 
+/// [`MAX_PORTS`], for the app.
+#[uniffi::export]
+pub fn max_ports() -> u32 {
+    MAX_PORTS as u32
+}
+
 /// A RetroPad button. The RetroPad follows the SNES layout: `B` is the bottom
 /// face button, `A` the right one, `Y` the left one and `X` the top one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
-#[repr(u8)]
 pub enum Button {
-    B = 0,
-    Y = 1,
-    Select = 2,
-    Start = 3,
-    Up = 4,
-    Down = 5,
-    Left = 6,
-    Right = 7,
-    A = 8,
-    X = 9,
-    L = 10,
-    R = 11,
-    L2 = 12,
-    R2 = 13,
-    L3 = 14,
-    R3 = 15,
+    B,
+    Y,
+    Select,
+    Start,
+    Up,
+    Down,
+    Left,
+    Right,
+    A,
+    X,
+    L,
+    R,
+    L2,
+    R2,
+    L3,
+    R3,
 }
 
 impl Button {
     /// The button's bit in a port's mask of buttons.
     pub(crate) fn mask(self) -> u16 {
-        1 << self as u16
+        1 << self.id()
+    }
+
+    /// libretro's id for the button.
+    fn id(self) -> u32 {
+        match self {
+            Self::B => ffi::RETRO_DEVICE_ID_JOYPAD_B,
+            Self::Y => ffi::RETRO_DEVICE_ID_JOYPAD_Y,
+            Self::Select => ffi::RETRO_DEVICE_ID_JOYPAD_SELECT,
+            Self::Start => ffi::RETRO_DEVICE_ID_JOYPAD_START,
+            Self::Up => ffi::RETRO_DEVICE_ID_JOYPAD_UP,
+            Self::Down => ffi::RETRO_DEVICE_ID_JOYPAD_DOWN,
+            Self::Left => ffi::RETRO_DEVICE_ID_JOYPAD_LEFT,
+            Self::Right => ffi::RETRO_DEVICE_ID_JOYPAD_RIGHT,
+            Self::A => ffi::RETRO_DEVICE_ID_JOYPAD_A,
+            Self::X => ffi::RETRO_DEVICE_ID_JOYPAD_X,
+            Self::L => ffi::RETRO_DEVICE_ID_JOYPAD_L,
+            Self::R => ffi::RETRO_DEVICE_ID_JOYPAD_R,
+            Self::L2 => ffi::RETRO_DEVICE_ID_JOYPAD_L2,
+            Self::R2 => ffi::RETRO_DEVICE_ID_JOYPAD_R2,
+            Self::L3 => ffi::RETRO_DEVICE_ID_JOYPAD_L3,
+            Self::R3 => ffi::RETRO_DEVICE_ID_JOYPAD_R3,
+        }
     }
 }
 
@@ -272,14 +299,6 @@ mod tests {
 
     fn query_one(state: &InputState, device: u32, index: u32, id: u32) -> i16 {
         query(&state.snapshot(&Default::default()), 0, device, index, id)
-    }
-
-    #[test]
-    fn button_ids_match_libretro() {
-        assert_eq!(Button::B as u32, ffi::RETRO_DEVICE_ID_JOYPAD_B);
-        assert_eq!(Button::Start as u32, ffi::RETRO_DEVICE_ID_JOYPAD_START);
-        assert_eq!(Button::A as u32, ffi::RETRO_DEVICE_ID_JOYPAD_A);
-        assert_eq!(Button::R3 as u32, ffi::RETRO_DEVICE_ID_JOYPAD_R3);
     }
 
     #[test]

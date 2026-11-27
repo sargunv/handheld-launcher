@@ -98,22 +98,11 @@ internal fun AchievementList(achievements: GameAchievements) {
             "unlocked$mode"
         }
       }
-    // The note takes focus when there's nothing to list, so the menu has somewhere to be.
-    val listed = achievements is GameAchievements.Ready && achievements.items.isNotEmpty()
     Text(
       note,
-      color = if (listed) Placeholder.mutedText else Placeholder.text,
+      color = Placeholder.mutedText,
       modifier =
-        Modifier.testTag("achievements:note")
-          .then(
-            if (listed) Modifier
-            else
-              Modifier.focusItem("achievements:note")
-                .fillMaxWidth()
-                .background(Placeholder.tile)
-                .padding(horizontal = 20.dp, vertical = 12.dp),
-          )
-          .semantics { liveRegion = LiveRegionMode.Polite },
+        Modifier.testTag("achievements:note").semantics { liveRegion = LiveRegionMode.Polite },
     )
     if (achievements is GameAchievements.Ready) {
       Column(

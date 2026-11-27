@@ -10,8 +10,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use handheld_session::{
-    AudioSink, CapturedFrame, Frame, InputState, Session, SessionConfig, SessionError,
-    SessionOptions, VideoOutput, VideoSink,
+    AchievementEvent, AchievementsReply, AchievementsRequest, AudioSink, CapturedFrame, Frame,
+    InputState, Session, SessionConfig, SessionError, SessionListener, SessionOptions, VideoOutput,
+    VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -53,6 +54,17 @@ pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions 
         lower_screen_width_share: None,
         achievements: None,
     }
+}
+
+/// A listener for a session whose events the test doesn't need.
+pub struct Ignore;
+
+impl SessionListener for Ignore {
+    fn core_quit(&self) {}
+
+    fn achievement_event(&self, _event: AchievementEvent) {}
+
+    fn achievements_request(&self, _request: AchievementsRequest, _reply: Arc<AchievementsReply>) {}
 }
 
 /// How long a test waits for a session running on its own thread.

@@ -12,16 +12,25 @@ import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
-import dev.sargunv.handheld.domain.RomFileCategory
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-/** Refreshes a [LibraryCache] from a RomM server. */
+/**
+ * Refreshes a [LibraryCache] from a RomM server, for the server's user [userId]. The cache holds
+ * one account's library, so a sync for another account, on this server or another, starts from an
+ * empty cache.
+ */
 internal class LibrarySync(
   private val client: RommClient,
   private val cache: LibraryCache,
+  userId: Long,
   private val pageSize: Int = 200,
 ) {
+  private val account = "${client.baseUrl} $userId"
+
+  /** Whether the cache holds nothing of the account's library yet. */
+  suspend fun isFirst(): Boolean = cache.syncValue(ACCOUNT_KEY) != account || cache.romCount() == 0L
+
   /**
    * Brings the cache up to date with the server. Platforms and collections are small, so they're
    * fetched whole every time. ROMs are fetched whole the first time, and afterwards only those the
@@ -35,10 +44,9 @@ internal class LibrarySync(
    * @throws RommException when a request fails.
    */
   suspend fun sync() {
-    val server = client.baseUrl.toString()
-    if (cache.syncValue(SERVER_KEY) != server) {
+    if (cache.syncValue(ACCOUNT_KEY) != account) {
       cache.clear()
-      cache.setSyncValue(SERVER_KEY, server)
+      cache.setSyncValue(ACCOUNT_KEY, account)
     }
     val cursor = cache.syncValue(ROM_CURSOR_KEY)?.let(Instant::parse)
 
@@ -79,7 +87,7 @@ internal class LibrarySync(
   }
 
   private companion object {
-    const val SERVER_KEY = "server"
+    const val ACCOUNT_KEY = "account"
     const val ROM_CURSOR_KEY = "rom_cursor"
 
     /**
@@ -105,18 +113,14 @@ internal fun RommRom.toDomain(client: RommClient): Rom {
     platformSlug = platformSlug,
     title = title,
     sortKey = nameSortKey?.takeIf { it.isNotBlank() } ?: title.lowercase(),
-    alternativeNames = alternativeNames,
     fileName = fsName,
     sizeBytes = fsSizeBytes,
     summary = summary,
     genres = metadatum?.genres.orEmpty(),
-    regions = regions,
     releaseDate = metadatum?.firstReleaseDate?.let(Instant::fromEpochMilliseconds),
     coverSmallUrl = coverUrl(pathCoverSmall, client),
     coverLargeUrl = coverUrl(pathCoverLarge, client),
-    hasMultipleFiles = hasMultipleFiles,
     files = files.map { it.toDomain() },
-    updatedAt = updatedAt,
     createdAt = createdAt,
   )
 }
@@ -130,7 +134,6 @@ internal fun RommRomFile.toDomain() =
     id = id,
     fileName = fileName,
     sizeBytes = fileSizeBytes,
-    category = fileCategory(category),
     crcHash = normalHash(crcHash)?.padStart(8, '0'),
     md5Hash = normalHash(md5Hash),
     sha1Hash = normalHash(sha1Hash),
@@ -145,22 +148,3 @@ internal fun RommCollection.toDomain() =
 
 internal fun RommSmartCollection.toDomain() =
   Collection(CollectionKind.Smart, id, name, description, romCount, isFavorite = false)
-
-private fun fileCategory(value: String?): RomFileCategory? =
-  when (value) {
-    "game" -> RomFileCategory.Game
-    "dlc" -> RomFileCategory.Dlc
-    "hack" -> RomFileCategory.Hack
-    "manual" -> RomFileCategory.Manual
-    "walkthrough" -> RomFileCategory.Walkthrough
-    "patch" -> RomFileCategory.Patch
-    "update" -> RomFileCategory.Update
-    "mod" -> RomFileCategory.Mod
-    "demo" -> RomFileCategory.Demo
-    "translation" -> RomFileCategory.Translation
-    "prototype" -> RomFileCategory.Prototype
-    "cheat" -> RomFileCategory.Cheat
-    "soundtrack" -> RomFileCategory.Soundtrack
-    "screenshot" -> RomFileCategory.Screenshot
-    else -> null
-  }

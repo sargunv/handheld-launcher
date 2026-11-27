@@ -17,18 +17,14 @@ class GameModelTest {
       platformSlug = "gba",
       title = "Game",
       sortKey = "game",
-      alternativeNames = emptyList(),
       fileName = "Game.gba",
       sizeBytes = 4_200_000,
       summary = null,
       genres = emptyList(),
-      regions = emptyList(),
       releaseDate = null,
       coverSmallUrl = null,
       coverLargeUrl = null,
-      hasMultipleFiles = false,
       files = emptyList(),
-      updatedAt = Instant.fromEpochSeconds(0),
       createdAt = Instant.fromEpochSeconds(0),
     )
 

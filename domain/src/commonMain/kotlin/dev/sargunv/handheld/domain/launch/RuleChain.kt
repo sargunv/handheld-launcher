@@ -22,9 +22,15 @@ enum class RuleStatus {
 /**
  * One level of the rules for a game. [choice] is its app, or null when it names none. For
  * [LaunchRule.FirstInstalled], it's the best installed known emulator for the game's platform, and
- * for [LaunchRule.BuiltInDefault], [LaunchChoice.BuiltIn].
+ * for [LaunchRule.BuiltInDefault], [LaunchChoice.BuiltIn]. [isDefault] marks the platform's
+ * default, which opens its games when no choice applies.
  */
-data class RuleStep(val rule: LaunchRule, val status: RuleStatus, val choice: LaunchChoice? = null)
+data class RuleStep(
+  val rule: LaunchRule,
+  val status: RuleStatus,
+  val choice: LaunchChoice? = null,
+  val isDefault: Boolean = false,
+)
 
 /**
  * The rules that decide where a game opens, from most to least specific, each with what became of
@@ -33,69 +39,54 @@ data class RuleStep(val rule: LaunchRule, val status: RuleStatus, val choice: La
  */
 object RuleChain {
   /**
-   * The game's override, then each of its collections' rules that applies, then its platform's
-   * default, then the defaults: the built-in session where a libretro core runs the platform, then
-   * the best installed known emulator, which comes first for the platforms it plays better
-   * ([LibretroCores.prefersStandalone]). Collections without a rule are left out, and so is a
-   * default that can't be reached, such as the emulator where the built-in session always runs the
-   * game. The built-in default stays where no core runs the platform, to show it's skipped.
+   * The game's override, then each of its collections' rules that applies, or one unset collection
+   * level when none does, then its platform's choice when it has one, then the platform's default.
+   * The default is the built-in session where a libretro core runs the platform, unless the best
+   * installed known emulator plays it better ([LibretroCores.prefersStandalone]), and that emulator
+   * elsewhere. Where no core runs the platform, the built-in session comes before the default,
+   * skipped, to show why. A platform's games, which are no game and in no collection, have no game
+   * or collection level, and a collection's games no game level.
    */
   fun explain(
     subject: LaunchSubject,
     rules: LaunchRules,
     installedPackages: Set<String>,
   ): List<RuleStep> {
+    val platform = subject.platform
+    val runsBuiltIn = LibretroCores.recommendedFor(platform) != null
+    val emulator = firstInstalled(platform, installedPackages)?.let(::LaunchChoice)
+    val default =
+      if (runsBuiltIn && (emulator == null || !LibretroCores.prefersStandalone(platform))) {
+        LaunchRule.BuiltInDefault to LaunchChoice.BuiltIn
+      } else {
+        LaunchRule.FirstInstalled to emulator
+      }
     val levels = buildList {
-      add(LaunchRule.GameOverride to subject.game?.let(rules.gameOverrides::get))
-      for (rule in rules.collectionRulesFor(subject)) {
+      subject.game?.let { add(LaunchRule.GameOverride to rules.gameOverrides[it]) }
+      val collectionRules = rules.collectionRulesFor(subject)
+      for (rule in collectionRules) {
         add(LaunchRule.CollectionOverride(rule.collection) to rule.choice)
       }
-      add(LaunchRule.PlatformDefault to rules.platformDefaults[subject.platform])
+      if (collectionRules.isEmpty() && (subject.game != null || subject.collections.isNotEmpty())) {
+        add(LaunchRule.CollectionOverride(subject.collections.singleOrNull()) to null)
+      }
+      rules.platformDefaults[platform]?.let { add(LaunchRule.PlatformDefault to it) }
+      if (!runsBuiltIn) add(LaunchRule.BuiltInDefault to LaunchChoice.BuiltIn)
+      add(default)
     }
-    val runsBuiltIn = LibretroCores.recommendedFor(subject.platform) != null
     var decided = false
-    val steps = levels.map { (rule, choice) ->
+    return levels.map { (rule, choice) ->
       val status =
         when {
           choice == null -> RuleStatus.Unset
-          decided -> RuleStatus.Outranked
           choice.isBuiltIn && !runsBuiltIn -> RuleStatus.NoCore
+          decided -> RuleStatus.Outranked
           choice.isBuiltIn || choice.packageName in installedPackages ->
             RuleStatus.Wins.also { decided = true }
           else -> RuleStatus.NotInstalled
         }
-      RuleStep(rule, status, choice)
+      RuleStep(rule, status, choice, isDefault = rule == default.first)
     }
-
-    val emulator = firstInstalled(subject.platform, installedPackages)
-    val builtIn =
-      RuleStep(
-        LaunchRule.BuiltInDefault,
-        when {
-          !runsBuiltIn -> RuleStatus.NoCore
-          decided -> RuleStatus.Outranked
-          else -> RuleStatus.Wins
-        },
-        LaunchChoice.BuiltIn,
-      )
-    val firstInstalled =
-      RuleStep(
-        LaunchRule.FirstInstalled,
-        when {
-          emulator == null -> RuleStatus.Unset
-          decided -> RuleStatus.Outranked
-          else -> RuleStatus.Wins
-        },
-        emulator?.let(::LaunchChoice),
-      )
-    val defaults =
-      when {
-        !runsBuiltIn -> listOf(builtIn, firstInstalled)
-        !LibretroCores.prefersStandalone(subject.platform) -> listOf(builtIn)
-        emulator == null -> listOf(builtIn)
-        else -> listOf(firstInstalled)
-      }
-    return steps + defaults
   }
 
   /** The installed package of the best known emulator for [platform], or null when none is. */

@@ -21,7 +21,7 @@ internal fun LazyListScope.controls(state: AppState) {
       "settings:confirm",
       "Confirm button",
       confirm.label,
-      "Which face button confirms. The other one goes back.",
+      "The other face button goes back",
       onConfirm = {
         state.settings = state.settings.copy(input = input.copy(confirmButton = other))
       },
@@ -39,8 +39,7 @@ internal fun LazyListScope.controls(state: AppState) {
       "settings:aButton",
       "A button position",
       position,
-      "Where this device's A button sits, so games in Built-in get the button they expect " +
-        "in each place.",
+      "Where the A button sits on this device",
       onConfirm = {
         state.settings = state.settings.copy(input = input.copy(aButtonPosition = other))
       },

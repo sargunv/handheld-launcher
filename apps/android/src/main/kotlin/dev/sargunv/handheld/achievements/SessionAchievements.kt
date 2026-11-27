@@ -4,35 +4,19 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.session.AchievementFailure
 import dev.sargunv.handheld.session.AchievementStatus
-import dev.sargunv.handheld.session.AchievementsHttp
+import dev.sargunv.handheld.session.AchievementsReply
 import dev.sargunv.handheld.session.AchievementsRequest
-import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.ui.play.AchievementItem
 import dev.sargunv.handheld.ui.play.GameAchievements
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
-/**
- * Sends the session's RetroAchievements requests with the app's HTTP client, on [scope], and hands
- * each response back to the session once it has started.
- */
-internal class SessionAchievementsHttp(
-  private val client: RetroAchievementsClient,
-  private val scope: CoroutineScope,
-  private val session: Deferred<GameSession>,
-) : AchievementsHttp {
-  override fun request(id: ULong, request: AchievementsRequest) {
-    scope.launch(Dispatchers.IO) {
-      val response = client.send(request.url, request.postData, request.contentType)
-      if (response == null) log.w { "RetroAchievements is out of reach" }
-      // The first requests go out while the session is starting.
-      session
-        .await()
-        .achievementsResponse(id, response?.status?.toUShort(), response?.body ?: ByteArray(0))
-    }
-  }
+/** Sends the session's RetroAchievements [request] and hands the response to [reply]. */
+internal suspend fun RetroAchievementsClient.answer(
+  request: AchievementsRequest,
+  reply: AchievementsReply,
+) {
+  val response = send(request.url, request.postData, request.contentType)
+  if (response == null) log.w { "RetroAchievements is out of reach" }
+  reply.use { it.respond(response?.status?.toUShort(), response?.body ?: ByteArray(0)) }
 }
 
 private val log = Logger.withTag("SessionAchievements")

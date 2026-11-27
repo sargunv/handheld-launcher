@@ -56,7 +56,6 @@ class RommClientTest {
             listOf(
               Fixtures.file(70, 7, "Disc Game (Disc 1).chd", 100),
               Fixtures.file(71, 7, "Disc Game (Disc 2).chd", 200),
-              Fixtures.file(72, 7, "Disc Game.mystery", 5, category = "future_category"),
             ),
         ),
       )
@@ -65,9 +64,7 @@ class RommClientTest {
 
     assertEquals("roms/7", server.requests.single().apiPath)
     assertEquals("Test Game 7", rom.name)
-    assertTrue(rom.hasMultipleFiles)
-    assertEquals(listOf(100L, 200L, 5L), rom.files.map { it.fileSizeBytes })
-    assertEquals("future_category", rom.files[2].category)
+    assertEquals(listOf(100L, 200L), rom.files.map { it.fileSizeBytes })
     assertEquals(listOf("Platform", "Adventure"), rom.metadatum?.genres)
   }
 

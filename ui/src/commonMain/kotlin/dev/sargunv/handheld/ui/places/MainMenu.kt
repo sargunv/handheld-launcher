@@ -26,6 +26,7 @@ import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.onAction
+import dev.sargunv.handheld.ui.signin.SignInScreen
 
 /**
  * The main menu, on Start from any launcher screen: a side menu over the screen that goes to the
@@ -34,12 +35,12 @@ import dev.sargunv.handheld.ui.input.onAction
  */
 @Composable
 internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
-  val signedIn = state.account.signedIn == true
+  val signedIn = state.romm.state.collectAsState().value.signedIn == true
   val places = if (signedIn) Place.entries else listOf(Place.Settings)
   // The place showing, when nothing covers it.
   val current =
     when {
-      !signedIn -> if (state.account.settingsOverSignIn) Place.Settings else null
+      !signedIn -> Place.Settings.takeIf { state.signIn.navigator.current == SignInScreen.Settings }
       state.navigator.current == Screen.Places -> state.place
       else -> null
     }
@@ -70,7 +71,7 @@ internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
         val queued = if (place == Place.Downloads) queue.size else 0
         MainMenuItem(place, queued, selected = place == current) {
           onDismissRequest()
-          if (signedIn) state.goTo(place) else state.account.settingsOverSignIn = true
+          if (signedIn) state.goTo(place) else state.signIn.showSettings()
         }
       }
     }

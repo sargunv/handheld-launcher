@@ -93,24 +93,17 @@ data class Rom(
   override val title: String,
   /** What the library sorts the ROM by: RomM's natural-sort key for the title. */
   override val sortKey: String,
-  /** The ROM's other titles, such as regional ones. */
-  val alternativeNames: List<String>,
   /** The name of the ROM's file or folder on the server. */
   val fileName: String,
   /** The total size of the ROM's files. */
   override val sizeBytes: Long,
   val summary: String?,
   val genres: List<String>,
-  val regions: List<String>,
   val releaseDate: Instant?,
   /** Absolute URLs of the server's cover art, or null when it has none. */
   val coverSmallUrl: String?,
   val coverLargeUrl: String?,
-  /** Whether the ROM is a folder of several files, such as a multi-disc game. */
-  val hasMultipleFiles: Boolean,
   val files: List<RomFile>,
-  /** When the server last changed the ROM. */
-  val updatedAt: Instant,
   /** When the ROM was added to the server. */
   val createdAt: Instant,
 ) : LibraryGame {
@@ -127,8 +120,6 @@ data class RomFile(
   val id: Long,
   val fileName: String,
   val sizeBytes: Long,
-  /** What the file holds, or null when the server didn't say. */
-  val category: RomFileCategory?,
   /**
    * RomM's hashes of the file, in lowercase hex, or null when it has none. For an archive such as a
    * zip, they're of what the archive holds, not of the archive itself.
@@ -139,24 +130,6 @@ data class RomFile(
   /** The SHA-1 a CHD's header records for the disc it holds. */
   val chdSha1Hash: String? = null,
 )
-
-/** What a [RomFile] holds, as RomM categorizes it. */
-enum class RomFileCategory {
-  Game,
-  Dlc,
-  Hack,
-  Manual,
-  Walkthrough,
-  Patch,
-  Update,
-  Mod,
-  Demo,
-  Translation,
-  Prototype,
-  Cheat,
-  Soundtrack,
-  Screenshot,
-}
 
 /** A collection of ROMs on the server. Its shelf holds its member ROMs. */
 data class Collection(

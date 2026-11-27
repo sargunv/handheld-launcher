@@ -316,7 +316,7 @@ class GameTest {
     onNodeWithText("Game Boy default").assertExists()
     onNodeWithTag("app:com.retroarch:gambatte_libretro").assertExists()
     awaitText("Why it opens in Built-in · Gambatte")
-    onNodeWithText("→ Platform Game Boy: Built-in (default) · opens here").assertExists()
+    onNodeWithText("→ Platform Game Boy: Built-in · Gambatte (default) · opens here").assertExists()
 
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitText("Play")
@@ -332,7 +332,7 @@ class GameTest {
     // Back on Open with, the game's choice is current, and clearing it goes back to the default.
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Why it opens in Notes")
-    onNodeWithText("→ Platform Game Boy: Built-in (default) · overridden").assertExists()
+    onNodeWithText("→ Platform Game Boy: Built-in · Gambatte (default) · overridden").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Notes")
     onNodeWithText("If cleared: Built-in · Gambatte").assertExists()
     press(listOf(Key.DirectionRight, Key.ButtonA))

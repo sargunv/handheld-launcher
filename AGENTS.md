@@ -27,8 +27,9 @@ It sets the scope and the priorities. Before you build a screen, read
 `mise install` installs the pinned tools, `mise tasks` lists the tasks, and
 `mise run <task> --help` shows a task's arguments. What the list doesn't say:
 
-- `mise run run:android` and `mise run android:open` take
-  `HANDHELD_LAYOUT=frame` (or `folded`) to force a dual-screen layout.
+- `mise run run:android`, `mise run android:open` and `mise run run:desktop`
+  take `HANDHELD_LAYOUT`: `frame` shows both screens in one window, `folded`
+  shows one screen, and the desktop app shows the frame by default.
 - `mise run android:open <target>` shows a screen straight away;
   `mise run android:open --help` lists the targets. Before sign-in, only the
   `settings` targets show. It's the launch intent's `open` extra, so
@@ -38,8 +39,9 @@ It sets the scope and the priorities. Before you build a screen, read
   the device, or confirming downloads it: Home's covers say so in their label,
   and Library marks the games on the device with an `onDevice:<romId>` element,
   and local games with `onDevice:local:<path>`.
-- session/README.md covers the session's fixtures, its desktop runner and the
-  debug app's session test activity.
+- After touching the session's Rust, run `mise run check:android`: `check`
+  doesn't lint its Android-only code.
+- session/README.md covers the session's fixtures and its desktop runner.
 
 ## Android dev device
 

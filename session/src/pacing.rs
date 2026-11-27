@@ -183,7 +183,7 @@ pub(crate) fn vsyncs_per_frame(fps: f64, period: Duration) -> Option<u32> {
 
 /// The core's frame period at `fps`, or at 60 frames a second if it gives
 /// no usable rate.
-pub fn core_period(fps: f64) -> Duration {
+fn core_period(fps: f64) -> Duration {
     if fps.is_finite() && fps > 1.0 {
         Duration::from_secs_f64(1.0 / fps)
     } else {
@@ -220,15 +220,22 @@ pub(crate) fn next_frame(due: Instant, now: Instant, fps: f64, vsync: Option<Vsy
             vsyncs: Some(vsyncs),
         };
     }
-    let period = core_period(fps);
-    let mut next = due + period;
-    if now > next + period * MAX_LAG_FRAMES {
-        next = now;
-    }
     Schedule {
-        due: next,
+        due: timer_next_frame(due, now, fps),
         speed: 1.0,
         vsyncs: None,
+    }
+}
+
+/// When a timer runs the frame after one that was due at `due` and finished
+/// at `now`, for a core at `fps`.
+pub fn timer_next_frame(due: Instant, now: Instant, fps: f64) -> Instant {
+    let period = core_period(fps);
+    let next = due + period;
+    if now > next + period * MAX_LAG_FRAMES {
+        now
+    } else {
+        next
     }
 }
 

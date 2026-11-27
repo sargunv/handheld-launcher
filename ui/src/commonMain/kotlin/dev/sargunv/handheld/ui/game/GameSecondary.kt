@@ -43,8 +43,6 @@ import dev.sargunv.handheld.ui.saves.ago
 import dev.sargunv.handheld.ui.saves.size
 import kotlin.time.Clock
 import kotlin.time.Instant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /** What the lower screen's save history holds. */
 private sealed interface SaveHistoryState {
@@ -112,8 +110,8 @@ private fun LocalSecondary(state: AppState, game: LocalGame) {
  */
 @Composable
 private fun RomSecondary(state: AppState, current: Rom) {
-  // A play may sync the game's saves, so they load again as it starts and ends.
-  val playing = state.playing == current.key
+  // A play may sync the game's saves, so they load again as it starts and once it's over.
+  val playing = current.key in state.launcher.unfinished.collectAsState().value
   val history by
     produceState<SaveHistoryState>(SaveHistoryState.Loading, current, playing) {
       val account = state.romm.account ?: return@produceState
@@ -239,7 +237,7 @@ private suspend fun loadAchievementProgress(
   romId: Long,
 ): RommAchievementProgress? =
   try {
-    withContext(Dispatchers.Default) { state.romm.account?.client?.achievementProgress(romId) }
+    state.romm.account?.client?.achievementProgress(romId)
   } catch (e: RommException) {
     log.w(e) { "Reading the achievement progress of ROM $romId failed" }
     null
@@ -247,10 +245,8 @@ private suspend fun loadAchievementProgress(
 
 private suspend fun loadSaveHistory(account: RommAccount, romId: Long): SaveHistoryState =
   try {
-    withContext(Dispatchers.Default) {
-      val saves = account.client.saves(romId = romId)
-      SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
-    }
+    val saves = account.client.saves(romId = romId)
+    SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
   } catch (e: RommException) {
     log.w(e) { "Reading the save history of ROM $romId failed" }
     SaveHistoryState.Failed(labelled("Saves unavailable", e.message))

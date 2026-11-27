@@ -76,8 +76,8 @@ internal fun HomePlace(state: AppState) {
   val collections by remember(library) { library.collections() }.collectAsState(null)
   val statuses by
     remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
-  var menuOpen by rememberSaveable { mutableStateOf(false) }
-  var gameMenuOpen by rememberSaveable { mutableStateOf(false) }
+  var menuOpen by remember { mutableStateOf(false) }
+  var gameMenuOpen by remember { mutableStateOf(false) }
   // The shelf with focus, or null while the game being played has it.
   var focusedShelf by rememberSaveable { mutableStateOf<HomeShelf?>(null) }
 
@@ -207,7 +207,6 @@ internal fun HomePlace(state: AppState) {
               add(Hint(Action.Confirm, if (continueFocused && continuePlays) "Play" else "Open"))
             }
             if (hasMenu || continueFocused) add(Hint(Action.Menu, "Menu"))
-            add(Hint(Action.MainMenu, "Main menu"))
           },
         )
       }

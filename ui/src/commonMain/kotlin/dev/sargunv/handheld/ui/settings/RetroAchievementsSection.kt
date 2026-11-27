@@ -13,7 +13,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.TextEntry
+import dev.sargunv.handheld.ui.widgets.TextEntry
 
 internal fun LazyListScope.retroAchievements(state: AppState) {
   val account = state.retroAchievements ?: return
@@ -28,7 +28,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
         "settings:ra:account",
         "Account",
         username,
-        "The RetroAchievements user this device signed in as.",
+        "The RetroAchievements user this device signed in as",
       )
     }
     item(key = "hardcore") {
@@ -37,7 +37,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
         "settings:ra:hardcore",
         "Hardcore",
         if (settings.hardcore) "On" else "Off",
-        "In hardcore, games with achievements can't load states or fast forward.",
+        "In hardcore, games with achievements can't load states or fast forward",
         onConfirm = {
           state.settings =
             state.settings.copy(achievements = settings.copy(hardcore = !settings.hardcore))
@@ -50,7 +50,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
         "settings:ra:signOut",
         "Sign out",
         null,
-        "Signs this device out of RetroAchievements.",
+        "Signs this device out of RetroAchievements",
         onConfirm = account::signOut,
       )
     }
@@ -63,7 +63,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       field = account.usernameField,
       placeholder = "Username",
       label = "Username",
-      help = "Your RetroAchievements username.",
+      help = null,
       keyboardOptions =
         KeyboardOptions(
           autoCorrectEnabled = false,
@@ -81,7 +81,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       field = account.passwordField,
       placeholder = "Password",
       label = "Password",
-      help = "Goes only to RetroAchievements. The device keeps a token instead.",
+      help = "Sent only to RetroAchievements",
       keyboardOptions =
         KeyboardOptions(
           autoCorrectEnabled = false,
@@ -99,7 +99,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       "settings:ra:signIn",
       "Sign in",
       null,
-      "Earns achievements in games that play in Built-in.",
+      "Earns achievements in games that play in Built-in",
       enabled = !account.busy,
       onConfirm = account::submit,
     )

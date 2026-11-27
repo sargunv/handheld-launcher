@@ -31,7 +31,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.SecondaryDisplayContent
-import dev.sargunv.handheld.achievements.SessionAchievementsHttp
+import dev.sargunv.handheld.achievements.answer
 import dev.sargunv.handheld.achievements.message
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.handheldApp
@@ -39,6 +39,8 @@ import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.session.AchievementEvent
 import dev.sargunv.handheld.session.AchievementOptions
+import dev.sargunv.handheld.session.AchievementsReply
+import dev.sargunv.handheld.session.AchievementsRequest
 import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.LowerScreenView
@@ -60,7 +62,7 @@ import dev.sargunv.handheld.ui.play.ToastHost
 import dev.sargunv.handheld.ui.play.ToastState
 import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -121,6 +123,9 @@ class SessionActivity : ComponentActivity() {
   private var lowerUnsupported by mutableStateOf(false)
   private val heldKeys = HeldKeys()
 
+  /** Whether the play has heard how the game ended. */
+  private var ended = false
+
   /** The quick menu, once the session has started. */
   private lateinit var quickMenu: QuickMenuState
 
@@ -135,6 +140,13 @@ class SessionActivity : ComponentActivity() {
    * (repeats and release) stays from the game once the menu closes.
    */
   private val menuKeys = mutableSetOf<Int>()
+
+  /** The client for the session's RetroAchievements requests, closed when lifecycleScope ends. */
+  private val achievementsClient by lazy {
+    handheldApp.retroAchievementsClient().also { client ->
+      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
+    }
+  }
 
   private val listener =
     object : SessionListener {
@@ -151,6 +163,10 @@ class SessionActivity : ComponentActivity() {
             is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason.message())
           }
         runOnUiThread { toasts.show(toast) }
+      }
+
+      override fun achievementsRequest(request: AchievementsRequest, reply: AchievementsReply) {
+        lifecycleScope.launch(Dispatchers.IO) { achievementsClient.answer(request, reply) }
       }
     }
 
@@ -278,53 +294,53 @@ class SessionActivity : ComponentActivity() {
     view.isFocusableInTouchMode = focusable
   }
 
-  /** Stops the session, which writes its save memory, and closes with the outcome as its result. */
+  /** Stops the session, which writes its save memory, and closes. */
   private fun stopAndFinish() {
     if (isFinishing) return
-    stopSession()?.let { setResult(RESULT_OK, Intent().putExtra(EXTRA_SAVE_ERROR, it)) }
+    stopSession()
     finish()
   }
 
   /**
-   * Stops the session, which writes its save memory, and returns why that failed, or null. Calls
-   * still on their way to the session, such as the quick menu's, find it stopped.
+   * Stops the session, which writes its save memory, and tells the play how that went. Calls still
+   * on their way to the session, such as the quick menu's, find it stopped.
    */
-  private fun stopSession(): String? {
-    val stopping = session ?: return null
+  private fun stopSession() {
+    val stopping = session ?: return
     session = null
-    return try {
-      stopping.stop()
-      null
-    } catch (e: SessionException) {
-      log.e(e) { "couldn't write the save memory" }
-      e.label()
-    }
+    val saveError =
+      try {
+        stopping.stop()
+        null
+      } catch (e: SessionException) {
+        log.e(e) { "couldn't write the save memory" }
+        e.label()
+      }
+    end(SessionEnd.Stopped(saveError))
+  }
+
+  /** Tells the play how the game ended, the first time only. */
+  private fun end(outcome: SessionEnd) {
+    if (ended) return
+    ended = true
+    handheldApp.plays.sessionEnded(outcome)
   }
 
   override fun onPause() {
     super.onPause()
     // Something else closed the session, such as HOME, which clears the launcher's task to bring
-    // it to the front. The save memory is written now, before the launcher resumes and reads it.
-    // The activity is already finishing, so a failure is only logged.
+    // it to the front. The save memory is written now, before the launcher resumes.
     if (isFinishing) stopSession()
   }
 
   private suspend fun start() {
     val achievements = achievementOptions()
-    val ready = CompletableDeferred<GameSession>()
-    val http = achievements?.let {
-      val client = handheldApp.retroAchievementsClient()
-      // The requests go out on lifecycleScope, so the client lasts until it ends.
-      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
-      SessionAchievementsHttp(client, lifecycleScope, ready)
-    }
     val started =
       try {
-        startSession(options(achievements), listener, http)
+        startSession(options(achievements), listener)
       } catch (e: SessionException) {
         log.e(e) { "can't start the session" }
-        ready.cancel()
-        setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.label()))
+        end(SessionEnd.StartFailed(e.label()))
         finish()
         return
       }
@@ -340,7 +356,6 @@ class SessionActivity : ComponentActivity() {
         lifecycleScope,
       )
     session = started
-    ready.complete(started)
   }
 
   /**
@@ -409,20 +424,15 @@ class SessionActivity : ComponentActivity() {
     (!menuOpen && view.dispatchGenericMotionEvent(event)) || super.dispatchGenericMotionEvent(event)
 
   override fun onDestroy() {
-    // The session still runs here only when the activity is destroyed without finishing, which
-    // leaves no result to report a failure in.
+    // The session still runs here only when the activity is destroyed without finishing. One
+    // destroyed while it starts ends the play too.
     stopSession()
+    end(SessionEnd.Stopped(saveError = null))
     super.onDestroy()
   }
 
   companion object {
     private const val EXTRA_LAUNCH = "launch"
-
-    /** Why the session couldn't start, in the result of one that couldn't. */
-    const val EXTRA_START_ERROR = "start_error"
-
-    /** Why the session's save memory couldn't be written as it stopped, in its result. */
-    const val EXTRA_SAVE_ERROR = "save_error"
 
     /** The intent that plays [launch]. */
     fun intent(context: Context, launch: SessionLaunch): Intent =

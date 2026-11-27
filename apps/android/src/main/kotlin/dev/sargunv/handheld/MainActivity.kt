@@ -7,7 +7,6 @@ import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.view.KeyEvent
 import android.view.MotionEvent
 import androidx.activity.ComponentActivity
@@ -21,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
-import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withStarted
 import dev.sargunv.handheld.data.auth.DeviceDescription
@@ -29,7 +27,6 @@ import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.launch.AndroidGameLauncher
 import dev.sargunv.handheld.launch.BuiltInPlayer
 import dev.sargunv.handheld.launch.PlayCompanion
-import dev.sargunv.handheld.launch.PlaySaves
 import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.AppPlatform
@@ -41,7 +38,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
@@ -92,15 +88,22 @@ class MainActivity : ComponentActivity() {
     val app = handheldApp
     val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val saves = PlaySaves(app.data.saveSync)
     val launcher =
       AndroidGameLauncher(
         activity = this,
         romm = app.data.romm,
-        saves = saves,
-        builtIn = BuiltInPlayer(this, saves, app.data.builtInSaveFolders.saves, app.settingsFile),
+        saves = app.playSaves,
+        builtIn =
+          BuiltInPlayer(
+            this,
+            app.playSaves,
+            app.data.builtInSaveFolders.saves,
+            app.settingsFile,
+          ),
         emulators = app.emulators,
+        plays = app.plays,
         allFilesAccess = app.allFilesAccess,
+        openAllFilesAccess = { app.openAllFilesAccessSettings(this) },
         storageVolumes = { app.storageTargets().map { it.root } },
       )
     // About reads the list of components that the build puts in the app's resources.
@@ -161,10 +164,16 @@ class MainActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
+    handheldApp.setLauncherResumed(true)
     // The user may be back from granting all-files access, which queued downloads wait for.
-    handheldApp.allFilesAccess.value = Environment.isExternalStorageManager()
+    handheldApp.refreshAllFilesAccess()
     // Games may have been copied onto the device, or deleted, while the app was away.
     lifecycleScope.launch { handheldApp.data.games.rescan() }
+  }
+
+  override fun onPause() {
+    handheldApp.setLauncherResumed(false)
+    super.onPause()
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -183,13 +192,17 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Starts [DownloadService] when the queue gets something to download, so the queue goes on in the
-   * background. It waits for the activity to show, since an app in the background can't start one.
-   * While the queue has work, it asks once for all-files access, which writing games needs, and
-   * once that's granted, to show the download's progress in a notification.
+   * Starts [BackgroundWorkService] when the queue gets something to download or an upload starts,
+   * so they go on in the background. It waits for the activity to show, since an app in the
+   * background can't start one. While there's work, it asks once for all-files access, which
+   * writing games needs, and once that's granted, to show the progress in a notification.
    */
   private fun keepDownloadsRunning() {
-    val hasWork = handheldApp.data.downloads.queue.map { queue -> queue.any { it.isActive } }
+    val data = handheldApp.data
+    val hasWork =
+      combine(data.downloads.queue, data.uploads.upload) { queue, upload ->
+        queue.any { it.isActive } || upload?.isRunning == true
+      }
     lifecycleScope.launch {
       combine(hasWork, handheldApp.allFilesAccess, ::Pair)
         .distinctUntilChanged()
@@ -198,7 +211,7 @@ class MainActivity : ComponentActivity() {
           lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
             if (!allFilesAccess) {
-              startActivity(allFilesAccessSettings())
+              handheldApp.openAllFilesAccessSettings(this@MainActivity)
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
@@ -206,7 +219,7 @@ class MainActivity : ComponentActivity() {
             ) {
               requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
             }
-            DownloadService.start(this@MainActivity)
+            BackgroundWorkService.start(this@MainActivity)
           }
         }
     }
@@ -255,8 +268,3 @@ internal fun Modifier.exposeTestTags(): Modifier = semantics { testTagsAsResourc
 
 /** The launchers this process shows, at most one but for a moment as the home app takes over. */
 private val running = mutableSetOf<MainActivity>()
-
-/** Whether a launcher is resumed, which makes it what the first display shows. */
-internal fun isLauncherResumed(): Boolean = running.any {
-  it.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-}

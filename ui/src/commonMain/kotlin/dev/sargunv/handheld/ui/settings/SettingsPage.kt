@@ -22,9 +22,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -41,8 +38,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
@@ -61,7 +58,6 @@ import dev.sargunv.handheld.ui.places.signedIn
 import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
@@ -87,16 +83,18 @@ enum class SettingsSection(val title: String, internal val description: String) 
 }
 
 /**
- * The sections Settings offers: those that need no server, and the rest once [signedIn], with
+ * The sections Settings offers: Controls and About, and the rest once [signedIn], with
  * RetroAchievements only on platforms that offer [achievements].
  */
 internal fun settingsSections(signedIn: Boolean, achievements: Boolean): List<SettingsSection> =
   SettingsSection.entries.filter {
     when (it) {
+      SettingsSection.Controls,
+      SettingsSection.About -> true
       SettingsSection.RetroAchievements -> signedIn && achievements
+      SettingsSection.RomM,
       SettingsSection.Emulators,
       SettingsSection.Storage -> signedIn
-      else -> true
     }
   }
 
@@ -128,24 +126,20 @@ class SettingsView {
 
 /**
  * Settings: the sections in a list on the left, and the focused section's settings on the right.
+ * About's row opens it with [onAbout].
  */
 @Composable
-internal fun SettingsPage(state: AppState, backHint: String = "Home") {
+internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
   val view = state.settingsView
   val romm by state.romm.state.collectAsState()
   val sync by state.romm.sync.collectAsState()
+  val uploadAccess by state.romm.uploadAccess.collectAsState()
   val signedIn = romm.signedIn == true
   val sections = settingsSections(signedIn, state.retroAchievements != null)
   val section = view.shown(sections)
-  val scope = rememberCoroutineScope()
-  var dialog by rememberSaveable(stateSaver = SettingsDialog.saver) { mutableStateOf(null) }
+  var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
   val open = { it: SettingsDialog -> dialog = it }
   val close = { dialog = null }
-  // Asked again after each sync, since the account's permissions can change.
-  val uploadAccess by
-    produceState<UploadAccess?>(null, romm, sync, section) {
-      if (section == SettingsSection.RomM) value = state.romm.uploadAccess()
-    }
   val storageSpaces by
     rememberStorageSpaces(state.downloads, active = section == SettingsSection.Storage)
   val mounted = storageSpaces.map { it.target }
@@ -185,7 +179,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               it,
               selected = it == section,
               onFocus = { view.section = it },
-              // A section without settings to focus, such as About, keeps focus in the list.
+              // A section whose settings are still loading keeps focus in the list.
               onRight = { pane.requestFocus(FocusDirection.Enter) || true },
             )
           }
@@ -201,26 +195,27 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
             when (section) {
               SettingsSection.Controls -> controls(state)
               SettingsSection.RomM ->
-                romm(state, romm, sync, uploadAccess, open) {
-                  scope.launch { state.signOut(keepQueue = true) }
+                (romm as? RommAccount)?.let { account ->
+                  romm(state, account, sync, uploadAccess, open) {
+                    state.signOut(keepQueue = true)
+                  }
                 }
               SettingsSection.RetroAchievements -> retroAchievements(state)
               SettingsSection.Emulators -> emulators(state, platforms, apps, open)
               SettingsSection.Storage ->
                 storage(state, storageSpaces, storageRefused, toggleStorage, open)
-              SettingsSection.About -> about(state, signedIn)
+              SettingsSection.About -> about(state, onAbout)
             }
           }
         }
       }
       HintBar(
-        listOf(
-            Hint(Action.Confirm, "Choose"),
-            Hint(Action.Back, backHint),
-            Hint(Action.Menu, "Menu").takeIf { view.help.shown?.hasMenu == true },
-            Hint(Action.MainMenu, "Main menu"),
-          )
-          .filterNotNull(),
+        listOfNotNull(
+          Hint(Action.Confirm, "Choose"),
+          // Signed in, Settings is a place, which Back leaves for Home.
+          Hint(Action.Back, if (signedIn) "Home" else "Back"),
+          Hint(Action.Menu, "Menu").takeIf { view.help.shown?.hasMenu == true },
+        ),
       )
     }
     when (val shown = dialog) {
@@ -229,7 +224,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
         SignOutDialog(
           onSignOut = {
             close()
-            scope.launch { state.signOut() }
+            state.signOut()
           },
           onDismissRequest = close,
         )
@@ -238,7 +233,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           UPLOADS_NOT_REQUESTED,
           onSignInAgain = {
             close()
-            scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+            state.signOut(allowUploads = true, keepQueue = true)
           },
           onDismissRequest = close,
         )
@@ -250,7 +245,6 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           },
           onDismissRequest = close,
         )
-      // A restored menu shows once its storage is measured.
       is SettingsDialog.StorageMenu ->
         mounted
           .find { it.id == shown.id }
@@ -278,30 +272,6 @@ internal sealed interface SettingsDialog {
 
   /** The menu on the storage with [id]. */
   data class StorageMenu(val id: String) : SettingsDialog
-
-  companion object {
-    val saver =
-      Saver<SettingsDialog?, String>(
-        save = {
-          when (it) {
-            null -> null
-            SignOut -> "signOut"
-            AllowUploads -> "allowUploads"
-            CloseEmulators -> "closeEmulators"
-            is StorageMenu -> "storage:${it.id}"
-          }
-        },
-        restore = {
-          when {
-            it == "signOut" -> SignOut
-            it == "allowUploads" -> AllowUploads
-            it == "closeEmulators" -> CloseEmulators
-            it.startsWith("storage:") -> StorageMenu(it.removePrefix("storage:"))
-            else -> null
-          }
-        },
-      )
-  }
 }
 
 /** Directions that can't leave a column through its ends. */
@@ -385,9 +355,10 @@ internal fun LazyListScope.sectionHeading(title: String) {
 
 /** The lower screen on Settings: the focused setting, or the focused section. */
 @Composable
-internal fun SettingsSecondary(state: AppState, signedIn: Boolean) {
+internal fun SettingsSecondary(state: AppState) {
   val view = state.settingsView
   val help = view.help.shown
+  val signedIn = state.romm.state.collectAsState().value.signedIn == true
   val section = view.shown(settingsSections(signedIn, state.retroAchievements != null))
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(

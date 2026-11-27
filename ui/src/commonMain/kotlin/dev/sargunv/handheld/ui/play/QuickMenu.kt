@@ -282,7 +282,10 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
     ) {
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         when (val action = state.picking) {
-          null if state.showsAchievements -> FocusScope { AchievementList(state.achievements) }
+          null if state.showsAchievements ->
+            FocusScope(Modifier.testTag("quick:achievementList")) {
+              AchievementList(state.achievements)
+            }
           null -> MainList(state)
           else ->
             // A scope of its own, so the main list gets its focus back on returning.
@@ -312,6 +315,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
         SlotAction.Load -> listOf(Hint(Action.Confirm, "Load"), Hint(Action.Back, "Back"))
       },
       Modifier.align(Alignment.BottomCenter),
+      mainMenu = false,
     )
   }
 }

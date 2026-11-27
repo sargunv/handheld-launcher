@@ -72,7 +72,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
   }
 
   override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-    session?.resizeWindow(width.toUInt(), height.toUInt())
+    session?.resizeWindow(Screen.MAIN, width.toUInt(), height.toUInt())
   }
 
   override fun surfaceDestroyed(holder: SurfaceHolder) {

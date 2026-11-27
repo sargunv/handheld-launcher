@@ -1,10 +1,13 @@
 import dev.sargunv.handheld.gradle.CargoBuild
 import dev.sargunv.handheld.gradle.UniffiBindgen
 import dev.sargunv.handheld.gradle.androidAbis
+import dev.sargunv.handheld.gradle.miseNdk
+import dev.sargunv.handheld.gradle.useNdk
 
 plugins { id("com.android.library") }
 
 val workspaceDir: Directory = rootProject.layout.projectDirectory
+val ndkHome = providers.miseNdk()
 val rustSources =
   files(
     fileTree("src"),
@@ -43,6 +46,7 @@ val generateBindings =
 android {
   namespace = "dev.sargunv.handheld.session"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
+  useNdk(ndkHome)
   defaultConfig { minSdk = libs.versions.android.minSdk.get().toInt() }
   // src holds the Rust crate.
   sourceSets["main"].kotlin.directories += "kotlin"
@@ -67,7 +71,7 @@ val cargoBuildAndroid =
         .orElse(androidAbis.keys.toList())
     minSdk = libs.versions.android.minSdk
     // cargo-ndk reads the NDK from the environment; a new one rebuilds.
-    inputs.property("ndk", providers.environmentVariable("ANDROID_NDK_HOME").orElse(""))
+    inputs.property("ndk", ndkHome.orElse(""))
     outputDir = layout.buildDirectory.dir("generated/session/jniLibs")
   }
 

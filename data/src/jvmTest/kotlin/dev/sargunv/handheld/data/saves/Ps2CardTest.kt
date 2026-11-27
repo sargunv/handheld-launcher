@@ -27,7 +27,7 @@ class Ps2CardTest {
   private fun memcards(device: String) = File(root, "$device/memcards").apply { mkdirs() }
 
   private fun unit(memcards: File, serial: String, folderCards: Boolean = false) =
-    Ps2CardUnit(Ps2CardRoots(listOf(memcards), serial, "Game (USA).ps2", folderCards))
+    Ps2CardUnit(listOf(memcards), serial, "Game (USA).ps2", folderCards)
 
   private fun save(folder: String, vararg files: Pair<String, String>) =
     Ps2FolderCard.pack(folder, files.map { it.first to it.second.encodeToByteArray() })

@@ -15,16 +15,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.focused
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -43,7 +38,6 @@ import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
-import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.describes
 import kotlinx.coroutines.launch
 
@@ -56,10 +50,10 @@ private fun rememberLibraries(info: AppInfo): List<Library>? {
 
 /**
  * About: the app's name and version, its licence and where its source is, and the third-party
- * components it's built from. Confirming a component shows its licence texts.
+ * components it's built from. Confirming a component shows its licence texts with [onLicence].
  */
 @Composable
-internal fun AboutScreen(state: AppState) {
+internal fun AboutScreen(state: AppState, onLicence: (Library) -> Unit) {
   val libraries = rememberLibraries(state.appInfo)
   Column(Modifier.fillMaxSize()) {
     Text(
@@ -113,9 +107,7 @@ internal fun AboutScreen(state: AppState) {
                 ComponentRow(
                   library,
                   Modifier.describes(state, Focused.OnComponent(library)),
-                  onConfirm = {
-                    state.navigator.push(Screen.Licence(library.uniqueId, library.name))
-                  },
+                  onConfirm = { onLicence(library) },
                 )
               }
             }
@@ -159,36 +151,30 @@ private val License.id: String
  * at a time.
  */
 @Composable
-internal fun LicenceScreen(state: AppState, screen: Screen.Licence) {
-  val library = rememberLibraries(state.appInfo)?.find { it.uniqueId == screen.componentId }
+internal fun LicenceScreen(state: AppState, componentId: String, name: String) {
+  val library = rememberLibraries(state.appInfo)?.find { it.uniqueId == componentId }
   val list = rememberLazyListState()
   val scope = rememberCoroutineScope()
   val step = with(LocalDensity.current) { 120.dp.toPx() }
-  // Nothing here takes focus, so the scope holds it and hears the scrolling actions. It says so to
-  // accessibility services, as an item would.
-  var holdsFocus by remember { mutableStateOf(false) }
+  // Nothing here takes focus, so the scope holds it and hears the scrolling actions.
   FocusScope(
-    Modifier.fillMaxSize()
-      .testTag("licence")
-      .semantics { focused = holdsFocus }
-      .onFocusChanged { holdsFocus = it.isFocused }
-      .onAction { action ->
-        val page = list.layoutInfo.viewportSize.height - step
-        val distance =
-          when (action) {
-            Action.Up -> -step
-            Action.Down -> step
-            Action.PreviousShelf -> -page
-            Action.NextShelf -> page
-            else -> return@onAction false
-          }
-        scope.launch { list.scrollBy(distance) }
-        true
-      },
+    Modifier.fillMaxSize().testTag("licence").onAction { action ->
+      val page = list.layoutInfo.viewportSize.height - step
+      val distance =
+        when (action) {
+          Action.Up -> -step
+          Action.Down -> step
+          Action.PreviousShelf -> -page
+          Action.NextShelf -> page
+          else -> return@onAction false
+        }
+      scope.launch { list.scrollBy(distance) }
+      true
+    },
   ) {
     Column(Modifier.fillMaxSize()) {
       Text(
-        screen.name,
+        name,
         color = Placeholder.text,
         fontSize = 28.sp,
         modifier =
@@ -241,15 +227,16 @@ private val ParagraphBreak = Regex("""\n\s*\n""")
 
 /**
  * The lower screen for About and a licence: what the component in question is, its version, its
- * licences and where it's from.
+ * licences and where it's from. That's the component whose licence shows, [licenceOf], or else the
+ * one focused on About.
  */
 @Composable
-internal fun AboutSecondary(state: AppState, screen: Screen) {
+internal fun AboutSecondary(state: AppState, licenceOf: String? = null) {
   val libraries = rememberLibraries(state.appInfo)
   val library =
-    when (screen) {
-      is Screen.Licence -> libraries?.find { it.uniqueId == screen.componentId }
-      else -> (state.focused as? Focused.OnComponent)?.library
+    when (licenceOf) {
+      null -> (state.focused as? Focused.OnComponent)?.library
+      else -> libraries?.find { it.uniqueId == licenceOf }
     } ?: return
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Text(

@@ -1,5 +1,4 @@
 import dev.sargunv.handheld.domain.CollectionKind;
-import dev.sargunv.handheld.domain.RomFileCategory;
 import kotlin.Boolean;
 import kotlin.String;
 import kotlin.collections.List;
@@ -22,14 +21,10 @@ CREATE TABLE rom (
   file_name TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   summary TEXT,
-  alternative_names TEXT AS List<String> NOT NULL,
   genres TEXT AS List<String> NOT NULL,
-  regions TEXT AS List<String> NOT NULL,
   release_date INTEGER AS Instant,
   cover_small_url TEXT,
   cover_large_url TEXT,
-  has_multiple_files INTEGER AS Boolean NOT NULL,
-  updated_at INTEGER AS Instant NOT NULL,
   created_at INTEGER AS Instant NOT NULL
 );
 
@@ -50,7 +45,6 @@ CREATE TABLE rom_file (
   rom_id INTEGER NOT NULL,
   file_name TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
-  category TEXT AS RomFileCategory,
   crc_hash TEXT,
   md5_hash TEXT,
   sha1_hash TEXT,

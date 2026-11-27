@@ -32,7 +32,7 @@ class SecondaryHomeActivity : ComponentActivity() {
     // Android sends the controller to the display it last started an activity on, which is this
     // one once it starts the display's home, and this window can't take it. The launcher takes it
     // back when it's what the first display shows; anything else there stays as it is.
-    if (isTopResumedActivity && isLauncherResumed()) {
+    if (isTopResumedActivity && handheldApp.launcherInFront.value) {
       startActivity(
         launcherIntent().putExtra(EXTRA_TAKE_FOCUS, true),
         ActivityOptions.makeBasic().setLaunchDisplayId(Display.DEFAULT_DISPLAY).toBundle(),

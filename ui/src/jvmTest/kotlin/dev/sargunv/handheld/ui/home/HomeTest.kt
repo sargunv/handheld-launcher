@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
@@ -46,6 +47,7 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
 import kotlin.io.path.createTempDirectory
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.CompletableDeferred
@@ -57,6 +59,10 @@ import kotlinx.coroutines.runBlocking
 class HomeTest {
   /** The presses of the system's HOME, which [pressHome] makes. */
   private val homePresses = Channel<Unit>(Channel.UNLIMITED)
+
+  private val storage = createTempDirectory("home-storage").toFile()
+
+  @AfterTest fun cleanUp() = check(storage.deleteRecursively())
 
   /**
    * A server with three games on one platform. The user played game 2 last and game 1 before it,
@@ -317,7 +323,6 @@ class HomeTest {
 
   @Test
   fun homeDuringAPlayLeavesItsScreenAlone() = runComposeUiTest {
-    val storage = createTempDirectory("home-storage").toFile()
     File(storage, "ROMs/gb/Game 2.gb").apply {
       parentFile.mkdirs()
       writeText("game")
@@ -335,7 +340,6 @@ class HomeTest {
     onNodeWithTag("primary").assertExists()
     hold.complete(Unit)
     awaitText("Played")
-    check(storage.deleteRecursively())
   }
 
   @Test
@@ -382,8 +386,13 @@ class HomeTest {
     press(listOf(Key.ButtonA, Key.ButtonB))
     // The main menu counts the queue.
     press(Key.ButtonStart)
-    awaitTag("main:Downloads")
-    onNodeWithTag("main:Downloads").assertContentDescriptionEquals("Downloads, 1 in the queue")
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(
+          hasTestTag("main:Downloads") and hasContentDescription("Downloads, 1 in the queue"),
+        )
+        .fetchSemanticsNodes()
+        .isNotEmpty()
+    }
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitTag("download:2")
     // The test server doesn't serve the game, so the download fails and waits for a retry.

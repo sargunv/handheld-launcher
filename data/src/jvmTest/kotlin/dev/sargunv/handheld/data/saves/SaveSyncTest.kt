@@ -37,7 +37,7 @@ class SaveSyncTest {
   private val root = Files.createTempDirectory("save-sync-test").toFile()
   private val saves = File(root, "emulator/saves").apply { mkdirs() }
   private val saveFile = File(saves, "Pokemon Black.sav")
-  private val game = GameSave(7, "melonds", SaveShape.Files(listOf(saveFile)))
+  private val game = GameSave(7, "melonds", FileUnit(listOf(saveFile)))
 
   @AfterTest fun deleteRoot() = check(root.deleteRecursively())
 
@@ -385,17 +385,36 @@ class SaveSyncTest {
 
     assertEquals(
       SaveSyncResult.NoFolder(listOf(missing.parent)),
-      sync.sync(game.copy(shape = SaveShape.Files(listOf(missing)))),
+      sync.sync(game.copy(unit = FileUnit(listOf(missing)))),
     )
     assertTrue(!missing.parentFile.exists(), "The emulator's folder isn't made for it")
 
     val pulled =
       assertIs<SaveSyncResult.Pulled>(
-        sync.sync(game.copy(shape = SaveShape.Files(listOf(missing, saveFile)))),
+        sync.sync(game.copy(unit = FileUnit(listOf(missing, saveFile)))),
       )
     assertEquals(saveFile, pulled.file)
     assertNull(pulled.previous)
     assertContentEquals(v1, saveFile.readBytes())
+  }
+
+  @Test
+  fun aPullKeepsWhatTheEmulatorWroteToASaveFileAfterTheHistoryCopy() {
+    saveFile.writeBytes(v1)
+    val unit = game.unit
+    val snapshot = assertNotNull(unit.read())
+    // The emulator writes after the history copy was taken, before the swap.
+    saveFile.writeBytes(v2)
+    val kept = mutableListOf<LocalCopy>()
+    unit.write(snapshot.file, "from RomM".encodeToByteArray(), snapshot.hash) { kept += it }
+    assertEquals("from RomM", saveFile.readText())
+    assertContentEquals(v2, kept.single().bytes)
+
+    // Nothing to keep when the history already has what was replaced.
+    val now = assertNotNull(unit.read())
+    kept.clear()
+    unit.write(now.file, "again".encodeToByteArray(), now.hash) { kept += it }
+    assertTrue(kept.isEmpty())
   }
 
   @Test
@@ -590,7 +609,7 @@ class SaveSyncTest {
     val keep: SaveCopy? = null,
     val closes: Boolean = true,
   ) {
-    val asked = mutableListOf<Boolean>()
+    var asked = 0
     var closed = 0
 
     private suspend fun close(): Boolean {
@@ -604,7 +623,7 @@ class SaveSyncTest {
         StandaloneEmulator(
           emulator,
           askStillRunning = {
-            asked += it
+            asked++
             choice ?: error("Asked about the emulator")
           },
           close = if (canClose) ::close else null,
@@ -670,7 +689,7 @@ class SaveSyncTest {
       val prompts = Prompts(StillRunningChoice.QuitFirst)
 
       assertEquals(BeforeLaunch.QuitFirst, prompts.run(sync, game, holdsThisGame, canClose))
-      assertEquals(listOf(canClose), prompts.asked)
+      assertEquals(1, prompts.asked)
       assertEquals(0, prompts.closed)
       assertContentEquals(v1, saveFile.readBytes())
       assertTrue(kept().isEmpty())
@@ -778,7 +797,7 @@ class SaveSyncTest {
       val prompts = Prompts(StillRunningChoice.PlayDeviceSave, keep = SaveCopy.Server)
       val result = assertIs<BeforeLaunch.Skipped>(prompts.run(sync, game, holdsThisGame, true))
       assertIs<SaveSyncResult.Conflict>(result.result)
-      assertEquals(listOf(true), prompts.asked)
+      assertEquals(1, prompts.asked)
       assertContentEquals(mine, saveFile.readBytes(), "Both copies stay as they were")
       assertTrue(kept().isEmpty())
     }
@@ -791,7 +810,7 @@ class SaveSyncTest {
     val prompts = Prompts(keep = null)
 
     assertEquals(BeforeLaunch.Canceled, prompts.run(sync, game, holdsThisGame, true))
-    assertTrue(prompts.asked.isEmpty())
+    assertEquals(0, prompts.asked)
     assertContentEquals(mine, saveFile.readBytes())
   }
 
@@ -804,8 +823,7 @@ class SaveSyncTest {
       "ULUS10064",
     )!!
   private val savedata = File(root, "memstick/PSP/SAVEDATA").apply { mkdirs() }
-  private val psp =
-    GameSave(7, "ppsspp", SaveShape.Folders(SaveFolderRoots(listOf(savedata), ppsspp)))
+  private val psp = GameSave(7, "ppsspp", FolderUnit(listOf(savedata), ppsspp))
 
   /** A PSP PARAM.SFO: a save's carries the savedata keys, installed game data's doesn't. */
   private fun sfo(save: Boolean) =
@@ -954,7 +972,7 @@ class SaveSyncTest {
   @Test
   fun aPullKeepsWhatTheEmulatorWroteAfterTheHistoryCopy() {
     pspFolders()
-    val unit = psp.unit()
+    val unit = psp.unit
     val snapshot = assertNotNull(unit.read())
     // The emulator writes after the history copy was taken, before the swap.
     savedata.put("ULUS10064DATA00/DATA.BIN", "written in the gap")
@@ -1001,7 +1019,7 @@ class SaveSyncTest {
       assertNotNull(SaveLocations.forEmulator(EmulatorId("azahar"), PlatformCatalog.N3DS))
     val sdmc = File(root, "azahar/sdmc/Nintendo 3DS").apply { mkdirs() }
     val save = SaveFolders.forGame(location, PlatformCatalog.N3DS, "0004000000033500")!!
-    val game = GameSave(7, "azahar", SaveShape.Folders(SaveFolderRoots(listOf(sdmc), save)))
+    val game = GameSave(7, "azahar", FolderUnit(listOf(sdmc), save))
     val server = FakeRomm()
     server.push(
       "0004000000033500.zip",
@@ -1034,7 +1052,7 @@ class SaveSyncTest {
     nand.put("$profile/0100000000010000/main", "another game")
     nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
     val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
-    val game = GameSave(7, "eden", SaveShape.Folders(SaveFolderRoots(listOf(nand), save)))
+    val game = GameSave(7, "eden", FolderUnit(listOf(nand), save))
     val server = FakeRomm()
     val sync = sync(server)
 
@@ -1065,7 +1083,7 @@ class SaveSyncTest {
     nand.put("0000000000000000/125D2DBAEBDEB11000296E1E1ECBF401/$title/main", "account save")
     nand.put("0000000000000000/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/$title/.yuzu_save_size", "size")
     val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
-    val game = GameSave(7, "eden", SaveShape.Folders(SaveFolderRoots(listOf(nand), save)))
+    val game = GameSave(7, "eden", FolderUnit(listOf(nand), save))
     val server = FakeRomm()
 
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
@@ -1083,7 +1101,7 @@ class SaveSyncTest {
     val title = "0100ABCD12345000"
     nand.put("0000000000000000/00000000000000000000000000000000/$title/shared", "device save")
     val save = SaveFolders.forGame(location, PlatformCatalog.SWITCH, title)!!
-    val game = GameSave(7, "eden", SaveShape.Folders(SaveFolderRoots(listOf(nand), save)))
+    val game = GameSave(7, "eden", FolderUnit(listOf(nand), save))
     val server = FakeRomm()
 
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
@@ -1101,7 +1119,7 @@ class SaveSyncTest {
     gc.put("USA/Card A/01-GZLE-gczelda.gci", "zelda")
     gc.put("USA/Card A/8P-GSNE-sonic.gci", "sonic")
     val save = SaveFolders.forGame(location, PlatformCatalog.GAMECUBE, "GZLE")!!
-    val game = GameSave(7, "dolphin", SaveShape.Folders(SaveFolderRoots(listOf(gc), save)))
+    val game = GameSave(7, "dolphin", FolderUnit(listOf(gc), save))
     val server = FakeRomm()
 
     assertIs<SaveSyncResult.Pushed>(sync(server).sync(game))
@@ -1114,7 +1132,7 @@ class SaveSyncTest {
   fun beforeLaunchAsksBeforePullingToCardsTheEmulatorHoldsForAnotherGame() = runTest {
     val server = FakeRomm()
     val cards = File(root, "armsx2/memcards").apply { mkdirs() }
-    val ps2 = GameSave(7, "armsx2", SaveShape.Cards(Ps2CardRoots(listOf(cards), JAK, "Jak.ps2")))
+    val ps2 = GameSave(7, "armsx2", Ps2CardUnit(listOf(cards), JAK, "Jak.ps2"))
     server.push(
       "Jak.ps2",
       sigilUnit(JAK),
@@ -1124,7 +1142,7 @@ class SaveSyncTest {
     val prompts = Prompts(StillRunningChoice.QuitFirst)
 
     assertEquals(BeforeLaunch.QuitFirst, prompts.run(sync(server), ps2, holdsAnotherGame, false))
-    assertEquals(listOf(false), prompts.asked)
+    assertEquals(1, prompts.asked)
     assertTrue(cards.list()!!.isEmpty(), "Nothing was written to the cards")
   }
 
@@ -1143,7 +1161,7 @@ class SaveSyncTest {
       GameSave(
         7,
         "pocketgoal",
-        SaveShape.Cards(Ps2CardRoots(listOf(cards), JAK, "Jak.ps2", folderCards = true)),
+        Ps2CardUnit(listOf(cards), JAK, "Jak.ps2", folderCards = true),
         sharesWith = setOf("armsx2"),
       )
     val sync = sync(server)
@@ -1167,15 +1185,13 @@ class SaveSyncTest {
       packed("BASLUS-20152SYS"),
     )
     val name = "Ace Combat 04.ps2"
-    val here =
-      GameSave(7, "armsx2", SaveShape.Cards(Ps2CardRoots(listOf(fileCards), ACE_COMBAT, name)))
+    val here = GameSave(7, "armsx2", Ps2CardUnit(listOf(fileCards), ACE_COMBAT, name))
     // Another device keeps a folder card, holding other games' saves.
     val folderCards = File(root, "other/memcards").apply { mkdirs() }
     val folderCard = File(folderCards, "Mcd001.ps2")
     val others = folderCardFiles.filterKeys { !it.startsWith("BASLUS-20152") }
     writeTree(folderCard, others)
-    val there =
-      here.copy(shape = SaveShape.Cards(Ps2CardRoots(listOf(folderCards), ACE_COMBAT, name)))
+    val there = here.copy(unit = Ps2CardUnit(listOf(folderCards), ACE_COMBAT, name))
     val thereSync =
       SaveSync(
         server.client,

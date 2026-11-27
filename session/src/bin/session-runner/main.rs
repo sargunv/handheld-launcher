@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, Session,
-    SessionConfig, VideoOutput, VideoSink, core_period,
+    AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, Screen,
+    Session, SessionConfig, VideoOutput, VideoSink, timer_next_frame,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -337,7 +337,7 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 if let Some(session) = &mut self.session {
-                    session.resize_window(size.width, size.height);
+                    session.resize_window(Screen::Main, size.width, size.height);
                 }
             }
             WindowEvent::KeyboardInput {
@@ -368,19 +368,14 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let now = Instant::now();
-        if now >= self.next_frame {
+        if Instant::now() >= self.next_frame {
             self.run_frame(event_loop);
             let Some(session) = &self.session else {
                 return;
             };
             // Read after the frame, as the core may change its rate mid-game.
-            let period = core_period(session.av_info().fps);
-            self.next_frame += period;
-            // After a stall, carry on from now rather than rushing to catch up.
-            if self.next_frame < now {
-                self.next_frame = now + period;
-            }
+            let fps = session.av_info().fps;
+            self.next_frame = timer_next_frame(self.next_frame, Instant::now(), fps);
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
     }

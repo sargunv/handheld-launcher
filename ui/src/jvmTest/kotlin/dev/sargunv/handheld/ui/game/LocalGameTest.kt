@@ -49,6 +49,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -71,6 +72,9 @@ class LocalGameTest {
 
   /** Whether the server refuses uploads, as for an account that may not upload games. */
   @Volatile private var refuseUploads = false
+
+  /** What an upload waits for before it starts, when there's something. */
+  @Volatile private var uploadHold: CompletableDeferred<Unit>? = null
 
   /** The scopes the account's role grants, or null when the server doesn't say. */
   @Volatile private var accountScopes: String? = null
@@ -100,10 +104,13 @@ class LocalGameTest {
     if (path.startsWith("roms/upload") || path.startsWith("tasks")) uploadRequests += path
     json(
       when (path) {
-        "roms/upload/start" ->
+        "roms/upload/start" -> {
+          uploadHold?.await()
           if (refuseUploads) {
             return@fakeRomm json("""{"detail": "Forbidden"}""", HttpStatusCode.Forbidden)
-          } else """{"upload_id": "u1"}"""
+          }
+          """{"upload_id": "u1"}"""
+        }
         "roms/upload/u1" -> """{"received": 1, "total": 1}"""
         "roms/upload/u1/complete" -> {
           // The file is in the platform's folder on the server, which a scan adds.
@@ -341,6 +348,29 @@ class LocalGameTest {
       uploadRequests.toList(),
     )
     assertTrue(homebrew.exists())
+  }
+
+  @Test
+  fun anUploadGoesOnWhenItsPageCloses() = runComposeUiTest {
+    val hold = CompletableDeferred<Unit>()
+    uploadHold = hold
+    openLibrary()
+    assertFocused("library:platform:1")
+    press(Key.ButtonA)
+    assertFocused("game:1")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitText("Play")
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitTag("upload:confirm")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitText("Uploading")
+    press(Key.ButtonB)
+    assertFocused(homebrewTag)
+    press(Key.ButtonA)
+    awaitText("Uploading")
+    onNodeWithTag("primary").assertTextEquals("Uploading")
+    hold.complete(Unit)
+    awaitText("Homebrew (World)")
   }
 
   @Test
