@@ -18,13 +18,6 @@ import java.util.zip.ZipOutputStream
 import kotlin.time.Instant
 import kotlinx.io.files.Path
 
-/**
- * A game's save that an emulator keeps as folders, or as several files in a shared folder: the
- * areas of [save] under the first of [roots], the emulator's save folders, that holds the game's
- * save, else the first that exists. It syncs as one zip.
- */
-internal data class SaveFolderRoots(val roots: List<File>, val save: FolderSave)
-
 /** A game's save as it is on the device: what syncs, and what it's checked by. */
 internal class LocalCopy(
   /** The save's file, or its first folder. */
@@ -37,7 +30,7 @@ internal class LocalCopy(
   val modifiedAt: Instant,
 )
 
-/** How [SaveSync] reads and writes a game's save on the device, whatever its shape. */
+/** How an emulator keeps a game's save on this device, as [SaveSync] reads and writes it. */
 internal sealed interface SaveUnit {
   /** The save as it is now, or null when there's none. */
   fun read(): LocalCopy?
@@ -60,15 +53,8 @@ internal sealed interface SaveUnit {
   fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit)
 }
 
-internal fun GameSave.unit(): SaveUnit =
-  when (shape) {
-    is SaveShape.Files -> FileUnit(shape.candidates)
-    is SaveShape.Folders -> FolderUnit(shape.roots)
-    is SaveShape.Cards -> Ps2CardUnit(shape.roots)
-  }
-
-/** A save that's one file. */
-private class FileUnit(private val candidates: List<File>) : SaveUnit {
+/** A save that's one file, at the first of [candidates] that exists, most likely first. */
+internal data class FileUnit(val candidates: List<File>) : SaveUnit {
   override fun read(): LocalCopy? {
     val file = candidates.firstOrNull { it.isFile } ?: return null
     val bytes = file.readBytes()
@@ -102,14 +88,15 @@ private class FileUnit(private val candidates: List<File>) : SaveUnit {
 }
 
 /**
- * A save that's folders, or several files in a shared folder. The save is every entry the areas
- * select, zipped with each area's entries under its prefix.
+ * A save that's folders, or several files in a shared folder: the areas of [save] under the first
+ * of [roots], the emulator's save folders, that holds the game's save, else the first that exists.
+ * The save is every entry the areas select, zipped with each area's entries under its prefix.
  *
  * A pull replaces the selected entries of every area the zip has entries for, and leaves the other
  * areas alone. It writes the zip's entries beside the area's first, then swaps them in, and puts
  * the old ones back when a swap fails.
  */
-private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
+internal data class FolderUnit(val roots: List<File>, val save: FolderSave) : SaveUnit {
   /** One area of the save on this device. */
   private class Place(val area: SaveArea, val dir: File) {
     fun owned(): List<File> = dir.listFiles().orEmpty().filter { owns(it) }.sortedBy { it.name }
@@ -122,7 +109,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
 
   /** The root the save is in, or null when none exists. */
   private fun root(): File? {
-    val existing = roots.roots.filter { it.isDirectory }
+    val existing = roots.filter { it.isDirectory }
     return existing.firstOrNull { root -> places(root)?.any { it.owned().isNotEmpty() } == true }
       ?: existing.firstOrNull()
   }
@@ -132,12 +119,11 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
    * areas that don't depend on one, such as the device save, or null when there are none.
    */
   private fun places(root: File): List<Place>? {
-    val profile =
-      if (roots.save.areas.any { SaveFolders.PROFILE in it.folder }) profile(root) else ""
+    val profile = if (save.areas.any { SaveFolders.PROFILE in it.folder }) profile(root) else ""
     val areas =
-      if (profile != null) roots.save.areas
+      if (profile != null) save.areas
       else
-        roots.save.areas
+        save.areas
           .filter { SaveFolders.PROFILE !in it.folder }
           .ifEmpty {
             return null
@@ -159,7 +145,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
         .orEmpty()
         .map { it.name }
         .filter { it != SaveFolders.SWITCH_DEVICE }
-    val account = roots.save.areas.first { SaveFolders.PROFILE in it.folder }
+    val account = save.areas.first { SaveFolders.PROFILE in it.folder }
     // A profile holds the save when its folder has something the save owns, not only the
     // emulator's own files, such as the size it keeps beside a save.
     val holding = profiles.filter {
@@ -212,7 +198,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
     }
     return LocalCopy(
       places.first().dir,
-      roots.save.name,
+      save.name,
       out.toByteArray(),
       combinedHash(hashes),
       Instant.fromEpochMilliseconds(sorted.maxOf { it.second.lastModified() }),
@@ -220,11 +206,11 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
   }
 
   override fun target(serverName: String): File? {
-    val root = roots.roots.firstOrNull { it.isDirectory && it.canWrite() } ?: return null
+    val root = roots.firstOrNull { it.isDirectory && it.canWrite() } ?: return null
     return places(root)?.first()?.dir
   }
 
-  override fun folders() = roots.roots.map { it.path }
+  override fun folders() = roots.map { it.path }
 
   override fun write(
     target: File,
@@ -232,7 +218,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
     replaced: String?,
     keep: (LocalCopy) -> Unit,
   ) {
-    val root = roots.roots.first { target.path.startsWith(it.path) }
+    val root = roots.first { target.path.startsWith(it.path) }
     val places = places(root) ?: throw IOException("Save folder unknown")
     val entries = unzip(bytes)
     if (entries.none { !it.first.endsWith("/") }) {

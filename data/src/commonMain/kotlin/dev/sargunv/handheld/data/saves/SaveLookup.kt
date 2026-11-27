@@ -49,7 +49,7 @@ fun gameSaveFor(
       core = target.coreFor(platform),
     )
   SaveFiles.candidates(location, romPath, roots)?.let { paths ->
-    return SaveLookup.Found(GameSave(romId, emulator.id.value, SaveShape.Files(paths.map(::File))))
+    return SaveLookup.Found(GameSave(romId, emulator.id.value, FileUnit(paths.map(::File))))
   }
   if (SaveFolders.idKind(location, platform) == null) return SaveLookup.NotSupported
   val file = headerFile(romPath) ?: return SaveLookup.NoGameId
@@ -60,15 +60,13 @@ fun gameSaveFor(
   if (layout is SaveLayout.Ps2MemoryCards) {
     // Named after the game's file, as Argosy names the card it syncs.
     val name = File(romPath).nameWithoutExtension + ".ps2"
-    val cards = Ps2CardRoots(saveRoots, id, name, folderCards = layout.folderCards)
+    val cards = Ps2CardUnit(saveRoots, id, name, folderCards = layout.folderCards)
     // Every PS2 card emulator syncs the same card, so a save from one plays in another.
     val sharesWith = SaveLocations.ps2Cards.map { it.value }.toSet() - emulator.id.value
     return SaveLookup.Found(
-      GameSave(romId, emulator.id.value, SaveShape.Cards(cards), sharesWith = sharesWith),
+      GameSave(romId, emulator.id.value, cards, sharesWith = sharesWith),
     )
   }
   val save = SaveFolders.forGame(location, platform, id) ?: return SaveLookup.NoGameId
-  return SaveLookup.Found(
-    GameSave(romId, emulator.id.value, SaveShape.Folders(SaveFolderRoots(saveRoots, save))),
-  )
+  return SaveLookup.Found(GameSave(romId, emulator.id.value, FolderUnit(saveRoots, save)))
 }
