@@ -18,12 +18,10 @@ import dev.sargunv.handheld.domain.storage.GameLayout
 import io.ktor.client.engine.HttpClientEngine
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -33,9 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -88,8 +84,6 @@ data class Download(
   val error: String? = null,
   /** The root of the storage the game goes to, picked when the download first starts. */
   val storageRoot: String? = null,
-  /** Where the game goes, picked with [storageRoot]. */
-  val path: String? = null,
   /** The ROM's files to download, or all of them when empty. */
   val fileIds: List<Long> = emptyList(),
   /** The server's request to install the game, when it was sent from RomM's web page. */
@@ -145,9 +139,10 @@ sealed interface LocalGameState {
 /**
  * The download queue: it downloads games from the signed-in server one at a time, into the layout
  * [GameLayout] describes on one of the [storage] targets, and keeps the queue in [queueFile] so a
- * restart picks up where it stopped. A game downloads next to where it goes, with a `.part` suffix,
- * and moves into place once every file has arrived, so a game in its place is always whole. A game
- * already in place is never replaced.
+ * restart picks up where it stopped. A game downloads into the staging folder of its storage
+ * target, under its ROM id, and moves into place once every file has arrived, so a game in its
+ * place is always whole. A game already in place is never replaced. As the queue starts, it deletes
+ * what's staged for games it doesn't hold.
  *
  * A file that resumed from an earlier attempt is checked against the server's hashes, and
  * downloaded again from the start when it doesn't match.
@@ -216,25 +211,9 @@ class DownloadManager(
     it.state == DownloadState.Queued && it.server == server
   }
 
-  /** Deletes the staged downloads nothing resumes, once, as the manager starts. */
-  internal val sweep: Job = scope.launch { sweepStaging() }
-
-  init {
-    scope.launch { sweepAsTheLibraryGrows() }
-  }
-
-  /**
-   * Sweeps again as the library changes after [sweep]: a first sync fills it a page at a time, so
-   * the games of later pages are swept as they come.
-   */
-  @OptIn(FlowPreview::class)
-  private suspend fun sweepAsTheLibraryGrows() {
-    sweep.join()
-    library.allRoms().drop(1).debounce(1.seconds).collect { sweepStaging(it) }
-  }
-
   init {
     scope.launch {
+      deleteStaleStaging()
       while (true) {
         val seen = entries.value to signIns.value
         // A game waits while signed out, or signed in to another server than its own.
@@ -267,56 +246,20 @@ class DownloadManager(
   }
 
   /**
-   * Deletes the downloads left staged with nothing to resume them, such as when the app's data was
-   * cleared during a download: each `<name>.part` in a platform's folder on a storage target whose
-   * name, less the suffix, is that of a game of the library in that folder, and that no download in
-   * the queue may resume. Nothing else is touched, so other apps' files stay. It waits for the
-   * library to have games.
+   * Deletes what's staged for games the queue doesn't hold, such as when the app's data was cleared
+   * during a download. It runs before any download starts.
    */
-  private suspend fun sweepStaging(of: List<Rom>? = null) {
+  private suspend fun deleteStaleStaging() {
     canWrite.first { it }
-    // With app data cleared, the library is empty until the first sync fills it.
-    val roms = of ?: library.allRoms().first { it.isNotEmpty() }
-    val platforms = library.platforms().first()
-    val folders = platforms.associate { it.id to it.fsSlug }
-    // The queue changes only under the lock, so no download starts meanwhile.
-    mutex.withLock {
-      val queued = entries.value
-      val romsById = roms.associateBy { it.id }
-      val kept = buildSet {
-        for (download in queued) {
-          download.path?.let { add("$it.part") }
-          val name = romsById[download.romId]?.let(GameLayout::romName) ?: continue
-          for (target in storage()) {
-            add(
-              "${Path(GameLayout.platformFolder(target.root, download.platformFolder), name)}.part",
-            )
-          }
-        }
-      }
-      val names = roms.groupBy({ folders[it.platformId] }, GameLayout::romName)
-      withContext(Dispatchers.IO) {
-        for (target in storage()) {
-          for ((folder, games) in names) {
-            if (folder == null) continue
-            val parts = games.filterNotNull().mapTo(mutableSetOf()) { "$it.part" }
-            val dir = Path(GameLayout.platformFolder(target.root, folder))
-            val entries =
-              try {
-                if (SystemFileSystem.metadataOrNull(dir)?.isDirectory == true) {
-                  SystemFileSystem.list(dir)
-                } else emptyList()
-              } catch (e: IOException) {
-                emptyList()
-              }
-            for (entry in entries) {
-              if (entry.name !in parts || entry.toString() in kept) continue
-              try {
-                deleteRecursively(entry)
-              } catch (e: IOException) {
-                // The next start tries again.
-              }
-            }
+    val queued = entries.value.mapTo(mutableSetOf()) { it.romId.toString() }
+    withContext(Dispatchers.IO) {
+      for (target in storage()) {
+        for (entry in entriesOf(stagingRoot(target.root))) {
+          if (entry.name in queued) continue
+          try {
+            deleteRecursively(entry)
+          } catch (e: IOException) {
+            // The next start tries again.
           }
         }
       }
@@ -502,7 +445,9 @@ class DownloadManager(
       job?.cancel()
       job?.join()
       val download = entries.value.find { it.romId == romId } ?: return@withContext
-      withContext(Dispatchers.IO) { download.path?.let { deleteRecursively(Path("$it.part")) } }
+      withContext(Dispatchers.IO) {
+        download.storageRoot?.let { deleteRecursively(stagingFolder(it, romId)) }
+      }
       edit { list -> list.filterNot { it.romId == romId } }
       if (report) report(download, RommInstallStatus.Cancelled)
     }
@@ -747,23 +692,17 @@ class DownloadManager(
       // The scan found the game in a file of another name meanwhile.
       if (matchedFile(download.romId) != null) return RommInstallStatus.AlreadyInstalled
 
-      val (root, target) =
-        if (download.storageRoot != null && download.path != null) {
-          download.storageRoot to Path(download.path)
-        } else {
-          val root = pickStorage(totalBytes)
-          val target = Path(GameLayout.platformFolder(root, download.platformFolder), name)
-          edit { list ->
-            list.map {
-              if (it.romId == download.romId) {
-                it.copy(storageRoot = root, path = target.toString())
-              } else it
+      val root =
+        download.storageRoot
+          ?: pickStorage(totalBytes).also { root ->
+            edit { list ->
+              list.map { if (it.romId == download.romId) it.copy(storageRoot = root) else it }
             }
           }
-          root to target
-        }
+      val target = Path(GameLayout.platformFolder(root, download.platformFolder), name)
       if (SystemFileSystem.exists(target)) return RommInstallStatus.AlreadyInstalled
-      val staging = Path("$target.part")
+      val folder = stagingFolder(root, download.romId)
+      val staging = Path(folder, name)
       val multiFile = rom.files.size > 1
       val targets = files.map {
         if (multiFile) Path(staging, relativePath(rom.files, it)) else staging
@@ -791,7 +730,9 @@ class DownloadManager(
         }
       }
       if (SystemFileSystem.exists(target)) return RommInstallStatus.AlreadyInstalled
+      target.parent?.let { SystemFileSystem.createDirectories(it) }
       SystemFileSystem.atomicMove(staging, target)
+      SystemFileSystem.delete(folder)
       RommInstallStatus.Done
     }
   }
@@ -904,6 +845,12 @@ private val NotGames =
 
 /** Save states, such as `.state`, `.state1` or `.st0`, and RetroArch's `.auto`. */
 private val StateExtension = Regex("""state\d*|st\d+|auto""")
+
+/** The folder on the storage target at [root] where downloads stay until they're whole. */
+private fun stagingRoot(root: String) = Path(GameLayout.platformFolder(root, ".handheld-staging"))
+
+/** The folder the ROM [romId] downloads in on the storage target at [root], under its own name. */
+private fun stagingFolder(root: String, romId: Long) = Path(stagingRoot(root), romId.toString())
 
 /** The playlist a download writes in the folder of a ROM of several files, named [folder]. */
 private fun playlistName(folder: String) = "${folder.removeSuffix(".m3u")}.m3u"

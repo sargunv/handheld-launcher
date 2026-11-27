@@ -356,7 +356,8 @@ private fun descriptorText(path: Path): String? {
 /** Files a scan never takes for a game: hidden ones, and downloads under way. */
 private fun skipped(name: String) = name.startsWith('.') || name.endsWith(".part")
 
-private fun entriesOf(folder: Path): List<Path> =
+/** The entries of [folder] in name order, or none when it isn't a folder that can be read. */
+internal fun entriesOf(folder: Path): List<Path> =
   try {
     if (SystemFileSystem.metadataOrNull(folder)?.isDirectory == true) {
       SystemFileSystem.list(folder).sortedBy { it.name }

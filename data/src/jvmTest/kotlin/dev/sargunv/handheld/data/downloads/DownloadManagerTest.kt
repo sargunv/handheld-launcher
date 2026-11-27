@@ -10,7 +10,6 @@ import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
-import dev.sargunv.handheld.domain.storage.GameLayout
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -250,6 +249,9 @@ class DownloadManagerTest {
   }
 
   private fun file(path: String) = File(storage, path)
+
+  /** The folder the ROM [romId] downloads in until it's whole. */
+  private fun staged(romId: Long) = file("ROMs/.handheld-staging/$romId")
 
   /** Runs [block] with a timeout in real time, since the downloads run on real threads. */
   private suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
@@ -629,77 +631,14 @@ class DownloadManagerTest {
   }
 
   @Test
-  fun deletesStagedDownloadsNothingResumesOfTheLibrarysGamesOnly() = runTest {
-    fillLibrary()
-    val orphan =
-      file("ROMs/gba/Game (USA).gba.part").apply {
-        parentFile.mkdirs()
-        writeBytes(game.copyOf(1000))
-      }
-    val orphanFolder = file("ROMs/psx/Saga (USA).part").apply { mkdirs() }
-    File(orphanFolder, "Saga (USA) (Disc 1).chd").writeBytes(disc1)
-    // Files of other names, or of other apps, stay.
-    val kept =
-      listOf(
-          file("ROMs/gba/Unknown.gba.part"),
-          file("ROMs/gba/Game (USA).gba.tmp"),
-          file("ROMs/gba/Game (USA).gba"),
-          file("ROMs/ps2/3f2a9c1e-5b7d-4e0a-9d1c-2b6e8f4a7c3d.tmp"),
-          // A game's name in another platform's folder isn't that game's.
-          file("ROMs/psx/Game (USA).gba.part"),
-        )
-        .onEach {
-          it.parentFile.mkdirs()
-          it.writeBytes(disc1)
-        }
-    // The app starts with its data cleared: the library fills only with the first sync.
-    val downloads = manager(backgroundScope, server())
-    waitFor { delay(200) }
-    library.upsertRoms(listOf(gameRom, sagaRom))
-    waitFor { downloads.sweep.join() }
-
-    assertFalse(orphan.exists())
-    assertFalse(orphanFolder.exists())
-    for (file in kept) assertTrue(file.exists(), file.path)
-  }
-
-  // A first sync fills the library a page at a time, and a later page's orphan goes too.
-  @Test
-  fun sweepsTheOrphansOfLaterPagesOfTheFirstSync() = runTest {
-    fillLibrary()
-    val name = GameLayout.romName(sagaRom)
-    val orphan =
-      file("ROMs/psx/$name.part").apply {
-        parentFile.mkdirs()
-        writeBytes(disc1)
-      }
-    library.upsertRoms(listOf(gameRom))
-    val downloads = manager(backgroundScope, server())
-    waitFor { downloads.sweep.join() }
-    assertTrue(orphan.exists(), "Not a game of the library yet")
-    library.upsertRoms(listOf(sagaRom))
-    waitFor { while (orphan.exists()) delay(50) }
-  }
-
-  @Test
-  fun keepsTheStagedDownloadOfAGameInTheQueue() = runTest {
-    fillLibrary()
-    library.upsertRoms(listOf(gameRom))
-    stopMidDownload(game.copyOf(131_072))
-    val staged = file("ROMs/gba/Game (USA).gba.part")
-    requests.clear()
-
-    // The app starts again, and resumes from what's staged while it sweeps.
-    val stalling =
-      server(content = { request, bytes -> serveFrom(request, bytes) { ByteChannel() } })
-    val downloads = manager(backgroundScope, stalling)
-    waitFor { downloads.sweep.join() }
-    val resumed = waitFor {
-      while (requests.none { "files/content" in it.apiPath }) delay(10)
-      requests.first { "files/content" in it.apiPath }
+  fun deletesWhatsStagedForGamesNotInTheQueue() = runTest {
+    // The app starts with its data cleared, so the queue is empty.
+    for (file in listOf(File(staged(1), single.name), File(staged(2), "Saga/Disc 1.chd"))) {
+      file.parentFile.mkdirs()
+      file.writeBytes(disc1)
     }
-    assertEquals("bytes=131072-", resumed.headers[HttpHeaders.Range])
-    assertEquals(131_072, staged.length())
+    manager(backgroundScope, server())
+    waitFor { while (staged(1).exists() || staged(2).exists()) delay(10) }
   }
 
   @Test
@@ -727,7 +666,7 @@ class DownloadManagerTest {
   fun resumesAfterARestart() = runTest {
     fillLibrary()
     stopMidDownload(game.copyOf(131_072))
-    assertEquals(131_072, file("ROMs/gba/Game (USA).gba.part").length())
+    assertEquals(131_072, File(staged(1), single.name).length())
     assertFalse(file("ROMs/gba/Game (USA).gba").exists())
     requests.clear()
 
@@ -737,7 +676,7 @@ class DownloadManagerTest {
     downloads.awaitEmpty()
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
-    assertFalse(file("ROMs/gba/Game (USA).gba.part").exists())
+    assertFalse(staged(1).exists())
     val resumed = requests.single { "files/content" in it.apiPath }
     assertEquals("bytes=131072-", resumed.headers[HttpHeaders.Range])
   }
@@ -782,7 +721,7 @@ class DownloadManagerTest {
     downloads.cancel(1)
 
     assertEquals(emptyList(), downloads.queue.value)
-    assertFalse(file("ROMs/gba/Game (USA).gba.part").exists())
+    assertFalse(staged(1).exists())
     assertEquals(RomStatus.NotOnDevice, downloads.status(gameRom).first())
   }
 
@@ -802,7 +741,7 @@ class DownloadManagerTest {
       "Saga (USA) (Disc 1).chd\nSaga (USA) (Disc 2).chd\n",
       File(folder, "Saga (USA).m3u").readText(),
     )
-    assertFalse(file("ROMs/psx/Saga (USA).part").exists())
+    assertFalse(staged(2).exists())
   }
 
   @Test
@@ -839,8 +778,6 @@ class DownloadManagerTest {
     library.upsertRoms(listOf(gameRom, sagaRom))
     val gba = file("ROMs/gba/Game (USA).gba").apply { parentFile.mkdirs() }
     gba.writeBytes(game)
-    // A download that stopped partway isn't the game.
-    file("ROMs/psx/Saga (USA).part").mkdirs()
     val downloads = manager(backgroundScope, server())
 
     assertEquals(
@@ -1085,6 +1022,6 @@ class DownloadManagerTest {
     caller.cancel()
 
     waitFor { downloads.queue.first { it.isEmpty() } }
-    assertFalse(file("ROMs/gba/Game (USA).gba.part").exists())
+    assertFalse(staged(1).exists())
   }
 }
