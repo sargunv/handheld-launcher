@@ -44,8 +44,10 @@ pub trait VideoSink {
 }
 
 /// A sink that drops every frame.
+#[cfg(any(test, not(target_os = "android")))]
 pub(crate) struct NullVideoSink;
 
+#[cfg(any(test, not(target_os = "android")))]
 impl VideoSink for NullVideoSink {
     fn frame(&mut self, _frame: Frame<'_>) {}
 }
