@@ -8,6 +8,7 @@ import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.UploadScopes
 import io.ktor.client.engine.HttpClientEngine
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /** This device, as it introduces itself to a server it pairs with. */
 data class DeviceDescription(
@@ -52,6 +53,7 @@ class RommSignIn(
    * @param allowUploads also asks for [UploadScopes], so the device can upload games to the server.
    * @throws RommException.DeviceAuthDenied when the user denies the code.
    * @throws RommException.DeviceAuthExpired when the code expires before anyone approves it.
+   * @throws RommException.Unreachable when [address] isn't one the engine can send to.
    */
   suspend fun withDeviceCode(
     address: String,
@@ -105,6 +107,7 @@ class RommSignIn(
    * checked against the server before it's stored.
    *
    * @throws RommException.Unauthorized when the server doesn't accept the token.
+   * @throws RommException.Unreachable when [address] isn't one the engine can send to.
    */
   suspend fun withToken(address: String, token: String): RommCredentials {
     val baseUrl = encryptedIfOffered(address)
@@ -121,8 +124,14 @@ class RommSignIn(
    * [address], or its `https://` address when it's a plain `http://` one whose server redirects
    * there, so no credentials go out unencrypted to a server that offers encryption.
    */
-  private suspend fun encryptedIfOffered(address: String): String =
-    RommClient(address, engine = engine()).use { it.httpsAddress() } ?: address
+  private suspend fun encryptedIfOffered(address: String): String {
+    try {
+      address.toHttpUrl()
+    } catch (e: IllegalArgumentException) {
+      throw RommException.Unreachable(e)
+    }
+    return RommClient(address, engine = engine()).use { it.httpsAddress() } ?: address
+  }
 
   private companion object {
     const val CLIENT_NAME = "handheld"

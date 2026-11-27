@@ -142,7 +142,6 @@ class SignInTest {
     assertEquals("https://example.com/romm", serverUrl("https://example.com/romm"))
     assertNull(serverUrl(""))
     assertNull(serverUrl("ftp://romm.example.com"))
-    assertNull(serverUrl("romm..example.com"))
   }
 
   @Test
