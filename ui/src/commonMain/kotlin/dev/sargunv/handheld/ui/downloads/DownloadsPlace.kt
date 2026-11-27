@@ -90,7 +90,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
             items(queue, key = { it.romId }) { download ->
               DownloadRow(
                 download,
-                progress[download.romId] ?: DownloadProgress(0, download.sizeBytes),
+                download.progressIn(progress),
                 Modifier.onFocusChanged { if (it.isFocused) focusedId = download.romId },
                 onOpen = { onOpen(download) },
               )

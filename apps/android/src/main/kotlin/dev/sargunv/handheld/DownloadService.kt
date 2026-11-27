@@ -84,7 +84,7 @@ class DownloadService : Service() {
     if (current == null) {
       return builder.setContentTitle("Waiting to download").build()
     }
-    val (bytes, total) = progress[current.romId] ?: DownloadProgress(0, current.sizeBytes)
+    val (bytes, total) = current.progressIn(progress)
     return builder
       .setContentTitle(current.title)
       .setContentText(
