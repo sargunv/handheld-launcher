@@ -358,6 +358,35 @@ class DownloadManagerTest {
   }
 
   @Test
+  fun signingOutAsADownloadEndsLeavesTheNextGameQueued() = runTest {
+    fillLibrary()
+    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    // The device signs out while the first game's file arrives.
+    val signingOut =
+      server(
+        content = { request, bytes ->
+          if (bytes === game) credentials.clear()
+          serve(request, bytes)
+        },
+      )
+    val writable = MutableStateFlow(false)
+    val downloads =
+      manager(backgroundScope, signingOut, canWrite = writable, credentials = credentials)
+    assertTrue(downloads.enqueue(gameRom))
+    assertTrue(downloads.enqueue(sagaRom))
+    val seen = Collections.synchronizedList(mutableListOf<RomStatus>())
+    backgroundScope.launch(Dispatchers.Default) { downloads.status(sagaRom).collect { seen += it } }
+    writable.value = true
+
+    waitFor { downloads.queue.first { queue -> queue.map { it.romId } == listOf(2L) } }
+    assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
+    credentials.save(RommCredentials(TEST_SERVER, "rmm_test"))
+    downloads.awaitEmpty()
+    assertTrue(file("ROMs/psx/Saga (USA)").isDirectory)
+    assertTrue(seen.none { it is RomStatus.Failed }, "$seen")
+  }
+
+  @Test
   fun doesNotDownloadAGameCopiedUnderAnotherName() = runTest {
     fillLibrary()
     val file = gameRom.files.single()
@@ -415,6 +444,35 @@ class DownloadManagerTest {
     assertFalse(staged(1).exists())
     val resumed = requests.single { "files/content" in it.apiPath }
     assertEquals("bytes=131072-", resumed.headers[HttpHeaders.Range])
+  }
+
+  @Test
+  fun aGameInPlaceStaysOnTheDeviceWhenItsStagingCantBeDeleted() = runTest {
+    fillLibrary()
+    // An earlier attempt staged the game under a name the server has changed since, in a folder
+    // that can't be deleted from.
+    val leftover = File(staged(1), "Old (USA)").apply { mkdirs() }
+    File(leftover, "Old (USA).gba").writeBytes(disc1)
+    leftover.setWritable(false)
+    try {
+      val writable = MutableStateFlow(false)
+      val downloads = manager(backgroundScope, server(), canWrite = writable)
+      val seen = Collections.synchronizedList(mutableListOf<RomStatus>())
+      backgroundScope.launch(Dispatchers.Default) {
+        downloads.status(gameRom).collect { seen += it }
+      }
+      assertTrue(downloads.enqueue(gameRom))
+      writable.value = true
+      downloads.awaitEmpty()
+
+      val target = file("ROMs/gba/Game (USA).gba")
+      assertContentEquals(game, target.readBytes())
+      waitFor { while (seen.lastOrNull() !is RomStatus.OnDevice) delay(10) }
+      assertEquals(RomStatus.OnDevice(target.path), seen.last())
+      assertTrue(seen.none { it is RomStatus.Failed }, "$seen")
+    } finally {
+      leftover.setWritable(true)
+    }
   }
 
   @Test
