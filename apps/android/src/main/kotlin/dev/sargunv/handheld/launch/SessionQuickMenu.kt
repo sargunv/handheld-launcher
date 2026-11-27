@@ -68,7 +68,7 @@ internal class SessionQuickMenu(
         running.saveState(path)
       } catch (e: SessionException) {
         log.e(e) { "can't save a state to $path" }
-        return@withContext failure(e)
+        return@withContext e.label()
       }
       // The picture comes second: a state without one still loads.
       val thumbnail = File(BuiltInSaves.thumbnailOf(path))
@@ -91,7 +91,7 @@ internal class SessionQuickMenu(
         null
       } catch (e: SessionException) {
         log.e(e) { "can't load the state in $path" }
-        failure(e)
+        e.label()
       }
     }
 
@@ -117,9 +117,6 @@ internal class SessionQuickMenu(
     }
     writeAtomically(Path(file.path), png.toByteArray())
   }
-
-  private fun failure(e: SessionException): String =
-    if (e is SessionException.Io) "State file error · ${e.message}" else e.label()
 
   private companion object {
     /** How many times its own speed a game runs while fast forward is on. */
