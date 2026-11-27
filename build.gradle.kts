@@ -9,5 +9,4 @@ plugins {
   alias(libs.plugins.sqldelight) apply false
   alias(libs.plugins.aboutlibraries) apply false
   alias(libs.plugins.aboutlibraries.android) apply false
-  id("handheld.build-logic") apply false
 }

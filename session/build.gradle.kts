@@ -6,7 +6,6 @@ import dev.sargunv.handheld.gradle.UniffiBindgen
 plugins {
   alias(libs.plugins.kotlin.multiplatform)
   alias(libs.plugins.android.kmp.library)
-  id("handheld.build-logic")
 }
 
 // The Rust crate builds with cargo from mise's toolchain: for the JVM, the host's library, which

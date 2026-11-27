@@ -6,7 +6,6 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.compose.multiplatform)
   alias(libs.plugins.aboutlibraries)
-  id("handheld.build-logic")
 }
 
 // The About screen's list, as a resource: the app's dependencies, with the entries every app

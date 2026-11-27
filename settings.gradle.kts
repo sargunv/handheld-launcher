@@ -1,7 +1,6 @@
 rootProject.name = "handheld"
 
 pluginManagement {
-  includeBuild("build-logic")
   repositories {
     google()
     mavenCentral()
