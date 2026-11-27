@@ -31,7 +31,7 @@ data class RommDeviceSync(
 
 /** A request, made on the server's web page, to install a ROM on a device. */
 @Serializable
-data class RommInstallRequest(
+internal data class RommInstallRequest(
   val id: String,
   @SerialName("device_id") val deviceId: String,
   @SerialName("rom_id") val romId: Long,
@@ -43,7 +43,7 @@ data class RommInstallRequest(
 
 /** Where an install request stands. A device takes pending ones, then reports how they ended. */
 @Serializable
-enum class RommInstallStatus {
+internal enum class RommInstallStatus {
   @SerialName("pending") Pending,
   @SerialName("taken") Taken,
   @SerialName("done") Done,

@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 /** The signed-in user, from `GET /api/users/me`. */
 @Serializable
-data class RommUser(
+internal data class RommUser(
   val id: Long,
   val username: String,
   /** The scopes the user's role grants. A token may hold fewer. */
@@ -17,11 +17,12 @@ data class RommUser(
 )
 
 /** A user's RetroAchievements progress, game by game, as RomM last fetched it. */
-@Serializable data class RommRaProgression(val results: List<RommRaGameProgression> = emptyList())
+@Serializable
+internal data class RommRaProgression(val results: List<RommRaGameProgression> = emptyList())
 
 /** A user's RetroAchievements progress in one game. */
 @Serializable
-data class RommRaGameProgression(
+internal data class RommRaGameProgression(
   /** RetroAchievements' id for the game, which a ROM's `ra_id` matches. */
   @SerialName("rom_ra_id") val romRaId: Long? = null,
   /** How many achievements the game has. */
@@ -33,7 +34,7 @@ data class RommRaGameProgression(
 
 /** What a device tells the server about itself when it asks to pair. */
 @Serializable
-data class DeviceAuthRequest(
+internal data class DeviceAuthRequest(
   /** An id that stays the same across sign-ins on this install, so the server reuses its device. */
   @SerialName("client_device_identifier") val clientDeviceIdentifier: String,
   /** The device's name, which the server shows on the approval screen. */
@@ -62,7 +63,7 @@ data class DeviceCode(
 
 /** A client API token the server issued to this device. */
 @Serializable
-data class DeviceToken(
+internal data class DeviceToken(
   @SerialName("access_token") val accessToken: String,
   /** The server's id for the device the token is bound to. */
   @SerialName("device_id") val deviceId: String,
@@ -70,7 +71,7 @@ data class DeviceToken(
 )
 
 /** The scopes a device requests by default: what browsing, downloads and save sync use. */
-val DefaultDeviceScopes: List<String> =
+internal val DefaultDeviceScopes: List<String> =
   listOf(
     "me.read",
     "platforms.read",
@@ -89,9 +90,9 @@ val DefaultDeviceScopes: List<String> =
  * The scopes uploading a game needs, which a device requests only when the player allows it:
  * `roms.write` sends the file, and `tasks.run` scans it into the library.
  */
-val UploadScopes: List<String> = listOf(UPLOAD_SCOPE, "tasks.run")
+internal val UploadScopes: List<String> = listOf(UPLOAD_SCOPE, "tasks.run")
 
 /**
  * The scope a token needs to upload a game at all. Without `tasks.run`, the game waits for a scan.
  */
-const val UPLOAD_SCOPE = "roms.write"
+internal const val UPLOAD_SCOPE = "roms.write"

@@ -597,7 +597,7 @@ private fun deleteIfCan(path: Path) {
 }
 
 /** A download that can't go on until something changes, such as freeing space. */
-class DownloadException(message: String) : Exception(message)
+internal class DownloadException(message: String) : Exception(message)
 
 internal fun notEnoughSpace(target: StorageTarget, needed: Long, free: Long) =
   DownloadException(
