@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.Removal
 import dev.sargunv.handheld.data.downloads.UploadResult
@@ -231,7 +232,8 @@ internal class GameActions(private val state: AppState, private val scope: Corou
           )
         // The library learns of the game, and this page becomes its page.
         state.romm.syncNow()
-      } catch (_: RommException.Forbidden) {
+      } catch (e: RommException.Forbidden) {
+        log.w(e) { "Upload of ${game.path} refused" }
         val refused = "Upload refused · No upload permission"
         notes = listOf(refused)
         // A sign-in whose permissions aren't known, or don't include uploading, may be why.
@@ -259,3 +261,5 @@ internal class GameActions(private val state: AppState, private val scope: Corou
 }
 
 private const val SIGN_IN_TO_UPLOAD = "Sign in to RomM to upload"
+
+private val log = Logger.withTag("GameActions")

@@ -13,7 +13,9 @@ import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
@@ -135,7 +137,31 @@ class LocalContentTest {
       mapOf(1L to File(gba, "my game.gba").path, 2L to File(gba, "other.zip").path),
       scan.matched,
     )
-    assertEquals(listOf(File(gba, "notes.txt").path), scan.unmatched.map { it.path })
+    // Notes aren't games, so they aren't read or listed.
+    assertEquals(emptyList(), scan.unmatched)
+  }
+
+  @Test
+  fun onlyFilesThatMayBeGamesAreScanned() {
+    for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f", "Sonic.md")) {
+      assertTrue(isGameFile(name), name)
+    }
+    for (name in
+      listOf(
+        "a.srm",
+        "b.sav",
+        "c.state",
+        "d.state3",
+        "e.st0",
+        "f.png",
+        "g.txt",
+        "h.ips",
+        "i.tmp",
+        "j.gba.part",
+        ".k.gba",
+      )) {
+      assertFalse(isGameFile(name), name)
+    }
   }
 
   @Test

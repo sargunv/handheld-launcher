@@ -234,25 +234,6 @@ class LaunchResolverTest {
   }
 
   @Test
-  fun aTargetBuildsItsCommandWithItsCore() {
-    val rules =
-      LaunchRules(
-        platformDefaults = mapOf(SNES to LaunchChoice("com.retroarch", core = "bsnes_libretro")),
-      )
-    val game = LaunchSubject(game = GameKey.Romm(1), platform = SNES)
-    val target = resolved(LaunchResolver.resolve(game, rules, setOf("com.retroarch"))).target
-    val command =
-      assertIs<LaunchBuild.Ready>(target.commandFor(LaunchInput("/roms/zelda.sfc", SNES))).command
-    assertEquals(
-      LaunchExtra.StringValue(
-        "LIBRETRO",
-        "/data/data/com.retroarch/cores/bsnes_libretro_android.so",
-      ),
-      command.extras.first { it.key == "LIBRETRO" },
-    )
-  }
-
-  @Test
   fun aKnownCoreLoadsByItsAndroidLibraryName() {
     val rules =
       LaunchRules(

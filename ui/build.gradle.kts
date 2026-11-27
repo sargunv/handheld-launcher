@@ -21,6 +21,7 @@ kotlin {
       implementation(libs.coil.compose)
       implementation(libs.coil.network.ktor3)
       implementation(libs.aboutlibraries.core)
+      implementation(libs.kermit)
     }
     commonTest.dependencies {
       implementation(libs.kotlin.test)

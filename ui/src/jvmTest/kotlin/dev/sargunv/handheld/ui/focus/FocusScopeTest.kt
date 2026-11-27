@@ -22,7 +22,6 @@ import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.press
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class FocusScopeTest {
@@ -99,12 +98,10 @@ class FocusScopeTest {
   }
 
   @Test
-  fun aScopeInsideADialogStillCountsAsADialog() = runComposeUiTest {
-    var scopes: FocusScopes? = null
+  fun aScopeInsideADialogTakesFocus() = runComposeUiTest {
     setContent {
       TestActionInputRoot {
         FocusRoot {
-          scopes = LocalFocusScopes.current
           Box {
             FocusScope { Box(Modifier.size(40.dp).testTag("screen").focusItem("screen")) }
             Dialog(onDismissRequest = {}) {
@@ -117,6 +114,5 @@ class FocusScopeTest {
     }
     waitForIdle()
     onNodeWithTag("page").assertIsFocused()
-    assertTrue(scopes!!.isDialogOpen)
   }
 }

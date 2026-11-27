@@ -142,8 +142,7 @@ class DeviceGames(
 
   /**
    * The local games: the files in the platforms' folders that match none of the library's games, by
-   * name or by content, as of the latest scan. Files that aren't games, such as saves, pictures and
-   * notes, are left out.
+   * name or by content, as of the latest scan.
    */
   fun localGames(): Flow<List<LocalGame>> =
     listing.mapNotNull { it?.localGames() }.distinctUntilChanged()
@@ -168,7 +167,6 @@ class DeviceGames(
     val slugs = platforms.associate { it.id to it.slug }
     return scan?.unmatched?.mapNotNull { file ->
       val slug = slugs[file.platformId] ?: return@mapNotNull null
-      if (!isGameFile(file.path)) return@mapNotNull null
       LocalGame(
         path = file.path,
         platformId = file.platformId,
@@ -326,27 +324,4 @@ private fun filesIn(folder: Path): List<Path> =
     if (SystemFileSystem.metadataOrNull(it)?.isDirectory == true) filesIn(it) else listOf(it)
   }
 
-/**
- * Whether the file at [path] may be a game, as far as its extension tells: saves, save states,
- * pictures, patches and notes that sit beside games aren't.
- */
-internal fun isGameFile(path: String): Boolean {
-  val extension = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
-  return extension !in NotGames && !extension.matches(StateExtension)
-}
-
 private const val DELETE_FAILED = "Delete failed"
-
-/**
- * The extensions of files that sit beside games but aren't games: saves, pictures, patches and
- * cheats, notes and settings, and files another app is still writing. Not `.md`, a Mega Drive
- * ROM's.
- */
-private val NotGames =
-  ("srm sav sa1 dsv eep fla sra mpk rtc mcr mcd png jpg jpeg gif bmp webp ips bps ups xdelta cht " +
-      "txt nfo pdf xml json ini cfg log db tmp bak")
-    .split(' ')
-    .toSet()
-
-/** Save states, such as `.state`, `.state1` or `.st0`, and RetroArch's `.auto`. */
-private val StateExtension = Regex("""state\d*|st\d+|auto""")

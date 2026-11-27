@@ -30,9 +30,9 @@ It sets the scope and the priorities. Before you build a screen, read
 
 - `mise run run:android` and `mise run android:open` take
   `HANDHELD_LAYOUT=frame` (or `folded`) to force a dual-screen layout.
-- `mise run android:open <target>` shows a screen straight away; `--help` lists
-  the targets. Before sign-in, only the `settings` targets show. It's the launch
-  intent's `open` extra, so
+- `mise run android:open <target>` shows a screen straight away;
+  `mise run android:open --help` lists the targets. Before sign-in, only the
+  `settings` targets show. It's the launch intent's `open` extra, so
   `adb shell am start -n dev.sargunv.handheld/.MainActivity --es open game:42`
   does the same.
 - Before confirming on a game in `mise run android:ui`'s output, check it's on
