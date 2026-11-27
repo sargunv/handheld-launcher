@@ -215,7 +215,7 @@ class DeviceGames(
         for ((path, _) in parts) SystemFileSystem.delete(path)
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
+        Removal.Failed(e.message ?: DELETE_FAILED)
       } finally {
         rescan()
       }
@@ -253,7 +253,7 @@ class DeviceGames(
         }
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
+        Removal.Failed(e.message ?: DELETE_FAILED)
       } finally {
         // Even a removal that failed partway may have deleted some of the game.
         rescan()
@@ -340,6 +340,8 @@ internal fun isGameFile(path: String): Boolean {
  * cheats, notes and settings, and files another app is still writing. Not `.md`, a Mega Drive
  * ROM's.
  */
+private const val DELETE_FAILED = "Couldn't delete files"
+
 private val NotGames =
   ("srm sav sa1 dsv eep fla sra mpk rtc mcr mcd png jpg jpeg gif bmp webp ips bps ups xdelta cht " +
       "txt nfo pdf xml json ini cfg log db tmp bak")

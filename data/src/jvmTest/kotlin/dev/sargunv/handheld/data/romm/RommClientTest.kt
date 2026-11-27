@@ -5,13 +5,11 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -122,17 +120,9 @@ class RommClientTest {
 
   @Test
   fun mapsErrorStatuses() = runTest {
-    suspend fun failureFor(status: HttpStatusCode, body: String, retryAfter: String? = null) =
+    suspend fun failureFor(status: HttpStatusCode, body: String) =
       assertFailsWith<RommException.Status> {
-        MockServer {
-          respond(
-            body,
-            status,
-            if (retryAfter == null) headersOf() else headersOf(HttpHeaders.RetryAfter, retryAfter),
-          )
-        }
-          .client
-          .platforms()
+        MockServer { respond(body, status) }.client.platforms()
       }
 
     val unauthorized = failureFor(HttpStatusCode.Unauthorized, """{"detail":"Invalid token"}""")
@@ -152,9 +142,10 @@ class RommClientTest {
     assertEquals(422, invalid.status)
     assertEquals("Input should be a valid integer", invalid.detail)
 
-    val limited = failureFor(HttpStatusCode.TooManyRequests, """{"detail":"Slow down"}""", "30")
-    assertTrue(limited is RommException.RateLimited)
-    assertEquals(30.seconds, limited.retryAfter)
+    assertTrue(
+      failureFor(HttpStatusCode.TooManyRequests, """{"detail":"Slow down"}""")
+        is RommException.RateLimited,
+    )
 
     val failed = failureFor(HttpStatusCode.BadGateway, "<html>Bad Gateway</html>")
     assertTrue(failed is RommException.ServerError)

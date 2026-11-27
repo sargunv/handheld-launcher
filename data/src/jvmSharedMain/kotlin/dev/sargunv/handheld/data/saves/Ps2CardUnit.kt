@@ -11,8 +11,6 @@ import dev.sargunv.handheld.data.writeAtomically
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.util.zip.ZipInputStream
 import kotlin.time.Instant
 import kotlinx.io.files.Path
@@ -299,39 +297,17 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val aside = File(dir.parentFile, "$RESERVED$stamp-old")
     try {
       for ((name, files) in folders) {
+        val folder = File(staging, name).apply { mkdirs() }
         for ((path, data) in files) {
-          val file = File(File(staging, name), path)
+          val file = File(folder, path)
           file.parentFile.mkdirs()
           file.writeBytes(data)
         }
       }
-      if (!aside.mkdirs()) throw IOException("Couldn't make ${aside.path}")
-      val undo = ArrayDeque<() -> Unit>()
-      try {
-        for (old in owned(dir)) {
-          val moved = File(aside, old.name)
-          Files.move(old.toPath(), moved.toPath(), ATOMIC_MOVE)
-          undo.addFirst { Files.move(moved.toPath(), old.toPath(), ATOMIC_MOVE) }
-        }
-        for ((name, _) in folders) {
-          val placed = File(dir, name)
-          Files.move(File(staging, name).toPath(), placed.toPath(), ATOMIC_MOVE)
-          undo.addFirst { placed.deleteRecursively() }
-        }
-      } catch (e: IOException) {
-        for (step in undo) {
-          try {
-            step()
-          } catch (suppressed: IOException) {
-            e.addSuppressed(suppressed)
-          }
-        }
-        throw e
-      }
+      swapIn(listOf(Swap(dir, owned(dir), staging, aside)))
       aside.deleteRecursively()
     } finally {
       staging.deleteRecursively()
-      if (aside.list()?.isEmpty() == true) aside.delete()
     }
   }
 
@@ -398,7 +374,6 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
   private companion object {
     /** The cards PCSX2 and its forks use unless their settings name others: slot 1's, then 2's. */
     val SLOTS = listOf("Mcd001.ps2", "Mcd002.ps2")
-    const val RESERVED = ".handheld-"
   }
 }
 

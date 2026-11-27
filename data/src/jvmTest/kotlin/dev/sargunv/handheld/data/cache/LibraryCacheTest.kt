@@ -111,10 +111,11 @@ class LibraryCacheTest {
   @Test
   fun forgetsRemovedRoms() = runTest {
     cache.upsertRoms(listOf(rom(1, "Keep"), rom(2, "Drop"), rom(3, "Also Drop")))
-    assertEquals(2, cache.retainRoms(setOf(1)))
+    cache.retainRoms(setOf(1))
 
     assertEquals(listOf("Keep"), cache.romsOnPlatform(1).first().map { it.title })
     assertNull(cache.rom(2))
+    assertNull(cache.rom(3))
   }
 
   @Test

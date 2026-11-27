@@ -258,7 +258,6 @@ class LibrarySyncTest {
     val file =
       RommRomFile(
         id = 1,
-        romId = 1,
         fileName = "Game.chd",
         filePath = "roms/ps2",
         fileSizeBytes = 100,
@@ -266,7 +265,6 @@ class LibrarySyncTest {
         crcHash = "ABCDEF",
         md5Hash = "",
         sha1Hash = "58DC525550A5A7050CB9940D5D5BFAEE0F2FCE88",
-        updatedAt = Instant.parse("2025-01-01T00:00:00Z"),
       )
     val domain = file.toDomain()
     assertEquals("00abcdef", domain.crcHash)

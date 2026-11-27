@@ -184,14 +184,12 @@ private constructor(
 
   internal suspend fun romIds(): Set<Long> = transaction { queries.romIds().awaitAsList().toSet() }
 
-  /** Removes the ROMs whose ids aren't in [ids], and returns how many it removed. */
-  internal suspend fun retainRoms(ids: Set<Long>): Int = transaction {
-    val removed = queries.romIds().awaitAsList().filterNot { it in ids }
-    for (id in removed) {
+  /** Removes the ROMs whose ids aren't in [ids]. */
+  internal suspend fun retainRoms(ids: Set<Long>) = transaction {
+    for (id in queries.romIds().awaitAsList().filterNot { it in ids }) {
       queries.deleteRom(id)
       queries.deleteFilesOfRom(id)
     }
-    removed.size
   }
 
   internal suspend fun replaceCollections(collections: List<Pair<Collection, List<Long>>>) =

@@ -3,18 +3,15 @@ package dev.sargunv.handheld.data.downloads
 import dev.sargunv.handheld.data.romm.RommRomFile
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.time.Instant
 
 class RelativePathTest {
   private fun file(name: String, path: String, topLevel: Boolean) =
     RommRomFile(
       id = 0,
-      romId = 1,
       fileName = name,
       filePath = path,
       fileSizeBytes = 1,
       isTopLevel = topLevel,
-      updatedAt = Instant.parse("2025-01-01T00:00:00Z"),
     )
 
   @Test

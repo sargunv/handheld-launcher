@@ -168,9 +168,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
         .isNotEmpty()
     }
     if (holding.size > 1) {
-      throw IOException(
-        "Several Switch profiles have this game's save, so the launcher can't tell which to sync",
-      )
+      throw IOException("Several Switch profiles hold this save")
     }
     return holding.singleOrNull() ?: profiles.singleOrNull()
   }
@@ -257,7 +255,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
           top.startsWith(RESERVED) ||
           !place.area.selection.claims(top)
       ) {
-        throw IOException("The save from RomM holds $name, which isn't part of this game's save")
+        throw IOException("Not part of this save · $name")
       }
       byPlace.getOrPut(place) { mutableListOf() } += rest to data
     }
@@ -265,7 +263,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
       for (top in files.map { it.first.substringBefore('/') }.toSet()) {
         val there = File(place.dir, top)
         if (there.exists() && !place.owns(there)) {
-          throw IOException("${there.path} isn't part of this game's save, so it stays as it is")
+          throw IOException("Not part of this save · ${there.name}")
         }
       }
     }
@@ -288,53 +286,63 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
           }
         }
       }
-      val aside = staged.map { (place, _) -> File(place.dir, "$RESERVED$stamp-old") }
-      swap(staged, aside)
-      // The old entries are in the history already, unless the emulator changed them since. When
-      // a swap fails, they stay aside too.
-      val asidePlaces = staged.map { it.first }.zip(aside).toMap()
-      val moved = collect(places.map { asidePlaces[it]?.let { dir -> Place(it.area, dir) } ?: it })
+      val swaps = staged.associate { (place, staging) ->
+        place to Swap(place.dir, place.owned(), staging, File(place.dir, "$RESERVED$stamp-old"))
+      }
+      swapIn(swaps.values.toList())
+      // The old entries are in the history already, unless the emulator changed them since.
+      val moved =
+        collect(places.map { swaps[it]?.let { swap -> Place(it.area, swap.aside) } ?: it })
       if (moved != null && moved.hash != replaced) keep(moved)
-      aside.forEach { it.deleteRecursively() }
+      swaps.values.forEach { it.aside.deleteRecursively() }
     } finally {
       for ((_, staging) in staged) staging.deleteRecursively()
     }
   }
 
-  /** Moves each area's selected entries aside and the staged ones in, or undoes it all. */
-  private fun swap(staged: List<Pair<Place, File>>, aside: List<File>) {
-    val undo = ArrayDeque<() -> Unit>()
-    try {
-      for ((i, pair) in staged.withIndex()) {
-        val (place, staging) = pair
-        val old = aside[i]
-        if (!old.mkdirs()) throw IOException("Couldn't make ${old.path}")
-        for (entry in place.owned()) {
-          val aside = File(old, entry.name)
-          Files.move(entry.toPath(), aside.toPath(), ATOMIC_MOVE)
-          undo.addFirst { Files.move(aside.toPath(), entry.toPath(), ATOMIC_MOVE) }
-        }
-        for (entry in staging.listFiles().orEmpty()) {
-          val placed = File(place.dir, entry.name)
-          Files.move(entry.toPath(), placed.toPath(), ATOMIC_MOVE)
-          undo.addFirst { placed.deleteRecursively() }
-        }
-      }
-    } catch (e: IOException) {
-      for (step in undo) {
-        try {
-          step()
-        } catch (suppressed: IOException) {
-          e.addSuppressed(suppressed)
-        }
-      }
-      throw e
-    }
-  }
-
   private companion object {
-    const val RESERVED = ".handheld-"
     val PROFILE_ID = Regex("[0-9A-Fa-f]{16}|[0-9A-Fa-f]{32}")
+  }
+}
+
+/** What starts the names of the folders a [swapIn] stages and sets aside, which no save claims. */
+internal const val RESERVED = ".handheld-"
+
+/**
+ * One folder's part of a [swapIn]: in [dir], the entries [old] go to [aside], and [staged]'s in.
+ */
+internal class Swap(val dir: File, val old: List<File>, val staged: File, val aside: File)
+
+/**
+ * Puts each of [swaps]' staged entries in place of its old ones, which move aside, so an emulator
+ * never sees a save half written. When a move fails, every move is undone.
+ */
+internal fun swapIn(swaps: List<Swap>) {
+  val undo = ArrayDeque<() -> Unit>()
+  try {
+    for (swap in swaps) {
+      if (!swap.aside.mkdirs()) throw IOException("Couldn't make ${swap.aside.path}")
+      undo.addFirst { swap.aside.delete() }
+      for (entry in swap.old) {
+        val moved = File(swap.aside, entry.name)
+        Files.move(entry.toPath(), moved.toPath(), ATOMIC_MOVE)
+        undo.addFirst { Files.move(moved.toPath(), entry.toPath(), ATOMIC_MOVE) }
+      }
+      for (entry in swap.staged.listFiles().orEmpty()) {
+        val placed = File(swap.dir, entry.name)
+        Files.move(entry.toPath(), placed.toPath(), ATOMIC_MOVE)
+        undo.addFirst { placed.deleteRecursively() }
+      }
+    }
+  } catch (e: IOException) {
+    for (step in undo) {
+      try {
+        step()
+      } catch (suppressed: IOException) {
+        e.addSuppressed(suppressed)
+      }
+    }
+    throw e
   }
 }
 
@@ -373,7 +381,7 @@ private fun unzip(bytes: ByteArray): List<Pair<String, ByteArray?>> {
           '\\' in name ||
           segments.any { it.isEmpty() || it == "." || it == ".." }
       ) {
-        throw IOException("The save from RomM holds an entry named $name, which is unsafe")
+        throw IOException("Unsafe path · $name")
       }
       entries += name to if (entry.isDirectory) null else zip.readBytes()
     }
