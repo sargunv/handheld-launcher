@@ -24,11 +24,12 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 
 /**
- * Runs the app in one window: the Thor's two screens in a frame, or with `--folded` the
- * single-screen layout. Its files go in the XDG base directories, and the credentials unencrypted.
+ * Runs the app in one window: the Thor's two screens in a frame, or with `HANDHELD_LAYOUT=folded`
+ * the single-screen layout. Its files go in the XDG base directories, and the credentials
+ * unencrypted.
  */
-fun main(args: Array<String>) {
-  val folded = "--folded" in args
+fun main() {
+  val folded = System.getenv("HANDHELD_LAYOUT") == "folded"
   val dataDir = xdgDir("XDG_DATA_HOME", ".local/share")
   val configDir = xdgDir("XDG_CONFIG_HOME", ".config")
   val cacheDir = xdgDir("XDG_CACHE_HOME", ".cache")
@@ -45,12 +46,13 @@ fun main(args: Array<String>) {
       scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
       storageSettings = { settingsFile.read().storage },
     )
+  // The build passes the version and puts the list of components in the resources.
+  val version = System.getProperty("handheld.version") ?: "unknown"
   val os = System.getProperty("os.name")
   val device =
-    DeviceDescription(installIdentifier(Path(dataDir, "install-id")), os, os.lowercase(), null)
-  // The build passes the version and puts the list of components in the resources.
+    DeviceDescription(installIdentifier(Path(dataDir, "install-id")), os, os.lowercase(), version)
   val appInfo =
-    AppInfo(System.getProperty("handheld.version") ?: "unknown") {
+    AppInfo(version) {
       ClassLoader.getSystemResourceAsStream("aboutlibraries.json")?.use {
         it.readBytes().decodeToString()
       }
