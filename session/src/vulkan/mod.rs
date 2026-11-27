@@ -30,7 +30,7 @@ use interface::{Handles, QueueLock, RenderInterface, RetroVulkanContext, RetroVu
 pub(crate) use interface::{NEGOTIATION_VERSION, Negotiation};
 
 use crate::gl::{NativeWindow, Target, WindowRef};
-use crate::video::Region;
+use crate::video::{Region, Screen};
 
 /// Why the session couldn't set up or use Vulkan.
 #[derive(Debug, thiserror::Error)]
@@ -219,15 +219,8 @@ struct FrameSlot {
     pool: vk::CommandPool,
     commands: vk::CommandBuffer,
     /// Signaled when the swapchain image acquired in this slot is ready, one
-    /// for each [`Output`].
+    /// for each [`Screen`].
     acquired: [vk::Semaphore; 2],
-}
-
-/// One of the windows a context presents to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Output {
-    Main = 0,
-    Lower = 1,
 }
 
 /// An attached window: its surface and swapchain.
@@ -247,7 +240,7 @@ struct Window {
 
 /// A swapchain image acquired for a frame, and what goes on it.
 struct Draw {
-    output: Output,
+    output: Screen,
     swapchain: vk::SwapchainKHR,
     index: u32,
     target: vk::Image,
@@ -681,10 +674,10 @@ impl VulkanContext {
             self.flush();
             return;
         };
-        let outputs: &[(Output, Region)] = if self.lower_window.is_some() {
-            &[(Output::Lower, lower), (Output::Main, Region::Top)]
+        let outputs: &[(Screen, Region)] = if self.lower_window.is_some() {
+            &[(Screen::Lower, lower), (Screen::Main, Region::Top)]
         } else {
-            &[(Output::Main, Region::Whole)]
+            &[(Screen::Main, Region::Whole)]
         };
         // The slot's semaphores are free once its last submission is done.
         let slot = {
@@ -773,10 +766,10 @@ impl VulkanContext {
         }
     }
 
-    fn window_mut(&mut self, output: Output) -> &mut Option<Window> {
+    fn window_mut(&mut self, output: Screen) -> &mut Option<Window> {
         match output {
-            Output::Main => &mut self.window,
-            Output::Lower => &mut self.lower_window,
+            Screen::Main => &mut self.window,
+            Screen::Lower => &mut self.lower_window,
         }
     }
 
@@ -895,7 +888,7 @@ impl VulkanContext {
     /// `None`. The old window's surface is gone when this returns. On an
     /// error, the context has no window.
     pub(crate) fn set_window(&mut self, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
-        self.attach(Output::Main, window)
+        self.attach(Screen::Main, window)
     }
 
     /// Replaces the lower window, which shows the bottom half of each frame
@@ -906,10 +899,10 @@ impl VulkanContext {
         &mut self,
         window: Option<WindowRef<'_>>,
     ) -> Result<(), VulkanError> {
-        self.attach(Output::Lower, window)
+        self.attach(Screen::Lower, window)
     }
 
-    fn attach(&mut self, output: Output, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
+    fn attach(&mut self, output: Screen, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
         self.destroy_window(output);
         let Some((window, width, height)) = window else {
             return Ok(());
@@ -955,9 +948,10 @@ impl VulkanContext {
         ))
     }
 
-    /// Tells the context its window's new size, for the next frame.
-    pub(crate) fn resize(&mut self, width: u32, height: u32) {
-        if let Some(window) = &mut self.window {
+    /// Tells the context the new size of `screen`'s window, for the next
+    /// frame.
+    pub(crate) fn resize(&mut self, screen: Screen, width: u32, height: u32) {
+        if let Some(window) = self.window_mut(screen) {
             window.size = (width, height);
             window.stale = true;
         }
@@ -965,7 +959,7 @@ impl VulkanContext {
 
     /// Makes `output`'s swapchain again if it's stale, and returns whether
     /// there's one to present to.
-    fn ensure_swapchain(&mut self, output: Output) -> bool {
+    fn ensure_swapchain(&mut self, output: Screen) -> bool {
         let Some(window) = self.window_mut(output) else {
             return false;
         };
@@ -983,11 +977,11 @@ impl VulkanContext {
 
     /// Makes `output`'s swapchain for its window's current size, replacing
     /// any old one. A window with no area gets none.
-    fn create_swapchain(&mut self, output: Output) -> Result<(), VulkanError> {
+    fn create_swapchain(&mut self, output: Screen) -> Result<(), VulkanError> {
         self.wait_idle();
         let window = match output {
-            Output::Main => &mut self.window,
-            Output::Lower => &mut self.lower_window,
+            Screen::Main => &mut self.window,
+            Screen::Lower => &mut self.lower_window,
         };
         let (Some(surface_fn), Some(swapchain_fn), Some(window)) =
             (&self.surface_fn, &self.swapchain_fn, window)
@@ -1130,7 +1124,7 @@ impl VulkanContext {
         Ok(())
     }
 
-    fn destroy_window(&mut self, output: Output) {
+    fn destroy_window(&mut self, output: Screen) {
         let Some(window) = self.window_mut(output).take() else {
             return;
         };
@@ -1152,8 +1146,8 @@ impl VulkanContext {
 
 impl Drop for VulkanContext {
     fn drop(&mut self) {
-        self.destroy_window(Output::Lower);
-        self.destroy_window(Output::Main);
+        self.destroy_window(Screen::Lower);
+        self.destroy_window(Screen::Main);
         self.wait_idle();
         self.destroy_readback();
         // SAFETY: the device is idle and nothing uses these objects after

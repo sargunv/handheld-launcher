@@ -238,6 +238,14 @@ impl Achievements {
         content: &Path,
         send: SendAchievementsRequest,
     ) -> Option<Self> {
+        let Ok(username) = CString::new(options.username.as_str()) else {
+            log::error!("can't sign in to RetroAchievements: the username holds a NUL");
+            return None;
+        };
+        let Ok(token) = CString::new(options.token.as_str()) else {
+            log::error!("can't sign in to RetroAchievements: the token holds a NUL");
+            return None;
+        };
         let state = Box::new(State {
             send,
             pending: RefCell::new(HashMap::new()),
@@ -252,13 +260,8 @@ impl Achievements {
         });
         // SAFETY: the callbacks have rc_client's signatures.
         let client = unsafe { ffi::rc_client_create(Some(read_memory), Some(server_call)) };
-        let client = NonNull::new(client)?;
-        let (Ok(username), Ok(token)) = (
-            CString::new(options.username.as_str()),
-            CString::new(options.token.as_str()),
-        ) else {
-            // SAFETY: the client was just created.
-            unsafe { ffi::rc_client_destroy(client.as_ptr()) };
+        let Some(client) = NonNull::new(client) else {
+            log::error!("can't create a RetroAchievements client");
             return None;
         };
         let content = path_cstring(content);

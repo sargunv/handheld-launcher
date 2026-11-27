@@ -11,7 +11,7 @@ use glow::HasContext;
 
 use egl::*;
 
-use crate::video::Region;
+use crate::video::{Region, Screen};
 
 pub(crate) use egl::Egl;
 
@@ -353,10 +353,13 @@ impl GlContext {
         !self.handles.lower_surface.is_null()
     }
 
-    /// Tells the surface its window's new size. Only Wayland needs it; other
-    /// platforms track the size themselves.
-    pub(crate) fn resize(&self, width: u32, height: u32) {
-        if let (Some(window), Ok(wl)) = (self.handles.wayland_window, WaylandEgl::get()) {
+    /// Tells the surface the new size of `screen`'s window. Only a Wayland
+    /// window, which only the main screen can be, needs it; other platforms
+    /// track the size themselves.
+    pub(crate) fn resize(&self, screen: Screen, width: u32, height: u32) {
+        if screen == Screen::Main
+            && let (Some(window), Ok(wl)) = (self.handles.wayland_window, WaylandEgl::get())
+        {
             // SAFETY: `window` is the live wl_egl_window this context made.
             unsafe {
                 (wl.resize)(
