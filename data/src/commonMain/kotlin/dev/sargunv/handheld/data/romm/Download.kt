@@ -109,7 +109,7 @@ private suspend fun HttpResponse.writeTo(
     }
   }
   if (totalBytes != null && downloaded != totalBytes) {
-    throw IOException("The download ended at $downloaded of $totalBytes bytes")
+    throw IOException("Download cut short")
   }
   return DownloadResult(downloaded, if (append) startAt else 0)
 }

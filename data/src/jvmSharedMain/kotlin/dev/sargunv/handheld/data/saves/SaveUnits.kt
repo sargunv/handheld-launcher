@@ -233,10 +233,10 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
     keep: (LocalCopy) -> Unit,
   ) {
     val root = roots.roots.first { target.path.startsWith(it.path) }
-    val places = places(root) ?: throw IOException("The save's folder can't be told")
+    val places = places(root) ?: throw IOException("Save folder unknown")
     val entries = unzip(bytes)
     if (entries.none { !it.first.endsWith("/") }) {
-      throw IOException("The save from RomM is empty")
+      throw IOException("Empty save")
     }
     // Every entry goes to an area, as one of the entries it selects, or nothing is written.
     val byPlace = linkedMapOf<Place, MutableList<Pair<String, ByteArray?>>>()
