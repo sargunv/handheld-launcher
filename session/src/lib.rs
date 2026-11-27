@@ -35,9 +35,7 @@ pub use crate::achievements::{
 pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
 pub use crate::gl::{GlError, NativeWindow};
-pub use crate::handle::{
-    AchievementsHttp, GameSession, SessionInfo, SessionListener, SessionOptions,
-};
+pub use crate::handle::{AchievementsReply, GameSession, SessionListener, SessionOptions};
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick, Trigger};
 pub use crate::pacing::core_period;
 pub use crate::rom_header::{HeaderField, rom_game_id, rom_header_fields};

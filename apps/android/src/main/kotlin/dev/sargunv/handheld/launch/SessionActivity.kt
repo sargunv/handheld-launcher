@@ -31,7 +31,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.SecondaryDisplayContent
-import dev.sargunv.handheld.achievements.SessionAchievementsHttp
+import dev.sargunv.handheld.achievements.answer
 import dev.sargunv.handheld.achievements.message
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.handheldApp
@@ -39,6 +39,8 @@ import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.session.AchievementEvent
 import dev.sargunv.handheld.session.AchievementOptions
+import dev.sargunv.handheld.session.AchievementsReply
+import dev.sargunv.handheld.session.AchievementsRequest
 import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.LowerScreenView
@@ -60,7 +62,7 @@ import dev.sargunv.handheld.ui.play.ToastHost
 import dev.sargunv.handheld.ui.play.ToastState
 import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
@@ -136,6 +138,13 @@ class SessionActivity : ComponentActivity() {
    */
   private val menuKeys = mutableSetOf<Int>()
 
+  /** The client for the session's RetroAchievements requests, closed when lifecycleScope ends. */
+  private val achievementsClient by lazy {
+    handheldApp.retroAchievementsClient().also { client ->
+      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
+    }
+  }
+
   private val listener =
     object : SessionListener {
       override fun coreQuit() {
@@ -151,6 +160,10 @@ class SessionActivity : ComponentActivity() {
             is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason.message())
           }
         runOnUiThread { toasts.show(toast) }
+      }
+
+      override fun achievementsRequest(request: AchievementsRequest, reply: AchievementsReply) {
+        lifecycleScope.launch(Dispatchers.IO) { achievementsClient.answer(request, reply) }
       }
     }
 
@@ -311,19 +324,11 @@ class SessionActivity : ComponentActivity() {
 
   private suspend fun start() {
     val achievements = achievementOptions()
-    val ready = CompletableDeferred<GameSession>()
-    val http = achievements?.let {
-      val client = handheldApp.retroAchievementsClient()
-      // The requests go out on lifecycleScope, so the client lasts until it ends.
-      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
-      SessionAchievementsHttp(client, lifecycleScope, ready)
-    }
     val started =
       try {
-        startSession(options(achievements), listener, http)
+        startSession(options(achievements), listener)
       } catch (e: SessionException) {
         log.e(e) { "can't start the session" }
-        ready.cancel()
         setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.label()))
         finish()
         return
@@ -340,7 +345,6 @@ class SessionActivity : ComponentActivity() {
         lifecycleScope,
       )
     session = started
-    ready.complete(started)
   }
 
   /**

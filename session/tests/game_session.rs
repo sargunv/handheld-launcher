@@ -5,7 +5,7 @@ mod common;
 
 use std::path::Path;
 
-use common::{lock, options, wait_until};
+use common::{Ignore, lock, options, wait_until};
 use handheld_session::{GameSession, SessionError, SessionOptions};
 
 /// The cartridge's 128 KiB of battery-backed RAM.
@@ -17,8 +17,7 @@ fn start(dir: &Path) -> Result<std::sync::Arc<GameSession>, SessionError> {
             save_ram_path: Some(dir.join("saves/game.srm").to_string_lossy().into_owned()),
             ..options(dir, "gambatte_libretro.so", Some("ucity.gbc"))
         },
-        None,
-        None,
+        std::sync::Arc::new(Ignore),
     )
 }
 

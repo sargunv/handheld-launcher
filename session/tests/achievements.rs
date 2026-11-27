@@ -8,12 +8,12 @@ use std::cell::RefCell;
 use std::io::Write;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use common::{Harness, fixture, lock, options, wait_until};
 use handheld_session::{
-    AchievementOptions, AchievementStatus, AchievementsHttp, AchievementsRequest, GameSession,
-    SessionError, SessionOptions,
+    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsReply,
+    AchievementsRequest, GameSession, SessionError, SessionListener, SessionOptions,
 };
 use zip::write::SimpleFileOptions;
 
@@ -157,21 +157,19 @@ fn hardcore_refuses_to_load_states() {
 }
 
 /// The app's side: sends each request on a thread of its own and hands the
-/// response back to the session, as the app's HTTP client does.
-struct AppHttp {
-    session: Arc<OnceLock<Arc<GameSession>>>,
-    hashes: Arc<Mutex<Vec<String>>>,
-}
+/// response to its reply, as the app's HTTP client does.
+struct AppHttp(Arc<Mutex<Vec<String>>>);
 
-impl AchievementsHttp for AppHttp {
-    fn request(&self, id: u64, request: AchievementsRequest) {
-        let session = self.session.clone();
-        let hashes = self.hashes.clone();
+impl SessionListener for AppHttp {
+    fn core_quit(&self) {}
+
+    fn achievement_event(&self, _event: AchievementEvent) {}
+
+    fn achievements_request(&self, request: AchievementsRequest, reply: Arc<AchievementsReply>) {
+        let hashes = self.0.clone();
         std::thread::spawn(move || {
             let body = answer(&request, &mut hashes.lock().unwrap());
-            session
-                .wait()
-                .achievements_response(id, Some(200), body.into_bytes());
+            reply.respond(Some(200), body.into_bytes());
         });
     }
 }
@@ -180,22 +178,15 @@ impl AchievementsHttp for AppHttp {
 fn the_app_sends_the_requests() {
     let _lock = lock();
     let dir = tempfile::tempdir().unwrap();
-    let cell = Arc::new(OnceLock::new());
     let hashes = Arc::new(Mutex::new(Vec::new()));
-    let http = Arc::new(AppHttp {
-        session: cell.clone(),
-        hashes: hashes.clone(),
-    });
     let session = GameSession::start(
         SessionOptions {
             achievements: Some(account(true)),
             ..options(dir.path(), CORE, Some(GAME))
         },
-        None,
-        Some(http),
+        Arc::new(AppHttp(hashes.clone())),
     )
     .unwrap();
-    let _ = cell.set(session.clone());
     // The session takes the responses while paused.
     wait_until("the achievements", || {
         session.achievements().unwrap() != AchievementStatus::Loading
@@ -214,22 +205,5 @@ fn the_app_sends_the_requests() {
         session.load_state(path.to_string_lossy().into_owned()),
         Err(SessionError::Hardcore)
     ));
-    session.stop().unwrap();
-}
-
-#[test]
-fn without_an_http_client_the_session_has_no_achievements() {
-    let _lock = lock();
-    let dir = tempfile::tempdir().unwrap();
-    let session = GameSession::start(
-        SessionOptions {
-            achievements: Some(account(true)),
-            ..options(dir.path(), CORE, Some(GAME))
-        },
-        None,
-        None,
-    )
-    .unwrap();
-    assert_eq!(session.achievements().unwrap(), AchievementStatus::Off);
     session.stop().unwrap();
 }

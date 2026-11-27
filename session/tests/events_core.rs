@@ -10,7 +10,8 @@ use std::sync::{Arc, Mutex};
 
 use common::{Harness, WAIT, lock, options, pixel, wait_until};
 use handheld_session::{
-    AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionListener,
+    AchievementEvent, AchievementsReply, AchievementsRequest, AvInfo, Button, GameSession,
+    SessionError, SessionListener,
 };
 
 const CORE: &str = "events_libretro.so";
@@ -92,33 +93,34 @@ impl SessionListener for Forward {
     }
 
     fn achievement_event(&self, _event: AchievementEvent) {}
+
+    fn achievements_request(&self, _request: AchievementsRequest, _reply: Arc<AchievementsReply>) {}
 }
 
 fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<()>) {
     let (heard, receiver) = mpsc::channel();
-    let session = GameSession::start(
-        options(dir, CORE, None),
-        Some(Arc::new(Forward(heard))),
-        None,
-    )
-    .unwrap();
+    let session = GameSession::start(options(dir, CORE, None), Arc::new(Forward(heard))).unwrap();
     (session, receiver)
 }
 
+/// The size of the session's last frame, once it has one.
+fn frame_size(session: &GameSession) -> Option<(u32, u32)> {
+    let frame = session.capture_frame().unwrap()?;
+    Some((frame.width, frame.height))
+}
+
 #[test]
-fn info_follows_a_new_video_mode() {
+fn a_running_session_takes_a_new_video_mode() {
     let _lock = lock();
     let dir = tempfile::tempdir().unwrap();
     let (session, _) = start(dir.path());
-    assert_eq!(session.info().base_width, 320);
-    session.set_button(0, Button::Select, true);
     session.resume();
-    wait_until("the new video mode", || session.info().base_width != 320);
-    let info = session.info();
-    assert_eq!(
-        (info.base_width, info.base_height, info.aspect_ratio),
-        (384, 216, 16.0 / 9.0)
-    );
+    wait_until("a frame", || frame_size(&session).is_some());
+    assert_eq!(frame_size(&session), Some((320, 240)));
+    session.set_button(0, Button::Select, true);
+    wait_until("the new video mode", || {
+        frame_size(&session) == Some((384, 216))
+    });
     session.stop().unwrap();
 }
 
@@ -148,6 +150,8 @@ impl SessionListener for StopOnQuit {
     }
 
     fn achievement_event(&self, _event: AchievementEvent) {}
+
+    fn achievements_request(&self, _request: AchievementsRequest, _reply: Arc<AchievementsReply>) {}
 }
 
 #[test]
@@ -156,12 +160,7 @@ fn the_listener_may_stop_the_session() {
     let dir = tempfile::tempdir().unwrap();
     let (stopped, receiver) = mpsc::channel();
     let listener = Arc::new(StopOnQuit(Mutex::new(None), stopped));
-    let session = GameSession::start(
-        options(dir.path(), CORE, None),
-        Some(listener.clone()),
-        None,
-    )
-    .unwrap();
+    let session = GameSession::start(options(dir.path(), CORE, None), listener.clone()).unwrap();
     *listener.0.lock().unwrap() = Some(session.clone());
     session.set_button(0, Button::Start, true);
     session.resume();
