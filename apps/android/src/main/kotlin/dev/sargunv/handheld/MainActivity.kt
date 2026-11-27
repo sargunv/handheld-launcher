@@ -28,7 +28,9 @@ import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.launch.AndroidGameLauncher
+import dev.sargunv.handheld.launch.BuiltInPlayer
 import dev.sargunv.handheld.launch.PlayCompanion
+import dev.sargunv.handheld.launch.PlaySaves
 import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.about.AppInfo
@@ -92,7 +94,18 @@ class MainActivity : ComponentActivity() {
     val app = handheldApp
     val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val launcher = AndroidGameLauncher(this).also { player = it }
+    val saves = PlaySaves(app.saveSync)
+    val launcher =
+      AndroidGameLauncher(
+          activity = this,
+          romm = app.data.romm,
+          saves = saves,
+          builtIn = BuiltInPlayer(this, saves, app.builtInSaveFolders.saves, app.settingsFile),
+          emulators = app.emulators,
+          allFilesAccess = app.allFilesAccess,
+          storageVolumes = { app.storageTargets().map { it.root } },
+        )
+        .also { player = it }
     val retroAchievements = retroAchievementsSignIn(this)
     val apps = InstalledApps(this)
     // About reads the list of components that the build puts in the app's resources.
@@ -199,7 +212,7 @@ class MainActivity : ComponentActivity() {
           lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
             if (!allFilesAccess) {
-              startActivity(handheldApp.allFilesAccessSettings())
+              startActivity(allFilesAccessSettings())
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=

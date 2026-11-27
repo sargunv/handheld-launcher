@@ -98,13 +98,6 @@ class HandheldApp : Application() {
     }
   }
 
-  /** The system page where the user grants the launcher all-files access. */
-  fun allFilesAccessSettings(): Intent =
-    Intent(
-      AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-      Uri.fromParts("package", packageName, null),
-    )
-
   /** The mounted shared storage volumes, the device's own first, then any SD card. */
   internal fun storageTargets(): List<StorageTarget> =
     getSystemService(StorageManager::class.java)
@@ -121,3 +114,10 @@ class HandheldApp : Application() {
 
 internal val Context.handheldApp: HandheldApp
   get() = applicationContext as HandheldApp
+
+/** The system page where the user grants the launcher all-files access. */
+internal fun Context.allFilesAccessSettings(): Intent =
+  Intent(
+    AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+    Uri.fromParts("package", packageName, null),
+  )

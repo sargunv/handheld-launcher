@@ -116,7 +116,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
               state.settings.launch.toRules(),
               collectionsOf(state, game),
               onProgress = { playProgress = it },
-              closeEmulators = state.settings.closeEmulators && state.launcher.canCloseEmulators,
+              closeEmulators = state.settings.closeEmulators,
               askStillRunning = { prompt ->
                 val asking = PendingStillRunning(prompt)
                 stillRunning = asking

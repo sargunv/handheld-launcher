@@ -66,9 +66,10 @@ internal class FakeLauncher(
     if (conflict != null) {
       chosen = chooseSave(conflict) ?: return emptyList()
     }
-    this.closeEmulators += closeEmulators
+    val close = closeEmulators && canCloseEmulators
+    this.closeEmulators += close
     if (stillRunning != null) {
-      val choice = askStillRunning(StillRunning(game.title, stillRunning, closeEmulators))
+      val choice = askStillRunning(StillRunning(game.title, stillRunning, close))
       stillRunningChoice = choice
       if (choice == StillRunningChoice.QuitFirst) return emptyList()
     }

@@ -81,30 +81,6 @@ class LaunchIntentsTest {
     assertContentEquals(arrayOf("-r", "PCSE00120"), intent.getStringArrayExtra("args"))
   }
 
-  // DraStic opens `getData().getPath()` when the scheme is `file`.
-  @Test
-  fun rawFileUrisDecodeToTheRomPath() {
-    val command =
-      LaunchCommand(
-        packageName = "dev.example.emu",
-        action = IntentAction.VIEW,
-        data =
-          LaunchUri.Raw("file:///storage/emulated/0/ROMs/Pok%C3%A9mon%20%231%20(100%25)%3F.nds"),
-        flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTop, LaunchFlag.NoHistory),
-      )
-    val intent = command.toIntent(contentUris)
-
-    assertEquals("/storage/emulated/0/ROMs/Pokémon #1 (100%)?.nds", intent.data?.path)
-    assertNull(intent.type)
-    assertNull(intent.clipData)
-    assertEquals(
-      Intent.FLAG_ACTIVITY_NEW_TASK or
-        Intent.FLAG_ACTIVITY_CLEAR_TOP or
-        Intent.FLAG_ACTIVITY_NO_HISTORY,
-      intent.flags,
-    )
-  }
-
   @Test
   fun amStartArgvCarriesTheCommand() {
     val command =

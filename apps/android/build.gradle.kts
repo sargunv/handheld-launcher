@@ -57,6 +57,7 @@ dependencies {
   implementation(project(":data"))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.core)
+  implementation(libs.kermit)
   implementation(libs.kotlinx.serialization.json)
   implementation(project(":session"))
   testImplementation(libs.kotlin.test.junit)

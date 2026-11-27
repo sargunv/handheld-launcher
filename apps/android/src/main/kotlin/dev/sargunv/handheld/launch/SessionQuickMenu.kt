@@ -2,8 +2,8 @@ package dev.sargunv.handheld.launch
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.util.Log
 import androidx.compose.ui.graphics.asImageBitmap
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.achievements.toGameAchievements
 import dev.sargunv.handheld.data.writeAtomically
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
@@ -39,7 +39,8 @@ internal class SessionQuickMenu(
     withContext(Dispatchers.IO) {
       try {
         session()?.achievements()?.toGameAchievements() ?: GameAchievements.Off
-      } catch (_: SessionException) {
+      } catch (e: SessionException) {
+        log.w(e) { "can't read the achievements" }
         GameAchievements.Off
       }
     }
@@ -66,7 +67,7 @@ internal class SessionQuickMenu(
         File(path).parentFile?.mkdirs()
         running.saveState(path)
       } catch (e: SessionException) {
-        Log.e(TAG, "can't save a state to $path", e)
+        log.e(e) { "can't save a state to $path" }
         return@withContext failure(e)
       }
       // The picture comes second: a state without one still loads.
@@ -75,7 +76,7 @@ internal class SessionQuickMenu(
         val frame = running.captureFrame()
         if (frame == null) thumbnail.delete() else writePng(frame, thumbnail)
       } catch (e: Exception) {
-        Log.w(TAG, "can't keep a picture of the state in $path", e)
+        log.w(e) { "can't keep a picture of the state in $path" }
         thumbnail.delete()
       }
       null
@@ -89,7 +90,7 @@ internal class SessionQuickMenu(
         running.loadState(path)
         null
       } catch (e: SessionException) {
-        Log.e(TAG, "can't load the state in $path", e)
+        log.e(e) { "can't load the state in $path" }
         failure(e)
       }
     }
@@ -130,10 +131,11 @@ internal class SessionQuickMenu(
     }
 
   private companion object {
-    const val TAG = "SessionQuickMenu"
     const val STOPPED = "Game stopped"
 
     /** How many times its own speed a game runs while fast forward is on. */
     const val FAST_FORWARD_SPEED = 4u
   }
 }
+
+private val log = Logger.withTag("SessionQuickMenu")
