@@ -53,8 +53,8 @@ sealed interface Removal {
   /** The game's folder holds files that aren't the game's, named [names], so it stayed. */
   data class HoldsOtherFiles(val names: List<String>) : Removal
 
-  /** Deleting failed, for [reason], which may have left part of the game. */
-  data class Failed(val reason: String) : Removal
+  /** Deleting failed, for [reason] if known, which may have left part of the game. */
+  data class Failed(val reason: String?) : Removal
 }
 
 /**
@@ -213,7 +213,7 @@ class DeviceGames(
         for ((path, _) in parts) SystemFileSystem.delete(path)
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: DELETE_FAILED)
+        Removal.Failed(e.message)
       } finally {
         rescan()
       }
@@ -251,7 +251,7 @@ class DeviceGames(
         }
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: DELETE_FAILED)
+        Removal.Failed(e.message)
       } finally {
         // Even a removal that failed partway may have deleted some of the game.
         rescan()
@@ -323,5 +323,3 @@ private fun filesIn(folder: Path): List<Path> =
   SystemFileSystem.list(folder).flatMap {
     if (SystemFileSystem.metadataOrNull(it)?.isDirectory == true) filesIn(it) else listOf(it)
   }
-
-private const val DELETE_FAILED = "Delete failed"

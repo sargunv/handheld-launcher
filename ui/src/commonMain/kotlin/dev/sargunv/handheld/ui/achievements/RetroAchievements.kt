@@ -40,7 +40,7 @@ class RetroAchievementsSignIn(
   /**
    * Signs in and keeps the account.
    *
-   * @throws RetroAchievementsException when it fails, with why as its message.
+   * @throws RetroAchievementsException when it fails, with why as its message when that's known.
    */
   suspend fun signIn(username: String, password: String): RetroAchievementsAccount {
     val account = client().use { it.signIn(username, password) }
@@ -68,7 +68,7 @@ class RetroAchievementsState(
   var busy by mutableStateOf(false)
     private set
 
-  /** Why the last sign-in failed, in plain words. */
+  /** How the last sign-in failed. */
   var error by mutableStateOf<String?>(null)
     private set
 
@@ -96,7 +96,7 @@ class RetroAchievementsState(
         username = signIn.signIn(user, password).username
         usernameField.clearText()
       } catch (e: RetroAchievementsException) {
-        error = e.message
+        error = listOfNotNull("Sign-in failed", e.message).joinToString(" · ")
       } finally {
         passwordField.clearText()
         busy = false

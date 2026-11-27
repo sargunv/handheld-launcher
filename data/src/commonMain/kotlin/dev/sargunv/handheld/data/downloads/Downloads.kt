@@ -610,7 +610,7 @@ internal fun relativePath(files: List<RommRomFile>, file: RommRomFile): String {
   val subfolder = file.filePath.removePrefix(romFolder).trim('/')
   val path = if (subfolder.isEmpty()) file.fileName else "$subfolder/${file.fileName}"
   if (path.split('/').any { it.isEmpty() || it == "." || it == ".." }) {
-    throw DownloadException("Unsafe file name · $path")
+    throw DownloadException("Unsafe file name $path")
   }
   return path
 }

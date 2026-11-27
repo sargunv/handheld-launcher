@@ -255,7 +255,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
           top.startsWith(RESERVED) ||
           !place.area.selection.claims(top)
       ) {
-        throw IOException("Not part of this save · $name")
+        throw IOException("$name isn't part of this save")
       }
       byPlace.getOrPut(place) { mutableListOf() } += rest to data
     }
@@ -263,7 +263,7 @@ private class FolderUnit(private val roots: SaveFolderRoots) : SaveUnit {
       for (top in files.map { it.first.substringBefore('/') }.toSet()) {
         val there = File(place.dir, top)
         if (there.exists() && !place.owns(there)) {
-          throw IOException("Not part of this save · ${there.name}")
+          throw IOException("${there.name} isn't part of this save")
         }
       }
     }
@@ -381,7 +381,7 @@ private fun unzip(bytes: ByteArray): List<Pair<String, ByteArray?>> {
           '\\' in name ||
           segments.any { it.isEmpty() || it == "." || it == ".." }
       ) {
-        throw IOException("Unsafe path · $name")
+        throw IOException("Unsafe path $name")
       }
       entries += name to if (entry.isDirectory) null else zip.readBytes()
     }
