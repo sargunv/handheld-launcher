@@ -85,7 +85,7 @@ class AppState(
   var playing: GameKey? by mutableStateOf(null)
     private set
 
-  /** Held while adopting and while [play] sets [playing], so nothing adopts the game it plays. */
+  /** Held while adopting, so [play] waits for an adopt of its game that's under way. */
   private val adoption = Mutex()
 
   private val handover = MutableStateFlow(emptySet<Adoption>())
@@ -180,14 +180,13 @@ class AppState(
 
   /**
    * Runs [launch], the launch of [game], once any file the latest scan matched to [game] has handed
-   * it what was kept for the file. What's kept for [game] stays where it is until [launch] returns.
+   * it what was kept for the file. [game] is [playing] from before this first suspends until
+   * [launch] returns, and what's kept for it stays where it is until then.
    */
   suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> {
-    adoption.withLock {
-      adopt(games.adoptions.first().filter { it.rom == game })
-      playing = game
-    }
+    playing = game
     try {
+      adoption.withLock { adopt(games.adoptions.first().filter { it.rom == game }) }
       return launch()
     } finally {
       playing = null

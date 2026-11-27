@@ -51,6 +51,11 @@ class FocusScopes internal constructor() {
     stack.remove(scope)
     if (wasActive) active?.restorePending = true
   }
+
+  /** Dismisses every open dialog, the top one first. */
+  internal fun closeDialogs() {
+    stack.asReversed().mapNotNull { it.dismiss }.forEach { it() }
+  }
 }
 
 internal val LocalFocusScopes = staticCompositionLocalOf<FocusScopes?> { null }
@@ -138,8 +143,12 @@ internal constructor(
   saved: MutableState<String?>,
   private val scopes: FocusScopes?,
   internal val parent: FocusScopeState? = null,
-  internal val isModal: Boolean = false,
+  /** Closes the dialog this scope is, or null when it isn't one. */
+  internal val dismiss: (() -> Unit)? = null,
 ) {
+  internal val isModal: Boolean
+    get() = dismiss != null
+
   internal val memory = FocusMemory(saved) { isRecording }
   internal var hasFocus by mutableStateOf(false)
 
@@ -203,22 +212,23 @@ fun FocusScope(
   modifier: Modifier = Modifier,
   initialFocus: String? = null,
   content: @Composable BoxScope.() -> Unit,
-) = FocusScope(modifier, initialFocus, isModal = false, content)
+) = FocusScope(modifier, initialFocus, dismiss = null, content)
 
 /**
- * A [FocusScope] that stays above scopes appearing outside it while it's open, as a dialog does.
+ * A [FocusScope] that, with a [dismiss], is a dialog: it stays above scopes appearing outside it
+ * while it's open, and [FocusScopes.closeDialogs] calls [dismiss].
  */
 @Composable
 internal fun FocusScope(
   modifier: Modifier,
   initialFocus: String?,
-  isModal: Boolean,
+  dismiss: (() -> Unit)?,
   content: @Composable BoxScope.() -> Unit,
 ) {
   val saved = rememberSaveable { mutableStateOf(initialFocus) }
   val scopes = LocalFocusScopes.current
   val parent = LocalFocusScope.current
-  val state = remember(saved, scopes) { FocusScopeState(saved, scopes, parent, isModal) }
+  val state = remember(saved, scopes) { FocusScopeState(saved, scopes, parent, dismiss) }
 
   if (scopes != null) {
     DisposableEffect(scopes, state) {

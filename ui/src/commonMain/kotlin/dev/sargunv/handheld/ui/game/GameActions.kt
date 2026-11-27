@@ -23,6 +23,7 @@ import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.io.IOException
@@ -74,8 +75,8 @@ internal sealed interface GameDialog {
 internal class GameActions(private val state: AppState, private val scope: CoroutineScope) {
   var dialog: GameDialog? by mutableStateOf(null)
 
-  var playing by mutableStateOf(false)
-    private set
+  val playing: Boolean
+    get() = state.playing != null
 
   /** What the launch is doing before the game starts, such as getting its core. */
   var playProgress: String? by mutableStateOf(null)
@@ -105,9 +106,9 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   }
 
   fun play(game: LibraryGame, path: String) {
-    playing = true
     notes = emptyList()
-    scope.launch {
+    // Undispatched, so the play is under way in [AppState.playing] before this returns.
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
       try {
         notes =
           state.play(game.key) {
@@ -138,7 +139,6 @@ internal class GameActions(private val state: AppState, private val scope: Corou
             }
           }
       } finally {
-        playing = false
         playProgress = null
         closeDialog(GameDialog.Leave)
       }
