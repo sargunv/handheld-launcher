@@ -9,6 +9,7 @@ import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
+import dev.sargunv.handheld.data.saves.StandaloneEmulator
 import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.data.saves.keptSaves
 import dev.sargunv.handheld.domain.GameKey
@@ -171,19 +172,15 @@ class AndroidGameLauncher(
     val probe = emulators.probe(useRoot = closeEmulators)
     if (save != null) {
       val name = appName(target)
-      val synced =
-        saves.beforeLaunch(
-          request.title,
-          save,
-          chooseSave,
-          note,
-          emulator = emulators.state(packageName, probe),
-          canClose = closeEmulators,
+      val emulator =
+        StandaloneEmulator(
+          emulators.state(packageName, probe),
           askStillRunning = { offerClose ->
             askStillRunning(StillRunning(request.title, name, offerClose))
           },
-          close = { emulators.close(packageName) },
+          close = if (closeEmulators) ({ emulators.close(packageName) }) else null,
         )
+      val synced = saves.beforeLaunch(request.title, save, chooseSave, note, emulator)
       if (!synced) return
     }
     // A game launches even when its firmware can't be placed: some emulators boot without it.

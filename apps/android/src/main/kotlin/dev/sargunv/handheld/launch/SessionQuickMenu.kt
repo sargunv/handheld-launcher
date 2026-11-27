@@ -36,7 +36,7 @@ import kotlinx.io.files.Path
 internal class SessionQuickMenu(
   private val session: () -> GameSession?,
   private val statePaths: List<String>,
-  private val saveRamPath: String?,
+  private val saveRamPath: String,
   override val hardcore: Boolean,
   private val onResume: () -> Unit,
   private val onQuit: () -> Unit,
@@ -46,8 +46,6 @@ internal class SessionQuickMenu(
       try {
         session()?.achievements()?.toGameAchievements() ?: GameAchievements.Off
       } catch (_: SessionException) {
-        GameAchievements.Off
-      } catch (_: IllegalStateException) {
         GameAchievements.Off
       }
     }
@@ -76,8 +74,6 @@ internal class SessionQuickMenu(
       } catch (e: SessionException) {
         Log.e(TAG, "can't save a state to $path", e)
         return@withContext failure(e)
-      } catch (_: IllegalStateException) {
-        return@withContext STOPPED
       }
       // The picture comes second: a state without one still loads.
       val thumbnail = File(BuiltInSaves.thumbnailOf(path))
@@ -107,17 +103,11 @@ internal class SessionQuickMenu(
       } catch (e: SessionException) {
         Log.e(TAG, "can't load the state in $path", e)
         failure(e)
-      } catch (_: IllegalStateException) {
-        STOPPED
       }
     }
 
   override fun setFastForward(on: Boolean) {
-    try {
-      session()?.setFastForward(if (on) FAST_FORWARD_SPEED else 1u)
-    } catch (_: IllegalStateException) {
-      // The session closed; there's nothing to speed up.
-    }
+    session()?.setFastForward(if (on) FAST_FORWARD_SPEED else 1u)
   }
 
   override fun resume() = onResume()
@@ -129,7 +119,7 @@ internal class SessionQuickMenu(
    * such backup already holds the same bytes.
    */
   private fun backUpSaveRam() {
-    val save = saveRamPath?.let(::File)?.takeIf { it.isFile } ?: return
+    val save = File(saveRamPath).takeIf { it.isFile } ?: return
     val bytes = save.readBytes()
     val backups =
       save.parentFile?.listFiles { file ->
@@ -174,6 +164,7 @@ internal class SessionQuickMenu(
       is SessionException.Unserialize -> "The core couldn't restore that state."
       is SessionException.Hardcore -> "Hardcore mode doesn't allow loading states."
       is SessionException.Io -> "Couldn't read or write the state: ${e.message}"
+      is SessionException.Stopped -> STOPPED
       else -> e.message ?: e.toString()
     }
 

@@ -10,6 +10,7 @@ import kotlinx.serialization.UseSerializers
 /** The signed-in user, from `GET /api/users/me`. */
 @Serializable
 data class RommUser(
+  val id: Long,
   val username: String,
   /** The scopes the user's role grants. A token may hold fewer. */
   @SerialName("oauth_scopes") val oauthScopes: List<String> = emptyList(),

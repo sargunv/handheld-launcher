@@ -6,18 +6,17 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.BeforeLaunch
-import dev.sargunv.handheld.data.saves.EmulatorState
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.data.saves.SaveSyncResult
-import dev.sargunv.handheld.data.saves.StillRunningChoice
+import dev.sargunv.handheld.data.saves.StandaloneEmulator
 import dev.sargunv.handheld.data.saves.beforeLaunch
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveVersion
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
+import java.net.URLEncoder
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -35,20 +34,14 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
   /**
    * Syncs [game]'s save before it launches, asking the player through [chooseSave] when both copies
    * changed, with [title] naming the game. Returns false when the player canceled the launch.
-   *
-   * When [emulator] may still hold the game, a pull asks [askStillRunning] first, which offers to
-   * close it with [close] when [canClose]. See
-   * [beforeLaunch][dev.sargunv.handheld.data.saves.beforeLaunch].
+   * [emulator] is the standalone emulator that keeps the save, or null for the built-in session.
    */
   suspend fun beforeLaunch(
     title: String,
     game: GameSave,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
     note: (String) -> Unit,
-    emulator: EmulatorState,
-    canClose: Boolean,
-    askStillRunning: suspend (canClose: Boolean) -> StillRunningChoice,
-    close: suspend () -> Boolean,
+    emulator: StandaloneEmulator?,
   ): Boolean =
     // Nothing else syncs before the game starts, so the lock holds through the questions.
     withSync(
@@ -62,7 +55,6 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         sync.beforeLaunch(
           game,
           emulator,
-          canClose,
           chooseSave = { result ->
             chooseSave(
               SaveConflict(
@@ -72,8 +64,6 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
               ),
             )
           },
-          askStillRunning,
-          close,
         )
       when (outcome) {
         is BeforeLaunch.Synced -> {
@@ -96,7 +86,7 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         }
         BeforeLaunch.QuitFirst -> {
           note(
-            if (canClose) {
+            if (emulator?.close != null) {
               "Launch canceled. Quit the game in the emulator to get RomM's newer save."
             } else {
               // Without the root service, only a stopped app or a restart shows it quit.
@@ -168,7 +158,7 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         val sync =
           SaveSync(
             client,
-            records = recordsDir(signedIn.baseUrl, client.me().username),
+            records = recordsDir(signedIn.baseUrl, client.me().id),
             history = saveHistory(context),
             staging = File(context.cacheDir, "save-staging"),
           )
@@ -182,15 +172,11 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
   }
 
   /**
-   * Where save sync keeps its records for [username]'s account on the server at [baseUrl], apart
-   * from every other account's, so one account's record never decides what another's save replaces.
+   * Where save sync keeps its records for user [userId] on the server at [baseUrl], apart from
+   * every other account's, so one account's record never decides what another's save replaces.
    */
-  private fun recordsDir(baseUrl: String, username: String): File {
-    val account = "$baseUrl\n$username"
-    val digest = MessageDigest.getInstance("SHA-256").digest(account.encodeToByteArray())
-    val key = digest.copyOf(8).toHexString()
-    return File(context.filesDir, "save-sync/$key")
-  }
+  private fun recordsDir(baseUrl: String, userId: Long): File =
+    File(context.filesDir, "save-sync/${URLEncoder.encode(baseUrl, "UTF-8")}/$userId")
 
   private fun conflictLater(conflict: SaveSyncResult.Conflict) =
     if (conflict.reverted) {

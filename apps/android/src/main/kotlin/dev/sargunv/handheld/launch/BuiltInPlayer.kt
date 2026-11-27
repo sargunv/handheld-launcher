@@ -7,9 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import dev.sargunv.handheld.data.cores.InstalledCores
-import dev.sargunv.handheld.data.saves.EmulatorState
 import dev.sargunv.handheld.data.saves.SaveCopy
-import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.data.saves.builtInGameSave
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
@@ -78,46 +76,30 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
       }
     val game = rom?.let { builtInGameSave(it.romId, chosen.library, File(saveRam)) }
     if (game != null) {
-      val synced =
-        playSaves.beforeLaunch(
-          request.title,
-          game,
-          chooseSave,
-          note,
-          emulator = EmulatorState.NotRunning("the built-in session"),
-          canClose = false,
-          askStillRunning = { StillRunningChoice.QuitFirst },
-          close = { false },
-        )
-      if (!synced) return
+      if (!playSaves.beforeLaunch(request.title, game, chooseSave, note, emulator = null)) return
     }
-    val intent =
-      SessionActivity.intent(
-        activity,
+    val launch =
+      SessionLaunch(
         core = coreFile.toString(),
         content = request.romPath,
         systemDir = File(activity.filesDir, "system").path,
         saveDir = folder,
         saveRam = saveRam,
         states = saves.statesOf(folder, request.romPath),
-        aButtonPosition = settings.input.aButtonPosition,
+        input = settings.input,
         stackedScreensOptions = chosen.stackedScreensOptions,
         lowerScreenWidthShare = chosen.lowerScreenWidthShare,
         achievementsConsole = retroAchievementsConsole(request.platform),
         hardcore = settings.achievements.hardcore,
       )
-    val error = awaitResult(intent).data?.getStringExtra(SessionActivity.EXTRA_ERROR)
-    if (error != null) {
-      note("Couldn't start the game: $error")
-      return
+    val result = awaitResult(SessionActivity.intent(activity, launch)).data
+    result?.getStringExtra(SessionActivity.EXTRA_START_ERROR)?.let {
+      return note("Couldn't start the game: $it")
     }
-    val saveError = SessionActivity.saveError
+    val saveError = result?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
     if (saveError != null) note("The game's save couldn't be written: $saveError")
     else Log.i(TAG, "Back from the game in ${chosen.library}")
-    // The session writes its save memory as it stops, but one that ends without stopping, such as
-    // when the launcher comes to the front over it, writes as it's destroyed, which can come after
-    // this. So this only sends: a newer save on RomM waits for the next launch, where a change on
-    // both sides is a conflict. When a write failed, the file still holds the last whole save.
+    // When a write failed, the file still holds the last whole save.
     if (game != null) playSaves.afterPlay(game, note)
   }
 
