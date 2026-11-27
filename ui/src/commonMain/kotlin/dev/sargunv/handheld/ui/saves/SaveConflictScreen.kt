@@ -105,7 +105,8 @@ fun SaveConflictScreen(
           }
         }
       }
-      HintBar(listOf(Hint(Action.Confirm, "Play"), Hint(Action.Back, "Cancel")))
+      // It shows during a launch, which the main menu waits for.
+      HintBar(listOf(Hint(Action.Confirm, "Play"), Hint(Action.Back, "Cancel")), mainMenu = false)
     }
   }
 }

@@ -96,8 +96,12 @@ fun MainPrimary(state: AppState) {
       Screen.Places -> NavEntry(screen) { PlacesScreen(state, places, homeKey(homeStart)) }
       is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
       is Screen.OpenWith -> NavEntry(screen) { OpenWithScreen(state, screen) }
-      Screen.About -> NavEntry(screen) { AboutScreen(state) }
-      is Screen.Licence -> NavEntry(screen) { LicenceScreen(state, screen) }
+      Screen.About ->
+        NavEntry(screen) {
+          AboutScreen(state) { state.navigator.push(Screen.Licence(it.uniqueId, it.name)) }
+        }
+      is Screen.Licence ->
+        NavEntry(screen) { LicenceScreen(state, screen.componentId, screen.name) }
     }
   }
 }
@@ -112,14 +116,14 @@ fun MainSecondary(state: AppState) {
     when (val screen = state.navigator.current) {
       is Screen.Game -> GameSecondary(state, screen)
       is Screen.OpenWith -> OpenWithSecondary(state, screen)
-      Screen.About,
-      is Screen.Licence -> AboutSecondary(state, screen)
+      Screen.About -> AboutSecondary(state)
+      is Screen.Licence -> AboutSecondary(state, screen.componentId)
       Screen.Places -> {
         val focused = state.focused
         when {
           state.place == Place.Downloads -> StorageSummary(state.downloads)
           state.place == Place.Library -> LibrarySecondary(state)
-          state.place == Place.Settings -> SettingsSecondary(state, signedIn = true)
+          state.place == Place.Settings -> SettingsSecondary(state)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
           focused is Focused.OnCollection -> {
             val collection = focused.collection
@@ -275,7 +279,7 @@ private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: 
               DownloadsPlace(state.downloads) {
                 state.navigator.push(Screen.Game(it.romId, it.title))
               }
-            Place.Settings -> SettingsPage(state)
+            Place.Settings -> SettingsPage(state) { state.navigator.push(Screen.About) }
           }
         }
       }

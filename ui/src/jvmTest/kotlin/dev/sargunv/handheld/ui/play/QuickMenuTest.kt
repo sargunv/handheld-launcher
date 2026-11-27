@@ -261,7 +261,7 @@ class QuickMenuTest {
     onNodeWithTag("quick:achievements").assertTextEquals("Achievements", "None")
     press(List(4) { Key.DirectionDown } + Key.ButtonA)
     onNodeWithTag("achievements:note").assertTextEquals("No achievements")
-    onNodeWithTag("achievements:note").assertIsFocused()
+    onNodeWithTag("quick:achievementList").assertIsFocused()
   }
 
   @Test

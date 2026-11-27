@@ -81,7 +81,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       field = account.passwordField,
       placeholder = "Password",
       label = "Password",
-      help = "Goes only to RetroAchievements. The device keeps a token instead.",
+      help = "Sent only to RetroAchievements",
       keyboardOptions =
         KeyboardOptions(
           autoCorrectEnabled = false,

@@ -133,13 +133,13 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       null -> current?.let { primaryAction(it, status, actions.playing, actions.playProgress) }
     }
   val hasMenu = current != null && status != null && !actions.playing && upload == null
-  BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = actions.busy) {
+  BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = state.gameBusy) {
     FocusScope(
       Modifier.fillMaxSize().onAction { action ->
         when {
           action == Action.Menu && hasMenu -> actions.dialog = GameDialog.Menu
           // The main menu waits for the launch or the upload, as it would leave the screen.
-          action == Action.MainMenu && actions.busy -> Unit
+          action == Action.MainMenu && state.gameBusy -> Unit
           else -> return@onAction false
         }
         true
@@ -226,8 +226,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               null -> add(Hint(Action.Back, "Back"))
             }
             if (hasMenu) add(Hint(Action.Menu, "Menu"))
-            if (!actions.busy) add(Hint(Action.MainMenu, "Main menu"))
           },
+          mainMenu = !state.gameBusy,
         )
       }
       val close = { actions.dialog = null }

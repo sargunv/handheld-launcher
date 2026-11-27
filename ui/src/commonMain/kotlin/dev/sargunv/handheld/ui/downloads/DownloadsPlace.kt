@@ -20,7 +20,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +59,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
   val queue by downloads.queue.collectAsState()
   val progress by downloads.progress.collectAsState()
   var focusedId by remember { mutableStateOf<Long?>(null) }
-  var menuFor by rememberSaveable { mutableStateOf<Long?>(null) }
+  var menuFor by remember { mutableStateOf<Long?>(null) }
   val focused = queue.find { it.romId == focusedId }
   val scope = rememberCoroutineScope()
 
@@ -104,7 +103,6 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
           if (focused != null) add(Hint(Action.Confirm, "Open"))
           add(Hint(Action.Back, "Home"))
           if (focused != null) add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }

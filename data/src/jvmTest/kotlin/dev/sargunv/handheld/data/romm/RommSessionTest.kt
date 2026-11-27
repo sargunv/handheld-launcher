@@ -103,6 +103,10 @@ class RommSessionTest {
     sync.first { it == status }
   }
 
+  private suspend fun RommSession.awaitUploads(access: UploadAccess) = waitFor {
+    uploadAccess.first { it == access }
+  }
+
   /** Signs in with [credentials], and waits for the session to have the account. */
   private suspend fun RommSession.signIn(credentials: RommCredentials): RommAccount {
     store.save(credentials)
@@ -179,26 +183,28 @@ class RommSessionTest {
     store.clear()
     val session = session(backgroundScope)
     waitFor { session.state.first { it == RommState.SignedOut } }
-    assertNull(session.uploadAccess())
+    assertNull(session.uploadAccess.value)
 
     // A sign-in that didn't ask, for an account that may upload.
     accountScopes = """["me.read", "roms.read", "roms.write"]"""
     session.signIn(signedIn.copy(deviceId = "d1", scopes = listOf("roms.read")))
-    assertEquals(UploadAccess.NotRequested, session.uploadAccess())
+    session.awaitUploads(UploadAccess.NotRequested)
 
-    // The account may not, so signing in again wouldn't help.
+    // The account may not any more, so signing in again wouldn't help.
     accountScopes = """["me.read", "roms.read"]"""
-    assertEquals(UploadAccess.AccountMayNot, session.uploadAccess())
+    session.syncNow()
+    session.awaitUploads(UploadAccess.AccountMayNot)
 
     session.signIn(signedIn.copy(deviceId = "d1", scopes = listOf("roms.read", "roms.write")))
-    assertEquals(UploadAccess.Allowed, session.uploadAccess())
+    session.awaitUploads(UploadAccess.Allowed)
 
     // RomM doesn't say what a pasted token may do.
     accountScopes = """["me.read", "roms.read", "roms.write"]"""
     session.signIn(signedIn.copy(token = "rmm_pasted"))
-    assertEquals(UploadAccess.Unknown, session.uploadAccess())
+    session.awaitUploads(UploadAccess.Unknown)
     accountScopes = """["me.read", "roms.read"]"""
-    assertEquals(UploadAccess.AccountMayNot, session.uploadAccess())
+    session.syncNow()
+    session.awaitUploads(UploadAccess.AccountMayNot)
   }
 
   // Each account's saves sync apart from the others', and a renewed token keeps its records.

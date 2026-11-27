@@ -26,6 +26,8 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.focused
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.flow.first
 
 /**
@@ -205,7 +207,8 @@ internal constructor(
  * does.
  *
  * A scope with no items, such as an empty or loading screen, holds focus itself, so actions like
- * [Action.Back][dev.sargunv.handheld.ui.input.Action.Back] still reach it and its ancestors.
+ * [Action.Back][dev.sargunv.handheld.ui.input.Action.Back] still reach it and its ancestors, and
+ * tells accessibility services it's focused, as a focused item would.
  */
 @Composable
 fun FocusScope(
@@ -247,10 +250,15 @@ internal fun FocusScope(
     }
   }
 
+  var holdsFocus by remember { mutableStateOf(false) }
   CompositionLocalProvider(LocalFocusScope provides state, LocalFocusMemory provides null) {
     Box(
       modifier
-        .onFocusChanged { state.hasFocus = it.hasFocus }
+        .onFocusChanged {
+          state.hasFocus = it.hasFocus
+          holdsFocus = it.isFocused
+        }
+        .then(if (holdsFocus) Modifier.semantics { focused = true } else Modifier)
         .focusRequester(state.memory.group)
         // A group while it has items; otherwise a focus target itself. When items appear, the
         // scope gives up focus and the restore effect above moves it to them.

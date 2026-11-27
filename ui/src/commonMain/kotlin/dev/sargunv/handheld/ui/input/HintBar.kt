@@ -24,16 +24,18 @@ import dev.sargunv.handheld.ui.Placeholder
  * The button hints along the bottom edge of the upper screen. Each screen places one and fills it
  * with what its buttons do there. Each hint names the button that performs its action under the
  * player's input settings.
+ *
+ * @param mainMenu ends the hints with the main menu's, for a screen where Start opens it.
  */
 @Composable
-fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier) {
+fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier, mainMenu: Boolean = true) {
   val settings = LocalInputSettings.current
   Row(
     modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 16.dp),
     horizontalArrangement = Arrangement.spacedBy(32.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
-    for (hint in hints) {
+    for (hint in if (mainMenu) hints + MainMenuHint else hints) {
       val button = PadButton.entries.firstOrNull { settings.actionFor(it) == hint.action }
       // The button and what it does make one element for accessibility services.
       Row(
@@ -56,6 +58,8 @@ fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier) {
     }
   }
 }
+
+private val MainMenuHint = Hint(Action.MainMenu, "Main menu")
 
 /** The name printed on the button: a face button's name is its key code's. */
 internal val PadButton.label: String

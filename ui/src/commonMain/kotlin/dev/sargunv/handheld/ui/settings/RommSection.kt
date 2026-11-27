@@ -4,7 +4,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.romm.RommAccount
-import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.places.AppState
@@ -12,10 +11,13 @@ import dev.sargunv.handheld.ui.places.label
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 
-/** The RomM section, with what this sign-in may upload, or null while that's being asked. */
+/**
+ * The RomM section for [account], with what this sign-in may upload, or null while that's being
+ * asked.
+ */
 internal fun LazyListScope.romm(
   state: AppState,
-  romm: RommState,
+  account: RommAccount,
   sync: SyncStatus,
   uploadAccess: UploadAccess?,
   open: (SettingsDialog) -> Unit,
@@ -23,19 +25,7 @@ internal fun LazyListScope.romm(
 ) {
   sectionHeading("RomM")
   val view = state.settingsView
-  val credentials = (romm as? RommAccount)?.credentials
-  if (credentials == null) {
-    item(key = "signedOut") {
-      SettingRow(
-        view,
-        "settings:romm:server",
-        "Server",
-        "Not signed in",
-        "Sign in on the main screen to reach your library.",
-      )
-    }
-    return
-  }
+  val credentials = account.credentials
   item(key = "server") {
     SettingRow(
       view,
@@ -70,7 +60,7 @@ internal fun LazyListScope.romm(
         "settings:romm:signInAgain",
         "Sign in again",
         null,
-        "Your games and saves stay on this device.",
+        KEPT_ON_DEVICE,
         onConfirm = signInAgain,
       )
     }
@@ -104,7 +94,7 @@ internal fun LazyListScope.romm(
       "settings:romm:syncNow",
       "Sync now",
       null,
-      "Syncs the library with the server now, rather than at the next start.",
+      "Syncs the library now",
       enabled = !syncing,
       onConfirm = state.romm::syncNow,
     )
@@ -115,7 +105,7 @@ internal fun LazyListScope.romm(
       "settings:romm:signOut",
       "Sign out",
       null,
-      "Your downloaded games and saves stay on this device.",
+      KEPT_ON_DEVICE,
       onConfirm = { open(SettingsDialog.SignOut) },
     )
   }
@@ -134,12 +124,14 @@ private fun uploadsSummary(access: UploadAccess?): String =
 private fun uploadsHelp(access: UploadAccess?): String =
   when (access) {
     null -> "Whether this device may upload games that aren't on your server."
-    UploadAccess.Allowed ->
-      "This device may upload games that aren't on your server, from the game's page."
+    UploadAccess.Allowed -> "Uploads games that aren't on your server"
     UploadAccess.NotRequested -> UPLOADS_NOT_REQUESTED
     UploadAccess.AccountMayNot -> UPLOADS_NOT_FOR_ACCOUNT
     UploadAccess.Unknown -> "RomM doesn't say whether an API token may upload games."
   }
+
+/** What signing out or in again leaves alone. */
+private const val KEPT_ON_DEVICE = "Games and saves stay on this device"
 
 /** Asks before signing out. */
 @Composable
@@ -150,6 +142,6 @@ internal fun SignOutDialog(onSignOut: () -> Unit, onDismissRequest: () -> Unit) 
     "Sign out",
     onConfirm = onSignOut,
     onDismissRequest = onDismissRequest,
-    fact = "Games and saves stay on this device",
+    fact = KEPT_ON_DEVICE,
   )
 }
