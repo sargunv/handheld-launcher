@@ -106,17 +106,12 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         achievementsConsole = retroAchievementsConsole(request.platform),
         hardcore = settings.achievements.hardcore,
       )
-    // A failure an earlier session left unreported isn't this one's.
-    SessionActivity.takeUnreportedSaveError()
-    val result = awaitResult(intent)
-    val error = result.data?.getStringExtra(SessionActivity.EXTRA_ERROR)
-    val saveError =
-      result.data?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
-        ?: SessionActivity.takeUnreportedSaveError()
+    val error = awaitResult(intent).data?.getStringExtra(SessionActivity.EXTRA_ERROR)
     if (error != null) {
       note("Couldn't start the game: $error")
       return
     }
+    val saveError = SessionActivity.saveError
     if (saveError != null) note("The game's save couldn't be written: $saveError")
     else Log.i(TAG, "Back from the game in ${chosen.library}")
     // The session writes its save memory as it stops, but one that ends without stopping, such as
