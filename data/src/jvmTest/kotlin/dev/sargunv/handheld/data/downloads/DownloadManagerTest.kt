@@ -313,14 +313,12 @@ class DownloadManagerTest {
       manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
     assertTrue(downloads.enqueue(gameRom))
     credentials.clear()
-    downloads.signedIn(null)
     writable.value = true
     waitFor { delay(300) }
     assertEquals(DownloadState.Queued, downloads.queue.value.single().state)
     assertEquals(emptyList(), contentRequests())
 
     credentials.save(RommCredentials(TEST_SERVER, "rmm_new"))
-    downloads.signedIn(TEST_SERVER)
     downloads.awaitEmpty()
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
   }
@@ -335,14 +333,12 @@ class DownloadManagerTest {
     val first = manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
     assertTrue(first.enqueue(gameRom))
     credentials.clear()
-    first.signedIn(null)
 
     val restarted =
       manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
     credentials.save(RommCredentials("https://other.test", "rmm_other"))
     writable.value = true
-    restarted.signedIn("https://other.test")
-    assertEquals(emptyList(), restarted.queue.value)
+    restarted.awaitEmpty()
     assertEquals(emptyList(), contentRequests())
   }
 

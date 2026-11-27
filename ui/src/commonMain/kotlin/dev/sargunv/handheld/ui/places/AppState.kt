@@ -186,7 +186,6 @@ class AppState(
       // Before the credentials go, so the server hears of the canceled installs it asked for.
       if (!keepQueue) for (download in downloads.queue.value) downloads.cancel(download.romId)
       account.signOut(allowUploads)
-      downloads.signedIn(null)
       navigator.backToStart()
       place = Place.Home
       focused = null

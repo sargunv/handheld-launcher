@@ -5,6 +5,10 @@ package dev.sargunv.handheld.data.auth
 import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.romm.RommInstantSerializer
 import kotlin.time.Instant
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
@@ -30,39 +34,70 @@ data class RommCredentials(
       "expiresAt=$expiresAt)"
 }
 
-/** Where the signed-in server's credentials live between launches. */
-interface CredentialStore {
+/**
+ * Where the signed-in server's credentials live between launches. It reads them the first time
+ * they're needed, and then holds what it saves.
+ */
+abstract class CredentialStore {
+  private val mutex = Mutex()
+  private val current = MutableStateFlow<RommCredentials?>(null)
+  private var loaded = false
+
+  /**
+   * The stored credentials, or null while the device is signed out, as they're saved and cleared.
+   */
+  val credentials: Flow<RommCredentials?> = flow {
+    load()
+    emitAll(current)
+  }
+
   /** The stored credentials, or null when the device isn't signed in. */
-  suspend fun load(): RommCredentials?
+  suspend fun load(): RommCredentials? = mutex.withLock {
+    if (!loaded) {
+      current.value = read()
+      loaded = true
+    }
+    current.value
+  }
 
-  suspend fun save(credentials: RommCredentials)
+  suspend fun save(credentials: RommCredentials) = mutex.withLock {
+    write(credentials)
+    current.value = credentials
+    loaded = true
+  }
 
-  suspend fun clear()
+  suspend fun clear() = mutex.withLock {
+    delete()
+    current.value = null
+    loaded = true
+  }
+
+  protected abstract suspend fun read(): RommCredentials?
+
+  protected abstract suspend fun write(credentials: RommCredentials)
+
+  protected abstract suspend fun delete()
 }
 
 /** A [CredentialStore] that forgets everything when the process ends. */
-class InMemoryCredentialStore(private var credentials: RommCredentials? = null) : CredentialStore {
-  private val mutex = Mutex()
+class InMemoryCredentialStore(private val initial: RommCredentials? = null) : CredentialStore() {
+  override suspend fun read() = initial
 
-  override suspend fun load() = mutex.withLock { credentials }
+  override suspend fun write(credentials: RommCredentials) {}
 
-  override suspend fun save(credentials: RommCredentials) = mutex.withLock {
-    this.credentials = credentials
-  }
-
-  override suspend fun clear() = mutex.withLock { credentials = null }
+  override suspend fun delete() {}
 }
 
 /**
  * A [CredentialStore] that keeps the credentials in a JSON file at [path]. The token is stored
  * unencrypted, so anything that can read the file can use it.
  */
-class FileCredentialStore(path: Path) : CredentialStore {
+class FileCredentialStore(path: Path) : CredentialStore() {
   private val file = JsonFile(path, RommCredentials.serializer())
 
-  override suspend fun load(): RommCredentials? = file.read()
+  override suspend fun read(): RommCredentials? = file.read()
 
-  override suspend fun save(credentials: RommCredentials) = file.write(credentials)
+  override suspend fun write(credentials: RommCredentials) = file.write(credentials)
 
-  override suspend fun clear() = file.delete()
+  override suspend fun delete() = file.delete()
 }

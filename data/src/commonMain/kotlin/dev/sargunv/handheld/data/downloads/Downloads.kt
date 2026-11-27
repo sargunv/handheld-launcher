@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -147,11 +148,13 @@ class DownloadManager(
   /** The queue, in the order it downloads. */
   val queue: StateFlow<List<Download>> = entries.asStateFlow()
 
-  /** Counts the sign-ins and sign-outs, so the queue waits for the sign-in its games need. */
-  private val signIns = MutableStateFlow(0)
+  /** The address of the server the device is signed in to, or null while it's signed out. */
+  private val signedInServer = credentials.credentials.map { it?.baseUrl }.distinctUntilChanged()
 
-  /** The next queued game of [server], the one signed in to, or null when there's none. */
-  private fun nextFor(server: String?, list: List<Download>): Download? = list.firstOrNull {
+  /**
+   * The next game of [list] queued from [server], the one signed in to, or null when there's none.
+   */
+  private fun nextFor(list: List<Download>, server: String?): Download? = list.firstOrNull {
     it.state == DownloadState.Queued && it.server == server
   }
 
@@ -159,22 +162,27 @@ class DownloadManager(
     scope.launch {
       deleteStaleStaging()
       while (true) {
-        val seen = entries.value to signIns.value
         // A game waits while signed out, or signed in to another server than its own.
-        if (nextFor(credentials.load()?.baseUrl, seen.first) == null) {
-          combine(entries, signIns, ::Pair).first { it != seen }
-          continue
-        }
+        combine(entries, signedInServer, ::nextFor).first { it != null }
         canWrite.first { it }
         val server = credentials.load()?.baseUrl
         // Pick under the lock, so a game canceled meanwhile isn't started.
         val job =
           mutex.withLock {
-            val download = nextFor(server, entries.value)
+            val download = nextFor(entries.value, server)
             download?.let { scope.launch { run(it) }.also { job -> running = it.romId to job } }
           } ?: continue
         job.join()
         mutex.withLock { running = null }
+      }
+    }
+    scope.launch {
+      // At a sign-in to another server, the games of the one before leave the queue, without
+      // telling either server, since their ids are that server's.
+      signedInServer.filterNotNull().collect { server ->
+        for (download in entries.value) {
+          if (download.server != server) cancel(download.romId, report = false)
+        }
       }
     }
   }
@@ -233,20 +241,6 @@ class DownloadManager(
           server = server,
         )
     }
-  }
-
-  /**
-   * Tells the queue the device signed in or out. After a sign-in to [server], the games another
-   * server queued leave the queue, without telling either server, since their ids are that
-   * server's; the rest download again.
-   */
-  suspend fun signedIn(server: String?) {
-    if (server != null) {
-      for (download in entries.value) {
-        if (download.server != server) cancel(download.romId, report = false)
-      }
-    }
-    signIns.value++
   }
 
   /** Queues a failed download again, where it was in the queue. */

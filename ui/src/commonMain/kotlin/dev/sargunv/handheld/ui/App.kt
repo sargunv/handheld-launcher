@@ -205,9 +205,6 @@ fun App(
   val signedIn = account.signedIn
   LaunchedEffect(signedIn, state) {
     if (signedIn != true) return@LaunchedEffect
-    // The downloads a sign-out kept wait for this sign-in, and leave the queue if they're another
-    // server's games.
-    downloads.signedIn(credentials.load()?.baseUrl)
     // A new request starts the sync over.
     state.syncRequests.collectLatest {
       state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
