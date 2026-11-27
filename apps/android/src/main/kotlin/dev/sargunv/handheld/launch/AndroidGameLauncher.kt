@@ -32,6 +32,7 @@ import dev.sargunv.handheld.domain.saves.BiosKnowledge
 import dev.sargunv.handheld.domain.storage.GameLayout
 import dev.sargunv.handheld.session.romGameId
 import dev.sargunv.handheld.ui.game.GameLauncher
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
 import java.io.File
@@ -210,14 +211,12 @@ internal class AndroidGameLauncher(
     val before =
       emulators.records.launched(packageName, (request.game as? GameKey.Romm)?.romId, probe)
     try {
-      when (dispatcher.launch(command)) {
-        LaunchOutcome.Started -> log.i { "Started $packageName (${resolution.rule})" }
-        LaunchOutcome.Failed -> {
-          // Nothing started, so the emulator still holds whatever game it held.
-          emulators.records.launchFailed(packageName, before)
-          return note("Launch failed · ${appName(target)}")
-        }
+      if (!dispatcher.launch(command)) {
+        // Nothing started, so the emulator still holds whatever game it held.
+        emulators.records.launchFailed(packageName, before)
+        return note("Launch failed · ${appName(target)}")
       }
+      log.i { "Started $packageName (${resolution.rule})" }
       awaitReturn()
     } finally {
       PlayCompanion.close()
@@ -311,10 +310,10 @@ internal class AndroidGameLauncher(
         FirmwareInstaller(client, File(activity.cacheDir, "firmware"))
           .install(platform, location, location.folders(storage, target.packageName))
       } catch (e: RommException) {
-        note("BIOS list failed · ${e.message}")
+        note(labelled("BIOS list failed", e.message))
         return
       } catch (e: IOException) {
-        note("BIOS not placed · ${e.message}")
+        note(labelled("BIOS not placed", e.message))
         return
       }
     log.i { "Firmware for $platform: $result" }

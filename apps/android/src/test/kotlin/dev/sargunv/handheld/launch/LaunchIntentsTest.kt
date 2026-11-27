@@ -21,7 +21,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [37])
 class LaunchIntentsTest {
   private val rom = "/storage/emulated/0/ROMs/game.iso"
-  private val contentUris = ContentUris { Uri.parse("content://test.fileprovider/root$it") }
+  private val uriFor = { path: String -> Uri.parse("content://test.fileprovider/root$path") }
   private val romUri = Uri.parse("content://test.fileprovider/root$rom")
 
   @Test
@@ -36,7 +36,7 @@ class LaunchIntentsTest {
         flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask),
         clipData = LaunchUri.ProviderFile(rom),
       )
-    val intent = command.toIntent(contentUris)
+    val intent = command.toIntent(uriFor)
 
     assertEquals(Intent.ACTION_VIEW, intent.action)
     assertEquals("dev.example.emu", intent.`package`)
@@ -69,7 +69,7 @@ class LaunchIntentsTest {
             LaunchExtra.StringArray("args", listOf("-r", "PCSE00120")),
           ),
       )
-    val intent = command.toIntent(contentUris)
+    val intent = command.toIntent(uriFor)
 
     assertEquals("dev.example.emu/dev.example.emu.Play", intent.component?.flattenToString())
     assertNull(intent.data)
