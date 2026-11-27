@@ -68,7 +68,7 @@ val cargoBuildAndroid =
         .orElse(androidAbis.keys.toList())
     minSdk = libs.versions.android.minSdk
     // cargo-ndk reads the NDK from the environment; a new one rebuilds.
-    inputs.property("ndk", providers.environmentVariable("ANDROID_NDK_HOME"))
+    inputs.property("ndk", providers.environmentVariable("ANDROID_NDK_HOME").orElse(""))
     outputDir = layout.buildDirectory.dir("generated/session/jniLibs")
   }
 
