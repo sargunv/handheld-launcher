@@ -2,14 +2,14 @@ package dev.sargunv.handheld.session
 
 import java.io.File
 import java.nio.file.Files
-import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 /**
  * What the Kotlin bindings add to the session, against the cores that `mise run session:fixtures`
@@ -70,31 +70,21 @@ class GameSessionTest {
   }
 
   @Test
-  fun theListenerHearsTheCoreChangeModeAndQuit() {
-    // The events test core switches its video mode on Select and quits on Start.
-    val heard = LinkedBlockingQueue<Any>()
+  fun theListenerHearsTheCoreQuit() {
+    // The events test core quits on Start.
+    val quit = CountDownLatch(1)
     val listener =
       object : SessionListener {
-        override fun infoChanged(info: SessionInfo) {
-          heard.put(info)
-        }
-
         override fun coreQuit() {
-          heard.put("quit")
+          quit.countDown()
         }
 
         override fun achievementEvent(event: AchievementEvent) {}
       }
     val session = start("events_libretro.so", listener)
-    session.setButton(0u, Button.SELECT, true)
-    session.advance(1u)
-    val info = assertIs<SessionInfo>(heard.poll(10, TimeUnit.SECONDS))
-    assertEquals(384u to 216u, info.baseWidth to info.baseHeight)
-    assertEquals(info, session.info())
-
     session.setButton(0u, Button.START, true)
     session.advance(1u)
-    assertEquals("quit", heard.poll(10, TimeUnit.SECONDS))
+    assertTrue(quit.await(10, TimeUnit.SECONDS))
     assertFailsWith<SessionException.Stopped> { session.advance(1u) }
   }
 }

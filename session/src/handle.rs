@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -116,14 +116,18 @@ pub struct SessionInfo {
 }
 
 impl SessionInfo {
-    fn with_av(&self, av: AvInfo) -> Self {
-        Self {
-            fps: av.fps,
-            base_width: av.base_width,
-            base_height: av.base_height,
-            aspect_ratio: av.aspect_ratio,
-            ..self.clone()
-        }
+    /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
+    /// whether they changed.
+    fn set_av(&mut self, av: AvInfo) -> bool {
+        let changed = self.fps != av.fps
+            || self.base_width != av.base_width
+            || self.base_height != av.base_height
+            || self.aspect_ratio != av.aspect_ratio;
+        self.fps = av.fps;
+        self.base_width = av.base_width;
+        self.base_height = av.base_height;
+        self.aspect_ratio = av.aspect_ratio;
+        changed
     }
 }
 
@@ -131,11 +135,6 @@ impl SessionInfo {
 /// of its own, one call at a time, so it may call the session back.
 #[uniffi::export(with_foreign)]
 pub trait SessionListener: Send + Sync {
-    /// The core changed its frame size, aspect ratio or frame rate mid-game,
-    /// as `info` now gives them. The session already presents and paces
-    /// frames to match; the app may lay out its view again.
-    fn info_changed(&self, info: SessionInfo);
-
     /// The core asked to quit, as when a game offers an exit. The session has
     /// stopped, writing save memory as it does when stopped, and unloaded the
     /// core, so the app should close it.
@@ -161,7 +160,6 @@ pub trait AchievementsHttp: Send + Sync {
 
 /// What the session thread tells the listener.
 enum Event {
-    InfoChanged(SessionInfo),
     CoreQuit,
     Achievement(AchievementEvent),
     Request(u64, AchievementsRequest),
@@ -186,9 +184,6 @@ impl Events {
             .spawn(move || {
                 for event in receiver {
                     match (event, &listener, &http) {
-                        (Event::InfoChanged(info), Some(listener), _) => {
-                            listener.info_changed(info)
-                        }
                         (Event::CoreQuit, Some(listener), _) => listener.core_quit(),
                         (Event::Achievement(event), Some(listener), _) => {
                             listener.achievement_event(event)
@@ -252,8 +247,8 @@ enum Command {
 impl GameSession {
     /// Loads the core and its content on a new thread, and returns once
     /// they're ready to run, paused. The session tells `listener` when the
-    /// core changes its video mode or quits, or something happens to the
-    /// game's achievements, and sends RetroAchievements requests to `http`.
+    /// core quits or something happens to the game's achievements, and sends
+    /// RetroAchievements requests to `http`.
     ///
     /// The core is native code that runs in this process: only start cores
     /// the user chose to trust.
@@ -366,12 +361,15 @@ impl GameSession {
             Screen::Main if self.split.load(Ordering::Relaxed) => Region::Top,
             Screen::Main => Region::Whole,
         };
-        let info = self.info();
+        let (base_width, base_height, aspect_ratio) = {
+            let info = self.info.lock().unwrap_or_else(|e| e.into_inner());
+            (info.base_width, info.base_height, info.aspect_ratio)
+        };
         let position = crate::video::pointer_position(
             region,
-            info.base_width,
-            info.base_height,
-            info.aspect_ratio,
+            base_width,
+            base_height,
+            aspect_ratio,
             width,
             height,
             x,
@@ -601,7 +599,6 @@ fn run(
         return;
     }
     let runner = Runner {
-        reported_av: session.av_info(),
         info,
         events: events.clone(),
         session,
@@ -704,8 +701,6 @@ struct Runner {
     /// The info the app sees, which the session updates as the core changes
     /// its video mode.
     info: Arc<Mutex<SessionInfo>>,
-    /// The timing and geometry `info` last reported.
-    reported_av: AvInfo,
     events: Events,
     window: Option<PlatformWindow>,
     lower_window: Option<PlatformWindow>,
@@ -745,27 +740,17 @@ fn next(
     next_frame: Instant,
     idle: Option<Instant>,
 ) -> Next {
-    if paused {
-        let Some(idle) = idle else {
-            return commands.recv().map_or(Next::Exit, Next::Command);
-        };
-        return match commands.recv_timeout(idle.saturating_duration_since(Instant::now())) {
-            Ok(command) => Next::Command(command),
-            Err(RecvTimeoutError::Timeout) => Next::Idle,
-            Err(RecvTimeoutError::Disconnected) => Next::Exit,
-        };
-    }
-    let wait = next_frame.saturating_duration_since(Instant::now());
-    if wait.is_zero() {
-        return match commands.try_recv() {
-            Ok(command) => Next::Command(command),
-            Err(TryRecvError::Empty) => Next::Frame,
-            Err(TryRecvError::Disconnected) => Next::Exit,
-        };
-    }
-    match commands.recv_timeout(wait) {
+    let (deadline, due) = if paused {
+        (idle, Next::Idle)
+    } else {
+        (Some(next_frame), Next::Frame)
+    };
+    let Some(deadline) = deadline else {
+        return commands.recv().map_or(Next::Exit, Next::Command);
+    };
+    match commands.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(command) => Next::Command(command),
-        Err(RecvTimeoutError::Timeout) => Next::Frame,
+        Err(RecvTimeoutError::Timeout) => due,
         Err(RecvTimeoutError::Disconnected) => Next::Exit,
     }
 }
@@ -794,7 +779,7 @@ impl Runner {
             for event in self.session.take_achievement_events() {
                 self.events.send(Event::Achievement(event));
             }
-            self.report_av();
+            self.update_info();
             if self.session.shutdown_requested() {
                 log::info!("the core asked to quit");
                 break true;
@@ -806,30 +791,18 @@ impl Runner {
         quit
     }
 
-    /// Tells the app about a frame size, aspect ratio or frame rate the core
+    /// Updates `info` to a frame size, aspect ratio or frame rate the core
     /// changed to.
-    fn report_av(&mut self) {
-        let av = self.session.av_info();
-        if av == self.reported_av {
-            return;
+    fn update_info(&self) {
+        let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
+        if info.set_av(self.session.av_info()) {
+            log::info!(
+                "the core changed to {}x{} at {:.2} fps",
+                info.base_width,
+                info.base_height,
+                info.fps
+            );
         }
-        self.reported_av = av;
-        let info = {
-            let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = info.with_av(av);
-            if changed == *info {
-                return;
-            }
-            *info = changed.clone();
-            changed
-        };
-        log::info!(
-            "the core changed to {}x{} at {:.2} fps",
-            info.base_width,
-            info.base_height,
-            info.fps
-        );
-        self.events.send(Event::InfoChanged(info));
     }
 
     fn run_frame(&mut self) {
@@ -923,7 +896,7 @@ impl Runner {
                         self.session.run_frame();
                     }
                     // So info() is current once advance() returns.
-                    self.report_av();
+                    self.update_info();
                 }
                 let _ = reply.send(Ok(()));
             }

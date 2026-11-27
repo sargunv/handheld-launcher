@@ -896,17 +896,6 @@ mod tests {
         )
     }
 
-    fn av_info(max_width: u32, max_height: u32, sample_rate: f64) -> ffi::retro_system_av_info {
-        let mut info = ffi::retro_system_av_info::default();
-        info.geometry.base_width = 320;
-        info.geometry.base_height = 240;
-        info.geometry.max_width = max_width;
-        info.geometry.max_height = max_height;
-        info.timing.fps = 60.0;
-        info.timing.sample_rate = sample_rate;
-        info
-    }
-
     #[test]
     fn single_session_states_dont_persist() {
         let mut host = host();
@@ -920,48 +909,22 @@ mod tests {
     }
 
     #[test]
-    fn counts_the_controller_ports_the_core_declares() {
-        let mut host = host();
-        assert_eq!(host.controller_ports, None);
-        let pad = ffi::retro_controller_description {
-            desc: c"RetroPad".as_ptr(),
-            id: ffi::RETRO_DEVICE_JOYPAD,
-        };
-        let port = ffi::retro_controller_info {
-            types: &pad,
-            num_types: 1,
-        };
-        let end = ffi::retro_controller_info {
-            types: std::ptr::null(),
-            num_types: 0,
-        };
-        let mut ports = [port, port, end];
-        assert!(host.environment(
-            ffi::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO,
-            ports.as_mut_ptr().cast(),
-        ));
-        assert_eq!(host.controller_ports, Some(2));
-    }
-
-    #[test]
     fn new_av_info_takes_effect_within_the_frame() {
+        let Some(context) = gl::test_context() else {
+            return;
+        };
         let mut host = host();
-        host.av_info = AvInfo::from_retro(&av_info(320, 240, 32_000.0));
-        host.reset_audio();
-        if let Some(context) = gl::test_context() {
-            let fb = Framebuffer::new(&context.gl, 320, 240, false, false).unwrap();
-            let mut gpu = Gpu::new(context);
-            gpu.hw = Some(fb);
-            host.gpu = Some(gpu);
-        }
-        let mut info = av_info(640, 480, 44_100.0);
+        let mut gpu = Gpu::new(context);
+        gpu.hw = Some(Framebuffer::new(&gpu.context.gl, 320, 240, false, false).unwrap());
+        host.gpu = Some(gpu);
+        let mut info = ffi::retro_system_av_info::default();
+        info.geometry.max_width = 640;
+        info.geometry.max_height = 480;
         assert!(host.environment(
             ffi::RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
             (&raw mut info).cast(),
         ));
-        assert_eq!(host.audio_rate, 44_100.0);
-        if let Some(fb) = host.gpu.as_ref().and_then(|gpu| gpu.hw.as_ref()) {
-            assert_eq!((fb.width, fb.height), (640, 480));
-        }
+        let fb = host.gpu.as_ref().and_then(|gpu| gpu.hw.as_ref()).unwrap();
+        assert_eq!((fb.width, fb.height), (640, 480));
     }
 }

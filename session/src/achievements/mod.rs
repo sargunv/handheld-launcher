@@ -70,8 +70,8 @@ pub enum AchievementStatus {
     /// RetroAchievements doesn't know the game, or has no achievements for
     /// it.
     NoSet,
-    /// Signing in or loading the game failed, for `reason`, in plain words.
-    Failed { reason: String },
+    /// Signing in or loading the game failed.
+    Failed { reason: AchievementFailure },
     /// The game's achievements, as RetroAchievements groups them: recently
     /// unlocked and nearly done first, then locked, then unlocked.
     Ready {
@@ -88,8 +88,19 @@ pub enum AchievementEvent {
     /// The player earned `achievement`. The session has sent it to the
     /// server, which may still be taking it.
     Unlocked { achievement: Achievement },
-    /// Signing in or loading the game failed, for `reason`, in plain words.
-    Failed { reason: String },
+    /// Signing in or loading the game failed.
+    Failed { reason: AchievementFailure },
+}
+
+/// Why a session's achievements stopped.
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum AchievementFailure {
+    /// The server no longer takes the player's sign-in.
+    SignInExpired,
+    /// Signing in failed for another reason, which `detail` gives.
+    SignIn { detail: String },
+    /// Loading the game's achievements failed, for `detail`.
+    LoadGame { detail: String },
 }
 
 /// A request the session needs sent to RetroAchievements.
@@ -139,7 +150,7 @@ enum Load {
     Loading,
     Loaded,
     NoSet,
-    Failed(String),
+    Failed(AchievementFailure),
 }
 
 /// A request waiting for its response.
@@ -532,13 +543,10 @@ unsafe extern "C" fn signed_in(
         return;
     };
     log::warn!("can't sign in to RetroAchievements: {detail}");
-    let reason = match result {
-        ffi::RC_INVALID_CREDENTIALS | ffi::RC_EXPIRED_TOKEN => {
-            "Sign in to RetroAchievements again in Settings.".to_owned()
-        }
-        _ => format!("Couldn't sign in to RetroAchievements: {detail}"),
-    };
-    state.fail(reason);
+    state.fail(match result {
+        ffi::RC_INVALID_CREDENTIALS | ffi::RC_EXPIRED_TOKEN => AchievementFailure::SignInExpired,
+        _ => AchievementFailure::SignIn { detail },
+    });
 }
 
 unsafe extern "C" fn game_loaded(
@@ -569,13 +577,13 @@ unsafe extern "C" fn game_loaded(
             if matches!(*state.load.borrow(), Load::Failed(_)) => {}
         _ => {
             log::warn!("RetroAchievements can't load the game: {detail}");
-            state.fail(format!("Couldn't load the game's achievements: {detail}"));
+            state.fail(AchievementFailure::LoadGame { detail });
         }
     }
 }
 
 impl State {
-    fn fail(&self, reason: String) {
+    fn fail(&self, reason: AchievementFailure) {
         let mut load = self.load.borrow_mut();
         if matches!(*load, Load::Failed(_)) {
             return;

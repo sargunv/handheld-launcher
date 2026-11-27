@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use common::{Harness, fixture, lock, options};
 use handheld_session::{
     AchievementEvent, AchievementOptions, AchievementStatus, AchievementsHttp, AchievementsRequest,
-    GameSession, SessionError, SessionInfo, SessionListener, SessionOptions,
+    GameSession, SessionError, SessionListener, SessionOptions,
 };
 use zip::write::SimpleFileOptions;
 
@@ -184,7 +184,6 @@ impl AchievementsHttp for AppHttp {
 struct Quiet;
 
 impl SessionListener for Quiet {
-    fn info_changed(&self, _info: SessionInfo) {}
     fn core_quit(&self) {}
     fn achievement_event(&self, _event: AchievementEvent) {}
 }
