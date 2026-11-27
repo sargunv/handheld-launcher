@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Harness, lock};
+use common::{Harness, fixture, lock};
 use std::io::Write;
 
 use handheld_session::{Button, SessionError};
@@ -17,7 +17,7 @@ const SAVE_RAM_SIZE: usize = 128 * 1024;
 #[test]
 fn plays_the_title_screen_with_sound() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, Some(GAME), &[], None, None).unwrap();
+    let mut h = Harness::with(CORE, |c| c.content = Some(fixture(GAME))).unwrap();
     h.run(600);
     let frame = h.frames.last();
     common::dump(&frame, "ucity-title");
@@ -42,17 +42,22 @@ fn plays_the_game_from_a_zip() {
     zip.write_all(b"not the game").unwrap();
     zip.start_file("µCity/ucity.gbc", SimpleFileOptions::default())
         .unwrap();
-    zip.write_all(&std::fs::read(common::fixture(GAME)).unwrap())
+    zip.write_all(&std::fs::read(fixture(GAME)).unwrap())
         .unwrap();
     zip.finish().unwrap();
 
-    let mut h = Harness::start(CORE, Some(archive.to_str().unwrap()), &[], None, None).unwrap();
+    let plain = {
+        let mut h = Harness::with(CORE, |c| c.content = Some(fixture(GAME))).unwrap();
+        h.run(600);
+        common::sha256(&h.frames.last())
+    };
+    let mut h = Harness::with(CORE, |c| c.content = Some(archive)).unwrap();
     let extracted = h.dirs.path().join("content/ucity.gbc");
     assert!(extracted.exists());
     h.run(600);
     assert_eq!(
         common::sha256(&h.frames.last()),
-        "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
+        plain,
         "the zipped game shows the same title screen"
     );
 }
@@ -61,7 +66,7 @@ fn plays_the_game_from_a_zip() {
 fn needs_content() {
     let _lock = lock();
     assert!(matches!(
-        Harness::start(CORE, None, &[], None, None),
+        Harness::start(CORE),
         Err(SessionError::ContentRequired)
     ));
 }
@@ -75,13 +80,17 @@ fn save_ram_round_trips_through_its_file() {
     // A state of the game with blank save memory, which a state includes.
     let state = dir.path().join("blank.state");
     let blank = {
-        let mut h = Harness::start(CORE, Some(GAME), &[], None, None).unwrap();
+        let mut h = Harness::with(CORE, |c| c.content = Some(fixture(GAME))).unwrap();
         h.session.save_state(&state).unwrap();
         h.session.save_ram().unwrap().to_vec()
     };
     std::fs::write(&path, &pattern).unwrap();
 
-    let mut h = Harness::start(CORE, Some(GAME), &[], None, Some(&path)).unwrap();
+    let mut h = Harness::with(CORE, |c| {
+        c.content = Some(fixture(GAME));
+        c.save_ram = Some(path.clone());
+    })
+    .unwrap();
     assert_eq!(h.session.save_ram().unwrap(), pattern);
     h.session.load_state(&state).unwrap();
     drop(h);
@@ -91,7 +100,7 @@ fn save_ram_round_trips_through_its_file() {
 #[test]
 fn restoring_a_state_replays_identically() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, Some(GAME), &[], None, None).unwrap();
+    let mut h = Harness::with(CORE, |c| c.content = Some(fixture(GAME))).unwrap();
     h.run(200);
     let state = h.dirs.path().join("ucity.state");
     h.session.save_state(&state).unwrap();

@@ -6,14 +6,14 @@ mod common;
 
 use std::cell::RefCell;
 use std::io::Write;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
 
-use common::{Harness, fixture, lock, options};
+use common::{Harness, fixture, lock, options, wait_until};
 use handheld_session::{
-    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsHttp, AchievementsRequest,
-    GameSession, SessionError, SessionListener, SessionOptions,
+    AchievementOptions, AchievementStatus, AchievementsHttp, AchievementsRequest, GameSession,
+    SessionError, SessionOptions,
 };
 use zip::write::SimpleFileOptions;
 
@@ -78,19 +78,16 @@ fn account(hardcore: bool) -> AchievementOptions {
 type Waiting = Rc<RefCell<Vec<(u64, AchievementsRequest)>>>;
 
 /// Starts `content` in Gambatte, taking part in RetroAchievements.
-fn start(content: &str, hardcore: bool) -> (Harness, Waiting) {
+fn start(content: PathBuf, hardcore: bool) -> (Harness, Waiting) {
     let waiting = Waiting::default();
     let sent = waiting.clone();
-    let h = Harness::start(
-        CORE,
-        Some(content),
-        &[],
-        Some((
+    let h = Harness::with(CORE, |c| {
+        c.content = Some(content);
+        c.achievements = Some((
             account(hardcore),
             Box::new(move |id, request| sent.borrow_mut().push((id, request))),
-        )),
-        None,
-    )
+        ));
+    })
     .unwrap();
     (h, waiting)
 }
@@ -114,7 +111,7 @@ fn load(h: &mut Harness, waiting: &Waiting) -> Vec<String> {
 #[test]
 fn identifies_the_game_and_reads_its_memory() {
     let _lock = lock();
-    let (mut h, waiting) = start(GAME, false);
+    let (mut h, waiting) = start(fixture(GAME), false);
     assert_eq!(load(&mut h, &waiting), vec![GAME_HASH]);
     let AchievementStatus::Ready {
         game, achievements, ..
@@ -141,14 +138,14 @@ fn hashes_the_game_extracted_from_a_zip() {
     zip.write_all(&std::fs::read(fixture(GAME)).unwrap())
         .unwrap();
     zip.finish().unwrap();
-    let (mut h, waiting) = start(archive.to_str().unwrap(), false);
+    let (mut h, waiting) = start(archive, false);
     assert_eq!(load(&mut h, &waiting), vec![GAME_HASH]);
 }
 
 #[test]
 fn hardcore_refuses_to_load_states() {
     let _lock = lock();
-    let (mut h, waiting) = start(GAME, true);
+    let (mut h, waiting) = start(fixture(GAME), true);
     load(&mut h, &waiting);
     assert!(h.session.hardcore_restricts());
     let state = h.dirs.path().join("ucity.state");
@@ -172,22 +169,11 @@ impl AchievementsHttp for AppHttp {
         let hashes = self.hashes.clone();
         std::thread::spawn(move || {
             let body = answer(&request, &mut hashes.lock().unwrap());
-            let session = loop {
-                if let Some(session) = session.get() {
-                    break session;
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            };
-            session.achievements_response(id, Some(200), body.into_bytes());
+            session
+                .wait()
+                .achievements_response(id, Some(200), body.into_bytes());
         });
     }
-}
-
-struct Quiet;
-
-impl SessionListener for Quiet {
-    fn core_quit(&self) {}
-    fn achievement_event(&self, _event: AchievementEvent) {}
 }
 
 #[test]
@@ -205,21 +191,18 @@ fn the_app_sends_the_requests() {
             achievements: Some(account(true)),
             ..options(dir.path(), CORE, Some(GAME))
         },
-        Some(Arc::new(Quiet)),
+        None,
         Some(http),
     )
     .unwrap();
     let _ = cell.set(session.clone());
     // The session takes the responses while paused.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let achievements = loop {
-        match session.achievements().unwrap() {
-            AchievementStatus::Ready { achievements, .. } => break achievements,
-            AchievementStatus::Loading if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10))
-            }
-            status => panic!("not ready: {status:?}"),
-        }
+    wait_until("the achievements", || {
+        session.achievements().unwrap() != AchievementStatus::Loading
+    });
+    let status = session.achievements().unwrap();
+    let AchievementStatus::Ready { achievements, .. } = status else {
+        panic!("not ready: {status:?}");
     };
     assert_eq!(achievements.len(), 1);
     assert_eq!(*hashes.lock().unwrap(), vec![GAME_HASH]);

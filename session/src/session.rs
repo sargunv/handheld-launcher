@@ -81,7 +81,7 @@ pub struct SessionConfig {
 }
 
 /// What a core says about itself.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SystemInfo {
     pub library_name: String,
     pub library_version: String,
@@ -242,13 +242,7 @@ impl Session {
         let mut session = Session {
             core,
             host,
-            system_info: SystemInfo {
-                library_name: String::new(),
-                library_version: String::new(),
-                valid_extensions: Vec::new(),
-                need_fullpath: false,
-                block_extract: false,
-            },
+            system_info: SystemInfo::default(),
             game_loaded: false,
             achievements: None,
             save_ram: None,

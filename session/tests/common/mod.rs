@@ -7,10 +7,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use handheld_session::{
-    AchievementOptions, AudioSink, CapturedFrame, Frame, InputState, SendAchievementsRequest,
-    Session, SessionConfig, SessionError, SessionOptions, VideoOutput, VideoSink,
+    AudioSink, CapturedFrame, Frame, InputState, Session, SessionConfig, SessionError,
+    SessionOptions, VideoOutput, VideoSink,
 };
 use sha2::{Digest, Sha256};
 
@@ -54,6 +55,19 @@ pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions 
     }
 }
 
+/// How long a test waits for a session running on its own thread.
+pub const WAIT: Duration = Duration::from_secs(10);
+
+/// Polls `cond` until it holds, failing the test if it doesn't within
+/// [`WAIT`].
+pub fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
+    let deadline = Instant::now() + WAIT;
+    while !cond() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 /// The RGBA value of `frame`'s pixel at (`x`, `y`), counted from the top
 /// left.
 pub fn pixel(frame: &CapturedFrame, x: u32, y: u32) -> [u8; 4] {
@@ -77,7 +91,7 @@ pub fn render(
     unavailable: fn(&SessionError) -> bool,
 ) -> Option<CapturedFrame> {
     let _lock = lock();
-    let mut h = match Harness::start(core, None, &[], None, None) {
+    let mut h = match Harness::start(core) {
         Ok(h) => h,
         Err(e) if unavailable(&e) && std::env::var_os(require).is_none() => {
             eprintln!("skipping: {}", std::error::Error::source(&e).unwrap_or(&e));
@@ -173,43 +187,31 @@ pub struct Harness {
 }
 
 impl Harness {
-    /// Starts `core` with `content` and the core option values `options`,
-    /// taking part in RetroAchievements as `achievements` says, and keeping
-    /// save memory in the file `save_ram`, if given.
-    pub fn start(
-        core: &str,
-        content: Option<&str>,
-        options: &[(&str, &str)],
-        achievements: Option<(AchievementOptions, SendAchievementsRequest)>,
-        save_ram: Option<&Path>,
-    ) -> Result<Self, SessionError> {
+    /// Starts the fixture `core` with no content.
+    pub fn start(core: &str) -> Result<Self, SessionError> {
+        Self::with(core, |_| {})
+    }
+
+    /// Starts the fixture `core` with the config that `setup` edits.
+    pub fn with(core: &str, setup: impl FnOnce(&mut SessionConfig)) -> Result<Self, SessionError> {
         let frames = Frames::default();
         let audio = Audio::default();
         let input = Arc::new(InputState::new());
         let dirs = tempfile::tempdir().unwrap();
-        let config = SessionConfig {
+        let mut config = SessionConfig {
             core: fixture(core),
-            // A fixture, or a path of the test's own.
-            content: content.map(|c| {
-                if Path::new(c).is_absolute() {
-                    PathBuf::from(c)
-                } else {
-                    fixture(c)
-                }
-            }),
+            content: None,
             content_cache: Some(dirs.path().join("content")),
             system_dir: dirs.path().join("system"),
             save_dir: dirs.path().join("saves"),
-            save_ram: save_ram.map(Path::to_owned),
+            save_ram: None,
             video: VideoOutput::Sink(Box::new(frames.clone())),
             audio: Box::new(audio.clone()),
             input: input.clone(),
-            options: options
-                .iter()
-                .map(|&(key, value)| (key.to_owned(), value.to_owned()))
-                .collect(),
-            achievements,
+            options: HashMap::new(),
+            achievements: None,
         };
+        setup(&mut config);
         // SAFETY: the fixtures are libretro cores.
         let session = unsafe { Session::new(config)? };
         Ok(Self {
