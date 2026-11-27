@@ -5,7 +5,7 @@ description = "Reads the metadata each game platform's own ROM and disc headers 
 keywords = ["rom", "emulation", "header", "retro", "game"]
 categories = ["parser-implementations", "emulators"]
 edition.workspace = true
-license.workspace = true
+license = "GPL-3.0-or-later AND MPL-2.0"
 rust-version.workspace = true
 
 [features]
