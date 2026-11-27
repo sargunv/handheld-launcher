@@ -1,24 +1,19 @@
-import com.mikepenz.aboutlibraries.plugin.AboutLibrariesTask
-import dev.sargunv.handheld.gradle.RequireLicenceTexts
-
 plugins {
-  alias(libs.plugins.kotlin.jvm)
+  kotlin("jvm")
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.compose.multiplatform)
-  alias(libs.plugins.aboutlibraries)
+  id("com.mikepenz.aboutlibraries.plugin")
+  id("handheld.licences")
 }
 
 // The About screen's list, as a resource: the app's dependencies, with the entries every app
-// shares. It runs offline: licence texts come from the entries, not the network.
+// shares.
 val licences = layout.buildDirectory.dir("generated/licences")
 
 aboutLibraries {
-  offlineMode = true
   collect { configPath = rootProject.layout.projectDirectory.dir("licences") }
   export { outputFile = licences.map { it.file("aboutlibraries.json") } }
 }
-
-tasks.withType<AboutLibrariesTask>().configureEach { doLast(RequireLicenceTexts) }
 
 sourceSets.main { resources.srcDir(files(licences).builtBy("exportLibraryDefinitions")) }
 
