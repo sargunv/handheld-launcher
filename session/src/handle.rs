@@ -115,10 +115,12 @@ impl SessionInfo {
     /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
     /// whether they changed.
     fn set_av(&mut self, av: AvInfo) -> bool {
-        let changed = self.fps != av.fps
-            || self.base_width != av.base_width
-            || self.base_height != av.base_height
-            || self.aspect_ratio != av.aspect_ratio;
+        let changed = (
+            self.fps,
+            self.base_width,
+            self.base_height,
+            self.aspect_ratio,
+        ) != (av.fps, av.base_width, av.base_height, av.aspect_ratio);
         self.fps = av.fps;
         self.base_width = av.base_width;
         self.base_height = av.base_height;
