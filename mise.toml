@@ -115,7 +115,7 @@ shell = "bash -c"
 run = 'adb shell am start -W -n dev.sargunv.handheld/.MainActivity --es open "$(printf %q "$usage_target")" ${HANDHELD_LAYOUT:+--es layout $HANDHELD_LAYOUT}'
 
 [tasks."android:ui"]
-description = "Print the debug app's focused element and visible elements, on every display"
+description = "Print the app's focused element and visible elements, on every display"
 run = "apps/android/scripts/ui.sh"
 
 [hooks]

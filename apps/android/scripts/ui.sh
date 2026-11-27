@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints what the debug app shows on the connected device, on every display, so
+# Prints what the app shows on the connected device, on every display, so
 # a tool can check where it is without a screenshot: the focused element first,
 # then each display's elements, with their test tags, text, accessibility
 # labels, states and bounds in that display's pixels.
