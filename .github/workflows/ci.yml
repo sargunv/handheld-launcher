@@ -37,10 +37,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           libgl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri libvulkan1
           mesa-vulkan-drivers
-      # The session's Android build uses the NDK that mise.toml pins.
-      - run: >-
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
-          "ndk;${ANDROID_NDK_HOME##*/}"
+      - run: mise run android:ndk
       # The session's test fixtures, which fixtures.sh builds from the sources
       # fixture-sources.sh pins.
       - uses: actions/cache@v6
