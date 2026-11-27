@@ -107,7 +107,7 @@ adb shell input -d 0 keyevent "KEYCODE_$key"
 """
 
 [tasks."android:open"]
-description = "Show a screen of the debug app on the connected device straight away"
+description = "Show a screen of the app on the connected device straight away"
 usage = 'arg "<target>" help="place:home, place:library, place:downloads, place:settings, game:<romId>, local:<path>, library, library:tab:<tab> (on-device, platforms, collections, all-games), library:<platform-slug>, library:collection:<id>, library:collection:smart:<id>, settings or settings:<section> (controls, romm, retroachievements, emulators, storage, about)"'
 # The device's shell reads the command again, so a path with spaces is quoted for it, with bash's
 # printf.

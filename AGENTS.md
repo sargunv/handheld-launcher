@@ -12,8 +12,10 @@ It sets the scope and the priorities. Before you build a screen, read
   later.
 - `ui/`: the shared Compose Multiplatform interface: design system, focus and
   navigation, screens.
-- `domain/`: the library model, launch rules and sync logic, with no UI or I/O.
-- `data/`: the RomM client, the local cache and downloads.
+- `domain/`: what the app knows about games, platforms, emulators, cores, launch
+  rules, save locations and disc sets, with no UI or I/O.
+- `data/`: everything that talks to RomM, RetroAchievements or the device's
+  storage.
 - `session/`: the Rust game session that hosts libretro cores, used from Kotlin
   through UniFFI.
 - `rom-headers/`: a Rust crate that reads each platform's own ROM and disc
