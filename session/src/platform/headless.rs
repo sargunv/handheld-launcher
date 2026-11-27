@@ -4,7 +4,7 @@
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::pacing::Vsync;
 use crate::video::NullVideoSink;
-use crate::{NativeWindow, Region, SessionError, VideoOutput, WindowHandle};
+use crate::{NativeWindow, Region, SessionError, VideoOutput};
 
 /// Whatever runs the session here, such as the runner or the tests, installs
 /// its own logger.
@@ -13,7 +13,7 @@ pub(crate) fn init_logging() {}
 pub(crate) enum PlatformWindow {}
 
 impl PlatformWindow {
-    pub(crate) fn adopt(_handle: WindowHandle) -> Result<Self, SessionError> {
+    pub(crate) fn adopt(_window: u64) -> Result<Self, SessionError> {
         Err(SessionError::UnsupportedWindow)
     }
 

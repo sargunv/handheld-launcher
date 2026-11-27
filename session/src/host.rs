@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::audio::{AudioPipeline, AudioSink};
-use crate::cstr::opt_string;
+use crate::cstr::{opt_string, string};
 use crate::ffi;
 use crate::gl::{self, GlApi};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot, Presses};
@@ -315,13 +315,13 @@ impl Host {
                 ffi::RETRO_ENVIRONMENT_GET_OVERSCAN => write(data, false),
                 ffi::RETRO_ENVIRONMENT_SET_MESSAGE => {
                     if let Some(msg) = data.cast::<ffi::retro_message>().as_ref() {
-                        log::info!("core message: {}", opt_string(msg.msg).unwrap_or_default());
+                        log::info!("core message: {}", string(msg.msg));
                     }
                     true
                 }
                 ffi::RETRO_ENVIRONMENT_SET_MESSAGE_EXT => {
                     if let Some(msg) = data.cast::<ffi::retro_message_ext>().as_ref() {
-                        log::info!("core message: {}", opt_string(msg.msg).unwrap_or_default());
+                        log::info!("core message: {}", string(msg.msg));
                     }
                     true
                 }

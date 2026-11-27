@@ -17,7 +17,7 @@ use crate::achievements::{
 use crate::audio::AudioSink;
 use crate::content;
 use crate::core::{Core, CoreLoadError};
-use crate::cstr::{opt_string, path_cstring};
+use crate::cstr::{path_cstring, string};
 use crate::ffi;
 use crate::gl::{GlError, NativeWindow, Target, WindowRef};
 use crate::host::{self, Host, Output};
@@ -338,16 +338,13 @@ impl Session {
         // SAFETY: the core's strings are null or valid C strings.
         unsafe {
             SystemInfo {
-                library_name: opt_string(info.library_name).unwrap_or_default(),
-                library_version: opt_string(info.library_version).unwrap_or_default(),
-                valid_extensions: opt_string(info.valid_extensions)
-                    .map(|exts| {
-                        exts.split('|')
-                            .filter(|e| !e.is_empty())
-                            .map(str::to_owned)
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                library_name: string(info.library_name),
+                library_version: string(info.library_version),
+                valid_extensions: string(info.valid_extensions)
+                    .split('|')
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
                 need_fullpath: info.need_fullpath,
                 block_extract: info.block_extract,
             }

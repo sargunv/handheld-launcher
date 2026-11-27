@@ -68,16 +68,6 @@ pub struct SessionOptions {
     pub achievements: Option<AchievementOptions>,
 }
 
-/// A window to present to, from the platform's own window system.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum WindowHandle {
-    /// An Android `ANativeWindow`, as a pointer. The session takes over one
-    /// reference to it, such as `ANativeWindow_fromSurface` returns, and
-    /// releases it when the window is detached or replaced, or attaching it
-    /// fails.
-    Android { window: u64 },
-}
-
 /// A window that shows the session, for [`GameSession::touch`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum Screen {
@@ -294,14 +284,12 @@ impl GameSession {
         self.info.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Presents to `window` from now on, instead of any window before it, and
-    /// shows the last frame on it at once.
-    pub fn attach_window(
-        &self,
-        window: WindowHandle,
-        width: u32,
-        height: u32,
-    ) -> Result<(), SessionError> {
+    /// Presents to `window`, an `ANativeWindow` pointer, from now on, instead
+    /// of any window before it, and shows the last frame on it at once. The
+    /// session takes over one reference to the window, such as
+    /// `ANativeWindow_fromSurface` returns, and releases it when the window is
+    /// detached or replaced, or attaching fails.
+    pub fn attach_window(&self, window: u64, width: u32, height: u32) -> Result<(), SessionError> {
         // Take ownership first, so the window is released on every path.
         let window = PlatformWindow::adopt(window)?;
         self.request(|reply| Command::AttachWindow(window, width, height, reply))
@@ -323,10 +311,12 @@ impl GameSession {
     /// draws its screens stacked, top above bottom, with no gap. Of the bottom
     /// half, it shows the share of the width that
     /// [`SessionOptions::lower_screen_width_share`] gives. It replaces
-    /// any lower window before it and shows the last frame on it at once.
+    /// any lower window before it and shows the last frame on it at once. It
+    /// takes over the window's reference as [`GameSession::attach_window`]
+    /// does.
     pub fn attach_lower_window(
         &self,
-        window: WindowHandle,
+        window: u64,
         width: u32,
         height: u32,
     ) -> Result<(), SessionError> {
