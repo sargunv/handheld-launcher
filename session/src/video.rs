@@ -434,8 +434,12 @@ mod tests {
             bottom.fit(400, 480, 400.0 / 480.0, 1240, 1080),
             (0, 75, 1240, 930)
         );
-        // The top screen keeps the whole width.
+        // The top screen keeps the whole width, at 5:3 on the main screen.
         assert_eq!(Region::Top.columns(400), (0, 400));
+        assert_eq!(
+            Region::Top.fit(400, 480, 400.0 / 480.0, 1920, 1080),
+            (60, 0, 1800, 1080)
+        );
     }
 
     #[test]

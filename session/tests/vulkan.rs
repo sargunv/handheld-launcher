@@ -9,38 +9,23 @@
 
 mod common;
 
-use common::{Harness, OwnedFrame, lock};
+use common::near;
 use handheld_session::{SessionError, VulkanError};
-
-/// Runs the core for `frames` frames and returns the last, or `None` if
-/// Vulkan isn't available here.
-fn render(frames: usize) -> Option<OwnedFrame> {
-    let _lock = lock();
-    let mut h = match Harness::start("testvulkan_libretro.so", None) {
-        Ok(h) => h,
-        Err(SessionError::Vulkan(VulkanError::Unavailable(reason)))
-            if std::env::var_os("HANDHELD_REQUIRE_VULKAN").is_none() =>
-        {
-            eprintln!("skipping: {reason}");
-            return None;
-        }
-        Err(e) => panic!("{e}: {:?}", std::error::Error::source(&e)),
-    };
-    h.run(frames);
-    assert_eq!(h.frames.count(), frames);
-    Some(h.frames.last())
-}
 
 /// The core's clear color, (0.8, 0.6, 0.2).
 const BACKGROUND: [u8; 4] = [204, 153, 51, 255];
 
-fn near(a: [u8; 4], b: [u8; 4]) -> bool {
-    a.iter().zip(b).all(|(&a, b)| a.abs_diff(b) <= 1)
-}
-
 #[test]
 #[cfg_attr(target_os = "macos", ignore = "macOS has no Vulkan")]
 fn renders_with_vulkan() {
+    let render = |frames| {
+        common::render(
+            "testvulkan_libretro.so",
+            frames,
+            "HANDHELD_REQUIRE_VULKAN",
+            |e| matches!(e, SessionError::Vulkan(VulkanError::Unavailable(_))),
+        )
+    };
     let Some(first) = render(1) else { return };
     first.dump("testvulkan");
     assert_eq!((first.width, first.height), (320, 240));

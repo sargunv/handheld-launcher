@@ -3,12 +3,11 @@
 
 mod common;
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use common::{fixture, lock};
-use handheld_session::{GameSession, SessionError, SessionOptions, VideoMode};
+use common::{lock, options};
+use handheld_session::{GameSession, SessionError, SessionOptions};
 
 /// The cartridge's 128 KiB of battery-backed RAM.
 const SAVE_RAM_SIZE: usize = 128 * 1024;
@@ -16,18 +15,8 @@ const SAVE_RAM_SIZE: usize = 128 * 1024;
 fn start(dir: &Path) -> Result<std::sync::Arc<GameSession>, SessionError> {
     GameSession::start(
         SessionOptions {
-            core_path: fixture("gambatte_libretro.so")
-                .to_string_lossy()
-                .into_owned(),
-            content_path: Some(fixture("ucity.gbc").to_string_lossy().into_owned()),
-            content_cache_dir: None,
-            system_dir: dir.join("system").to_string_lossy().into_owned(),
-            save_dir: dir.join("saves").to_string_lossy().into_owned(),
             save_ram_path: Some(dir.join("saves/game.srm").to_string_lossy().into_owned()),
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: None,
+            ..options(dir, "gambatte_libretro.so", Some("ucity.gbc"))
         },
         None,
         None,

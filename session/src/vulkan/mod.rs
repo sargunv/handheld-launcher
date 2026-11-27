@@ -1492,38 +1492,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn splits_a_stacked_3ds_frame_between_the_thors_screens() {
-        // Azahar draws its screens stacked at 400x480, shown at 5:6.
-        let blit = |region, width, height| {
-            Blit::new(
-                400,
-                480,
-                400.0 / 480.0,
-                region,
-                vk::Extent2D { width, height },
-            )
-        };
-        let top = blit(Region::Top, 1920, 1080);
-        assert_eq!(top.rows, (0, 240));
-        assert_eq!(top.columns, (0, 400));
-        assert_eq!(top.rect, (60, 0, 1800, 1080));
-        // The 320-wide bottom screen, centred under the top, fills the lower
-        // screen's width at 4:3.
-        let bottom = blit(Region::bottom(Some(0.8)), 1240, 1080);
-        assert_eq!(bottom.rows, (240, 240));
-        assert_eq!(bottom.columns, (40, 320));
-        assert_eq!(bottom.rect, (0, 75, 1240, 930));
-        // Without the bottom screen's width, the lower half shows whole.
-        let uncropped = blit(Region::bottom(None), 1240, 1080);
-        assert_eq!(uncropped.columns, (0, 400));
-        assert_eq!(uncropped.rect, (0, 168, 1240, 744));
-        // One screen shows the whole frame.
-        let whole = blit(Region::Whole, 1920, 1080);
-        assert_eq!(whole.rows, (0, 480));
-        assert_eq!(whole.rect, (510, 0, 900, 1080));
-    }
-
-    #[test]
     fn converts_read_back_pixels_to_opaque_rgba() {
         let pixels = [1, 2, 3, 0, 4, 5, 6, 128];
         let mut out = vec![9; 3];

@@ -6,8 +6,6 @@
 
 mod common;
 
-use std::collections::HashMap;
-
 use common::{Audio, Harness, lock, zero_crossings};
 use handheld_session::{Button, SaveRam, SessionError};
 
@@ -27,7 +25,7 @@ fn checker(x: u32, y: u32, dx: u32, dy: u32) -> [u8; 4] {
 #[test]
 fn draws_the_checkerboard() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.run(1);
     let frame = h.frames.last();
     frame.dump("test-core");
@@ -43,14 +41,14 @@ fn draws_the_checkerboard() {
 #[test]
 fn creates_the_save_directory_for_the_core() {
     let _lock = lock();
-    let h = Harness::start(CORE, None).unwrap();
+    let h = Harness::start(CORE, None, &[], None).unwrap();
     assert!(h.dirs.path().join("saves").is_dir());
 }
 
 #[test]
 fn the_dpad_scrolls_the_checkerboard() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.input.port(0).set_button(Button::Right, true);
     h.input.port(0).set_button(Button::Down, true);
     h.run(3);
@@ -68,7 +66,7 @@ fn the_dpad_scrolls_the_checkerboard() {
 #[test]
 fn audio_arrives_resampled_to_the_sink_rate() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     assert_eq!(h.session.av_info().sample_rate, 30_000.0);
     h.run(120);
     let frames = h.audio.frames();
@@ -88,7 +86,7 @@ fn audio_arrives_resampled_to_the_sink_rate() {
 #[test]
 fn muted_audio_is_dropped() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.session.set_audio_muted(true);
     h.run(60);
     assert_eq!(h.audio.frames(), 0);
@@ -106,7 +104,7 @@ fn muted_audio_is_dropped() {
 #[test]
 fn states_round_trip() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.input.port(0).set_button(Button::Right, true);
     h.run(5);
     let state = h.session.serialize_state().unwrap();
@@ -132,17 +130,16 @@ fn states_round_trip() {
 #[test]
 fn options_take_overrides() {
     let _lock = lock();
-    let overrides = HashMap::from([("test_samplerate".to_owned(), "20000".to_owned())]);
-    let h = Harness::start_with(CORE, None, overrides).unwrap();
+    let h = Harness::start(CORE, None, &[("test_samplerate", "20000")], None).unwrap();
     assert_eq!(h.session.av_info().sample_rate, 20_000.0);
 }
 
 #[test]
 fn one_session_at_a_time() {
     let _lock = lock();
-    let _first = Harness::start(CORE, None).unwrap();
+    let _first = Harness::start(CORE, None, &[], None).unwrap();
     assert!(matches!(
-        Harness::start(CORE, None),
+        Harness::start(CORE, None, &[], None),
         Err(SessionError::AlreadyActive)
     ));
 }
@@ -150,7 +147,7 @@ fn one_session_at_a_time() {
 #[test]
 fn has_no_save_ram() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     assert!(h.session.save_ram().is_none());
     let path = h.dirs.path().join("test.srm");
     assert!(SaveRam::load(&path, &mut h.session).unwrap().is_none());

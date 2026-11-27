@@ -232,81 +232,6 @@ pub(crate) fn next_frame(due: Instant, now: Instant, fps: f64, vsync: Option<Vsy
     }
 }
 
-/// Frame timing over a stretch of running, for the log: the time between
-/// frames, and how many frames stayed on the display for more or fewer
-/// vsyncs than the rest.
-#[derive(Debug)]
-pub(crate) struct FrameStats {
-    since: Instant,
-    last: Option<Instant>,
-    intervals: Vec<Duration>,
-    /// Frames that stayed up for fewer vsyncs than they should, or were
-    /// replaced before the display showed them.
-    short: u32,
-    /// Frames that stayed up for more vsyncs than they should: repeats.
-    long: u32,
-}
-
-impl FrameStats {
-    pub(crate) fn new(now: Instant) -> Self {
-        Self {
-            since: now,
-            last: None,
-            intervals: Vec::new(),
-            short: 0,
-            long: 0,
-        }
-    }
-
-    /// How long the stats cover.
-    pub(crate) fn elapsed(&self, now: Instant) -> Duration {
-        now.duration_since(self.since)
-    }
-
-    /// Records a frame presented at `at`, for a core at `fps` on a display
-    /// with `vsync`, if known.
-    pub(crate) fn record(&mut self, at: Instant, fps: f64, vsync: Option<Vsync>) {
-        if let Some(last) = self.last.replace(at) {
-            self.intervals.push(at.duration_since(last));
-            if let Some(vsync) = vsync {
-                // A frame presented within a vsync period shows from the
-                // next vsync until the next frame's.
-                let expected =
-                    (core_period(fps).as_secs_f64() / vsync.period.as_secs_f64()).round() as i64;
-                let shown = vsync.index(at) - vsync.index(last);
-                match shown.cmp(&expected.max(1)) {
-                    std::cmp::Ordering::Less => self.short += 1,
-                    std::cmp::Ordering::Greater => self.long += 1,
-                    std::cmp::Ordering::Equal => {}
-                }
-            }
-        }
-    }
-
-    /// A line for the log, or `None` before two frames.
-    pub(crate) fn report(&self, now: Instant) -> Option<String> {
-        if self.intervals.is_empty() {
-            return None;
-        }
-        let mut sorted = self.intervals.clone();
-        sorted.sort();
-        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
-        let mean = ms(sorted.iter().sum::<Duration>()) / sorted.len() as f64;
-        let p99 = sorted[(sorted.len() * 99 / 100).min(sorted.len() - 1)];
-        let max = sorted[sorted.len() - 1];
-        Some(format!(
-            "frames: {} in {:.1} s, interval mean {mean:.2} ms, p99 {:.2} ms, max {:.2} ms; \
-             {} shown short or dropped, {} repeated",
-            sorted.len() + 1,
-            self.elapsed(now).as_secs_f64(),
-            ms(p99),
-            ms(max),
-            self.short,
-            self.long,
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,27 +378,5 @@ mod tests {
         assert_eq!(s.due, start + period);
         let stalled = start + Duration::from_secs(1);
         assert_eq!(next_frame(start, stalled, 50.0, None).due, stalled);
-    }
-
-    #[test]
-    fn counts_frames_off_the_cadence() {
-        let start = Instant::now();
-        let v = vsync(start);
-        let mut stats = FrameStats::new(start);
-        // Presented 1 ms after vsyncs 0, 2, 4, 5, 8 and 10.
-        for i in [0, 2, 4, 5, 8, 10] {
-            stats.record(
-                start + PERIOD_120 * i + Duration::from_millis(1),
-                60.0,
-                Some(v),
-            );
-        }
-        assert_eq!((stats.short, stats.long), (1, 1));
-        let report = stats.report(start + Duration::from_secs(1)).unwrap();
-        assert!(report.starts_with("frames: 6 in 1.0 s"), "{report}");
-        assert!(
-            report.contains("1 shown short or dropped, 1 repeated"),
-            "{report}"
-        );
     }
 }

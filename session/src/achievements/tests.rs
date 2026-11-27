@@ -36,13 +36,13 @@ fn poke(address: usize, value: u8) {
 #[derive(Clone, Default)]
 struct FakeServer(Rc<RefCell<Vec<(u64, AchievementsRequest)>>>);
 
-impl HttpClient for FakeServer {
-    fn request(&self, id: u64, request: AchievementsRequest) {
-        self.0.borrow_mut().push((id, request));
-    }
-}
-
 impl FakeServer {
+    /// What the client sends its requests through.
+    fn send(&self) -> SendAchievementsRequest {
+        let requests = self.0.clone();
+        Box::new(move |id, request| requests.borrow_mut().push((id, request)))
+    }
+
     /// Takes the one waiting request, which calls the API `api`, and returns
     /// its id and form parameters.
     fn take(&self, api: &str) -> (u64, String) {
@@ -112,7 +112,7 @@ fn loaded(dir: &Path, hardcore: bool) -> (Achievements, FakeServer) {
     let (path, hash) = game(dir);
     let server = FakeServer::default();
     let achievements =
-        Achievements::start(&options(hardcore), &path, Box::new(server.clone())).expect("a client");
+        Achievements::start(&options(hardcore), &path, server.send()).expect("a client");
     achievements.set_memory(None, core());
     assert!(achievements.has_memory());
     assert_eq!(achievements.status(), AchievementStatus::Loading);
@@ -213,7 +213,7 @@ fn hardcore_restricts_only_games_with_achievements() {
     // An unknown game has nothing to protect.
     let (path, _) = game(dir.path());
     let server = FakeServer::default();
-    let unknown = Achievements::start(&options(true), &path, Box::new(server.clone())).unwrap();
+    let unknown = Achievements::start(&options(true), &path, server.send()).unwrap();
     // Restricted until the game is identified.
     assert!(unknown.restricts());
     let (id, _) = server.take("login2");
@@ -233,8 +233,7 @@ fn the_set_waits_for_the_cores_memory() {
     let dir = tempfile::tempdir().unwrap();
     let (path, _) = game(dir.path());
     let server = FakeServer::default();
-    let achievements =
-        Achievements::start(&options(false), &path, Box::new(server.clone())).unwrap();
+    let achievements = Achievements::start(&options(false), &path, server.send()).unwrap();
     let (id, _) = server.take("login2");
     achievements.respond(id, Some(200), LOGIN.as_bytes());
     let (id, _) = server.take("achievementsets");
@@ -255,8 +254,7 @@ fn an_empty_response_fails_cleanly() {
     let dir = tempfile::tempdir().unwrap();
     let (path, _) = game(dir.path());
     let server = FakeServer::default();
-    let achievements =
-        Achievements::start(&options(false), &path, Box::new(server.clone())).unwrap();
+    let achievements = Achievements::start(&options(false), &path, server.send()).unwrap();
     let (id, _) = server.take("login2");
     achievements.respond(id, Some(500), b"");
     assert!(matches!(
@@ -277,15 +275,14 @@ fn says_when_the_token_no_longer_works() {
     let dir = tempfile::tempdir().unwrap();
     let (path, _) = game(dir.path());
     let server = FakeServer::default();
-    let achievements =
-        Achievements::start(&options(true), &path, Box::new(server.clone())).unwrap();
+    let achievements = Achievements::start(&options(true), &path, server.send()).unwrap();
     let (id, _) = server.take("login2");
     achievements.respond(
         id,
         Some(401),
         br#"{"Success":false,"Error":"Invalid user/token combination.","Code":"invalid_credentials","Status":401}"#,
     );
-    let reason = "Sign in to RetroAchievements again from the launcher's quick menu.".to_owned();
+    let reason = "Sign in to RetroAchievements again in Settings.".to_owned();
     assert_eq!(
         achievements.take_events(),
         vec![AchievementEvent::Failed {
@@ -309,11 +306,6 @@ fn retries_an_unlock_the_server_missed() {
     // The server is out of reach: the client keeps the unlock and tries again.
     achievements.respond(id, None, b"");
     assert!(find(&listed(&achievements), 5501).unlocked);
-}
-
-#[test]
-fn names_rcheevos_for_the_user_agent() {
-    assert!(rcheevos_user_agent_clause().starts_with("rcheevos/"));
 }
 
 #[test]

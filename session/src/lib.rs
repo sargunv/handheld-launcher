@@ -28,7 +28,7 @@ mod vulkan;
 
 pub use crate::achievements::{
     Achievement, AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
-    HttpClient as AchievementsHttpClient, rcheevos_user_agent_clause,
+    SendAchievementsRequest, rcheevos_user_agent_clause,
 };
 pub use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 pub use crate::core::CoreLoadError;
