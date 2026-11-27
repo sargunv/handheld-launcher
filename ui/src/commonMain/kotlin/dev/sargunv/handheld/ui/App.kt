@@ -153,7 +153,7 @@ fun App(
         apps,
         device,
         scope,
-        retroAchievements?.let(::RetroAchievementsState),
+        retroAchievements?.let { RetroAchievementsState(it, scope) },
         appInfo,
         romHeaders,
         gameState,

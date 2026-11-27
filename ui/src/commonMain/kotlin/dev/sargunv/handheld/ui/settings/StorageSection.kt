@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -36,22 +37,18 @@ internal fun LazyListScope.storage(
   val settings = state.settings.storage
   val byId = spaces.associateBy { it.target.id }
   val view = state.settingsView
-  item(key = "volumes") {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      for (target in settings.arrange(spaces.map { it.target })) {
-        val free = "${formatSize(byId.getValue(target.id).freeBytes)} free"
-        val on = settings.isOn(target)
-        SettingRow(
-          view,
-          "settings:storage:${target.id}",
-          target.label,
-          "$free · ${if (on) "On" else "Off"}",
-          "$free, at ${target.root}",
-          onMenu = { open(SettingsDialog.StorageMenu(target.id)) },
-          onConfirm = { onToggle(target) },
-        )
-      }
-    }
+  items(settings.arrange(spaces.map { it.target }), key = { it.id }) { target ->
+    val free = "${formatSize(byId.getValue(target.id).freeBytes)} free"
+    val on = settings.isOn(target)
+    SettingRow(
+      view,
+      "settings:storage:${target.id}",
+      target.label,
+      "$free · ${if (on) "On" else "Off"}",
+      "$free, at ${target.root}",
+      onMenu = { open(SettingsDialog.StorageMenu(target.id)) },
+      onConfirm = { onToggle(target) },
+    )
   }
   if (refused) {
     item(key = "refused") {

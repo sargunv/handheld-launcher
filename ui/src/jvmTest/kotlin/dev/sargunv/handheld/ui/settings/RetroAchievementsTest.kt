@@ -28,6 +28,7 @@ import io.ktor.http.HttpStatusCode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalTestApi::class)
@@ -35,8 +36,14 @@ class RetroAchievementsTest {
   private val store = InMemoryRetroAchievementsStore()
   private val saved = mutableListOf<Settings>()
 
-  /** Opens the RetroAchievements section, whose server [accepts] the password or refuses it. */
-  private fun ComposeUiTest.launch(accepts: Boolean) {
+  /**
+   * Opens the RetroAchievements section, whose server [accepts] the password or refuses it once
+   * [answer] completes.
+   */
+  private fun ComposeUiTest.launch(
+    accepts: Boolean,
+    answer: CompletableDeferred<Unit> = CompletableDeferred(Unit),
+  ) {
     launchApp(
       saveSettings = { saved += it },
       retroAchievements =
@@ -44,6 +51,7 @@ class RetroAchievementsTest {
           RetroAchievementsClient(
             "HandheldLauncher/test rcheevos/12.5",
             MockEngine {
+              answer.await()
               if (accepts) {
                 respond("""{"Success":true,"User":"Player","Token":"ra_token"}""")
               } else {
@@ -94,6 +102,20 @@ class RetroAchievementsTest {
     assertNull(runBlocking { store.load() })
     // The password isn't kept, even in its field.
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")
+  }
+
+  @Test
+  fun finishesASignInAfterFocusLeavesTheSection() = runComposeUiTest {
+    val held = CompletableDeferred<Unit>()
+    launch(accepts = true, answer = held)
+    signIn("player", "hunter2")
+    awaitText("Signing in")
+    press(listOf(Key.DirectionLeft, Key.DirectionUp))
+    awaitFocused("settings:RomM")
+    held.complete(Unit)
+    waitUntil(timeoutMillis = 5_000) {
+      runBlocking { store.load() } == RetroAchievementsAccount("Player", "ra_token")
+    }
   }
 
   @Test
