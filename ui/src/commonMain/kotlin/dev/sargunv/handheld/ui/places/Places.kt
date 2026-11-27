@@ -287,9 +287,9 @@ private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: 
   }
 }
 
-/** The place's name, and how the sync with the server is going when that's worth saying. */
+/** The place's name, and how the [sync] with the server is going when that's worth saying. */
 @Composable
-private fun PlaceHeader(place: Place, sync: SyncStatus) {
+internal fun PlaceHeader(place: Place, sync: SyncStatus? = null) {
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 48.dp, vertical = 16.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -302,7 +302,7 @@ private fun PlaceHeader(place: Place, sync: SyncStatus) {
       modifier = Modifier.testTag("place:${place.name}").semantics { heading() },
     )
     Spacer(Modifier.weight(1f))
-    if (sync != SyncStatus.NotStarted && sync != SyncStatus.Synced) {
+    if (sync != null && sync != SyncStatus.NotStarted && sync != SyncStatus.Synced) {
       Text(
         sync.label,
         color = Placeholder.mutedText,

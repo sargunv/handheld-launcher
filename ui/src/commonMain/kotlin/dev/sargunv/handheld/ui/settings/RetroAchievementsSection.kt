@@ -13,7 +13,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.TextEntry
+import dev.sargunv.handheld.ui.widgets.TextEntry
 
 internal fun LazyListScope.retroAchievements(state: AppState) {
   val account = state.retroAchievements ?: return
@@ -63,7 +63,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       field = account.usernameField,
       placeholder = "Username",
       label = "Username",
-      help = "Your RetroAchievements username.",
+      help = null,
       keyboardOptions =
         KeyboardOptions(
           autoCorrectEnabled = false,
