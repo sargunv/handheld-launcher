@@ -10,6 +10,8 @@ import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.data.achievements.RetroAchievementsException
 import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 
 /** How games in the built-in session take part in RetroAchievements. */
@@ -49,9 +51,15 @@ class RetroAchievementsSignIn(
   suspend fun signOut() = store.clear()
 }
 
-/** Settings' view of the RetroAchievements account. */
+/**
+ * Settings' view of the RetroAchievements account. A sign-in or sign-out runs in [scope], so it
+ * finishes even when Settings goes away.
+ */
 @Stable
-class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
+class RetroAchievementsState(
+  private val signIn: RetroAchievementsSignIn,
+  private val scope: CoroutineScope,
+) {
   /** The signed-in username, or null when signed out or not yet read. */
   var username by mutableStateOf<String?>(null)
     private set
@@ -73,7 +81,7 @@ class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
   }
 
   /** Signs in with what's in the fields, and forgets the password whatever happens. */
-  suspend fun submit() {
+  fun submit() {
     if (busy) return
     val user = usernameField.text.toString().trim()
     val password = passwordField.text.toString()
@@ -83,20 +91,24 @@ class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
     }
     busy = true
     error = null
-    try {
-      username = signIn.signIn(user, password).username
-      usernameField.clearText()
-    } catch (e: RetroAchievementsException) {
-      error = e.message
-    } finally {
-      passwordField.clearText()
-      busy = false
+    scope.launch {
+      try {
+        username = signIn.signIn(user, password).username
+        usernameField.clearText()
+      } catch (e: RetroAchievementsException) {
+        error = e.message
+      } finally {
+        passwordField.clearText()
+        busy = false
+      }
     }
   }
 
-  suspend fun signOut() {
-    signIn.signOut()
-    username = null
-    error = null
+  fun signOut() {
+    scope.launch {
+      signIn.signOut()
+      username = null
+      error = null
+    }
   }
 }

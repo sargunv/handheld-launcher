@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.romm.RommSession
+import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
@@ -53,6 +54,7 @@ import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.LocalFocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.focus.help
+import dev.sargunv.handheld.ui.game.InstalledApp
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
@@ -86,12 +88,38 @@ enum class SettingsSection(val title: String, internal val description: String) 
     get() = "settings:$name"
 }
 
-/** What the Settings page shows, which both screens follow. */
+/**
+ * What the Settings page shows, which both screens follow. Signed out of [romm], it offers only
+ * what needs no server: Controls, RomM (which says so) and About. It offers RetroAchievements when
+ * [achievements] is.
+ */
 @Stable
-class SettingsView {
-  /** The section on the right: the one focused in the list, or last focused there. */
+class SettingsView(private val romm: RommSession, private val achievements: Boolean) {
+  /** The section last focused in the list or jumped to, which shows while it's offered. */
   var section: SettingsSection by mutableStateOf(SettingsSection.Controls)
     internal set
+
+  internal val offered: List<SettingsSection>
+    @Composable
+    get() {
+      val signedIn = romm.state.collectAsState().value.signedIn == true
+      return SettingsSection.entries.filter {
+        when (it) {
+          SettingsSection.RetroAchievements -> signedIn && achievements
+          SettingsSection.Emulators,
+          SettingsSection.Storage -> signedIn
+          else -> true
+        }
+      }
+    }
+
+  /** The section on the right and on the lower screen: [section], or else the first offered. */
+  internal val shown: SettingsSection
+    @Composable
+    get() {
+      val offered = offered
+      return section.takeIf { it in offered } ?: offered.first()
+    }
 
   /** What the lower screen says about the focused setting, in place of the section's. */
   internal val help = HelpHolder()
@@ -108,26 +136,14 @@ class SettingsView {
 
 /**
  * Settings: the sections in a list on the left, and the focused section's settings on the right.
- * Signed out, it offers only what needs no server: Controls, RomM (which says so) and About.
  */
 @Composable
 internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val view = state.settingsView
   val romm by state.romm.state.collectAsState()
   val sync by state.romm.sync.collectAsState()
-  val signedIn = romm.signedIn == true
-  val sections =
-    SettingsSection.entries.filter {
-      when (it) {
-        SettingsSection.RetroAchievements -> signedIn && state.retroAchievements != null
-        SettingsSection.Emulators,
-        SettingsSection.Storage -> signedIn
-        else -> true
-      }
-    }
-  val section = view.section.takeIf { it in sections } ?: sections.first()
-  // A section left from before a sign-out isn't offered at sign-in, so the lower screen follows.
-  if (section != view.section) SideEffect { view.section = section }
+  val sections = view.offered
+  val section = view.shown
   val scope = rememberCoroutineScope()
   var dialog by rememberSaveable(stateSaver = SettingsDialog.saver) { mutableStateOf(null) }
   val open = { it: SettingsDialog -> dialog = it }
@@ -140,6 +156,14 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val storageSpaces by
     rememberStorageSpaces(state.downloads, active = section == SettingsSection.Storage)
   val mounted = storageSpaces.map { it.target }
+  val platforms by
+    produceState<List<Platform>?>(null, state.library, section) {
+      if (section == SettingsSection.Emulators) state.library.platforms().collect { value = it }
+    }
+  val apps by
+    produceState<List<InstalledApp>?>(null, state.apps, section) {
+      if (section == SettingsSection.Emulators) value = state.apps.apps()
+    }
   var storageRefused by remember(section) { mutableStateOf(false) }
   val toggleStorage = { target: StorageTarget ->
     storageRefused = !state.toggleStorage(target, mounted)
@@ -187,12 +211,15 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           ) {
             when (section) {
               SettingsSection.Controls -> controls(state)
-              SettingsSection.RomM -> romm(state, romm, sync, uploadAccess, open)
+              SettingsSection.RomM ->
+                romm(state, romm, sync, uploadAccess, open) {
+                  scope.launch { state.signOut(keepQueue = true) }
+                }
               SettingsSection.RetroAchievements -> retroAchievements(state)
-              SettingsSection.Emulators -> emulators(state, open)
+              SettingsSection.Emulators -> emulators(state, platforms, apps, open)
               SettingsSection.Storage ->
                 storage(state, storageSpaces, storageRefused, toggleStorage, open)
-              SettingsSection.About -> about(state, signedIn)
+              SettingsSection.About -> about(state, romm.signedIn == true)
             }
           }
         }
@@ -276,11 +303,12 @@ internal sealed interface SettingsDialog {
           }
         },
         restore = {
-          when (it) {
-            "signOut" -> SignOut
-            "allowUploads" -> AllowUploads
-            "closeEmulators" -> CloseEmulators
-            else -> StorageMenu(it.removePrefix("storage:"))
+          when {
+            it == "signOut" -> SignOut
+            it == "allowUploads" -> AllowUploads
+            it == "closeEmulators" -> CloseEmulators
+            it.startsWith("storage:") -> StorageMenu(it.removePrefix("storage:"))
+            else -> null
           }
         },
       )
@@ -370,13 +398,14 @@ internal fun LazyListScope.sectionHeading(title: String) {
 @Composable
 internal fun SettingsSecondary(view: SettingsView) {
   val help = view.help.shown
+  val section = view.shown
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
-      help?.label ?: view.section.title,
+      help?.label ?: section.title,
       color = Placeholder.text,
       fontSize = 24.sp,
       modifier = Modifier.testTag("settings:help:title").semantics { heading() },
     )
-    Text(help?.text ?: view.section.description, color = Placeholder.mutedText)
+    Text(help?.text ?: section.description, color = Placeholder.mutedText)
   }
 }
