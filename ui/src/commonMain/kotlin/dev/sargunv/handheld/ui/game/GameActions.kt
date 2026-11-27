@@ -190,9 +190,8 @@ internal class GameActions(private val state: AppState, private val scope: Corou
           upload = null
         }
       // A game that started meanwhile comes first.
-      if (playing) return@launch
+      if (playing || access == null) return@launch
       when (access) {
-        null -> notes = listOf(SIGN_IN_TO_UPLOAD)
         UploadAccess.NotRequested -> dialog = GameDialog.AllowUploads(UPLOADS_NOT_REQUESTED)
         UploadAccess.AccountMayNot -> notes = listOf(UPLOADS_NOT_FOR_ACCOUNT)
         UploadAccess.Allowed,
@@ -207,12 +206,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     notes = emptyList()
     uploadJob = scope.launch {
       try {
-        val client =
-          state.romm.account?.client
-            ?: run {
-              notes = listOf(SIGN_IN_TO_UPLOAD)
-              return@launch
-            }
+        val client = state.romm.account?.client ?: return@launch
         val result =
           uploadLocalGame(
             client,
@@ -260,7 +254,5 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     notes = listOf("Upload stopped")
   }
 }
-
-private const val SIGN_IN_TO_UPLOAD = "Sign in to RomM to upload"
 
 private val log = Logger.withTag("GameActions")

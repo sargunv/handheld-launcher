@@ -30,12 +30,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import co.touchlab.kermit.Logger
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RommAchievementProgress
 import dev.sargunv.handheld.data.achievements.achievementProgress
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.formatSize
+import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
@@ -470,7 +472,8 @@ private fun RomSecondary(state: AppState, current: Rom) {
   val playing = state.playing == current.key
   val history by
     produceState<SaveHistoryState>(SaveHistoryState.Loading, current, playing) {
-      value = loadSaveHistory(state, current.id)
+      val account = state.romm.account ?: return@produceState
+      value = loadSaveHistory(account, current.id)
     }
   val kept by
     produceState(emptyList<KeptSave>(), current, playing) {
@@ -593,13 +596,13 @@ private suspend fun loadAchievementProgress(
 ): RommAchievementProgress? =
   try {
     withContext(Dispatchers.Default) { state.romm.account?.client?.achievementProgress(romId) }
-  } catch (_: RommException) {
+  } catch (e: RommException) {
+    log.w(e) { "Reading the achievement progress of ROM $romId failed" }
     null
   }
 
-private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistoryState {
-  val account = state.romm.account ?: return SaveHistoryState.Failed("Sign in to see saves on RomM")
-  return try {
+private suspend fun loadSaveHistory(account: RommAccount, romId: Long): SaveHistoryState =
+  try {
     withContext(Dispatchers.Default) {
       val saves = account.client.saves(romId = romId)
       SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
@@ -607,4 +610,5 @@ private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistorySt
   } catch (e: RommException) {
     SaveHistoryState.Failed("Saves unavailable · ${e.message}")
   }
-}
+
+private val log = Logger.withTag("GameScreen")
