@@ -35,6 +35,7 @@ import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 import dev.sargunv.handheld.ui.places.Screen
@@ -251,7 +252,8 @@ private suspend fun loadSaveHistory(account: RommAccount, romId: Long): SaveHist
       SaveHistoryState.Loaded(serverSaveHistory(saves, account.credentials.deviceId))
     }
   } catch (e: RommException) {
-    SaveHistoryState.Failed("Saves unavailable · ${e.message}")
+    log.w(e) { "Reading the save history of ROM $romId failed" }
+    SaveHistoryState.Failed(labelled("Saves unavailable", e.message))
   }
 
 /**

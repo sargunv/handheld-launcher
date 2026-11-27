@@ -6,12 +6,16 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.data.achievements.RetroAchievementsException
 import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
+import dev.sargunv.handheld.ui.labelled
+import dev.sargunv.handheld.ui.signin.SIGN_IN_NOT_SAVED
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.io.IOException
 import kotlinx.serialization.Serializable
 
 /** How games in the built-in session take part in RetroAchievements. */
@@ -41,6 +45,7 @@ class RetroAchievementsSignIn(
    * Signs in and keeps the account.
    *
    * @throws RetroAchievementsException when it fails, with why as its message when that's known.
+   * @throws IOException when the account can't be saved.
    */
   suspend fun signIn(username: String, password: String): RetroAchievementsAccount {
     val account = client().use { it.signIn(username, password) }
@@ -96,7 +101,11 @@ class RetroAchievementsState(
         username = signIn.signIn(user, password).username
         usernameField.clearText()
       } catch (e: RetroAchievementsException) {
-        error = listOfNotNull("Sign-in failed", e.message).joinToString(" · ")
+        log.w(e) { "RetroAchievements sign-in failed" }
+        error = labelled("Sign-in failed", e.message)
+      } catch (e: IOException) {
+        log.w(e) { "Saving the RetroAchievements sign-in failed" }
+        error = SIGN_IN_NOT_SAVED
       } finally {
         passwordField.clearText()
         busy = false
@@ -112,3 +121,5 @@ class RetroAchievementsState(
     }
   }
 }
+
+private val log = Logger.withTag("RetroAchievements")

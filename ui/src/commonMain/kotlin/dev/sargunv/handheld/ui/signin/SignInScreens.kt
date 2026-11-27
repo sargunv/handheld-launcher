@@ -45,6 +45,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
+import co.touchlab.kermit.Logger
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
@@ -192,7 +193,8 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
       state.onSignedIn()
     } catch (e: RommException) {
       error = signInErrorMessage(e, baseUrl, SignInMethod.Code)
-    } catch (_: IOException) {
+    } catch (e: IOException) {
+      log.w(e) { "Saving the sign-in failed" }
       error = SIGN_IN_NOT_SAVED
     }
   }
@@ -258,7 +260,8 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
         state.onSignedIn()
       } catch (e: RommException) {
         error = signInErrorMessage(e, baseUrl, SignInMethod.Token)
-      } catch (_: IOException) {
+      } catch (e: IOException) {
+        log.w(e) { "Saving the sign-in failed" }
         error = SIGN_IN_NOT_SAVED
       } finally {
         checking = false
@@ -316,7 +319,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
 private const val TOKEN_HELP =
   "Sign in with a client API token that you create in RomM, instead of approving a code."
 
-private const val SIGN_IN_NOT_SAVED = "Sign-in not saved"
+internal const val SIGN_IN_NOT_SAVED = "Sign-in not saved"
 
 /**
  * Says that the server at [url] isn't encrypted, when it isn't. Plain HTTP is allowed, for a server
@@ -500,3 +503,5 @@ private fun SignInToggle(
 
 /** Makes text that a screen reader says as soon as it appears, such as an error. */
 private fun Modifier.announced() = semantics { liveRegion = LiveRegionMode.Polite }
+
+private val log = Logger.withTag("SignInScreens")
