@@ -12,8 +12,7 @@ It sets the scope and the priorities. Before you build a screen, read
   later.
 - `ui/`: the shared Compose Multiplatform interface: design system, focus and
   navigation, screens.
-- `domain/`: what the app knows about games, platforms, emulators, cores, launch
-  rules, save locations and disc sets, with no UI or I/O.
+- `domain/`: the app's model and rules, with no UI or I/O.
 - `data/`: everything that talks to RomM, RetroAchievements or the device's
   storage.
 - `session/`: the Rust game session that hosts libretro cores, used from Kotlin
