@@ -170,6 +170,13 @@ class RommClientTest {
   }
 
   @Test
+  fun mapsAnAddressTheEngineRefuses() = runTest {
+    assertFailsWith<RommException.Unreachable> {
+      RommClient("https://romm..example.com", "rmm_test").use { it.platforms() }
+    }
+  }
+
+  @Test
   fun resolvesServerPaths() {
     val client = MockServer("$TEST_SERVER/romm") { respondError(HttpStatusCode.NotFound) }.client
     assertEquals(
