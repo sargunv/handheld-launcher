@@ -9,6 +9,7 @@ import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.data.saves.SaveSyncResult
 import dev.sargunv.handheld.data.saves.StandaloneEmulator
 import dev.sargunv.handheld.data.saves.beforeLaunch
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveVersion
 import java.io.IOException
@@ -160,8 +161,7 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   private fun chooseLater(label: String) = "$label · Choose at the next play"
 
   // A failed sync writes nothing, and its record stays as it was, so the next sync tries again.
-  private fun failed(e: Exception) =
-    listOfNotNull("Save sync failed", e.message).joinToString(" · ")
+  private fun failed(e: Exception) = labelled("Save sync failed", e.message)
 
   private fun describe(result: SaveSyncResult, note: (String) -> Unit) {
     when (result) {

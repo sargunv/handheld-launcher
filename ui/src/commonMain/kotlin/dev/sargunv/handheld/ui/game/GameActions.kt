@@ -15,6 +15,7 @@ import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
@@ -170,8 +171,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         when (removal) {
           is Removal.HoldsOtherFiles ->
             listOf("Nothing removed · The folder also holds ${removal.names.joinToString()}")
-          is Removal.Failed ->
-            listOf(listOfNotNull("Remove failed", removal.reason).joinToString(" · "))
+          is Removal.Failed -> listOf(labelled("Remove failed", removal.reason))
           Removal.Removed,
           Removal.NotOnDevice -> emptyList()
         }
@@ -234,11 +234,14 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         // A sign-in whose permissions aren't known, or don't include uploading, may be why.
         if (access != UploadAccess.Allowed) dialog = GameDialog.AllowUploads(refused)
       } catch (e: RommException.Status) {
-        notes = listOf("Upload refused · ${e.message}")
+        log.w(e) { "Upload of ${game.path} refused" }
+        notes = listOf(labelled("Upload refused", e.message))
       } catch (e: RommException) {
-        notes = listOf("Upload failed · ${e.message}")
+        log.w(e) { "Upload of ${game.path} failed" }
+        notes = listOf(labelled("Upload failed", e.message))
       } catch (e: IOException) {
-        notes = listOf(listOfNotNull("File read failed", e.message).joinToString(" · "))
+        log.w(e) { "Reading ${game.path} for upload failed" }
+        notes = listOf(labelled("File read failed", e.message))
       } finally {
         upload = null
         uploadJob = null

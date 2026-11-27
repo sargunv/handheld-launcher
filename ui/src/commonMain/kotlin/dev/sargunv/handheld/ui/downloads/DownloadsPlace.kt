@@ -45,6 +45,7 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.places.MenuButton
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
@@ -172,8 +173,7 @@ private fun statusText(download: Download, progress: DownloadProgress): String =
     DownloadState.Failed -> downloadFailedLabel(download.error)
   }
 
-internal fun downloadFailedLabel(error: String?): String =
-  listOfNotNull("Download failed", error).joinToString(" · ")
+internal fun downloadFailedLabel(error: String?): String = labelled("Download failed", error)
 
 /**
  * The room each storage target has left, read again every few seconds while [active], since

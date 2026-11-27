@@ -15,6 +15,7 @@ import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
 import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import java.io.File
 import java.io.IOException
@@ -60,7 +61,7 @@ class BuiltInPlayer(
           }
         }
       } catch (e: IOException) {
-        return note(listOfNotNull("Core download failed", e.message).joinToString(" · "))
+        return note(labelled("Core download failed", e.message))
       }
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)

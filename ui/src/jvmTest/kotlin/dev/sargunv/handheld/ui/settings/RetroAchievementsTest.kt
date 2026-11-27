@@ -14,6 +14,7 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.achievements.InMemoryRetroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
+import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
@@ -30,6 +31,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.io.IOException
 
 @OptIn(ExperimentalTestApi::class)
 class RetroAchievementsTest {
@@ -38,16 +40,17 @@ class RetroAchievementsTest {
 
   /**
    * Opens the RetroAchievements section, whose server [accepts] the password or refuses it once
-   * [answer] completes.
+   * [answer] completes, keeping the account in [accounts].
    */
   private fun ComposeUiTest.launch(
     accepts: Boolean,
     answer: CompletableDeferred<Unit> = CompletableDeferred(Unit),
+    accounts: RetroAchievementsStore = store,
   ) {
     launchApp(
       saveSettings = { saved += it },
       retroAchievements =
-        RetroAchievementsSignIn(store) {
+        RetroAchievementsSignIn(accounts) {
           RetroAchievementsClient(
             "HandheldLauncher/test rcheevos/12.5",
             MockEngine {
@@ -127,5 +130,21 @@ class RetroAchievementsTest {
       .assertTextEquals("Sign-in failed · Invalid user/password combination. Please try again.")
     assertNull(runBlocking { store.load() })
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")
+  }
+
+  @Test
+  fun saysWhenASignInIsNotSaved() = runComposeUiTest {
+    launch(
+      accepts = true,
+      accounts =
+        object : RetroAchievementsStore by store {
+          override suspend fun save(account: RetroAchievementsAccount) {
+            throw IOException("Keystore unavailable")
+          }
+        },
+    )
+    signIn("player", "hunter2")
+    awaitText("Sign-in not saved")
+    onNodeWithTag("settings:ra:status").assertTextEquals("Sign-in not saved")
   }
 }
