@@ -185,7 +185,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         val options = appOptions(context.platform, context.apps)
         if (options.isEmpty()) {
           Text(
-            "No apps on this device",
+            "No app can open these games",
             color = Placeholder.mutedText,
             modifier = Modifier.weight(1f),
           )

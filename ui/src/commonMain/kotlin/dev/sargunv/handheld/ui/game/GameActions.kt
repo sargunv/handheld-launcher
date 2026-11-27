@@ -236,14 +236,15 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         notes = listOf("Upload not allowed · Your account needs upload permission")
         // A sign-in whose permissions aren't known, or don't include uploading, may be why.
         if (access != UploadAccess.Allowed) {
-          dialog = GameDialog.AllowUploads("Upload not allowed · This sign-in may not allow it")
+          dialog =
+            GameDialog.AllowUploads("Upload refused · This sign-in may lack upload permission")
         }
       } catch (e: RommException.Status) {
         notes = listOf("Upload refused · ${e.detail ?: e.message}")
       } catch (e: RommException) {
         notes = listOf("Upload failed · ${e.message}")
       } catch (e: IOException) {
-        notes = listOf("Can't read the game's file · ${e.message}")
+        notes = listOf("File read failed · ${e.message}")
       } finally {
         upload = null
         uploadJob = null

@@ -363,7 +363,7 @@ class LocalGameTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     // A pasted token's permissions aren't known, so its sign-in may be why.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText("Upload not allowed · This sign-in may not allow it").assertExists()
+    onNodeWithText("Upload refused · This sign-in may lack upload permission").assertExists()
     assertFocused("allowUploads:cancel")
     press(Key.ButtonA)
     awaitText("Upload not allowed · Your account needs upload permission")

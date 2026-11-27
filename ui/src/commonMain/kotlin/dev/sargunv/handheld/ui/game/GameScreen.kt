@@ -146,7 +146,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       UploadState.Checking,
       null -> current?.let { primaryAction(it, status, actions.playing, actions.playProgress) }
     }
-  val hasMenu = current != null && status != null && !actions.busy && upload == null
+  val hasMenu = current != null && status != null && !actions.playing && upload == null
   BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = actions.busy) {
     FocusScope(
       Modifier.fillMaxSize().onAction { action ->

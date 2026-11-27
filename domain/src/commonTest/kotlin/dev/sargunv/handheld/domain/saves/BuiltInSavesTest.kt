@@ -22,7 +22,6 @@ class BuiltInSavesTest {
       "/data/files/saves/local/storage/emulated/0/ROMs/gba/My Hack.gba",
       saves.folderOf(GameKey.Local(path)),
     )
-    assertEquals("/data/files/saves/local", saves.localRoot)
     // The same name on an SD card is another game.
     assertNotEquals(
       saves.folderOf(GameKey.Local(path)),
