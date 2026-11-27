@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
-use rom_headers::{Header, Platform};
+use rom_headers::{Header, Platform, switch};
 
 /// A platform whose games carry a header the session reads.
 #[uniffi::remote(Enum)]
@@ -32,6 +32,7 @@ pub enum Platform {
     PlayStation2,
     Psp,
     Xbox,
+    Switch,
 }
 
 /// One of a header's fields, in words.
@@ -42,11 +43,12 @@ pub struct HeaderField {
 }
 
 /// The fields of the header of the game for `platform` at `path`: a ROM or
-/// disc image, or a zip holding one. Empty when there's no header to read. It reads only what the
-/// header needs, so it suits a background thread, not the main one.
+/// disc image, or a zip holding one. Empty when there's no header to read. It
+/// reads only what the header needs, so it suits a background thread, not the
+/// main one.
 #[uniffi::export]
 pub fn rom_header_fields(platform: Platform, path: String) -> Vec<HeaderField> {
-    read(platform, Path::new(&path))
+    read(platform, Path::new(&path), None)
         .map(|header| describe(&header))
         .unwrap_or_default()
 }
@@ -55,25 +57,45 @@ pub fn rom_header_fields(platform: Platform, path: String) -> Vec<HeaderField> {
 /// its header, read as [`rom_header_fields`] reads it: a PlayStation or
 /// PlayStation 2 disc's serial, such as `SLUS-20152`, a PSP game's disc id,
 /// such as `ULUS10064`, a 3DS title's program id in 16 hex digits, or a
-/// GameCube or Wii disc's game code, such as `GZLE`. Null when it has none.
+/// GameCube or Wii disc's game code, such as `GZLE`, or a Switch game's title
+/// id in 16 hex digits, which `keys`, the path of the emulator's `prod.keys`,
+/// opens when the game carries no ticket. `keys` matters only for Switch. Null
+/// when it has none.
 #[uniffi::export]
-pub fn rom_game_id(platform: Platform, path: String) -> Option<String> {
-    match read(platform, Path::new(&path))? {
+pub fn rom_game_id(platform: Platform, path: String, keys: Option<String>) -> Option<String> {
+    let switch_key = keys
+        .filter(|_| platform == Platform::Switch)
+        .and_then(|keys| switch::header_key(&std::fs::read_to_string(keys).ok()?));
+    match read(platform, Path::new(&path), switch_key.as_ref())? {
         Header::SystemCnf(cnf) => cnf.serial(),
         Header::ParamSfo(sfo) => sfo.disc_id().map(str::to_owned),
         Header::Nintendo3ds(h) => Some(format!("{:016X}", h.program_id)),
         Header::GameCube(h) => Some(h.game_id.chars().take(4).collect()),
+        Header::Switch(h) => Some(format!("{:016X}", h.title_id)),
         _ => None,
     }
 }
 
-fn read(platform: Platform, path: &Path) -> Option<Header> {
+/// The header of the game at `path`, a Switch game's read with the console's
+/// `switch_key`.
+fn read(platform: Platform, path: &Path, switch_key: Option<&[u8; 32]>) -> Option<Header> {
     let file = BufReader::new(File::open(path).ok()?);
     if extension(path) == "zip" {
-        let entry = ZipEntry::open(file, platform).ok()?;
-        return rom_headers::identify(platform, entry).ok();
+        return identify(platform, ZipEntry::open(file, platform).ok()?, switch_key);
     }
-    rom_headers::identify(platform, file).ok()
+    identify(platform, file, switch_key)
+}
+
+fn identify(
+    platform: Platform,
+    reader: impl Read + Seek,
+    switch_key: Option<&[u8; 32]>,
+) -> Option<Header> {
+    match platform {
+        Platform::Switch => switch::read(reader, switch_key).map(Header::Switch),
+        _ => rom_headers::identify(platform, reader),
+    }
+    .ok()
 }
 
 fn extension(path: &Path) -> String {
@@ -119,6 +141,7 @@ fn is_game(platform: Platform, name: &str) -> bool {
         Platform::PlayStation2 => &["iso", "bin", "img", "chd", "cso", "zso"],
         Platform::Psp => &["iso", "cso", "chd", "pbp"],
         Platform::Xbox => &["iso", "xiso", "xbe", "chd"],
+        Platform::Switch => &["nsp", "nsz", "xci", "xcz"],
     };
     extensions.contains(&extension.as_str())
 }
@@ -380,6 +403,9 @@ fn describe(header: &Header) -> Vec<HeaderField> {
                 .add("Version", c.version)
                 .add("Disc", c.disc_number + 1);
         }
+        Header::Switch(h) => {
+            f.add("Title ID", format!("{:016X}", h.title_id));
+        }
     }
     f.0
 }
@@ -485,7 +511,7 @@ mod tests {
         let id = |platform, name: &str, bytes: &[u8]| {
             let path = dir.path().join(name);
             std::fs::write(&path, bytes).unwrap();
-            rom_game_id(platform, path.to_str().unwrap().to_owned())
+            rom_game_id(platform, path.to_str().unwrap().to_owned(), None)
         };
         let mut ncch = vec![0u8; 0x200];
         ncch[0x100..0x104].copy_from_slice(b"NCCH");

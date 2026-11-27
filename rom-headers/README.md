@@ -24,10 +24,12 @@ seeks, and read only the headers, never a whole image.
 | PlayStation, PlayStation 2 | `SYSTEM.CNF`, or a PBP's PARAM.SFO        | Disc images, PBP                          |
 | PSP                        | PARAM.SFO                                 | Disc images, PBP                          |
 | Xbox                       | XBE certificate                           | XBE, XISO, full disc images               |
+| Switch                     | NCA header, or ticket                     | NSP, NSZ, XCI, XCZ                        |
 
 Disc images are cooked (`.iso`), raw (`.bin`, 2352-byte sectors), CHD and CSO.
 The `chd`, `deflate` (CSO, GCZ) and `zstd` (Z3DS) features, all on by default,
-add the compressed ones.
+add the compressed ones. The `switch` feature, off by default, adds the Switch,
+whose NCA headers `switch::read` decrypts with the console's header key.
 
 ```rust,no_run
 use rom_headers::{Header, Platform, identify};
@@ -42,4 +44,6 @@ fn main() -> Result<(), rom_headers::Error> {
 ```
 
 It's ported from the format parsers of
-[rom-tools](https://github.com/sargunv/rom-tools).
+[rom-tools](https://github.com/sargunv/rom-tools). The `switch` module is ported
+from [argosy-sigil](https://github.com/rommapp/argosy-sigil) and stays under the
+MPL-2.0.
