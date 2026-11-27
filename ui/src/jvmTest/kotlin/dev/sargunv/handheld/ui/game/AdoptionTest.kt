@@ -131,8 +131,6 @@ class AdoptionTest {
     runBlocking { launcher.started.await() }
     serverGainsHomebrew()
     waitForIdle()
-    Thread.sleep(500)
-    waitForIdle()
     assertTrue(adopted.none { it.local == local }, "$adopted")
     assertTrue(saved.none { rom in it.launch.games }, "$saved")
 

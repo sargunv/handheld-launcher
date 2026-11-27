@@ -22,6 +22,7 @@ import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
+import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.input.AButtonPosition
 import dev.sargunv.handheld.ui.input.ConfirmButton
@@ -39,7 +40,10 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -69,12 +73,8 @@ class AppState(
 ) {
   var settings: Settings by mutableStateOf(settings)
 
-  /**
-   * Everything kept per game: the settings, and what the platform keeps. Its [PerGameState.adopt]
-   * is the one step that hands a local game's state to the ROM its file becomes, which the app runs
-   * for every game on the device by its file each time the device's games change.
-   */
-  val gameState: PerGameState =
+  /** Everything kept per game: the settings, and what the platform keeps. */
+  private val gameState: PerGameState =
     PerGameState.of(
       PerGameState { this.settings = this.settings.adopted(it) },
       platformState,
@@ -110,9 +110,6 @@ class AppState(
 
   /** The local games: files on the device that match none of the server's games. */
   var localGames: List<LocalGame> by mutableStateOf(emptyList())
-
-  /** The library's games on the device, by the path of their file or folder: their ROM ids. */
-  var onDevice: Map<String, Long> by mutableStateOf(emptyMap())
 
   /** Counts the times Home started over, so its focus and scroll positions start over too. */
   var homeResets: Int by mutableIntStateOf(0)
@@ -265,6 +262,38 @@ class AppState(
       is GameKey.Local ->
         (games.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
     }
+
+  /**
+   * The one adopt step: each file on the device that's a ROM's hands what's kept for it as a local
+   * game to the ROM, and the ROM takes the local game's place on the way back. The game [playing]
+   * holds waits until it's over. It runs until cancelled.
+   */
+  suspend fun adoptMatchedFiles() {
+    combine(games.adoptions, snapshotFlow { playing }) { adoptions, playing ->
+        adoptions.filterNot { playing == it.local || playing == it.rom }
+      }
+      .distinctUntilChanged()
+      .onEach { gameState.adopt(it) }
+      .combine(snapshotFlow { navigator.backStack.toList() }) { adoptions, _ -> adoptions }
+      .collect { adoptions ->
+        val roms = adoptions.associate { it.local to it.rom }
+        for (screen in navigator.backStack.toList()) {
+          val adopted =
+            when (screen) {
+              is Screen.Game ->
+                roms[screen.key]
+                  ?.let { library.rom(it.romId) }
+                  ?.let { Screen.Game(it.id, it.title) }
+              is Screen.OpenWith ->
+                (screen.scope as? OpenWithScope.Game)
+                  ?.let { roms[it.game] }
+                  ?.let { screen.copy(scope = OpenWithScope.Game(it)) }
+              else -> null
+            }
+          if (adopted != null) navigator.replace(screen, adopted)
+        }
+      }
+  }
 
   private suspend fun awaitSync() {
     snapshotFlow { sync }.first { it.isDone }

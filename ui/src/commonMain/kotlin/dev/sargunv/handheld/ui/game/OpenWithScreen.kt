@@ -141,18 +141,12 @@ private suspend fun platformName(state: AppState, platform: PlatformSlug): Strin
  */
 @Composable
 internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
-  val context = rememberOpenWithContext(state, screen.scope)
+  val scope = screen.scope
+  val context = rememberOpenWithContext(state, scope)
   val launch = state.settings.launch
-  // A local game whose file became a server game while the screen was open is that game now, and
-  // its choice is the game's.
-  val scope =
-    screen.scope.let { scope ->
-      val local = (scope as? OpenWithScope.Game)?.game as? GameKey.Local
-      local?.let { state.onDevice[it.path] }?.let { OpenWithScope.Game(GameKey.Romm(it)) } ?: scope
-    }
   Column(Modifier.fillMaxSize()) {
     Text(
-      when (screen.scope) {
+      when (scope) {
         is OpenWithScope.Game -> "Open ${screen.title} with"
         is OpenWithScope.Platform -> "Open ${screen.title} games with"
         is OpenWithScope.Collection ->
@@ -228,7 +222,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             color = Placeholder.text,
             modifier = Modifier.testTag("openWith:current"),
           )
-          if ((screen.scope as? OpenWithScope.Game)?.game is GameKey.Local) {
+          if ((scope as? OpenWithScope.Game)?.game is GameKey.Local) {
             Text(
               "Kept for this file, then for its game once it's on your server.",
               color = Placeholder.mutedText,

@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.domain.Adoption
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
@@ -139,7 +141,6 @@ class DeviceGamesTest {
     assertEquals(null, games.onDevice.first()[rom.id])
   }
 
-  // Of two server games on one file, the file's page and the device's games pick the same one.
   @Test
   fun aFileOfTwoServerGamesIsTheLowerIds() = runTest {
     fillLibrary()
@@ -167,8 +168,8 @@ class DeviceGamesTest {
     // Both are on the device, on the one file.
     waitFor { games.onDevice.first { it.keys == setOf(21L, 22L) } }
     assertEquals(
-      LocalGameState.Matched(21),
-      waitFor { games.localGame(copied.path).first { it is LocalGameState.Matched } },
+      listOf(Adoption(GameKey.Local(copied.path), GameKey.Romm(21))),
+      games.adoptions.first(),
     )
   }
 

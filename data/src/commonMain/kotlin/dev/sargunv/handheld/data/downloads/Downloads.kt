@@ -4,10 +4,9 @@ import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.cache.reportInstall
 import dev.sargunv.handheld.data.cache.toDomain
 import dev.sargunv.handheld.data.romm.RommClient
-import dev.sargunv.handheld.data.romm.RommInstallRequest
+import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommInstallStatus
 import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.platformHttpEngine
@@ -286,7 +285,7 @@ class DownloadManager(
       edit { list -> list.filterNot { it.romId == romId } }
       val signedIn =
         credentials.load()?.takeIf { it.baseUrl == download.server } ?: return@withContext
-      reportInstall(signedIn, engine, download, RommInstallStatus.Cancelled)
+      reportInstall(signedIn, download, RommInstallStatus.Cancelled)
     }
 
   /**
@@ -323,33 +322,44 @@ class DownloadManager(
     withContext(Dispatchers.IO) { storage().map { StorageSpace(it, freeBytes(it.root)) } }
 
   /**
-   * Queues [rom] for the server's install [request], or gives the request the download of [rom]
-   * that's in the queue already without one, which starts again if it failed. Returns false when
-   * the game is on the device, or another request's download has it.
+   * Takes the games sent to the device [deviceId] from RomM's web page into the queue. A request
+   * takes over the download of its game that's in the queue already without one, which starts again
+   * if it failed. A game on the device already, or one another request's download has, is reported
+   * to the server as installed, and the queue reports how the others end.
+   *
+   * @throws RommException when the server can't be reached.
    */
-  internal suspend fun enqueue(
-    rom: Rom,
-    platformFolder: String,
-    request: RommInstallRequest,
-  ): Boolean {
-    val joined = edit { list ->
-      list.map {
-        when {
-          it.romId != rom.id -> it
-          // Sent again after it failed: this request takes it over and tries again.
-          it.state == DownloadState.Failed ->
-            it.copy(
-              installRequestId = request.id,
-              fileIds = request.fileIds,
-              state = DownloadState.Queued,
-              error = null,
-            )
-          it.installRequestId == null -> it.copy(installRequestId = request.id)
-          else -> it
+  suspend fun takeInstallRequests(client: RommClient, deviceId: String) {
+    val listed = client.installRequests(deviceId)
+    val taken =
+      if (listed.any { it.status == RommInstallStatus.Pending }) {
+        client.claimInstallRequests(deviceId)
+      } else listed
+    for (request in taken.filter { it.status == RommInstallStatus.Taken }) {
+      if (entries.value.any { it.installRequestId == request.id }) continue
+      val joined = edit { list ->
+        list.map {
+          when {
+            it.romId != request.romId -> it
+            // Sent again after it failed: this request takes it over and tries again.
+            it.state == DownloadState.Failed ->
+              it.copy(
+                installRequestId = request.id,
+                fileIds = request.fileIds,
+                state = DownloadState.Queued,
+                error = null,
+              )
+            it.installRequestId == null -> it.copy(installRequestId = request.id)
+            else -> it
+          }
         }
       }
+      if (joined) continue
+      val rom = client.rom(request.romId)
+      if (!enqueue(rom.toDomain(client), rom.platformFsSlug, request.fileIds, request.id)) {
+        client.updateInstallRequest(deviceId, request.id, RommInstallStatus.AlreadyInstalled)
+      }
     }
-    return joined || enqueue(rom, platformFolder, request.fileIds, request.id)
   }
 
   private suspend fun run(download: Download, signedIn: RommCredentials) {
@@ -393,7 +403,7 @@ class DownloadManager(
         list.find { it.romId == download.romId }?.let { current = it }
         list.filterNot { it.romId == download.romId }
       }
-      reportInstall(signedIn, engine, current, outcome)
+      reportInstall(signedIn, current, outcome)
     }
   }
 
@@ -406,7 +416,30 @@ class DownloadManager(
       }
     }
     val current = entries.value.find { it.romId == download.romId } ?: download
-    reportInstall(signedIn, engine, current, RommInstallStatus.Failed, error)
+    reportInstall(signedIn, current, RommInstallStatus.Failed, error)
+  }
+
+  /**
+   * Tells the server that sent [download] from its web page, if one did, that its install ended
+   * with [status], for [reason], signed in with [signedIn].
+   */
+  private suspend fun reportInstall(
+    signedIn: RommCredentials,
+    download: Download,
+    status: RommInstallStatus,
+    reason: String? = null,
+  ) {
+    val requestId = download.installRequestId ?: return
+    val deviceId = signedIn.deviceId ?: return
+    try {
+      client(signedIn).use {
+        // A device reports how a request ended, but cancels one through its own endpoint.
+        if (status == RommInstallStatus.Cancelled) it.cancelInstallRequest(deviceId, requestId)
+        else it.updateInstallRequest(deviceId, requestId, status, reason)
+      }
+    } catch (_: RommException) {
+      // The request stays taken, and the next poll finds the game on the device or queues it.
+    }
   }
 
   /** A game whose files have all arrived in [staging], to move to [target]. */
@@ -433,10 +466,9 @@ class DownloadManager(
       val files =
         if (download.fileIds.isEmpty()) rom.files
         else rom.files.filter { it.id in download.fileIds }
-      if (files.isEmpty()) throw DownloadException("The server has no files for this game")
+      if (files.isEmpty()) throw DownloadException("No files on server")
       val name =
-        GameLayout.romName(domainRom)
-          ?: throw DownloadException("The game's name on the server isn't a file name")
+        GameLayout.romName(domainRom) ?: throw DownloadException("Server file name not allowed")
       val totalBytes = files.sumOf { it.fileSizeBytes }
 
       val root =
