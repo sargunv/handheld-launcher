@@ -118,7 +118,7 @@ class AndroidGameLauncher(
   ): List<String> {
     val file =
       withContext(Dispatchers.IO) { launchFile(path) }
-        ?: return listOf("The game's folder is empty, so there's nothing to play.")
+        ?: return listOf("The game's folder is empty.")
     val request = PlayRequest(file, PlatformSlug(game.platformSlug), game.title, game.key)
     // A set, since a sync that fails before the game and again after it says the same thing twice.
     val notes = linkedSetOf<String>()
@@ -164,10 +164,7 @@ class AndroidGameLauncher(
     val command =
       when (val build = target.commandFor(input)) {
         is LaunchBuild.MissingCore ->
-          return note(
-            "There's no libretro core for this game's platform, so ${appName(target)} can't " +
-              "play it.",
-          )
+          return note("${appName(target)} has no libretro core for this platform.")
         is LaunchBuild.Ready -> build.command
       }
     val save = lookUpSave(request, target, note)
@@ -228,7 +225,7 @@ class AndroidGameLauncher(
       // The emulator may still be writing its save as it goes to the background.
       delay(QUIT_DELAY)
       if (!emulators.close(packageName)) {
-        note("Couldn't close ${appName(target)}. Quit the game from its own menu.")
+        note("Couldn't close ${appName(target)}.")
       }
     }
     if (save != null) saves.afterPlay(save, note)
@@ -251,10 +248,7 @@ class AndroidGameLauncher(
       SaveLookup.SharedCards ->
         Log.i(TAG, "${target.packageName} keeps its saves on a shared memory card")
       SaveLookup.NoGameId ->
-        note(
-          "Couldn't read the game's id from its file, which ${appName(target)} files its saves " +
-            "under, so the save doesn't sync. It stays on this device as it is.",
-        )
+        note("The save doesn't sync: couldn't read the game's id from its file.")
     }
     return (lookup as? SaveLookup.Found)?.save
   }
@@ -266,8 +260,7 @@ class AndroidGameLauncher(
    */
   private suspend fun syncNow(save: GameSave?, target: LaunchTarget): String =
     withContext(NonCancellable) {
-      if (save == null) "${appName(target)}'s saves don't sync yet, so there's nothing to sync."
-      else saves.push(save)
+      if (save == null) "${appName(target)}'s saves don't sync yet." else saves.push(save)
     }
 
   private suspend fun resolve(subject: LaunchSubject, rules: LaunchRules) =
@@ -285,8 +278,8 @@ class AndroidGameLauncher(
 
   private fun noEmulator(resolution: LaunchResolution.NoEmulatorInstalled): String {
     val suggestions = resolution.suggestions.take(2).map { it.displayName }
-    return if (suggestions.isEmpty()) "No app on this device can play this game yet."
-    else "No emulator for this game is installed. Install ${suggestions.joinToString(" or ")}."
+    return if (suggestions.isEmpty()) "No app on this device can play this game."
+    else "No emulator installed. Install ${suggestions.joinToString(" or ")}."
   }
 
   /**

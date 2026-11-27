@@ -100,11 +100,7 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
           "settings:storage:${target.id}",
           target.label,
           "$free · ${if (on) "On" else "Off"}",
-          Help(
-            target.label,
-            "$free, at ${target.root}. New games go to the first storage that's on and has " +
-              "room, from the top. Games already on storage that's off still show and play.",
-          ),
+          Help(target.label, "$free, at ${target.root}"),
           onMenu = { section.openMenu(target) },
           onConfirm = { section.toggle(target, spaces.map { it.target }) },
         )
@@ -125,8 +121,8 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
   }
   note(
     "settings:storage:note",
-    "New games go to the first of these that's on and has room. Confirm turns one on or off, " +
-      "and its menu moves it.",
+    "New games go to the first storage that's on and has room. Games on storage that's off " +
+      "still play.",
   )
 }
 

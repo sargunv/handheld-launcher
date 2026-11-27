@@ -41,8 +41,7 @@ fun StillRunningDialog(prompt: StillRunning, onChoose: (StillRunningChoice) -> U
         modifier = Modifier.semantics { heading() },
       )
       Text(
-        "RomM has a newer save for ${prompt.gameName}. If ${prompt.emulatorName} still has the " +
-          "game open in the background, it can write its old save over the new one.",
+        "It could write its old save over RomM's newer one for ${prompt.gameName}.",
         color = Placeholder.mutedText,
       )
       MenuButton("stillRunning:quitFirst", "Quit ${prompt.emulatorName} from its own menu first") {
