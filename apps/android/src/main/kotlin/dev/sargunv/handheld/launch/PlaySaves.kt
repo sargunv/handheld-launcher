@@ -3,7 +3,6 @@ package dev.sargunv.handheld.launch
 import android.content.Context
 import android.util.Log
 import dev.sargunv.handheld.data.auth.CredentialStore
-import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.BeforeLaunch
@@ -174,14 +173,14 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
           return signedOut
         }
     return RommClient(signedIn.baseUrl, signedIn.token).use { client ->
-      val sync =
-        SaveSync(
-          client,
-          records = recordsDir(signedIn),
-          history = saveHistory(context),
-          staging = File(context.cacheDir, "save-staging"),
-        )
       try {
+        val sync =
+          SaveSync(
+            client,
+            records = recordsDir(signedIn.baseUrl, client.me().username),
+            history = saveHistory(context),
+            staging = File(context.cacheDir, "save-staging"),
+          )
         lock.withLock { block(sync) }
       } catch (e: RommException) {
         failure(failed(e))
@@ -192,11 +191,11 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
   }
 
   /**
-   * Where save sync keeps its records for [signedIn]'s server and sign-in, apart from every other
-   * account's, so one account's record never decides what another account's save replaces.
+   * Where save sync keeps its records for [username]'s account on the server at [baseUrl], apart
+   * from every other account's, so one account's record never decides what another's save replaces.
    */
-  private fun recordsDir(signedIn: RommCredentials): File {
-    val account = "${signedIn.baseUrl}\n${signedIn.token}"
+  private fun recordsDir(baseUrl: String, username: String): File {
+    val account = "$baseUrl\n$username"
     val digest = MessageDigest.getInstance("SHA-256").digest(account.encodeToByteArray())
     val key = digest.copyOf(8).toHexString()
     return File(context.filesDir, "save-sync/$key")
