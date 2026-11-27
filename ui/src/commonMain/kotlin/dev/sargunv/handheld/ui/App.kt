@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,8 +29,6 @@ import coil3.compose.setSingletonImageLoaderFactory
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.ui.cover.coverImageLoader
-import dev.sargunv.handheld.ui.dialog.Dialogs
-import dev.sargunv.handheld.ui.dialog.LocalDialogs
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
@@ -161,26 +158,23 @@ fun App(
       true -> MainSecondary(state)
     }
   }
-  val dialogs = remember { Dialogs() }
-  CompositionLocalProvider(LocalDialogs provides dialogs) {
-    ActionInputRoot(state.settings.input, heldKeys, modifier) {
-      FocusRoot {
-        val scopes = LocalFocusScopes.current
-        LaunchedEffect(homePresses, scopes, state) {
-          homePresses.collect {
-            when {
-              state.playing != null -> Unit
-              scopes?.isDialogOpen == true -> dialogs.closeAll()
-              data.romm.state.value.signedIn == true -> state.goHome()
-              data.romm.state.value.signedIn == false -> account.settingsOverSignIn = false
-            }
+  ActionInputRoot(state.settings.input, heldKeys, modifier) {
+    FocusRoot {
+      val scopes = LocalFocusScopes.current
+      LaunchedEffect(homePresses, scopes, state) {
+        homePresses.collect {
+          when {
+            state.playing != null -> Unit
+            scopes?.isDialogOpen == true -> scopes.closeDialogs()
+            data.romm.state.value.signedIn == true -> state.goHome()
+            data.romm.state.value.signedIn == false -> account.settingsOverSignIn = false
           }
         }
-        DualScreen(layout = layout, primary = primary, secondary = secondary)
       }
+      DualScreen(layout = layout, primary = primary, secondary = secondary)
     }
-    if (layout == DualScreenLayout.Separate) secondaryDisplay(secondary)
   }
+  if (layout == DualScreenLayout.Separate) secondaryDisplay(secondary)
 }
 
 /**
