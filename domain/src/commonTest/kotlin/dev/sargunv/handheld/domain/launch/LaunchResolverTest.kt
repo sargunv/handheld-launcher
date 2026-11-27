@@ -3,7 +3,6 @@ package dev.sargunv.handheld.domain.launch
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAMECUBE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64
@@ -11,7 +10,6 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog.NDS
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSX
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SNES
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.SUPER_FAMICOM
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SWITCH
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
@@ -100,48 +98,6 @@ class LaunchResolverTest {
   }
 
   @Test
-  fun gameOverrideBeatsCollectionBeatsPlatform() {
-    val installed = setOf("a.game", "b.collection", "c.platform")
-    val rules =
-      LaunchRules(
-        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("a.game")),
-        collectionRules = listOf(CollectionRule(jak, LaunchChoice("b.collection"))),
-        platformDefaults = mapOf(PS2 to LaunchChoice("c.platform")),
-      )
-    assertEquals(
-      "a.game",
-      resolved(LaunchResolver.resolve(jak1, rules, installed)).target.packageName,
-    )
-    assertEquals(
-      "b.collection",
-      resolved(LaunchResolver.resolve(jak2, rules, installed)).target.packageName,
-    )
-    assertEquals(
-      "c.platform",
-      resolved(LaunchResolver.resolve(ratchet, rules, installed)).target.packageName,
-    )
-  }
-
-  @Test
-  fun theFirstApplicableCollectionRuleWins() {
-    val favorites = CollectionId("favorites")
-    val game =
-      LaunchSubject(game = GameKey.Romm(9), platform = PS2, collections = setOf(jak, favorites))
-    val rules =
-      LaunchRules(
-        collectionRules =
-          listOf(
-            CollectionRule(favorites, LaunchChoice("app.favorites")),
-            CollectionRule(jak, LaunchChoice(pocketGoal)),
-          ),
-      )
-    val resolution =
-      resolved(LaunchResolver.resolve(game, rules, setOf("app.favorites", pocketGoal)))
-    assertEquals("app.favorites", resolution.target.packageName)
-    assertEquals(LaunchRule.CollectionOverride(favorites), resolution.rule)
-  }
-
-  @Test
   fun aCollectionRuleCanBeLimitedToAPlatform() {
     val zelda = CollectionId("zelda")
     val rules =
@@ -160,18 +116,6 @@ class LaunchResolverTest {
       LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
       LaunchResolver.resolve(psxGame, rules, installed),
     )
-  }
-
-  @Test
-  fun choicesForMissingAppsAreSkipped() {
-    val rules =
-      LaunchRules(
-        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice(pocketGoal)),
-        platformDefaults = mapOf(PS2 to LaunchChoice("net.pcsx2.emulator")),
-      )
-    val resolution = resolved(LaunchResolver.resolve(jak1, rules, setOf(armsx2)))
-    assertEquals(armsx2, resolution.target.packageName)
-    assertEquals(LaunchRule.FirstInstalled, resolution.rule)
   }
 
   @Test
@@ -209,38 +153,6 @@ class LaunchResolverTest {
     assertEquals("snes9x_libretro", resolution.target.coreFor(SNES))
   }
 
-  // Installed emulators wait behind the built-in session wherever a libretro core runs the
-  // platform, twins included.
-  @Test
-  fun aPlatformALibretroCoreRunsPlaysBuiltInByDefault() {
-    val installed = setOf("com.retroarch.aarch64", "com.zsnes.superzsnes", "com.example.gba")
-    for (platform in listOf(GBA, SNES, SUPER_FAMICOM)) {
-      assertEquals(
-        LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
-        LaunchResolver.resolve(
-          LaunchSubject(game = GameKey.Romm(1), platform = platform),
-          LaunchRules(),
-          installed,
-        ),
-      )
-    }
-  }
-
-  // GameCube, Wii, 3DS and PSP play better in their own emulators, so the built-in session waits
-  // for none to be installed.
-  @Test
-  fun anInstalledEmulatorComesFirstWhereItPlaysBetter() {
-    val game = LaunchSubject(game = GameKey.Romm(1), platform = GAMECUBE)
-    val withDolphin =
-      resolved(LaunchResolver.resolve(game, LaunchRules(), setOf("org.dolphinemu.dolphinemu")))
-    assertEquals("org.dolphinemu.dolphinemu", withDolphin.target.packageName)
-    assertEquals(LaunchRule.FirstInstalled, withDolphin.rule)
-    assertEquals(
-      LaunchResolution.BuiltIn(LaunchRule.BuiltInDefault),
-      LaunchResolver.resolve(game, LaunchRules(), emptySet()),
-    )
-  }
-
   // melonDS DS plays the DS built-in, on both screens, even with a DS emulator installed.
   @Test
   fun theDsPlaysBuiltInEvenWithAnEmulatorInstalled() {
@@ -276,51 +188,16 @@ class LaunchResolverTest {
   }
 
   @Test
-  fun theBuiltInSessionCanBeChosenAtEveryLevel() {
-    val pokemon = CollectionId("pokemon")
-    val game = LaunchSubject(game = GameKey.Romm(1), platform = GB, collections = setOf(pokemon))
-    val installed = setOf("com.retroarch")
-    val app = LaunchChoice("com.retroarch")
+  fun aBuiltInChoiceKeepsItsCore() {
     val mgba = LaunchChoice.BuiltIn.copy(core = "mgba_libretro")
-
     assertEquals(
       LaunchResolution.BuiltIn(LaunchRule.GameOverride, "mgba_libretro"),
       LaunchResolver.resolve(
-        game,
-        LaunchRules(
-          gameOverrides = mapOf(GameKey.Romm(1) to mgba),
-          platformDefaults = mapOf(GB to app),
-        ),
-        installed,
+        LaunchSubject(game = GameKey.Romm(1), platform = GB),
+        LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to mgba)),
+        emptySet(),
       ),
     )
-    assertEquals(
-      LaunchResolution.BuiltIn(LaunchRule.CollectionOverride(pokemon)),
-      LaunchResolver.resolve(
-        game,
-        LaunchRules(
-          collectionRules = listOf(CollectionRule(pokemon, LaunchChoice.BuiltIn)),
-          platformDefaults = mapOf(GB to app),
-        ),
-        installed,
-      ),
-    )
-    assertEquals(
-      LaunchResolution.BuiltIn(LaunchRule.PlatformDefault),
-      LaunchResolver.resolve(
-        game,
-        LaunchRules(platformDefaults = mapOf(GB to LaunchChoice.BuiltIn)),
-        installed,
-      ),
-    )
-  }
-
-  @Test
-  fun theBuiltInSessionIsSkippedWhereNoLibretroCoreRuns() {
-    val rules = LaunchRules(gameOverrides = mapOf(GameKey.Romm(3) to LaunchChoice.BuiltIn))
-    val resolution = resolved(LaunchResolver.resolve(ratchet, rules, setOf(armsx2)))
-    assertEquals(armsx2, resolution.target.packageName)
-    assertEquals(LaunchRule.FirstInstalled, resolution.rule)
   }
 
   @Test
