@@ -13,7 +13,8 @@ enum class SaveCopy {
  * copy replaced it.
  *
  * @param copy where the kept copy came from.
- * @param emulator the emulator the save belongs to, as the server files it.
+ * @param emulator what kept the save on this device, as its history folder names it: the emulator,
+ *   or `builtin` for the built-in session's saves under every core.
  */
 data class KeptSave(
   val path: String,
