@@ -54,7 +54,7 @@ class LaunchDispatcher(private val context: Context) {
     if (command.readGrants.isNotEmpty() && !context.handheldApp.allFilesAccess.value) {
       return LaunchOutcome.NeedsAllFilesAccess
     }
-    if (command.dispatchMethod == LaunchMethod.Shell && startByShell(command)) {
+    if (command.method == LaunchMethod.Shell && startByShell(command)) {
       return LaunchOutcome.Started(LaunchMethod.Shell)
     }
     return startActivity(command)
@@ -96,8 +96,11 @@ class LaunchDispatcher(private val context: Context) {
         val output = process.inputStream.bufferedReader().use { it.readText() }
         // am exits with 0 when it can't start the activity, and says why on lines like
         // "Error: Activity class {...} does not exist."
-        process.waitFor() == 0 && output.lines().none { it.startsWith("Error") }
+        val started = process.waitFor() == 0 && output.lines().none { it.startsWith("Error") }
+        if (!started) Log.w(TAG, "am start refused ${command.packageName}: $output")
+        started
       } catch (e: IOException) {
+        Log.w(TAG, "am start failed for ${command.packageName}", e)
         false
       }
     }

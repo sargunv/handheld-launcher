@@ -3,7 +3,6 @@ package dev.sargunv.handheld.domain.emulator
 import dev.sargunv.handheld.domain.launch.ExtraValue
 import dev.sargunv.handheld.domain.launch.LaunchBuild
 import dev.sargunv.handheld.domain.launch.LaunchCommandBuilder
-import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
@@ -78,13 +77,6 @@ class EmulatorRegistryTest {
   fun fileUriRecipesGoThroughTheShell() {
     for ((name, recipe) in recipes) {
       if (recipe.data == RomData.FileUri) assertEquals(LaunchMethod.Shell, recipe.method, name)
-    }
-  }
-
-  @Test
-  fun recipesLeaveGrantsToTheBuilder() {
-    for ((name, recipe) in recipes) {
-      assertTrue(LaunchFlag.GrantReadUriPermission !in recipe.flags, name)
     }
   }
 

@@ -7,10 +7,9 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
 /**
  * How an app wants a game handed to it: the shape of a [LaunchCommand] before a ROM fills it in.
  *
- * [data] and [extras] say where the ROM goes. [flags] never needs
- * [LaunchFlag.GrantReadUriPermission]: building a command adds it whenever the command hands over a
- * content URI. [grantRom] hands the ROM over by content URI as clip data even when the recipe
- * passes it only by path, for apps that may read it either way.
+ * [data] and [extras] say where the ROM goes. [grantRom] hands the ROM over by content URI as clip
+ * data even when the recipe passes it only by path, for apps that may read it either way. A command
+ * that hands over a content URI goes as an intent, whatever [method] says.
  */
 data class LaunchRecipe(
   val action: String = IntentAction.VIEW,
