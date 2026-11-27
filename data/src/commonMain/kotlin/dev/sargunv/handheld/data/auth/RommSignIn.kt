@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.auth
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.romm.DefaultDeviceScopes
 import dev.sargunv.handheld.data.romm.DeviceAuthRequest
 import dev.sargunv.handheld.data.romm.DeviceCode
@@ -79,11 +80,10 @@ class RommSignIn(
     val user =
       RommClient(baseUrl, token.accessToken, engine()).use { client ->
         // The server's web page offers to send games only to a device that says it takes them.
-        // Without it, the device still signs in.
         try {
           client.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
         } catch (e: RommException) {
-          // The token may lack the scope; sending games from the web page then stays off.
+          log.w(e) { "Couldn't offer this device for games sent from the web page" }
         }
         client.me()
       }
@@ -128,3 +128,5 @@ class RommSignIn(
     const val CLIENT_NAME = "handheld"
   }
 }
+
+private val log = Logger.withTag("RommSignIn")
