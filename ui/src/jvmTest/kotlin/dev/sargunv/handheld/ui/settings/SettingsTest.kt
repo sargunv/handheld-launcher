@@ -363,6 +363,19 @@ class SettingsTest {
   }
 
   @Test
+  fun theRefusalNoteGoesWhenFocusLeavesTheSection() = runComposeUiTest {
+    val own = StorageTarget(tempDir(), "Device", "primary")
+    launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))
+    awaitFocused("settings:Storage")
+    awaitTag("settings:storage:primary")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitTag("settings:storage:refused")
+    press(Key.DirectionLeft)
+    awaitFocused("settings:Storage")
+    onNodeWithTag("settings:storage:refused").assertDoesNotExist()
+  }
+
+  @Test
   fun theOnlyStorageCantBeTurnedOffOrMoved() = runComposeUiTest {
     val own = StorageTarget(tempDir(), "Device", "primary")
     launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))

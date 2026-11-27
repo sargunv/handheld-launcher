@@ -5,13 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.State
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -39,33 +38,29 @@ import kotlinx.coroutines.launch
 /** The RomM section's state. It asks what this sign-in may upload only while [shown]. */
 @Composable
 internal fun rememberRommSection(state: AppState, shown: Boolean): RommSection {
+  val scope = rememberCoroutineScope()
+  val section =
+    rememberSaveable(state, saver = RommSection.saver(state, scope)) { RommSection(state, scope) }
   val signedIn = state.account.signedIn == true
   // Asked again after each sync, since the account's permissions can change.
-  val uploadAccess =
-    produceState<UploadAccess?>(null, state.sync, signedIn, shown) {
-      if (signedIn && shown) value = state.romm.uploadAccess()
-    }
-  val confirmSignOut = rememberSaveable { mutableStateOf(false) }
-  val confirmAllowUploads = rememberSaveable { mutableStateOf(false) }
-  val scope = rememberCoroutineScope()
-  return remember(state) {
-    RommSection(state, scope, uploadAccess, confirmSignOut, confirmAllowUploads)
+  LaunchedEffect(section, state.sync, signedIn, shown) {
+    if (signedIn && shown) section.askUploadAccess()
   }
+  return section
 }
 
-internal class RommSection(
-  val state: AppState,
-  private val scope: CoroutineScope,
-  uploadAccess: State<UploadAccess?>,
-  confirmSignOut: MutableState<Boolean>,
-  confirmAllowUploads: MutableState<Boolean>,
-) {
+internal class RommSection(val state: AppState, private val scope: CoroutineScope) {
   /** What this sign-in may upload, or null while it's being asked. */
-  val uploadAccess by uploadAccess
+  var uploadAccess: UploadAccess? by mutableStateOf(null)
+    private set
 
-  var confirmSignOut by confirmSignOut
+  var confirmSignOut by mutableStateOf(false)
 
-  var confirmAllowUploads by confirmAllowUploads
+  var confirmAllowUploads by mutableStateOf(false)
+
+  suspend fun askUploadAccess() {
+    uploadAccess = state.romm.uploadAccess()
+  }
 
   fun signInAgain() {
     scope.launch { state.signOut(keepQueue = true) }
@@ -92,6 +87,19 @@ internal class RommSection(
         onDismissRequest = { confirmAllowUploads = false },
       )
     }
+  }
+
+  companion object {
+    fun saver(state: AppState, scope: CoroutineScope) =
+      Saver<RommSection, List<Boolean>>(
+        save = { listOf(it.confirmSignOut, it.confirmAllowUploads) },
+        restore = { (signOut, allowUploads) ->
+          RommSection(state, scope).apply {
+            confirmSignOut = signOut
+            confirmAllowUploads = allowUploads
+          }
+        },
+      )
   }
 }
 

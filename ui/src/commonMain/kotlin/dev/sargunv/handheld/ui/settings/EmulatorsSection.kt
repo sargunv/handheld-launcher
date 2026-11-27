@@ -5,12 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -30,14 +30,12 @@ import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.signin.Help
 
 @Composable
-internal fun rememberEmulatorsSection(state: AppState): EmulatorsSection {
-  val explainCloseEmulators = rememberSaveable { mutableStateOf(false) }
-  return remember(state) { EmulatorsSection(state, explainCloseEmulators) }
-}
+internal fun rememberEmulatorsSection(state: AppState): EmulatorsSection =
+  rememberSaveable(state, saver = EmulatorsSection.saver(state)) { EmulatorsSection(state) }
 
-internal class EmulatorsSection(val state: AppState, explainCloseEmulators: MutableState<Boolean>) {
+internal class EmulatorsSection(val state: AppState) {
   /** Whether the dialog that explains closing emulators shows, before it turns on. */
-  var explainCloseEmulators by explainCloseEmulators
+  var explainCloseEmulators by mutableStateOf(false)
 
   @Composable
   fun Dialogs() {
@@ -50,6 +48,14 @@ internal class EmulatorsSection(val state: AppState, explainCloseEmulators: Muta
         onDismissRequest = { explainCloseEmulators = false },
       )
     }
+  }
+
+  companion object {
+    fun saver(state: AppState) =
+      Saver<EmulatorsSection, Boolean>(
+        save = { it.explainCloseEmulators },
+        restore = { EmulatorsSection(state).apply { explainCloseEmulators = it } },
+      )
   }
 }
 

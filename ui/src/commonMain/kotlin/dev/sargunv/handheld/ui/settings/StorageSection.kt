@@ -4,11 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -25,44 +23,27 @@ import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.Dialog
-import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.signin.Help
 
-/**
- * The Storage section's state. A new one starts each time the section shows, so a refusal's note
- * doesn't outlive it.
- */
 @Composable
-internal fun rememberStorageSection(state: AppState, shown: Boolean): StorageSection {
-  val spaces = rememberStorageSpaces(state.downloads, active = shown)
-  val menu = rememberSaveable { mutableStateOf<String?>(null) }
-  return remember(state, shown) { StorageSection(state, spaces, menu) }
-}
+internal fun rememberStorageSection(state: AppState): StorageSection =
+  rememberSaveable(state, saver = StorageSection.saver(state)) { StorageSection(state) }
 
-internal class StorageSection(
-  val state: AppState,
-  spaces: State<List<StorageSpace>>,
-  menu: MutableState<String?>,
-) {
-  /** The mounted storage and the room each has left. */
-  val spaces by spaces
-
+internal class StorageSection(val state: AppState) {
   /** The storage whose menu is open, by its id. */
-  private var menu by menu
+  private var menu: String? by mutableStateOf(null)
 
   /** Whether turning off the last storage that's on was just refused. */
   var refused by mutableStateOf(false)
-    private set
 
   fun openMenu(target: StorageTarget) {
     menu = target.id
   }
 
-  fun toggle(target: StorageTarget) {
+  fun toggle(target: StorageTarget, mounted: List<StorageTarget>) {
     val settings = state.settings.storage
-    val mounted = spaces.map { it.target }
     val changed =
       if (settings.isOn(target)) settings.turnOff(target, mounted) else settings.turnOn(target)
     refused = changed == null
@@ -74,16 +55,24 @@ internal class StorageSection(
   }
 
   @Composable
-  fun Dialogs() {
+  fun Dialogs(spaces: List<StorageSpace>) {
     val target = spaces.find { it.target.id == menu }?.target ?: return
     StorageMenu(
       target = target,
       settings = state.settings.storage,
       mounted = spaces.map { it.target },
       onMove = ::set,
-      onToggle = { toggle(target) },
+      onToggle = { toggle(target, spaces.map { it.target }) },
       onDismissRequest = { menu = null },
     )
+  }
+
+  companion object {
+    fun saver(state: AppState) =
+      Saver<StorageSection, String>(
+        save = { it.menu },
+        restore = { StorageSection(state).apply { menu = it } },
+      )
   }
 }
 
@@ -95,11 +84,10 @@ private fun LazyListScope.note(key: String, text: String) {
  * The mounted storage, in the order new games fill it, each turned on or off with Confirm and moved
  * from its menu.
  */
-internal fun LazyListScope.storage(section: StorageSection) {
+internal fun LazyListScope.storage(section: StorageSection, spaces: List<StorageSpace>) {
   sectionHeading("Storage")
   val state = section.state
   val settings = state.settings.storage
-  val spaces = section.spaces
   val byId = spaces.associateBy { it.target.id }
   val view = state.settingsView
   item(key = "volumes") {
@@ -118,7 +106,7 @@ internal fun LazyListScope.storage(section: StorageSection) {
               "room, from the top. Games already on storage that's off still show and play.",
           ),
           onMenu = { section.openMenu(target) },
-          onConfirm = { section.toggle(target) },
+          onConfirm = { section.toggle(target, spaces.map { it.target }) },
         )
       }
     }

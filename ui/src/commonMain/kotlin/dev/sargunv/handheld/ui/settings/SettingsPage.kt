@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.LocalFocusScope
@@ -117,7 +118,9 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   if (section != view.section) SideEffect { view.section = section }
   val rommSection = rememberRommSection(state, shown = section == SettingsSection.RomM)
   val emulatorsSection = rememberEmulatorsSection(state)
-  val storageSection = rememberStorageSection(state, shown = section == SettingsSection.Storage)
+  val storageSection = rememberStorageSection(state)
+  val storageSpaces by
+    rememberStorageSpaces(state.downloads, active = section == SettingsSection.Storage)
   // The section's settings, which Right from the list enters at the top.
   val pane = remember { FocusRequester() }
 
@@ -147,6 +150,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               onFocus = {
                 view.section = it
                 view.help = null
+                storageSection.refused = false
               },
               // A section without settings to focus, such as About, keeps focus in the list.
               onRight = { pane.requestFocus(FocusDirection.Enter) || true },
@@ -166,7 +170,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               SettingsSection.RomM -> romm(rommSection)
               SettingsSection.RetroAchievements -> retroAchievements(state)
               SettingsSection.Emulators -> emulators(emulatorsSection)
-              SettingsSection.Storage -> storage(storageSection)
+              SettingsSection.Storage -> storage(storageSection, storageSpaces)
               SettingsSection.About -> about(state)
             }
           }
@@ -182,7 +186,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           .filterNotNull(),
       )
     }
-    storageSection.Dialogs()
+    storageSection.Dialogs(storageSpaces)
     emulatorsSection.Dialogs()
     rommSection.Dialogs()
   }
