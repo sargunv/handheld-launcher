@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui.game
 
+import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.launch.CollectionId
@@ -35,6 +36,16 @@ data class LaunchSettings(
   val collections: List<SavedCollectionRule> = emptyList(),
   val platforms: Map<String, SavedChoice> = emptyMap(),
 ) {
+  /** These choices with each local game's moved to its ROM, unless the ROM has its own. */
+  fun adopted(adoptions: List<Adoption>): LaunchSettings {
+    val games = games.toMutableMap()
+    for ((local, rom) in adoptions) {
+      val choice = games.remove(local) ?: continue
+      games.getOrPut(rom) { choice }
+    }
+    return copy(games = games)
+  }
+
   /** These choices as the rules the resolver applies. */
   fun toRules(): LaunchRules =
     LaunchRules(
