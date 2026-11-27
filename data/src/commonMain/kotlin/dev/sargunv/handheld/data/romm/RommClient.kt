@@ -537,9 +537,6 @@ internal suspend fun <T> network(block: suspend () -> T): T =
     block()
   } catch (e: IOException) {
     throw RommException.Unreachable(e)
-  } catch (e: IllegalArgumentException) {
-    // OkHttp refuses an address it can't send to, such as a host with an empty label.
-    throw RommException.Unreachable(e)
   }
 
 internal fun <T> decode(serializer: KSerializer<T>, text: String): T =
