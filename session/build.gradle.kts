@@ -9,7 +9,6 @@ val rustSources =
   files(
     fileTree("src"),
     fileTree("vendor"),
-    fileTree("bindgen") { include("Cargo.toml", "src/**") },
     // The workspace's crates the session links.
     fileTree(workspaceDir.dir("rom-headers")) { include("Cargo.toml", "src/**") },
     "build.rs",
@@ -32,6 +31,11 @@ val generateBindings =
     description = "Generates the session's Kotlin bindings."
     library.from(cargoBuildHost.map { it.outputDir.asFileTree })
     config.from("uniffi.toml")
+    sources.from(
+      fileTree("bindgen") { include("Cargo.toml", "src/**") },
+      workspaceDir.file("Cargo.toml"),
+      workspaceDir.file("Cargo.lock"),
+    )
     workspace = workspaceDir
     outputDir = layout.buildDirectory.dir("generated/session/bindings")
   }

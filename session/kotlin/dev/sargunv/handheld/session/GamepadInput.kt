@@ -113,12 +113,12 @@ class GamepadInput(
     )
     session.setTrigger(
       port,
-      Button.L2,
+      Trigger.L2,
       trigger(event, MotionEvent.AXIS_LTRIGGER, MotionEvent.AXIS_BRAKE),
     )
     session.setTrigger(
       port,
-      Button.R2,
+      Trigger.R2,
       trigger(event, MotionEvent.AXIS_RTRIGGER, MotionEvent.AXIS_GAS),
     )
     // Many gamepads report the D-pad as a hat rather than as keys.
@@ -150,8 +150,8 @@ class GamepadInput(
     Button.entries.forEach { session.setButton(port, it, false) }
     session.setStick(port, Stick.LEFT, 0, 0)
     session.setStick(port, Stick.RIGHT, 0, 0)
-    session.setTrigger(port, Button.L2, 0)
-    session.setTrigger(port, Button.R2, 0)
+    session.setTrigger(port, Trigger.L2, 0)
+    session.setTrigger(port, Trigger.R2, 0)
     hatX[port.toInt()] = 0
     hatY[port.toInt()] = 0
   }
