@@ -16,7 +16,6 @@ import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
-import dev.sargunv.handheld.ui.signin.Help
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.CoroutineScope
@@ -102,7 +101,7 @@ internal fun LazyListScope.romm(section: RommSection) {
         "settings:romm:server",
         "Server",
         "Not signed in",
-        Help("Not signed in", "Sign in on the main screen to reach your library."),
+        "Sign in on the main screen to reach your library.",
       )
     }
     return
@@ -114,7 +113,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:server",
       "Server",
       server ?: "",
-      Help("Server", "The RomM server this device's library comes from."),
+      "The RomM server this device's library comes from.",
     )
   }
   item(key = "account") {
@@ -133,7 +132,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:account",
       "Account",
       account ?: "",
-      Help("Account", "The RomM user this device signed in as."),
+      "The RomM user this device signed in as.",
     )
   }
   item(key = "library") {
@@ -142,7 +141,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:sync",
       "Library",
       state.sync.label,
-      Help("Library", "How the latest sync of the library with the server went."),
+      "How the latest sync of the library with the server went.",
     )
   }
   if (state.sync == SyncStatus.Unauthorized) {
@@ -152,7 +151,7 @@ internal fun LazyListScope.romm(section: RommSection) {
         "settings:romm:signInAgain",
         "Sign in again",
         null,
-        Help("Sign in again", "Your games and saves stay on this device."),
+        "Your games and saves stay on this device.",
         onConfirm = section::signInAgain,
       )
     }
@@ -163,7 +162,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:uploads",
       "Uploads",
       uploadsSummary(uploadAccess),
-      Help("Uploads", uploadsHelp(uploadAccess)),
+      uploadsHelp(uploadAccess),
     )
   }
   // A refused sign-in offers to sign in again already.
@@ -174,7 +173,7 @@ internal fun LazyListScope.romm(section: RommSection) {
         "settings:romm:allowUploads",
         "Allow uploads",
         null,
-        Help("Allow uploads", "Signs in again, asking for permission to upload games."),
+        "Signs in again, asking for permission to upload games.",
         onConfirm = { section.confirmAllowUploads = true },
       )
     }
@@ -186,9 +185,9 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:syncNow",
       "Sync now",
       null,
-      Help("Sync now", "Syncs the library with the server now, rather than at the next start."),
+      "Syncs the library with the server now, rather than at the next start.",
       enabled = !syncing,
-      onConfirm = { if (!syncing) state.syncNow() },
+      onConfirm = state::syncNow,
     )
   }
   item(key = "signOut") {
@@ -197,7 +196,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       "settings:romm:signOut",
       "Sign out",
       null,
-      Help("Sign out", "Your downloaded games and saves stay on this device."),
+      "Your downloaded games and saves stay on this device.",
       onConfirm = { section.confirmSignOut = true },
     )
   }
@@ -232,6 +231,6 @@ internal fun SignOutDialog(onSignOut: () -> Unit, onDismissRequest: () -> Unit) 
     "Sign out",
     onConfirm = onSignOut,
     onDismissRequest = onDismissRequest,
-    fact = "Your downloaded games and saves stay on this device.",
+    fact = "Games and saves stay on this device",
   )
 }

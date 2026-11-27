@@ -6,7 +6,6 @@ import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.Help
 
 internal fun LazyListScope.controls(state: AppState) {
   sectionHeading("Controls")
@@ -21,7 +20,7 @@ internal fun LazyListScope.controls(state: AppState) {
       "settings:confirm",
       "Confirm button",
       confirm.label,
-      Help("Confirm button", "Which face button confirms. The other one goes back."),
+      "Which face button confirms. The other one goes back.",
       onConfirm = state::swapConfirmButton,
     )
   }
@@ -36,11 +35,8 @@ internal fun LazyListScope.controls(state: AppState) {
       "settings:aButton",
       "A button position",
       position,
-      Help(
-        "A button position",
-        "Where this device's A button sits, so games in Built-in get the button they expect " +
-          "in each place.",
-      ),
+      "Where this device's A button sits, so games in Built-in get the button they expect " +
+        "in each place.",
       onConfirm = state::switchAButtonPosition,
     )
   }
