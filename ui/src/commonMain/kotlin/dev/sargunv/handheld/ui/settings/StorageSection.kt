@@ -4,6 +4,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -18,9 +25,67 @@ import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.Dialog
+import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.signin.Help
+
+/**
+ * The Storage section's state. A new one starts each time the section shows, so a refusal's note
+ * doesn't outlive it.
+ */
+@Composable
+internal fun rememberStorageSection(state: AppState, shown: Boolean): StorageSection {
+  val spaces = rememberStorageSpaces(state.downloads, active = shown)
+  val menu = rememberSaveable { mutableStateOf<String?>(null) }
+  return remember(state, shown) { StorageSection(state, spaces, menu) }
+}
+
+internal class StorageSection(
+  val state: AppState,
+  spaces: State<List<StorageSpace>>,
+  menu: MutableState<String?>,
+) {
+  /** The mounted storage and the room each has left. */
+  val spaces by spaces
+
+  /** The storage whose menu is open, by its id. */
+  private var menu by menu
+
+  /** Whether turning off the last storage that's on was just refused. */
+  var refused by mutableStateOf(false)
+    private set
+
+  fun openMenu(target: StorageTarget) {
+    menu = target.id
+  }
+
+  fun toggle(target: StorageTarget) {
+    val settings = state.settings.storage
+    val mounted = spaces.map { it.target }
+    val changed =
+      if (settings.isOn(target)) settings.turnOff(target, mounted) else settings.turnOn(target)
+    refused = changed == null
+    changed?.let(::set)
+  }
+
+  private fun set(storage: StorageSettings) {
+    state.settings = state.settings.copy(storage = storage)
+  }
+
+  @Composable
+  fun Dialogs() {
+    val target = spaces.find { it.target.id == menu }?.target ?: return
+    StorageMenu(
+      target = target,
+      settings = state.settings.storage,
+      mounted = spaces.map { it.target },
+      onMove = ::set,
+      onToggle = { toggle(target) },
+      onDismissRequest = { menu = null },
+    )
+  }
+}
 
 private fun LazyListScope.note(key: String, text: String) {
   item(key = key) { Text(text, color = Placeholder.mutedText, modifier = Modifier.testTag(key)) }
@@ -29,19 +94,12 @@ private fun LazyListScope.note(key: String, text: String) {
 /**
  * The mounted storage, in the order new games fill it, each turned on or off with Confirm and moved
  * from its menu.
- *
- * @param refused whether turning off the last storage that's on was just refused, which a note
- *   explains.
  */
-internal fun LazyListScope.storage(
-  state: AppState,
-  spaces: List<StorageSpace>,
-  refused: Boolean,
-  onToggle: (StorageTarget) -> Unit,
-  onMenu: (StorageTarget) -> Unit,
-) {
+internal fun LazyListScope.storage(section: StorageSection) {
   sectionHeading("Storage")
+  val state = section.state
   val settings = state.settings.storage
+  val spaces = section.spaces
   val byId = spaces.associateBy { it.target.id }
   val view = state.settingsView
   item(key = "volumes") {
@@ -59,13 +117,13 @@ internal fun LazyListScope.storage(
             "$free, at ${target.root}. New games go to the first storage that's on and has " +
               "room, from the top. Games already on storage that's off still show and play.",
           ),
-          onMenu = { onMenu(target) },
-          onConfirm = { onToggle(target) },
+          onMenu = { section.openMenu(target) },
+          onConfirm = { section.toggle(target) },
         )
       }
     }
   }
-  if (refused) {
+  if (section.refused) {
     item(key = "refused") {
       Text(
         "One storage stays on, so new games have somewhere to go.",

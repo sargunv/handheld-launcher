@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -163,17 +164,26 @@ internal fun statusText(download: Download): String =
     DownloadState.Failed -> download.error ?: "The download failed"
   }
 
+/**
+ * The room each storage target has left, read again every few seconds while [active], since
+ * downloads and other apps change it.
+ */
+@Composable
+internal fun rememberStorageSpaces(
+  downloads: DownloadManager,
+  active: Boolean,
+): State<List<StorageSpace>> =
+  produceState(emptyList(), downloads, active) {
+    while (active) {
+      value = downloads.storageSpace()
+      delay(5.seconds)
+    }
+  }
+
 /** The lower screen on Downloads: the room each storage target has left. */
 @Composable
 internal fun StorageSummary(downloads: DownloadManager) {
-  val spaces by
-    produceState(emptyList<StorageSpace>(), downloads) {
-      // Downloads and other apps change it, so it's read again every few seconds.
-      while (true) {
-        value = downloads.storageSpace()
-        delay(5.seconds)
-      }
-    }
+  val spaces by rememberStorageSpaces(downloads, active = true)
   Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Text(
       "Storage",

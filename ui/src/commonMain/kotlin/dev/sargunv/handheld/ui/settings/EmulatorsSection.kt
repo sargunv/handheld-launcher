@@ -5,10 +5,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -25,8 +29,33 @@ import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.signin.Help
 
-internal fun LazyListScope.emulators(state: AppState, onTurnOnCloseEmulators: () -> Unit) {
+@Composable
+internal fun rememberEmulatorsSection(state: AppState): EmulatorsSection {
+  val explainCloseEmulators = rememberSaveable { mutableStateOf(false) }
+  return remember(state) { EmulatorsSection(state, explainCloseEmulators) }
+}
+
+internal class EmulatorsSection(val state: AppState, explainCloseEmulators: MutableState<Boolean>) {
+  /** Whether the dialog that explains closing emulators shows, before it turns on. */
+  var explainCloseEmulators by explainCloseEmulators
+
+  @Composable
+  fun Dialogs() {
+    if (explainCloseEmulators) {
+      CloseEmulatorsDialog(
+        onTurnOn = {
+          state.settings = state.settings.copy(closeEmulators = true)
+          explainCloseEmulators = false
+        },
+        onDismissRequest = { explainCloseEmulators = false },
+      )
+    }
+  }
+}
+
+internal fun LazyListScope.emulators(section: EmulatorsSection) {
   sectionHeading("Emulators")
+  val state = section.state
   val view = state.settingsView
   // Only on devices with a root service the launcher can close emulators with.
   if (state.launcher.canCloseEmulators) {
@@ -44,7 +73,7 @@ internal fun LazyListScope.emulators(state: AppState, onTurnOnCloseEmulators: ()
         ),
       ) {
         if (on) state.settings = state.settings.copy(closeEmulators = false)
-        else onTurnOnCloseEmulators()
+        else section.explainCloseEmulators = true
       }
     }
   }

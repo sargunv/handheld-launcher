@@ -20,10 +20,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -40,10 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.data.auth.UploadAccess
-import dev.sargunv.handheld.data.downloads.StorageSettings
-import dev.sargunv.handheld.data.downloads.StorageSpace
-import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -53,12 +46,7 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.Help
-import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
-import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
@@ -127,39 +115,9 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
   val section = view.section.takeIf { it in sections } ?: sections.first()
   // A section left from before a sign-out isn't offered at sign-in, so the lower screen follows.
   if (section != view.section) SideEffect { view.section = section }
-  var explainCloseEmulators by rememberSaveable { mutableStateOf(false) }
-  var confirmSignOut by rememberSaveable { mutableStateOf(false) }
-  var confirmAllowUploads by rememberSaveable { mutableStateOf(false) }
-  // Asked when RomM shows, and again after each sync, since the account's permissions can change.
-  val uploadAccess by
-    produceState<UploadAccess?>(null, state.sync, signedIn, section) {
-      if (signedIn && section == SettingsSection.RomM) value = state.romm.uploadAccess()
-    }
-  // The storage whose menu is open, by its id.
-  var storageMenu by rememberSaveable { mutableStateOf<String?>(null) }
-  // Whether turning off the last storage that's on was just refused.
-  var storageRefused by remember { mutableStateOf(false) }
-  val storageSpaces by
-    produceState(emptyList<StorageSpace>(), state.downloads, section) {
-      if (section != SettingsSection.Storage) return@produceState
-      // Downloads and other apps change it, so it's read again every few seconds.
-      while (true) {
-        value = state.downloads.storageSpace()
-        delay(5.seconds)
-      }
-    }
-  fun setStorage(change: StorageSettings) {
-    state.settings = state.settings.copy(storage = change)
-  }
-  fun toggleStorage(target: StorageTarget) {
-    val settings = state.settings.storage
-    val mounted = storageSpaces.map { it.target }
-    val changed =
-      if (settings.isOn(target)) settings.turnOff(target, mounted) else settings.turnOn(target)
-    storageRefused = changed == null
-    changed?.let(::setStorage)
-  }
-  val scope = rememberCoroutineScope()
+  val rommSection = rememberRommSection(state, shown = section == SettingsSection.RomM)
+  val emulatorsSection = rememberEmulatorsSection(state)
+  val storageSection = rememberStorageSection(state, shown = section == SettingsSection.Storage)
   // The section's settings, which Right from the list enters at the top.
   val pane = remember { FocusRequester() }
 
@@ -189,7 +147,6 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               onFocus = {
                 view.section = it
                 view.help = null
-                storageRefused = false
               },
               // A section without settings to focus, such as About, keeps focus in the list.
               onRight = { pane.requestFocus(FocusDirection.Enter) || true },
@@ -206,27 +163,10 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           ) {
             when (section) {
               SettingsSection.Controls -> controls(state)
-              SettingsSection.RomM ->
-                romm(
-                  state,
-                  uploadAccess,
-                  onSignOut = { confirmSignOut = true },
-                  onAllowUploads = { confirmAllowUploads = true },
-                  onSignInAgain = {
-                    scope.launch { state.signOut(keepQueue = true) }
-                  },
-                )
+              SettingsSection.RomM -> romm(rommSection)
               SettingsSection.RetroAchievements -> retroAchievements(state)
-              SettingsSection.Emulators ->
-                emulators(state, onTurnOnCloseEmulators = { explainCloseEmulators = true })
-              SettingsSection.Storage ->
-                storage(
-                  state,
-                  storageSpaces,
-                  refused = storageRefused,
-                  onToggle = ::toggleStorage,
-                  onMenu = { storageMenu = it.id },
-                )
+              SettingsSection.Emulators -> emulators(emulatorsSection)
+              SettingsSection.Storage -> storage(storageSection)
               SettingsSection.About -> about(state)
             }
           }
@@ -242,45 +182,9 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
           .filterNotNull(),
       )
     }
-    val menuTarget = storageSpaces.find { it.target.id == storageMenu }?.target
-    if (menuTarget != null) {
-      StorageMenu(
-        target = menuTarget,
-        settings = state.settings.storage,
-        mounted = storageSpaces.map { it.target },
-        onMove = ::setStorage,
-        onToggle = { toggleStorage(menuTarget) },
-        onDismissRequest = { storageMenu = null },
-      )
-    }
-    if (explainCloseEmulators) {
-      CloseEmulatorsDialog(
-        onTurnOn = {
-          state.settings = state.settings.copy(closeEmulators = true)
-          explainCloseEmulators = false
-        },
-        onDismissRequest = { explainCloseEmulators = false },
-      )
-    }
-    if (confirmSignOut) {
-      SignOutDialog(
-        onSignOut = {
-          confirmSignOut = false
-          scope.launch { state.signOut() }
-        },
-        onDismissRequest = { confirmSignOut = false },
-      )
-    }
-    if (confirmAllowUploads) {
-      AllowUploadsDialog(
-        UPLOADS_NOT_REQUESTED,
-        onSignInAgain = {
-          confirmAllowUploads = false
-          scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
-        },
-        onDismissRequest = { confirmAllowUploads = false },
-      )
-    }
+    storageSection.Dialogs()
+    emulatorsSection.Dialogs()
+    rommSection.Dialogs()
   }
 }
 
