@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +50,7 @@ import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
+import dev.sargunv.handheld.ui.places.emptyLabel
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
 
@@ -59,6 +61,7 @@ import dev.sargunv.handheld.ui.places.onDeviceCount
 @Composable
 internal fun LibraryTabs(state: AppState, source: GridSource?, gridStates: SaveableStateHolder) {
   val tab = state.libraryTab
+  val sync by state.romm.sync.collectAsState()
   fun switchTo(next: LibraryTab?) {
     if (next != null) state.libraryTab = next
   }
@@ -82,8 +85,7 @@ internal fun LibraryTabs(state: AppState, source: GridSource?, gridStates: Savea
             gridStates = gridStates,
             source = source,
             title = tab.title,
-            empty =
-              if (tab == LibraryTab.OnDevice) "No games" else state.sync.emptyLabel("No games"),
+            empty = if (tab == LibraryTab.OnDevice) "No games" else sync.emptyLabel("No games"),
             backHint = "Home",
           )
         } else {
@@ -152,6 +154,7 @@ internal fun buttonLabel(action: Action): String {
 @Composable
 private fun ShelfList(state: AppState, tab: LibraryTab) {
   val view = state.libraryView
+  val sync by state.romm.sync.collectAsState()
   val shelves = view.shelves(tab)
   val focused = view.shelf
   val summaries = view.summaries(tab)
@@ -175,7 +178,7 @@ private fun ShelfList(state: AppState, tab: LibraryTab) {
       Box(Modifier.fillMaxWidth().weight(1f)) {
         if (shelves != null && shelves.isEmpty()) {
           Text(
-            state.sync.emptyLabel(
+            sync.emptyLabel(
               if (tab == LibraryTab.Collections) "No collections" else "No platforms",
             ),
             color = Placeholder.mutedText,

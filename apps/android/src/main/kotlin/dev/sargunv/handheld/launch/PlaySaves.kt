@@ -2,9 +2,8 @@ package dev.sargunv.handheld.launch
 
 import android.content.Context
 import android.util.Log
-import dev.sargunv.handheld.data.auth.CredentialStore
-import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.saves.BeforeLaunch
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.SaveCopy
@@ -26,7 +25,7 @@ import kotlinx.coroutines.sync.withLock
  * changed, and after it ends, which sends what the game saved. It says what happened through the
  * notes it's given.
  */
-class PlaySaves(private val context: Context, private val credentials: CredentialStore) {
+class PlaySaves(private val context: Context, private val romm: RommSession) {
   // A sync while the game runs and the one after it share the save's records, so one waits for
   // the other.
   private val lock = Mutex()
@@ -146,27 +145,26 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
     failure: (String) -> T,
     block: suspend (SaveSync) -> T,
   ): T {
-    val signedIn =
-      credentials.load()
+    val account =
+      romm.account
         ?: run {
           Log.i(TAG, "Not signed in, so the save didn't sync")
           return signedOut
         }
-    return RommClient(signedIn.baseUrl, signedIn.token).use { client ->
-      try {
-        val sync =
-          SaveSync(
-            client,
-            records = recordsDir(signedIn.baseUrl, signedIn.userId),
-            history = saveHistory(context),
-            staging = File(context.cacheDir, "save-staging"),
-          )
-        lock.withLock { block(sync) }
-      } catch (e: RommException) {
-        failure(failed(e))
-      } catch (e: IOException) {
-        failure(failed(e))
-      }
+    val signedIn = account.credentials
+    return try {
+      val sync =
+        SaveSync(
+          account.client,
+          records = recordsDir(signedIn.baseUrl, signedIn.userId),
+          history = saveHistory(context),
+          staging = File(context.cacheDir, "save-staging"),
+        )
+      lock.withLock { block(sync) }
+    } catch (e: RommException) {
+      failure(failed(e))
+    } catch (e: IOException) {
+      failure(failed(e))
     }
   }
 

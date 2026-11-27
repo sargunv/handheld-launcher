@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.formatSize
+import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
@@ -227,7 +228,7 @@ private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: 
     enabled = state.place != Place.Home,
   ) {
     Column(Modifier.fillMaxSize()) {
-      PlaceHeader(state.place, state.sync)
+      PlaceHeader(state.place, state.romm.sync.collectAsState().value)
       Box(Modifier.fillMaxWidth().weight(1f)) {
         places.SaveableStateProvider(if (state.place == Place.Home) homeKey else state.place.name) {
           when (state.place) {

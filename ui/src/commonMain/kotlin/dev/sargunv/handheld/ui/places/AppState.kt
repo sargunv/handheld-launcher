@@ -5,13 +5,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
@@ -35,14 +34,11 @@ import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.deviceStatesOf
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
-import io.ktor.client.engine.HttpClientEngine
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -51,7 +47,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
@@ -61,13 +56,13 @@ import kotlinx.coroutines.withTimeoutOrNull
 @Stable
 class AppState(
   settings: Settings,
+  /** The sign-in to the RomM server, its client and the library's sync. */
+  val romm: RommSession,
   val library: LibraryCache,
   val downloads: DownloadManager,
   val games: DeviceGames,
   val launcher: GameLauncher,
   val apps: AppCatalog,
-  val credentials: CredentialStore,
-  httpEngine: () -> HttpClientEngine,
   device: DeviceDescription,
   /** Shares the state's flows while the screens collect them. */
   scope: CoroutineScope,
@@ -101,7 +96,6 @@ class AppState(
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
-  var sync: SyncStatus by mutableStateOf(SyncStatus.NotStarted)
 
   /**
    * The games on the device or on their way, by ROM id. A game missing here is only on the server.
@@ -119,16 +113,7 @@ class AppState(
   val libraryView = LibraryState(library, deviceStates, localGames) { libraryTab }
   val settingsView = SettingsView()
 
-  /** Signs in to the RomM server, and out of it. */
-  val romm = RommSignIn(credentials, httpEngine)
-
-  val account = Account(credentials, romm, device)
-
-  private val syncRequested =
-    MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-
-  /** The syncs to run: one as collecting starts, and one for each [syncNow]. */
-  val syncRequests: Flow<Unit> = syncRequested.onStart { emit(Unit) }
+  val account = Account(romm, device)
 
   private val homeStartRequests = Channel<Unit>(Channel.CONFLATED)
 
@@ -179,11 +164,6 @@ class AppState(
     homeStartRequests.trySend(Unit)
   }
 
-  /** Syncs the library with the server again, starting over if a sync is under way. */
-  fun syncNow() {
-    syncRequested.tryEmit(Unit)
-  }
-
   /**
    * Signs out of the server and goes to the sign-in, which offers the same server again. The games
    * on the device, their saves and the library cache stay. The downloads not yet done leave the
@@ -200,7 +180,6 @@ class AppState(
       account.signOut(allowUploads)
       navigator.backToStart()
       place = Place.Home
-      sync = SyncStatus.NotStarted
     }
 
   /**
@@ -331,7 +310,7 @@ class AppState(
   }
 
   private suspend fun awaitSync() {
-    snapshotFlow { sync }.first { it.isDone }
+    romm.sync.first { it.isDone }
   }
 
   fun swapConfirmButton() {

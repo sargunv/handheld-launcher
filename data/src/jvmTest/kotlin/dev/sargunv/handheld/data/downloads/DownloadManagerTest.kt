@@ -1,11 +1,11 @@
 package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.Fixtures
-import dev.sargunv.handheld.data.auth.CredentialStore
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommClient
+import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
@@ -205,7 +205,7 @@ class DownloadManagerTest {
   /** A server for [romJson] whose files have [contents], answering installs with [installs]. */
   private fun server(
     contents: Map<Long, ByteArray> = mapOf(11L to game, 21L to disc1, 22L to disc2),
-    sizeOverride: Long? = null,
+    sizeOverride: () -> Long? = { null },
     installs: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData? = { null },
     content: suspend MockRequestHandleScope.(HttpRequestData, ByteArray) -> HttpResponseData =
       { request, bytes ->
@@ -222,7 +222,7 @@ class DownloadManagerTest {
       when {
         file != null -> content(request, contents.getValue(file.groupValues[1].toLong()))
         path.matches(Regex("""roms/\d+""")) ->
-          json(romJson(path.substringAfter('/').toLong(), sizeOverride))
+          json(romJson(path.substringAfter('/').toLong(), sizeOverride()))
         else -> respondError(HttpStatusCode.NotFound)
       }
     }
@@ -235,19 +235,30 @@ class DownloadManagerTest {
     canWrite: Flow<Boolean> = flowOf(true),
     targets: List<StorageTarget> = listOf(StorageTarget(storage.path, "Test storage")),
     storageSettings: StorageSettings = StorageSettings(),
-    credentials: CredentialStore =
-      InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player", deviceId)),
+    romm: StateFlow<RommState> = MutableStateFlow(account(engine, deviceId = deviceId)),
   ) =
     DownloadManager(
       queueFile = queueFile,
       library = library,
       games = DeviceGames(library, { targets }, scope, Path(File(dir, "local-content.json").path)),
-      credentials = credentials,
+      romm = romm,
       storage = { targets },
       scope = scope,
-      engine = engine,
       canWrite = canWrite,
       storageSettings = { storageSettings },
+    )
+
+  /** Signed in to [server] at [engine] with [token]. */
+  private fun account(
+    engine: () -> MockEngine,
+    token: String = "rmm_test",
+    server: String = TEST_SERVER,
+    deviceId: String? = null,
+  ) =
+    RommAccount(
+      RommCredentials(server, token, 1, "player", deviceId),
+      RommClient(server, token, engine()),
+      Path(dir.path, "save-sync"),
     )
 
   /** Takes the games that the server at [engine] sent to the device `dev-1` into [downloads]. */
@@ -353,18 +364,18 @@ class DownloadManagerTest {
   @Test
   fun aQueuedGameWaitsForItsServersSignIn() = runTest {
     fillLibrary()
-    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player"))
+    val engine = server()
+    val romm = MutableStateFlow<RommState>(account(engine))
     // The queue can't start before the sign-out, since it waits for storage access.
     val writable = MutableStateFlow(false)
-    val downloads =
-      manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    val downloads = manager(backgroundScope, engine, canWrite = writable, romm = romm)
     val seen = statuses(downloads, gameRom)
     waitFor { seen.first { it.isNotEmpty() } }
     assertTrue(downloads.enqueue(gameRom))
-    credentials.clear()
+    romm.value = RommState.SignedOut
     writable.value = true
 
-    credentials.save(RommCredentials(TEST_SERVER, "rmm_new", 1, "player"))
+    romm.value = account(engine, "rmm_new")
     downloads.awaitEmpty()
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
@@ -377,15 +388,15 @@ class DownloadManagerTest {
   @Test
   fun aSignInToAnotherServerDropsTheQueue() = runTest {
     fillLibrary()
-    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player"))
+    val engine = server()
+    val romm = MutableStateFlow<RommState>(account(engine))
     val writable = MutableStateFlow(false)
-    val first = manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    val first = manager(backgroundScope, engine, canWrite = writable, romm = romm)
     assertTrue(first.enqueue(gameRom))
-    credentials.clear()
+    romm.value = RommState.SignedOut
 
-    val restarted =
-      manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
-    credentials.save(RommCredentials("https://other.test", "rmm_other", 1, "player"))
+    val restarted = manager(backgroundScope, engine, canWrite = writable, romm = romm)
+    romm.value = account(engine, "rmm_other", "https://other.test")
     writable.value = true
     restarted.awaitEmpty()
     assertEquals(emptyList(), contentRequests())
@@ -395,16 +406,16 @@ class DownloadManagerTest {
   @Test
   fun signingOutAsADownloadStartsLeavesTheNextGameQueued() = runTest {
     fillLibrary()
-    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player"))
+    val engine = server()
+    val romm = MutableStateFlow<RommState>(account(engine))
     val writable = MutableStateFlow(false)
-    val downloads =
-      manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
+    val downloads = manager(backgroundScope, engine, canWrite = writable, romm = romm)
     val first = MutableStateFlow(emptyList<RomStatus>())
     // The device signs out as the first game starts, before it asks the server for anything.
     backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
       downloads.status(gameRom).collect { status ->
         if (status is RomStatus.Downloading && first.value.none { it is RomStatus.Downloading }) {
-          credentials.clear()
+          romm.value = RommState.SignedOut
         }
         first.update { it + status }
       }
@@ -424,7 +435,7 @@ class DownloadManagerTest {
     assertEquals(listOf(RomStatus.NotOnDevice, RomStatus.Queued), next.value)
     assertEquals(listOf("rmm_test"), contentTokens())
 
-    credentials.save(RommCredentials(TEST_SERVER, "rmm_new", 1, "player"))
+    romm.value = account(engine, "rmm_new")
     downloads.awaitEmpty()
     val folder = file("ROMs/psx/Saga (USA)")
     assertDownloaded(next.value, disc1.size + disc2.size.toLong(), folder)
@@ -628,7 +639,7 @@ class DownloadManagerTest {
   @Test
   fun refusesAGameThatDoesNotFit() = runTest {
     fillLibrary()
-    val downloads = manager(backgroundScope, server(sizeOverride = 1L shl 60))
+    val downloads = manager(backgroundScope, server(sizeOverride = { 1L shl 60 }))
 
     downloads.enqueue(gameRom)
     val failed = waitFor {
@@ -743,9 +754,7 @@ class DownloadManagerTest {
           else -> null
         }
       }
-    val tooBig = server(sizeOverride = 1L shl 60, installs = installs)
-    val fitting = server(installs = installs)
-    val engine = { if (fits) fitting() else tooBig() }
+    val engine = server(sizeOverride = { if (fits) null else 1L shl 60 }, installs = installs)
     val downloads = manager(backgroundScope, engine, "dev-1")
 
     takeSentGames(engine, downloads)

@@ -28,14 +28,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.setSingletonImageLoaderFactory
 import com.composeunstyled.Text
-import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.cache.LibrarySync
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.romm.RommException
-import dev.sargunv.handheld.data.romm.platformHttpEngine
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
@@ -62,42 +59,35 @@ import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
-import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.places.signedIn
 import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
 import dev.sargunv.handheld.ui.signin.SignInPrimary
 import dev.sargunv.handheld.ui.signin.SignInSecondary
-import io.ktor.client.engine.HttpClientEngine
-import kotlin.time.Duration.Companion.minutes
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.io.files.Path
 
 /**
- * The app's root, shared by every platform. It opens on sign-in until [credentials] holds a server,
- * and on Home after that. Start opens the main menu on every screen, sign-in included.
+ * The app's root, shared by every platform. It opens on sign-in until [romm] is signed in to a
+ * server, and on Home after that. Start opens the main menu on every screen, sign-in included.
  *
- * Once signed in, it syncs [library] with the server when it starts and after each sign-in. The
- * screens show what [library] holds in the meantime, so they work offline.
+ * The screens show what [library] holds while [romm] syncs it, so they work offline.
  *
  * @param layout how the two screens' content shares the hardware.
  * @param heldKeys the main window's held keys, which the platform keeps up to date.
+ * @param romm the sign-in to the RomM server, which syncs [library] with it.
  * @param library the library cache, which the app keeps open for as long as it runs.
- * @param downloads the download queue. While signed in, the app takes the games sent to this device
- *   from RomM's web page into it when it starts and every minute after.
+ * @param downloads the download queue.
  * @param games the games on the device's storage.
  * @param coverCacheDir where covers are kept once fetched.
  * @param initialSettings the stored settings, which the app reads once, when it first composes.
  * @param saveSettings stores the settings each time they change, in the order they changed.
  * @param device this device, as it introduces itself to the server when it signs in.
- * @param httpEngine makes the HTTP engine for each of the server's clients.
  * @param launcher plays games, on platforms that can.
  * @param retroAchievements the device's RetroAchievements account, on platforms whose games can
  *   earn achievements.
@@ -117,7 +107,7 @@ import kotlinx.io.files.Path
 fun App(
   layout: DualScreenLayout,
   heldKeys: HeldKeys,
-  credentials: CredentialStore,
+  romm: RommSession,
   device: DeviceDescription,
   library: LibraryCache,
   downloads: DownloadManager,
@@ -126,7 +116,6 @@ fun App(
   modifier: Modifier = Modifier,
   initialSettings: Settings = Settings(),
   saveSettings: suspend (Settings) -> Unit = {},
-  httpEngine: () -> HttpClientEngine = ::platformHttpEngine,
   launcher: GameLauncher = GameLauncher.Unsupported,
   retroAchievements: RetroAchievementsSignIn? = null,
   apps: AppCatalog = AppCatalog.None,
@@ -146,8 +135,7 @@ fun App(
       games,
       launcher,
       apps,
-      credentials,
-      httpEngine,
+      romm,
       device,
       retroAchievements,
       appInfo,
@@ -156,13 +144,12 @@ fun App(
     ) {
       AppState(
         initialSettings,
+        romm,
         library,
         downloads,
         games,
         launcher,
         apps,
-        credentials,
-        httpEngine,
         device,
         scope,
         retroAchievements?.let(::RetroAchievementsState),
@@ -171,7 +158,6 @@ fun App(
         gameState,
       )
     }
-  LaunchedEffect(state) { state.account.load() }
   LaunchedEffect(state) { state.retroAchievements?.load() }
   LaunchedEffect(state) { state.adoptMatchedFiles() }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
@@ -180,41 +166,9 @@ fun App(
   }
   val account = state.account
   val signedIn = account.signedIn
-  LaunchedEffect(signedIn, state) {
-    if (signedIn != true) return@LaunchedEffect
-    // A new request starts the sync over.
-    state.syncRequests.collectLatest {
-      state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
-      state.sync =
-        try {
-          // Reading the server's pages is work too, so it stays off the main thread.
-          withContext(Dispatchers.Default) {
-            state.romm.client()?.use { LibrarySync(it, library).sync() }
-          }
-          SyncStatus.Synced
-        } catch (_: RommException.Unauthorized) {
-          SyncStatus.Unauthorized
-        } catch (_: RommException) {
-          SyncStatus.Failed
-        }
-    }
-  }
-  LaunchedEffect(signedIn, downloads) {
-    if (signedIn != true) return@LaunchedEffect
-    // A token pasted from the server's web page is no device's, so nothing is sent to it.
-    val deviceId = credentials.load()?.deviceId ?: return@LaunchedEffect
-    while (true) {
-      try {
-        state.romm.client()?.use { downloads.takeInstallRequests(it, deviceId) }
-      } catch (_: RommException) {
-        // The server is out of reach; the next poll tries again.
-      }
-      delay(1.minutes)
-    }
-  }
   LaunchedEffect(openRequests, state) {
     openRequests.collectLatest { target ->
-      val signedIn = snapshotFlow { account.signedIn }.filterNotNull()
+      val signedIn = romm.state.mapNotNull { it.signedIn }
       // Before sign-in, only Settings can show; anything else waits for the sign-in.
       if (target is OpenTarget.Settings && !signedIn.first()) {
         account.settingsOverSignIn = true
@@ -273,8 +227,8 @@ fun App(
           homePresses.collect {
             when {
               scopes?.isDialogOpen == true -> dialogs.closeAll()
-              account.signedIn == true -> state.goHome()
-              account.signedIn == false -> account.settingsOverSignIn = false
+              romm.state.value.signedIn == true -> state.goHome()
+              romm.state.value.signedIn == false -> account.settingsOverSignIn = false
             }
           }
         }

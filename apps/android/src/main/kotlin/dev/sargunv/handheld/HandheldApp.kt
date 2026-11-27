@@ -12,6 +12,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.saves.BuiltInSaveFolders
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
@@ -32,7 +33,7 @@ class HandheldApp : Application() {
   }
 
   /** Where the signed-in server's credentials live. */
-  val credentials by lazy { KeystoreCredentialStore(File(filesDir, "credentials")) }
+  private val credentials by lazy { KeystoreCredentialStore(File(filesDir, "credentials")) }
 
   /** The app's settings, in its private files directory. */
   val settingsFile by lazy {
@@ -57,16 +58,23 @@ class HandheldApp : Application() {
     DeviceGames(libraryCache, ::storageTargets, scope, Path(filesDir.path, "local-content.json"))
   }
 
+  /** The sign-in to the RomM server, which syncs the library and takes the games sent to it. */
+  val rommSession: RommSession by lazy {
+    RommSession(credentials, libraryCache, Path(filesDir.path, "save-sync"), scope) { client, id ->
+      downloadManager.takeInstallRequests(client, id)
+    }
+  }
+
   /**
    * The download queue. It goes on while the activity is gone, and [DownloadService] keeps the
    * process alive while there's work.
    */
-  val downloadManager by lazy {
+  val downloadManager: DownloadManager by lazy {
     DownloadManager(
       queueFile = Path(filesDir.path, "downloads.json"),
       library = libraryCache,
       games = deviceGames,
-      credentials = credentials,
+      romm = rommSession.state,
       storage = ::storageTargets,
       scope = scope,
       canWrite = allFilesAccess,

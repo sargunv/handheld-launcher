@@ -13,6 +13,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
@@ -57,17 +58,25 @@ fun main(args: Array<String>) {
     val games = remember {
       DeviceGames(library, storage, scope, Path(dataDir, "local-content.json"))
     }
-    val downloads = remember {
-      DownloadManager(
-        queueFile = Path(dataDir, "downloads.json"),
-        library = library,
-        games = games,
-        credentials = credentials,
-        storage = storage,
-        scope = scope,
-        storageSettings = { settingsFile.read().storage },
-      )
-    }
+    val (romm, downloads) =
+      remember {
+        lateinit var downloads: DownloadManager
+        val romm =
+          RommSession(credentials, library, Path(dataDir, "save-sync"), scope) { client, id ->
+            downloads.takeInstallRequests(client, id)
+          }
+        downloads =
+          DownloadManager(
+            queueFile = Path(dataDir, "downloads.json"),
+            library = library,
+            games = games,
+            romm = romm.state,
+            storage = storage,
+            scope = scope,
+            storageSettings = { settingsFile.read().storage },
+          )
+        romm to downloads
+      }
     val device = remember {
       val os = System.getProperty("os.name")
       DeviceDescription(installIdentifier(Path(dataDir, "install-id")), os, os.lowercase(), null)
@@ -98,7 +107,7 @@ fun main(args: Array<String>) {
       App(
         layout = if (folded) DualScreenLayout.Folded else DualScreenLayout.Frame,
         heldKeys = heldKeys,
-        credentials = credentials,
+        romm = romm,
         device = device,
         library = library,
         downloads = downloads,

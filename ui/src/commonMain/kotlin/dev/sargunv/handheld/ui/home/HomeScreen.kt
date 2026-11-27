@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
@@ -49,9 +50,9 @@ import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
-import dev.sargunv.handheld.ui.places.SyncStatus
 import dev.sargunv.handheld.ui.places.coverDescription
 import dev.sargunv.handheld.ui.places.describes
+import dev.sargunv.handheld.ui.places.emptyLabel
 import dev.sargunv.handheld.ui.places.gameCount
 
 /** How many games a shelf of games holds. */
@@ -67,6 +68,7 @@ private const val SHELF_SIZE = 20
 @Composable
 internal fun HomePlace(state: AppState) {
   val library = state.library
+  val sync by state.romm.sync.collectAsState()
   // The first is the game being played, and the rest make the shelf of recent games.
   val played by remember(library) { library.recentlyPlayed(SHELF_SIZE) }.collectAsState(null)
   val added by remember(library) { library.recentlyAdded(SHELF_SIZE) }.collectAsState(null)
@@ -91,7 +93,7 @@ internal fun HomePlace(state: AppState) {
     }
   // The first sync fills the cache a piece at a time, so Home waits for all of it. That way the
   // game the user was last playing is there to take focus first.
-  val syncing = addedNow.isEmpty() || state.sync == SyncStatus.FirstSync
+  val syncing = addedNow.isEmpty() || sync == SyncStatus.FirstSync
   val hasItems = !syncing && (playedNow.isNotEmpty() || shown.isNotEmpty())
   val menuShelf = focusedShelf?.takeIf { hasItems && it in shown }
   val hasMenu = !syncing && (menuShelf != null || settings.hidden.isNotEmpty())
@@ -136,7 +138,7 @@ internal fun HomePlace(state: AppState) {
             when {
               !syncing && !hasItems -> "No shelves to show"
               !syncing -> null
-              else -> state.sync.emptyLabel("No games")
+              else -> sync.emptyLabel("No games")
             }
           if (message != null) {
             Text(

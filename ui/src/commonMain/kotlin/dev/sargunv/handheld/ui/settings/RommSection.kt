@@ -3,17 +3,21 @@ package dev.sargunv.handheld.ui.settings
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import dev.sargunv.handheld.data.auth.UploadAccess
+import dev.sargunv.handheld.data.romm.RommAccount
+import dev.sargunv.handheld.data.romm.RommState
+import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.places.label
 import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
@@ -24,17 +28,30 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun rememberRommSection(state: AppState, shown: Boolean): RommSection {
   val scope = rememberCoroutineScope()
+  val romm = state.romm.state.collectAsState()
+  val sync = state.romm.sync.collectAsState()
   val section =
-    rememberSaveable(state, saver = RommSection.saver(state, scope)) { RommSection(state, scope) }
-  val signedIn = state.account.signedIn == true
+    rememberSaveable(state, saver = RommSection.saver(state, scope, romm, sync)) {
+      RommSection(state, scope, romm, sync)
+    }
+  val signedIn = romm.value is RommAccount
   // Asked again after each sync, since the account's permissions can change.
-  LaunchedEffect(section, state.sync, signedIn, shown) {
+  LaunchedEffect(section, sync.value, signedIn, shown) {
     if (signedIn && shown) section.askUploadAccess()
   }
   return section
 }
 
-internal class RommSection(val state: AppState, private val scope: CoroutineScope) {
+internal class RommSection(
+  val state: AppState,
+  private val scope: CoroutineScope,
+  romm: State<RommState>,
+  sync: State<SyncStatus>,
+) {
+  val romm: RommState by romm
+
+  val sync: SyncStatus by sync
+
   /** What this sign-in may upload, or null while it's being asked. */
   var uploadAccess: UploadAccess? by mutableStateOf(null)
     private set
@@ -75,11 +92,16 @@ internal class RommSection(val state: AppState, private val scope: CoroutineScop
   }
 
   companion object {
-    fun saver(state: AppState, scope: CoroutineScope) =
+    fun saver(
+      state: AppState,
+      scope: CoroutineScope,
+      romm: State<RommState>,
+      sync: State<SyncStatus>,
+    ) =
       Saver<RommSection, List<Boolean>>(
         save = { listOf(it.confirmSignOut, it.confirmAllowUploads) },
         restore = { (signOut, allowUploads) ->
-          RommSection(state, scope).apply {
+          RommSection(state, scope, romm, sync).apply {
             confirmSignOut = signOut
             confirmAllowUploads = allowUploads
           }
@@ -93,7 +115,9 @@ internal fun LazyListScope.romm(section: RommSection) {
   val state = section.state
   val uploadAccess = section.uploadAccess
   val view = state.settingsView
-  if (state.account.signedIn != true) {
+  val sync = section.sync
+  val credentials = (section.romm as? RommAccount)?.credentials
+  if (credentials == null) {
     item(key = "signedOut") {
       SettingRow(
         view,
@@ -106,22 +130,20 @@ internal fun LazyListScope.romm(section: RommSection) {
     return
   }
   item(key = "server") {
-    val server by produceState<String?>(null) { value = state.credentials.load()?.baseUrl }
     SettingRow(
       view,
       "settings:romm:server",
       "Server",
-      server ?: "",
+      credentials.baseUrl,
       "The RomM server this device's library comes from.",
     )
   }
   item(key = "account") {
-    val account by produceState<String?>(null) { value = state.credentials.load()?.username }
     SettingRow(
       view,
       "settings:romm:account",
       "Account",
-      account ?: "",
+      credentials.username,
       "The RomM user this device signed in as.",
     )
   }
@@ -130,11 +152,11 @@ internal fun LazyListScope.romm(section: RommSection) {
       view,
       "settings:romm:sync",
       "Library",
-      state.sync.label,
+      sync.label,
       "How the latest sync of the library with the server went.",
     )
   }
-  if (state.sync == SyncStatus.Unauthorized) {
+  if (sync == SyncStatus.Unauthorized) {
     item(key = "signInAgain") {
       SettingRow(
         view,
@@ -156,7 +178,7 @@ internal fun LazyListScope.romm(section: RommSection) {
     )
   }
   // A refused sign-in offers to sign in again already.
-  if (uploadAccess == UploadAccess.NotRequested && state.sync != SyncStatus.Unauthorized) {
+  if (uploadAccess == UploadAccess.NotRequested && sync != SyncStatus.Unauthorized) {
     item(key = "allowUploads") {
       SettingRow(
         view,
@@ -169,7 +191,7 @@ internal fun LazyListScope.romm(section: RommSection) {
     }
   }
   item(key = "syncNow") {
-    val syncing = state.sync == SyncStatus.Syncing || state.sync == SyncStatus.FirstSync
+    val syncing = sync == SyncStatus.Syncing || sync == SyncStatus.FirstSync
     SettingRow(
       view,
       "settings:romm:syncNow",
@@ -177,7 +199,7 @@ internal fun LazyListScope.romm(section: RommSection) {
       null,
       "Syncs the library with the server now, rather than at the next start.",
       enabled = !syncing,
-      onConfirm = state::syncNow,
+      onConfirm = state.romm::syncNow,
     )
   }
   item(key = "signOut") {

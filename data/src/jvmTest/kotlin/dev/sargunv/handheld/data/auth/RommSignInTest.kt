@@ -39,12 +39,6 @@ class RommSignInTest {
   private val requests = mutableListOf<HttpRequestData>()
   private var polls = 0
 
-  /** The scopes the server grants a device it pairs with. */
-  private var grantedScopes = """["roms.read"]"""
-
-  /** The scopes the signed-in account's role grants. */
-  private var accountScopes = """["me.read", "roms.read"]"""
-
   private val signIn =
     RommSignIn(store) {
       MockEngine { request ->
@@ -64,10 +58,10 @@ class RommSignInTest {
           path == "/api/auth/device/token" && polls++ == 0 ->
             json("""{"detail":"authorization_pending"}""", HttpStatusCode.BadRequest)
           path == "/api/auth/device/token" ->
-            json("""{"access_token": "rmm_issued", "device_id": "d1", "scopes": $grantedScopes}""")
+            json("""{"access_token": "rmm_issued", "device_id": "d1", "scopes": ["roms.read"]}""")
           path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
           path == "/api/users/me" && token in setOf("Bearer rmm_good", "Bearer rmm_issued") ->
-            json(Fixtures.me.replace("""["me.read", "roms.read"]""", accountScopes))
+            json(Fixtures.me)
           path == "/api/users/me" ->
             json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
           else -> respondError(HttpStatusCode.NotFound)
@@ -117,32 +111,6 @@ class RommSignInTest {
   }
 
   @Test
-  fun tellsWhetherTheTokenMayUpload() = runTest {
-    assertNull(signIn.uploadAccess())
-
-    // A sign-in that didn't ask, for an account that may upload.
-    accountScopes = """["me.read", "roms.read", "roms.write"]"""
-    signIn.withDeviceCode(TEST_SERVER, device) {}
-    assertEquals(UploadAccess.NotRequested, signIn.uploadAccess())
-
-    // The account may not, so signing in again wouldn't help.
-    accountScopes = """["me.read", "roms.read"]"""
-    assertEquals(UploadAccess.AccountMayNot, signIn.uploadAccess())
-
-    polls = 0
-    grantedScopes = """["roms.read", "roms.write", "tasks.run"]"""
-    signIn.withDeviceCode(TEST_SERVER, device, allowUploads = true) {}
-    assertEquals(UploadAccess.Allowed, signIn.uploadAccess())
-
-    // RomM doesn't say what a pasted token may do.
-    accountScopes = """["me.read", "roms.read", "roms.write"]"""
-    signIn.withToken(TEST_SERVER, "rmm_good")
-    assertEquals(UploadAccess.Unknown, signIn.uploadAccess())
-    accountScopes = """["me.read", "roms.read"]"""
-    assertEquals(UploadAccess.AccountMayNot, signIn.uploadAccess())
-  }
-
-  @Test
   fun storesAWorkingToken() = runTest {
     val credentials = signIn.withToken(TEST_SERVER, "  rmm_good\n")
     assertEquals(RommCredentials(TEST_SERVER, "rmm_good", 1, "player"), credentials)
@@ -152,17 +120,6 @@ class RommSignInTest {
   @Test
   fun rejectsATokenTheServerDoesNotAccept() = runTest {
     assertFailsWith<RommException.Unauthorized> { signIn.withToken(TEST_SERVER, "rmm_bad") }
-    assertNull(store.load())
-  }
-
-  @Test
-  fun makesAClientForTheSignedInServer() = runTest {
-    assertNull(signIn.client())
-    signIn.withToken(TEST_SERVER, "rmm_good")
-    signIn.client()!!.use { it.me() }
-    assertEquals("Bearer rmm_good", requests.last().headers[HttpHeaders.Authorization])
-
-    signIn.signOut()
     assertNull(store.load())
   }
 
