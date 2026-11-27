@@ -41,7 +41,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
@@ -183,13 +182,17 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Starts [DownloadService] when the queue gets something to download, so the queue goes on in the
-   * background. It waits for the activity to show, since an app in the background can't start one.
-   * While the queue has work, it asks once for all-files access, which writing games needs, and
-   * once that's granted, to show the download's progress in a notification.
+   * Starts [DownloadService] when the queue gets something to download or an upload starts, so they
+   * go on in the background. It waits for the activity to show, since an app in the background
+   * can't start one. While there's work, it asks once for all-files access, which writing games
+   * needs, and once that's granted, to show the progress in a notification.
    */
   private fun keepDownloadsRunning() {
-    val hasWork = handheldApp.data.downloads.queue.map { queue -> queue.any { it.isActive } }
+    val data = handheldApp.data
+    val hasWork =
+      combine(data.downloads.queue, data.uploads.upload) { queue, upload ->
+        queue.any { it.isActive } || upload?.isRunning == true
+      }
     lifecycleScope.launch {
       combine(hasWork, handheldApp.allFilesAccess, ::Pair)
         .distinctUntilChanged()

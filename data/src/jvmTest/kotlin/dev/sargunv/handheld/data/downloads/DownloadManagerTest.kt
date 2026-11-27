@@ -271,6 +271,15 @@ class DownloadManagerTest {
     queue.first { it.isEmpty() }
   }
 
+  private suspend fun DownloadManager.awaitOnDevice(rom: Rom) = waitFor {
+    status(rom).first { it is RomStatus.OnDevice }
+  }
+
+  /** Waits until the queue holds the games [romIds] names, in order. */
+  private suspend fun DownloadManager.awaitQueue(vararg romIds: Long) = waitFor {
+    queue.first { queue -> queue.map { it.romId } == romIds.toList() }
+  }
+
   private fun file(path: String) = File(storage, path)
 
   /** The folder the ROM [romId] downloads in until it's whole. */
@@ -313,17 +322,19 @@ class DownloadManagerTest {
     val seen = statuses(downloads, gameRom)
     waitFor { seen.first { it.isNotEmpty() } }
 
-    downloads.enqueue(gameRom).join()
-    downloads.awaitEmpty()
+    downloads.enqueue(gameRom)
+    downloads.awaitOnDevice(gameRom)
 
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
     // The progress only grows, and the finished download goes straight to on the device.
     assertDownloaded(seen.value, game.size.toLong(), target)
     assertEquals(listOf("roms/11/files/content/Game%20(USA).gba"), contentRequests())
-    // A game on the device isn't queued again.
-    downloads.enqueue(gameRom).join()
-    assertEquals(emptyList(), downloads.queue.value)
+    // A game on the device isn't queued again, though the next one is.
+    downloads.enqueue(gameRom)
+    downloads.enqueue(sagaRom)
+    downloads.awaitOnDevice(sagaRom)
+    assertEquals(1, contentRequests().count { it.startsWith("roms/11/") })
   }
 
   private fun contentRequests() =
@@ -372,12 +383,13 @@ class DownloadManagerTest {
     val downloads = manager(backgroundScope, engine, canWrite = writable, romm = romm)
     val seen = statuses(downloads, gameRom)
     waitFor { seen.first { it.isNotEmpty() } }
-    downloads.enqueue(gameRom).join()
+    downloads.enqueue(gameRom)
+    downloads.awaitQueue(1)
     romm.value = RommState.SignedOut
     writable.value = true
 
     romm.value = account(engine, "rmm_new")
-    downloads.awaitEmpty()
+    downloads.awaitOnDevice(gameRom)
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
     assertDownloaded(seen.value, game.size.toLong(), target)
@@ -393,8 +405,8 @@ class DownloadManagerTest {
     val romm = MutableStateFlow<RommState>(account(engine))
     val writable = MutableStateFlow(false)
     val first = manager(backgroundScope, engine, canWrite = writable, romm = romm)
-    first.enqueue(gameRom).join()
-    assertEquals(listOf(1L), first.queue.value.map { it.romId })
+    first.enqueue(gameRom)
+    first.awaitQueue(1)
     romm.value = RommState.SignedOut
 
     val restarted = manager(backgroundScope, engine, canWrite = writable, romm = romm)
@@ -428,17 +440,18 @@ class DownloadManagerTest {
       next.first { it.isNotEmpty() }
     }
     downloads.enqueue(gameRom)
-    downloads.enqueue(sagaRom).join()
+    downloads.enqueue(sagaRom)
+    downloads.awaitQueue(1, 2)
     writable.value = true
 
-    waitFor { downloads.queue.first { queue -> queue.map { it.romId } == listOf(2L) } }
+    downloads.awaitQueue(2)
     val target = file("ROMs/gba/Game (USA).gba")
     assertDownloaded(first.value, game.size.toLong(), target)
     assertEquals(listOf(RomStatus.NotOnDevice, RomStatus.Queued), next.value)
     assertEquals(listOf("rmm_test"), contentTokens())
 
     romm.value = account(engine, "rmm_new")
-    downloads.awaitEmpty()
+    downloads.awaitOnDevice(sagaRom)
     val folder = file("ROMs/psx/Saga (USA)")
     assertDownloaded(next.value, disc1.size + disc2.size.toLong(), folder)
     assertEquals(listOf("rmm_test", "rmm_new", "rmm_new"), contentTokens())
@@ -470,9 +483,10 @@ class DownloadManagerTest {
       RomStatus.OnDevice(copied.path),
       waitFor { downloads.status(rom).first { it is RomStatus.OnDevice } },
     )
-    downloads.enqueue(rom).join()
-    assertEquals(emptyList(), downloads.queue.value)
-    assertEquals(emptyList(), contentRequests())
+    downloads.enqueue(rom)
+    downloads.enqueue(sagaRom)
+    downloads.awaitOnDevice(sagaRom)
+    assertEquals(0, contentRequests().count { it.startsWith("roms/11/") })
   }
 
   @Test
@@ -518,9 +532,9 @@ class DownloadManagerTest {
       val downloads = manager(backgroundScope, server(), canWrite = writable)
       val seen = statuses(downloads, gameRom)
       waitFor { seen.first { it.isNotEmpty() } }
-      downloads.enqueue(gameRom).join()
+      downloads.enqueue(gameRom)
       writable.value = true
-      downloads.awaitEmpty()
+      downloads.awaitOnDevice(gameRom)
 
       val target = file("ROMs/gba/Game (USA).gba")
       assertContentEquals(game, target.readBytes())
@@ -553,8 +567,8 @@ class DownloadManagerTest {
     fillLibrary()
     val downloads = manager(backgroundScope, server())
 
-    downloads.enqueue(sagaRom).join()
-    downloads.awaitEmpty()
+    downloads.enqueue(sagaRom)
+    downloads.awaitOnDevice(sagaRom)
 
     val folder = file("ROMs/psx/Saga (USA)")
     assertEquals(RomStatus.OnDevice(folder.path), downloads.status(sagaRom).first())
@@ -588,8 +602,8 @@ class DownloadManagerTest {
       RomStatus.OnDevice(gba.path),
       waitFor { downloads.statuses().first { it.isNotEmpty() } }[1L],
     )
-    downloads.enqueue(sagaRom).join()
-    downloads.awaitEmpty()
+    downloads.enqueue(sagaRom)
+    downloads.awaitOnDevice(sagaRom)
     assertTrue(File(card, "ROMs/psx/Saga (USA)").isDirectory)
     assertFalse(file("ROMs/psx").exists())
   }
@@ -698,8 +712,9 @@ class DownloadManagerTest {
     val downloads = manager(realTime(), engine, deviceId = "dev-1")
     waitFor { downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L } }
 
-    downloads.cancel(1).join()
+    downloads.cancel(1)
 
+    waitFor { while (requests.none { it.apiPath == "devices/dev-1/installs/req-1" }) delay(10) }
     val ended = requests.filter { it.apiPath == "devices/dev-1/installs/req-1" }
     assertEquals(listOf(HttpMethod.Delete), ended.map { it.method })
   }
@@ -802,9 +817,9 @@ class DownloadManagerTest {
     val seen = statuses(downloads, gameRom)
     waitFor { seen.first { it.isNotEmpty() } }
 
-    downloads.enqueue(gameRom).join()
+    downloads.enqueue(gameRom)
     access.value = true
-    downloads.awaitEmpty()
+    downloads.awaitOnDevice(gameRom)
 
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
@@ -857,11 +872,12 @@ class DownloadManagerTest {
     val downloads = manager(backgroundScope, stalling, romm = MutableStateFlow(account))
     downloads.enqueue(gameRom)
     downloads.enqueue(sagaRom)
+    downloads.awaitQueue(1, 2)
     waitFor { downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L } }
 
-    downloads.dropQueue(account).join()
+    downloads.dropQueue(account)
 
-    assertEquals(emptyList(), downloads.queue.value)
+    downloads.awaitEmpty()
     assertEquals(listOf("roms/11/files/content/Game%20(USA).gba"), contentRequests())
   }
 }

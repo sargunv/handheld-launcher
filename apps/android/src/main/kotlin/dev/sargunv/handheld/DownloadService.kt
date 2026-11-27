@@ -12,6 +12,8 @@ import android.os.IBinder
 import dev.sargunv.handheld.data.downloads.Download
 import dev.sargunv.handheld.data.downloads.DownloadProgress
 import dev.sargunv.handheld.data.downloads.DownloadState
+import dev.sargunv.handheld.data.downloads.Upload
+import dev.sargunv.handheld.data.downloads.UploadPhase
 import dev.sargunv.handheld.data.downloads.formatSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,8 +25,9 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 /**
- * Keeps the app running while games download, so the queue goes on in the background, and shows the
- * download's progress in a notification. It stops once nothing is waiting to download.
+ * Keeps the app running while games download or a game uploads, so they go on in the background,
+ * and shows their progress in a notification. It stops once nothing is waiting to download and no
+ * upload is running.
  */
 class DownloadService : Service() {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -38,21 +41,23 @@ class DownloadService : Service() {
       NotificationChannel(CHANNEL, "Downloads", NotificationManager.IMPORTANCE_LOW),
     )
     val downloads = handheldApp.data.downloads
+    val uploads = handheldApp.data.uploads
     startForeground(
       NOTIFICATION,
-      notification(downloads.queue.value, downloads.progress.value),
+      notification(downloads.queue.value, downloads.progress.value, uploads.upload.value),
       ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
     )
     @OptIn(FlowPreview::class)
     scope.launch {
       // The system limits how often an app updates a notification.
-      val updates = combine(downloads.queue, downloads.progress, ::Pair).sample(1000)
-      updates.collect { (queue, progress) ->
-        if (queue.none { it.isActive }) {
+      val updates =
+        combine(downloads.queue, downloads.progress, uploads.upload, ::Triple).sample(1000)
+      updates.collect { (queue, progress, upload) ->
+        if (queue.none { it.isActive } && upload?.isRunning != true) {
           stopForeground(STOP_FOREGROUND_REMOVE)
           stopSelf()
         } else {
-          manager.notify(NOTIFICATION, notification(queue, progress))
+          manager.notify(NOTIFICATION, notification(queue, progress, upload))
         }
       }
     }
@@ -66,6 +71,7 @@ class DownloadService : Service() {
   private fun notification(
     queue: List<Download>,
     progress: Map<Long, DownloadProgress>,
+    upload: Upload?,
   ): Notification {
     val current = queue.firstOrNull { it.state == DownloadState.Downloading }
     val waiting = queue.count { it.isActive }
@@ -81,6 +87,17 @@ class DownloadService : Service() {
             PendingIntent.FLAG_IMMUTABLE,
           ),
         )
+    if (upload?.isRunning == true) {
+      val percent = (upload.phase as? UploadPhase.Sending)?.percent
+      return builder
+        .setSmallIcon(android.R.drawable.stat_sys_upload)
+        .setContentTitle(upload.game.title)
+        .setContentText(
+          if (upload.phase is UploadPhase.Sending) "Uploading" else "Adding to your library",
+        )
+        .setProgress(100, percent ?: 0, percent == null)
+        .build()
+    }
     if (current == null) {
       return builder.setContentTitle("Waiting to download").build()
     }

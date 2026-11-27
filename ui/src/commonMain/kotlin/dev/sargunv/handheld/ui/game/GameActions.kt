@@ -25,7 +25,6 @@ import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -179,33 +178,25 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   }
 
   /**
-   * Shows in [notes] how the latest upload of the game [key] names ended. A refusal seen here as it
-   * happens, which the sign-in's permissions may be the cause of, offers to sign in again. It runs
-   * until cancelled.
+   * Shows in [notes] how an upload of the game [key] names ended, once: as it ends, or when the
+   * page opens after it ended. A refusal that the sign-in's permissions may be the cause of offers
+   * to sign in again. It runs until cancelled.
    */
   suspend fun showUploads(key: GameKey) {
-    var running = false
-    state.uploads.upload
-      .filterNotNull()
-      .filter { it.game.key == key }
-      .collect { upload ->
-        val phase = upload.phase
-        if (phase !is UploadPhase.Ended) {
-          running = true
-          return@collect
-        }
-        val outcome = phase.outcome
-        notes = listOf(uploadNote(outcome))
-        if (
-          running &&
-            outcome is UploadOutcome.Failed &&
-            outcome.cause is RommException.Forbidden &&
-            upload.access != UploadAccess.Allowed
-        ) {
-          dialog = GameDialog.AllowUploads(UPLOAD_FORBIDDEN)
-        }
-        running = false
+    state.uploads.upload.filterNotNull().collect { upload ->
+      val ended = upload.phase as? UploadPhase.Ended
+      if (upload.game.key != key || ended == null) return@collect
+      val outcome = ended.outcome
+      notes = listOf(uploadNote(outcome))
+      if (
+        outcome is UploadOutcome.Failed &&
+          outcome.cause is RommException.Forbidden &&
+          upload.access != UploadAccess.Allowed
+      ) {
+        dialog = GameDialog.AllowUploads(UPLOAD_FORBIDDEN)
       }
+      state.uploads.seen(upload)
+    }
   }
 }
 

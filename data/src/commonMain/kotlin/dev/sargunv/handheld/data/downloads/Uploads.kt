@@ -11,6 +11,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
@@ -65,49 +66,56 @@ class UploadManager
 internal constructor(private val romm: RommSession, private val scope: CoroutineScope) {
   private val latest = MutableStateFlow<Upload?>(null)
 
-  /** The latest upload, running or ended, or null before the first. */
+  /** The running upload, or the one that ended last until its outcome is [seen]. */
   val upload: StateFlow<Upload?> = latest.asStateFlow()
 
   private var job: Job? = null
 
   /** Uploads [game], which the sign-in may do as [access] says, unless an upload is running. */
   fun start(game: LocalGame, access: UploadAccess) {
+    if (latest.value?.isRunning == true) return
     val client = romm.account?.client ?: return
-    val before = latest.value
     val started = Upload(game, access, UploadPhase.Sending(null))
-    if (before?.isRunning == true || !latest.compareAndSet(before, started)) return
     fun show(phase: UploadPhase) {
       latest.value = started.copy(phase = phase)
     }
-    job = scope.launch {
-      val outcome =
-        try {
-          uploadLocalGame(
-            client,
-            game,
-            onFinishing = { show(UploadPhase.Finishing) },
-            onProgress = { sent, total ->
-              if (sent < total) show(UploadPhase.Sending((sent * 100 / total).toInt()))
-            },
-          )
-        } catch (e: CancellationException) {
-          show(UploadPhase.Ended(UploadOutcome.Stopped))
-          throw e
-        } catch (e: RommException) {
-          log.w(e) { "Upload of ${game.path} failed" }
-          UploadOutcome.Failed(e)
-        } catch (e: IOException) {
-          log.w(e) { "Reading ${game.path} for upload failed" }
-          UploadOutcome.ReadFailed(e)
-        }
-      show(UploadPhase.Ended(outcome))
-      if (outcome is UploadResult && romm.account?.client == client) romm.syncNow()
-    }
+    // Undispatched, so the upload is in its try before this returns, and any stop ends it.
+    job =
+      scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        latest.value = started
+        val outcome =
+          try {
+            uploadLocalGame(
+              client,
+              game,
+              onFinishing = { show(UploadPhase.Finishing) },
+              onProgress = { sent, total ->
+                if (sent < total) show(UploadPhase.Sending((sent * 100 / total).toInt()))
+              },
+            )
+          } catch (e: CancellationException) {
+            show(UploadPhase.Ended(UploadOutcome.Stopped))
+            throw e
+          } catch (e: RommException) {
+            log.w(e) { "Upload of ${game.path} failed" }
+            UploadOutcome.Failed(e)
+          } catch (e: IOException) {
+            log.w(e) { "Reading ${game.path} for upload failed" }
+            UploadOutcome.ReadFailed(e)
+          }
+        show(UploadPhase.Ended(outcome))
+        if (outcome is UploadResult && romm.account?.client == client) romm.syncNow()
+      }
   }
 
   /** Stops the upload while it's sending, and the server drops what it received. */
   fun stop() {
     if (latest.value?.phase is UploadPhase.Sending) job?.cancel()
+  }
+
+  /** Marks the outcome of [upload], which has ended, as shown, so it shows no more. */
+  fun seen(upload: Upload) {
+    if (latest.value == upload && !upload.isRunning) latest.value = null
   }
 }
 

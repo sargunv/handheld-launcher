@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
@@ -385,8 +386,13 @@ class HomeTest {
     press(listOf(Key.ButtonA, Key.ButtonB))
     // The main menu counts the queue.
     press(Key.ButtonStart)
-    awaitTag("main:Downloads")
-    onNodeWithTag("main:Downloads").assertContentDescriptionEquals("Downloads, 1 in the queue")
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(
+          hasTestTag("main:Downloads") and hasContentDescription("Downloads, 1 in the queue"),
+        )
+        .fetchSemanticsNodes()
+        .isNotEmpty()
+    }
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitTag("download:2")
     // The test server doesn't serve the game, so the download fails and waits for a retry.

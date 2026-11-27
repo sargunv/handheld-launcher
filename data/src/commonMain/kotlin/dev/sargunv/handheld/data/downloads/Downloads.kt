@@ -216,9 +216,7 @@ class DownloadManager(
     scope.launch {
       // At a sign-in to another server, the games of the one before leave the queue, without
       // telling either server, since their ids are that server's.
-      signedInServer.filterNotNull().collect { server ->
-        commands.withLock { drop { it.server != server } }
-      }
+      signedInServer.filterNotNull().collect { server -> command { drop { it.server != server } } }
     }
     scope.launch {
       accounts.collectLatest { account ->
@@ -253,18 +251,18 @@ class DownloadManager(
   }
 
   /**
-   * Runs [block] in the queue's scope, after the commands given before it, so a command finishes
-   * when its caller goes away. The returned job ends once the queue shows what it did.
+   * Runs [block] in the queue's scope, after the commands given before it. It starts undispatched,
+   * so each command waits for the lock in the order the commands are given.
    */
-  private fun command(block: suspend () -> Unit): Job =
-    // Undispatched, so each command waits for the lock in the order the commands are given.
+  private fun command(block: suspend () -> Unit) {
     scope.launch(start = CoroutineStart.UNDISPATCHED) { commands.withLock { block() } }
+  }
 
   /**
    * Adds [rom] to the end of the queue, unless it's in the queue or on the device already, or the
    * device is signed out.
    */
-  fun enqueue(rom: Rom): Job = command {
+  fun enqueue(rom: Rom) = command {
     library.platform(rom.platformId)?.fsSlug?.let { enqueue(rom, it, emptyList(), null) }
   }
 
@@ -294,7 +292,7 @@ class DownloadManager(
   }
 
   /** Queues a failed download again, where it was in the queue. */
-  fun retry(romId: Long): Job = command {
+  fun retry(romId: Long) = command {
     edit { list ->
       list.map {
         if (it.romId == romId && it.state == DownloadState.Failed) {
@@ -309,28 +307,28 @@ class DownloadManager(
    * is signed in to the game's server, the server hears that it was canceled, if it asked for the
    * game. A download whose game has already moved into place finishes instead.
    */
-  fun cancel(romId: Long): Job = cancel(romm.value as? RommAccount) { it.romId == romId }
+  fun cancel(romId: Long) = cancel(romm.value as? RommAccount) { it.romId == romId }
 
   /**
    * Cancels every download in the queue, as at a sign-out of [account]. The server hears of each
    * install it asked for.
    */
-  fun dropQueue(account: RommAccount): Job {
+  fun dropQueue(account: RommAccount) {
     val queued = entries.value.mapTo(mutableSetOf()) { it.romId }
-    return cancel(account) { it.romId in queued }
+    cancel(account) { it.romId in queued }
   }
 
   /** Cancels the downloads [which] picks, and tells [account]'s server of those from it. */
-  private fun cancel(account: RommAccount?, which: (Download) -> Boolean): Job =
-    scope.launch(start = CoroutineStart.UNDISPATCHED) {
-      val canceled = commands.withLock { drop(which) }
-      // After the lock, so a server that's slow to answer holds up no other command.
-      for (download in canceled) {
-        if (account?.credentials?.baseUrl == download.server) {
-          reportInstall(account, download, RommInstallStatus.Cancelled)
-        }
+  private fun cancel(account: RommAccount?, which: (Download) -> Boolean) = command {
+    val canceled = drop(which)
+    if (account == null) return@command
+    // Outside the command, so a server that's slow to answer holds up no other command.
+    scope.launch {
+      for (download in canceled.filter { it.server == account.credentials.baseUrl }) {
+        reportInstall(account, download, RommInstallStatus.Cancelled)
       }
     }
+  }
 
   /**
    * Takes the downloads [which] picks out of the queue, stops them and deletes what they
