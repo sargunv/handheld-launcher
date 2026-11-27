@@ -38,6 +38,7 @@ import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -208,19 +209,19 @@ class MainActivity : ComponentActivity() {
   /**
    * Starts [DownloadService] when the queue gets something to download, so the queue goes on in the
    * background. It waits for the activity to show, since an app in the background can't start one.
-   * It also asks for all-files access, which writing games needs, or else to show the download's
-   * progress in a notification, when it lacks them.
+   * While the queue has work, it asks once for all-files access, which writing games needs, and
+   * once that's granted, to show the download's progress in a notification.
    */
   private fun keepDownloadsRunning() {
+    val hasWork = handheldApp.downloadManager.queue.map { queue -> queue.any { it.isActive } }
     lifecycleScope.launch {
-      handheldApp.downloadManager.queue
-        .map { queue -> queue.any { it.isActive } }
+      combine(hasWork, handheldApp.allFilesAccess, ::Pair)
         .distinctUntilChanged()
-        .filter { it }
-        .collect {
+        .filter { it.first }
+        .collect { (_, allFilesAccess) ->
           lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
-            if (!Environment.isExternalStorageManager()) {
+            if (!allFilesAccess) {
               startActivity(handheldApp.allFilesAccessSettings())
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

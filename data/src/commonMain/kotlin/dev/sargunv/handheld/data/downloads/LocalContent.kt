@@ -125,9 +125,8 @@ internal class ContentScanner(
         entriesOf(Path(GameLayout.platformFolder(it.root, folderName)))
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
-      // Each target's files in name order, the targets in the order they fill. Hidden files are
-      // never games.
-      val loose = entries.filterNot { it.name in names || it.name.startsWith('.') }
+      // Each target's files in name order, the targets in the order they fill.
+      val loose = entries.filterNot { it.name in names || skipped(it.name) }
       val candidates = folderRoms.filter {
         it.files.size == 1 && GameLayout.romName(it) !in present
       }
@@ -353,6 +352,9 @@ private fun descriptorText(path: Path): String? {
   return if ('\uFFFD' in text) bytes.map { (it.toInt() and 0xff).toChar() }.joinToString("")
   else text
 }
+
+/** Files a scan never takes for a game: hidden ones, and another app's downloads under way. */
+private fun skipped(name: String) = name.startsWith('.') || name.endsWith(".part")
 
 /** The entries of [folder] in name order, or none when it isn't a folder that can be read. */
 internal fun entriesOf(folder: Path): List<Path> =
