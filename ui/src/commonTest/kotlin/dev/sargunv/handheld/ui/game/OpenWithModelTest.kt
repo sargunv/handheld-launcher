@@ -66,7 +66,7 @@ class OpenWithModelTest {
       listOf(
         ChainLine("Game: none"),
         ChainLine("Collection 'Jak and Daxter': PocketGOAL · opens here", wins = true),
-        ChainLine("Built-in (default) · no core for PS2, skipped"),
+        ChainLine("Platform PS2: Built-in · no core for PS2, skipped"),
         ChainLine("Platform PS2: NetherSX2 (default) · overridden"),
       ),
       lines(rules),
@@ -84,8 +84,10 @@ class OpenWithModelTest {
     assertEquals(
       listOf(
         ChainLine("Game: PocketGOAL · not installed, skipped"),
-        ChainLine("Collection: none"),
+        ChainLine("Collection 'Jak and Daxter': none"),
         ChainLine("Platform PS2: ARMSX2 · opens here", wins = true),
+        ChainLine("Platform PS2: Built-in · no core for PS2, skipped"),
+        ChainLine("Platform PS2: NetherSX2 (default) · overridden"),
       ),
       lines(rules, withoutPocketGoal),
     )
@@ -97,26 +99,22 @@ class OpenWithModelTest {
     assertEquals(
       listOf(
         ChainLine("Game: none"),
-        ChainLine("Collection: none"),
+        ChainLine("Collection 'Jak and Daxter': none"),
         ChainLine("Platform PS2: com.example.gone · not installed, skipped"),
-        ChainLine("Built-in (default) · no core for PS2, skipped"),
-        ChainLine("Default for PS2: NetherSX2 · opens here", wins = true),
+        ChainLine("Platform PS2: Built-in · no core for PS2, skipped"),
+        ChainLine("Platform PS2: NetherSX2 (default) · opens here", wins = true),
       ),
       lines(rules),
     )
     assertEquals(
-      ChainLine("Platform PS2: no emulator installed"),
+      ChainLine("Platform PS2: none (default)"),
       lines(LaunchRules(), emptyList()).last(),
     )
-    // A platform rule for the built-in session, where no core runs the platform, is skipped too.
-    val builtIn = LaunchRules(platformDefaults = mapOf(PS2 to LaunchChoice.BuiltIn))
+    // A choice of the built-in session, where no core runs the platform, is skipped too.
+    val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.BuiltIn))
     assertEquals(
-      listOf(
-        ChainLine("Platform PS2: Built-in · no core for PS2, skipped"),
-        ChainLine("Built-in (default) · no core for PS2, skipped"),
-        ChainLine("Default for PS2: NetherSX2 · opens here", wins = true),
-      ),
-      lines(builtIn).drop(2),
+      ChainLine("Game: Built-in · no core for PS2, skipped"),
+      lines(builtIn).first(),
     )
   }
 
@@ -127,7 +125,7 @@ class OpenWithModelTest {
       listOf(
         ChainLine("Game: none"),
         ChainLine("Collection: none"),
-        ChainLine("Platform GBA: Built-in (default) · opens here", wins = true),
+        ChainLine("Platform GBA: Built-in · mGBA (default) · opens here", wins = true),
       ),
       lines(LaunchRules(), subject = gaia, platformName = "GBA"),
     )
@@ -137,11 +135,10 @@ class OpenWithModelTest {
       listOf(
         ChainLine("Game: RetroArch · opens here", wins = true),
         ChainLine("Collection: none"),
-        ChainLine("Platform GBA: Built-in (default) · overridden"),
+        ChainLine("Platform GBA: Built-in · mGBA (default) · overridden"),
       ),
       lines(retroArch, subject = gaia, platformName = "GBA"),
     )
-    // Chosen for a game, it's named with the platform's core.
     val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice.BuiltIn))
     assertEquals(
       ChainLine("Game: Built-in · mGBA · opens here", wins = true),

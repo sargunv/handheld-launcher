@@ -297,7 +297,7 @@ class SettingsTest {
     awaitText("Open Game Boy games with")
     awaitText("Why Game Boy games open in Built-in · Gambatte")
     // A game's own choice doesn't apply to the platform, so the chain starts at the platform.
-    onNodeWithText("Platform Game Boy: Built-in (default) · opens here").assertExists()
+    onNodeWithText("Platform Game Boy: Built-in · Gambatte (default) · opens here").assertExists()
     onNodeWithTag("openWith:current").assertTextEquals("Nothing chosen")
     awaitFocusedApp()
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))

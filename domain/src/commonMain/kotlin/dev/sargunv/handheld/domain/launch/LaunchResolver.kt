@@ -11,8 +11,12 @@ sealed interface LaunchRule {
   /** The game's own override. */
   data object GameOverride : LaunchRule
 
-  /** The rule of [collection], one of the game's collections. */
-  data class CollectionOverride(val collection: CollectionId) : LaunchRule
+  /**
+   * The rule of [collection], one of the game's collections. On the unset level that stands for the
+   * collections when none of the game's has a rule, [collection] is the game's one collection, or
+   * null when it's in none or several.
+   */
+  data class CollectionOverride(val collection: CollectionId?) : LaunchRule
 
   /** The default for the game's platform. */
   data object PlatformDefault : LaunchRule
