@@ -20,7 +20,7 @@ layout and behavior, not the visual design.
   upper one. Its buttons are for touch. Nothing on it is needed with a
   controller.
 - Every screen shows its button hints along the bottom edge of the upper screen.
-- Select is unused for now.
+- Select does nothing in the launcher; in a built-in game it is the game's.
 
 ## Sign in
 
