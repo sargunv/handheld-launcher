@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory,
@@ -23,6 +24,7 @@ use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
 use crate::host::{self, Gpu, Host};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::Options;
+use crate::pacing;
 use crate::save::write_atomically;
 use crate::video::{CapturedFrame, Region, VideoSink};
 use crate::vulkan::{VulkanContext, VulkanError};
@@ -117,6 +119,12 @@ impl AvInfo {
             fps: info.timing.fps,
             sample_rate: info.timing.sample_rate,
         }
+    }
+
+    /// How long a frame lasts, at 60 frames a second if the core gives no
+    /// usable rate.
+    pub fn frame_period(&self) -> Duration {
+        pacing::core_period(self.fps)
     }
 }
 
@@ -721,9 +729,6 @@ impl Session {
     /// Restores a state that [`Session::save_state`] wrote. Hardcore mode
     /// doesn't allow it.
     pub fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
-        if self.hardcore_restricts() {
-            return Err(SessionError::Hardcore);
-        }
         if !self.host().states_persist() {
             return Err(SessionError::StatesNotPersistent);
         }

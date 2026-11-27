@@ -8,7 +8,7 @@ which drives it through UniFFI.
 The directory is also the `:session` Gradle module, an Android library. It
 compiles the crate for the host to generate UniFFI's Kotlin bindings, and for
 each Android ABI listed in `buildSrc` with cargo-ndk, using the NDK that
-`mise.toml` pins. Install that NDK with `sdkmanager --install "ndk;<version>"`.
+`mise.toml` pins, which `mise run android:ndk` installs.
 `-Phandheld.session.abis=x86_64` builds one ABI, for quicker work on an
 emulator.
 

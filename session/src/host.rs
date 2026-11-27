@@ -15,7 +15,7 @@ use crate::audio::{AudioPipeline, AudioSink};
 use crate::cstr::opt_string;
 use crate::ffi;
 use crate::gl::{self, Framebuffer, GlApi, GlContext};
-use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
+use crate::input::{self, InputState, MAX_PORTS, PortSnapshot, Presses};
 use crate::options::Options;
 use crate::session::{SessionError, VideoOutput};
 use crate::video::{self, CapturedFrame, Frame, PixelFormat};
@@ -65,7 +65,7 @@ pub(crate) struct Host {
     pub(crate) input: Arc<InputState>,
     input_snapshot: [PortSnapshot; MAX_PORTS],
     /// The buttons pressed since the previous frame, held for this one.
-    frame_presses: [u32; MAX_PORTS],
+    frame_presses: [Presses; MAX_PORTS],
     pub(crate) audio_sink: Box<dyn AudioSink>,
     pub(crate) audio: Option<AudioPipeline>,
     /// The core rate `audio` resamples from.
@@ -122,7 +122,7 @@ impl Host {
             options,
             input,
             input_snapshot: Default::default(),
-            frame_presses: [0; MAX_PORTS],
+            frame_presses: Default::default(),
             audio_sink,
             audio: None,
             audio_rate: 0.0,
