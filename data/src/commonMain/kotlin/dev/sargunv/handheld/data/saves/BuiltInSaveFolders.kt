@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.saves
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
@@ -29,7 +30,8 @@ class BuiltInSaveFolders(
       adoptions.filterNot {
         try {
           adopt(it)
-        } catch (_: IOException) {
+        } catch (e: IOException) {
+          log.w(e) { "Couldn't hand ${it.local}'s saves to ${it.rom}" }
           false
         }
       }
@@ -81,3 +83,5 @@ class BuiltInSaveFolders(
 
   private fun filesIn(folder: File): List<File> = folder.walkTopDown().filter { it.isFile }.toList()
 }
+
+private val log = Logger.withTag("BuiltInSaveFolders")

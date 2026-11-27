@@ -266,8 +266,8 @@ class DownloadManagerTest {
     )
 
   /**
-   * A scope on real threads, where the queue takes the games sent to the device at each sign-in,
-   * and the next minute's poll comes after the test.
+   * A scope on real threads, so each sign-in polls once for the games sent to the device. On the
+   * test's scheduler, the minute between polls passes whenever the test waits for a download.
    */
   private fun TestScope.realTime() =
     CoroutineScope(backgroundScope.coroutineContext + Dispatchers.Default)

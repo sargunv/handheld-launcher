@@ -16,9 +16,7 @@ value class EmulatorId(val value: String) {
  *
  * [packagePatterns] match other builds of the same app, such as forks and nightly channels, where
  * `*` stands for any run of characters. A build matched only by pattern launches with [forkRecipe]
- * when it's set, since a fork can rename the activities [recipe] names. [drawsBothScreens] marks
- * apps that draw their own second screen: their game opens on the default display, and the app
- * takes the other one.
+ * when it's set, since a fork can rename the activities [recipe] names.
  */
 data class KnownEmulator(
   val id: EmulatorId,
@@ -27,7 +25,6 @@ data class KnownEmulator(
   val recipe: LaunchRecipe,
   val packagePatterns: List<String> = emptyList(),
   val forkRecipe: LaunchRecipe? = null,
-  val drawsBothScreens: Boolean = false,
 ) {
   private val patterns = packagePatterns.map { glob ->
     Regex(glob.split('*').joinToString(".*") { Regex.escape(it) })

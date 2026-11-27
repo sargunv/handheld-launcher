@@ -248,7 +248,6 @@ object EmulatorRegistry {
             activity = citraActivity,
             extras = mapOf("SelectedGame" to ExtraValue.RomPath),
           ),
-        drawsBothScreens = true,
       ),
       KnownEmulator(
         id = EmulatorId("borked3ds"),
@@ -388,7 +387,6 @@ object EmulatorRegistry {
             extras = mapOf("uri" to ExtraValue.RomUri),
             data = RomData.ProviderUri,
           ),
-        drawsBothScreens = true,
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_ds"),
@@ -406,7 +404,6 @@ object EmulatorRegistry {
             activity = "com.pokedaisy.app.LaunchActivity",
             extras = mapOf("rom" to ExtraValue.RomPath),
           ),
-        drawsBothScreens = true,
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_gba_pro"),
