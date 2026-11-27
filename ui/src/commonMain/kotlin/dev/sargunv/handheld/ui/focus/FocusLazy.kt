@@ -21,19 +21,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
-
-/** Directions that can't leave a list sideways: a row's ends are walls, not ways out. */
-val HorizontalWalls: Set<FocusDirection> = setOf(FocusDirection.Left, FocusDirection.Right)
 
 /**
  * A lazy row of [focusItem]s. Focus stays in view with room to spare, comes back to the item that
- * had it when it re-enters the row, and doesn't leave through the row's ends unless [walls] allows
- * it.
+ * had it when it re-enters the row, and doesn't leave through the row's ends.
  */
 @Composable
 fun FocusLazyRow(
@@ -41,17 +37,14 @@ fun FocusLazyRow(
   state: LazyListState = rememberLazyListState(),
   contentPadding: PaddingValues = PaddingValues(0.dp),
   horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
-  verticalAlignment: Alignment.Vertical = Alignment.Top,
-  walls: Set<FocusDirection> = HorizontalWalls,
   content: LazyListScope.() -> Unit,
 ) {
-  FocusList(walls) { listModifier ->
+  FocusList(SideWalls) { listModifier ->
     LazyRow(
       modifier = modifier.then(listModifier),
       state = state,
       contentPadding = contentPadding,
       horizontalArrangement = horizontalArrangement,
-      verticalAlignment = verticalAlignment,
       content = content,
     )
   }
@@ -68,7 +61,6 @@ fun FocusLazyColumn(
   state: LazyListState = rememberLazyListState(),
   contentPadding: PaddingValues = PaddingValues(0.dp),
   verticalArrangement: Arrangement.Vertical = Arrangement.Top,
-  horizontalAlignment: Alignment.Horizontal = Alignment.Start,
   walls: Set<FocusDirection> = emptySet(),
   content: LazyListScope.() -> Unit,
 ) {
@@ -78,7 +70,6 @@ fun FocusLazyColumn(
       state = state,
       contentPadding = contentPadding,
       verticalArrangement = verticalArrangement,
-      horizontalAlignment = horizontalAlignment,
       content = content,
     )
   }
@@ -86,9 +77,8 @@ fun FocusLazyColumn(
 
 /**
  * A lazy vertical grid of [focusItem]s. Focus stays in view with room to spare and comes back to
- * the item that had it when it re-enters the grid. Like a row, its sides are walls by default;
- * focus can leave through the top and bottom. Focus doesn't wrap from the end of one line to the
- * next.
+ * the item that had it when it re-enters the grid. Like a row, its sides are walls; focus can leave
+ * through the top and bottom. Focus doesn't wrap from the end of one line to the next.
  */
 @Composable
 fun FocusLazyVerticalGrid(
@@ -98,10 +88,9 @@ fun FocusLazyVerticalGrid(
   contentPadding: PaddingValues = PaddingValues(0.dp),
   verticalArrangement: Arrangement.Vertical = Arrangement.Top,
   horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
-  walls: Set<FocusDirection> = HorizontalWalls,
   content: LazyGridScope.() -> Unit,
 ) {
-  FocusList(walls) { listModifier ->
+  FocusList(SideWalls) { listModifier ->
     LazyVerticalGrid(
       columns = columns,
       modifier = modifier.then(listModifier),
@@ -114,6 +103,8 @@ fun FocusLazyVerticalGrid(
   }
 }
 
+private val SideWalls = setOf(FocusDirection.Left, FocusDirection.Right)
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FocusList(walls: Set<FocusDirection>, list: @Composable (Modifier) -> Unit) {
@@ -121,7 +112,8 @@ private fun FocusList(walls: Set<FocusDirection>, list: @Composable (Modifier) -
   val scope = LocalFocusScope.current
   val memory = remember(saved, scope) { FocusMemory(saved) { scope?.isRecording ?: true } }
   val listModifier =
-    Modifier.focusProperties {
+    Modifier.focusRequester(memory.group)
+      .focusProperties {
         onEnter = {
           // Moving in from a neighbor returns to the remembered item. A request for a specific
           // item (a tap, or a scope restoring focus) goes where it asked.

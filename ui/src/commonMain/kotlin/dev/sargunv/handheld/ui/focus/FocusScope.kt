@@ -79,6 +79,12 @@ internal class FocusMemory(
 ) {
   private val items = mutableStateMapOf<String, FocusRequester>()
 
+  /** The list the remembered item is in, if it's in one. */
+  private var savedList: FocusMemory? = null
+
+  /** Focuses the region: its first item, or the region itself when it has none. */
+  val group = FocusRequester()
+
   /** Whether no items are composed. Reading this observes it. */
   val isEmpty: Boolean
     get() = items.isEmpty()
@@ -91,18 +97,29 @@ internal class FocusMemory(
     if (items[key] === requester) items.remove(key)
   }
 
-  fun onItemFocused(key: String) {
-    if (isRecording()) saved.value = key
+  fun onItemFocused(key: String, list: FocusMemory? = null) {
+    if (isRecording()) {
+      saved.value = key
+      savedList = list
+    }
   }
 
   /** Makes [key] the remembered item, whether or not it's composed. */
   fun select(key: String) {
     saved.value = key
+    savedList = null
   }
 
-  /** Focuses the item that had focus last, if it's still composed. */
-  fun focusRemembered(): Boolean =
-    saved.value?.let(items::get)?.requestFocus(FocusDirection.Enter) ?: false
+  /**
+   * Focuses the item that had focus last. If it's gone, as when other rows took its place, focuses
+   * the first item of the list it was in.
+   */
+  fun focusRemembered(): Boolean {
+    val item = saved.value?.let(items::get)
+    if (item != null) return item.requestFocus(FocusDirection.Enter)
+    val list = savedList ?: return false
+    return !list.isEmpty && list.group.requestFocus(FocusDirection.Enter)
+  }
 }
 
 internal val LocalFocusMemory = staticCompositionLocalOf<FocusMemory?> { null }
@@ -117,7 +134,6 @@ internal constructor(
   internal val isModal: Boolean = false,
 ) {
   internal val memory = FocusMemory(saved) { isRecording }
-  internal val group = FocusRequester()
   internal var hasFocus by mutableStateOf(false)
 
   /**
@@ -140,11 +156,12 @@ internal constructor(
 
   /**
    * Puts focus back in this scope: on the item that had it last if that item is still composed,
-   * otherwise on the first item, or on the scope itself when it has no items.
+   * otherwise on the first item of its list, or the scope's first item, or on the scope itself when
+   * it has no items.
    */
   fun restore(): Boolean {
     restorePending = false
-    return memory.focusRemembered() || group.requestFocus(FocusDirection.Enter)
+    return memory.focusRemembered() || memory.group.requestFocus(FocusDirection.Enter)
   }
 
   /**
@@ -165,8 +182,10 @@ internal constructor(
  * Every [focusItem] inside reports to the nearest scope. When this scope becomes the newest one on
  * screen (it appeared, or the screen or dialog above it went away), or while it's the newest and
  * nothing inside has focus (the focused item went away), focus returns to the item that had it
- * last, or [initialFocus], or the first item. The remembered item survives this scope leaving
- * composition the way [rememberSaveable] state does.
+ * last, or [initialFocus]. When that item is gone, focus goes to the first item of the list it was
+ * in, so a row that other rows replace leaves focus among them, or else to the scope's first item.
+ * The remembered item survives this scope leaving composition the way [rememberSaveable] state
+ * does.
  *
  * A scope with no items, such as an empty or loading screen, holds focus itself, so actions like
  * [Action.Back][dev.sargunv.handheld.ui.input.Action.Back] still reach it and its ancestors.
@@ -220,7 +239,7 @@ internal fun FocusScope(
     Box(
       modifier
         .onFocusChanged { state.hasFocus = it.hasFocus }
-        .focusRequester(state.group)
+        .focusRequester(state.memory.group)
         // A group while it has items; otherwise a focus target itself. When items appear, the
         // scope gives up focus and the restore effect above moves it to them.
         .focusProperties { canFocus = state.memory.isEmpty }

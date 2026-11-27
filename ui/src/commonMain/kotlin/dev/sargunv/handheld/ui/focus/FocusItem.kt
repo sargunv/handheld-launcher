@@ -63,18 +63,18 @@ fun Modifier.focusItem(
 ): Modifier {
   val focusScope = LocalFocusScope.current
   val scope = focusScope?.memory
-  val group = LocalFocusMemory.current
+  val list = LocalFocusMemory.current
   val requester = remember { FocusRequester() }
   val interactions = remember { MutableInteractionSource() }
   val currentOnConfirm by rememberUpdatedState(onConfirm)
   val currentOnAction by rememberUpdatedState(onAction)
 
-  DisposableEffect(scope, group, key, requester) {
+  DisposableEffect(scope, list, key, requester) {
     scope?.register(key, requester)
-    group?.register(key, requester)
+    list?.register(key, requester)
     onDispose {
       scope?.unregister(key, requester)
-      group?.unregister(key, requester)
+      list?.unregister(key, requester)
     }
   }
 
@@ -102,8 +102,8 @@ fun Modifier.focusItem(
     .focusRequester(requester)
     .onFocusChanged {
       if (it.isFocused) {
-        scope?.onItemFocused(key)
-        group?.onItemFocused(key)
+        scope?.onItemFocused(key, list)
+        list?.onItemFocused(key)
       }
     }
     .onAction { action ->
