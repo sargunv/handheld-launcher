@@ -23,6 +23,6 @@ internal fun retroAchievementsUserAgent(context: Context): String =
 internal fun retroAchievementsClient(context: Context) =
   RetroAchievementsClient(retroAchievementsUserAgent(context))
 
-/** The device's RetroAchievements sign-in, for the launcher's quick menu. */
+/** The device's RetroAchievements sign-in. */
 internal fun retroAchievementsSignIn(context: Context) =
   RetroAchievementsSignIn(retroAchievementsStore(context)) { retroAchievementsClient(context) }

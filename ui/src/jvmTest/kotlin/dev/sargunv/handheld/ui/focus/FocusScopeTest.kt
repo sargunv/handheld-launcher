@@ -108,7 +108,7 @@ class FocusScopeTest {
           Box {
             FocusScope { Box(Modifier.size(40.dp).testTag("screen").focusItem("screen")) }
             Dialog(onDismissRequest = {}) {
-              // A page inside the dialog, as the RetroAchievements page is.
+              // A page inside the dialog, as the quick menu's slot list is.
               FocusScope { Box(Modifier.size(40.dp).testTag("page").focusItem("page")) }
             }
           }

@@ -1,0 +1,7 @@
+{
+  "uniqueId": "io.github.rommapp:argosy-launcher",
+  "name": "Argosy",
+  "description": "Parts of the launcher are ported from it: the emulators it knows and how to launch them, the libretro cores, and where emulators keep saves, states and BIOS files.",
+  "website": "https://github.com/rommapp/argosy-launcher",
+  "licenses": ["GPL-3.0-or-later"]
+}

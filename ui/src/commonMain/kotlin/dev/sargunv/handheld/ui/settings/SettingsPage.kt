@@ -91,7 +91,6 @@ class SettingsView {
   /** Shows [section], with focus on it in the list. */
   fun jumpTo(section: SettingsSection) {
     this.section = section
-    help.shown = null
     jumps.trySend(section)
   }
 }
@@ -145,11 +144,11 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
         ) {
           items(sections, key = { it.key }) {
             SectionRow(
+              view,
               it,
               selected = it == section,
               onFocus = {
                 view.section = it
-                view.help.shown = null
                 storageSection.refused = false
               },
               // A section without settings to focus, such as About, keeps focus in the list.
@@ -197,6 +196,7 @@ private val VerticalWalls = setOf(FocusDirection.Up, FocusDirection.Down)
 
 @Composable
 private fun SectionRow(
+  view: SettingsView,
   section: SettingsSection,
   selected: Boolean,
   onFocus: () -> Unit,
@@ -209,6 +209,7 @@ private fun SectionRow(
     modifier =
       Modifier.fillMaxWidth()
         .semantics { this.selected = selected }
+        .help(view.help, section.key, section.title, help = null)
         .onFocusChanged { if (it.isFocused) onFocus() }
         // Confirming selects it too, for accessibility services, which move their own focus.
         .focusItem(section.key, onConfirm = onFocus) { action ->

@@ -393,8 +393,6 @@ class SessionActivity : ComponentActivity() {
       achievements = achievements,
     )
 
-  // Activity's dispatchKeyEvent is public; lint objects only because androidx.core's override is
-  // restricted.
   @SuppressLint("RestrictedApi")
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
     heldKeys.track(ComposeKeyEvent(event))
