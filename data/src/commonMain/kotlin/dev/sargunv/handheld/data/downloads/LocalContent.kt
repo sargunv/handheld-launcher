@@ -129,15 +129,15 @@ internal class ContentScanner(
       val sizes = candidates.mapTo(mutableSetOf()) { it.files.single().sizeBytes }
       // A set's files are read only where that's quick, or where one could be a game by its size.
       // A set with a file that's a game of the library is its files, each on its own.
-      val sets =
-        discSets(loose).filterValues { parts ->
-          parts.none { part ->
-            // What it read stays in the cache.
-            seen += part.toString()
-            val content = quickContentOf(part, sizes, cache)
-            content != null && candidates.any { content.matches(it.files.single()) }
-          }
-        }
+      val allSets = discSets(loose)
+      val games = mutableSetOf<Path>()
+      for (part in allSets.values.flatten()) {
+        // What it read stays in the cache.
+        seen += part.toString()
+        val content = quickContentOf(part, sizes, cache)
+        if (content != null && candidates.any { content.matches(it.files.single()) }) games += part
+      }
+      val sets = allSets.filterValues { parts -> parts.none { it in games } }
       val listed = sets.values.flatten().toSet()
       val files = loose.filterNot { it in listed }
       for (path in files) {
@@ -214,7 +214,7 @@ internal class ContentScanner(
     val metadata = SystemFileSystem.metadataOrNull(path)
     if (metadata == null || !metadata.isRegularFile) return null
     return try {
-      contentOf(path, metadata.size, sizes, cache, wholeFileLimit = -1)
+      contentOf(path, metadata.size, sizes, cache, quick = true)
     } catch (e: IOException) {
       null
     }
@@ -222,8 +222,8 @@ internal class ContentScanner(
 
   /**
    * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
-   * game: a file bigger than [wholeFileLimit] is read whole only when it's one of the [sizes]. With
-   * [fresh], it reads the file even if the cache has it.
+   * game: a file bigger than [wholeFileLimit], or with [quick] any file, is read whole only when
+   * it's one of the [sizes]. With [fresh], it reads the file even if the cache has it.
    */
   private fun contentOf(
     path: Path,
@@ -231,7 +231,7 @@ internal class ContentScanner(
     sizes: Set<Long>,
     cache: MutableMap<String, CachedContent>,
     fresh: Boolean = false,
-    wholeFileLimit: Long = this.wholeFileLimit,
+    quick: Boolean = false,
   ): FileContent? {
     val modified = lastModified(path)
     cache[path.toString()]
@@ -244,7 +244,7 @@ internal class ContentScanner(
         "zip" -> FileContent(crc = oneFileZipCrc(path))
         "chd" -> FileContent(chdSha1 = chdSha1(path, size))
         else -> {
-          if (size > wholeFileLimit && size !in sizes) return null
+          if ((quick || size > wholeFileLimit) && size !in sizes) return null
           val (crc, sha1) = crcAndSha1(path)
           FileContent(crc = crc, sha1 = sha1)
         }

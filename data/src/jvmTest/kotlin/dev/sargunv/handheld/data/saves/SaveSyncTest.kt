@@ -140,6 +140,9 @@ class SaveSyncTest {
       clock,
     )
 
+  /** The copies of [game]'s saves the history keeps, as the save history lists them. */
+  private fun kept() = keptSaves(File(root, "history"), game.romId)
+
   private val v1 = "first save".encodeToByteArray()
   private val v2 = "second save".encodeToByteArray()
   private val mine = "played on this device".encodeToByteArray()
@@ -163,7 +166,7 @@ class SaveSyncTest {
     assertEquals(newer.id, result.save.id)
     assertContentEquals(v2, saveFile.readBytes())
     assertContentEquals(v1, assertNotNull(result.previous).readBytes(), "The old save is kept")
-    assertEquals(listOf(result.previous), sync.history(game))
+    assertEquals(listOf(result.previous!!.path), kept().map { it.path })
     assertTrue(server.uploads.isEmpty())
     assertEquals(listOf("Pokemon Black.sav"), saves.list()!!.toList(), "No temp files are left")
   }
@@ -182,7 +185,7 @@ class SaveSyncTest {
     assertEquals("Pokemon Black.sav", upload.fileName)
     assertContentEquals(mine, upload.bytes)
     assertEquals(server.stored.last().id, result.save.id)
-    assertTrue(sync.history(game).isEmpty(), "Nothing on the device was replaced")
+    assertTrue(kept().isEmpty(), "Nothing on the device was replaced")
 
     assertIs<SaveSyncResult.UpToDate>(sync.sync(game), "The push was recorded")
     assertEquals(1, server.uploads.size)
@@ -196,7 +199,7 @@ class SaveSyncTest {
 
     assertFailsWith<RommException> { sync.sync(game) }
     assertContentEquals(mine, saveFile.readBytes())
-    assertTrue(sync.history(game).isEmpty())
+    assertTrue(kept().isEmpty())
 
     server.refuseUploads = false
     assertIs<SaveSyncResult.Pushed>(sync.sync(game))
@@ -220,7 +223,7 @@ class SaveSyncTest {
 
     assertEquals(newer.id, assertIs<SaveSyncResult.ServerNewer>(sync.push(game)).server.id)
     assertContentEquals(v1, saveFile.readBytes())
-    assertTrue(sync.history(game).isEmpty())
+    assertTrue(kept().isEmpty())
     assertTrue(server.uploads.isEmpty())
 
     saveFile.delete()
@@ -283,7 +286,7 @@ class SaveSyncTest {
     val requests = server.server.requests.drop(before)
     assertEquals(listOf("saves"), requests.map { it.apiPath }, "Only the list is read")
     assertContentEquals(v1, saveFile.readBytes())
-    assertTrue(sync.history(game).isEmpty())
+    assertTrue(kept().isEmpty())
   }
 
   @Test
@@ -298,7 +301,7 @@ class SaveSyncTest {
     assertEquals(mine.size.toLong(), conflict.device.sizeBytes)
     assertContentEquals(mine, saveFile.readBytes())
     assertTrue(server.uploads.isEmpty())
-    assertTrue(sync.history(game).isEmpty())
+    assertTrue(kept().isEmpty())
   }
 
   @Test
@@ -311,7 +314,7 @@ class SaveSyncTest {
     val resolved = sync.resolve(game, conflict, SaveCopy.Server)
     assertContentEquals(v2, saveFile.readBytes())
     assertContentEquals(mine, resolved.history.readBytes())
-    assertEquals(listOf(resolved.history), sync.history(game), "One copy, not two")
+    assertEquals(listOf(resolved.history.path), kept().map { it.path }, "One copy, not two")
     val upload = server.uploads.single()
     assertNull(upload.query["slot"], "The device's copy is a separate save, outside the slot")
     assertTrue(upload.fileName.startsWith("Pokemon Black (conflict "), upload.fileName)
@@ -325,14 +328,13 @@ class SaveSyncTest {
   @Test
   fun keepingTheDeviceCopyKeepsTheServersInHistory() = runTest {
     val (server, sync) = synced()
-    val newer = server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
+    server.push("Pokemon Black [2025].sav", v2, Instant.parse("2025-02-01T00:00:00Z"))
     saveFile.writeBytes(mine)
     val conflict = assertIs<SaveSyncResult.Conflict>(sync.sync(game))
 
     val resolved = sync.resolve(game, conflict, SaveCopy.Device)
     assertContentEquals(mine, saveFile.readBytes())
     assertContentEquals(v2, resolved.history.readBytes())
-    assertEquals(newer.id, resolved.otherOnServer?.id)
     val upload = server.uploads.single()
     assertEquals(SAVE_SLOT, upload.query["slot"])
     assertContentEquals(mine, upload.bytes)
@@ -358,7 +360,7 @@ class SaveSyncTest {
 
     assertFailsWith<IOException> { sync.sync(game) }
     assertContentEquals(v1, saveFile.readBytes())
-    assertTrue(sync.history(game).isEmpty())
+    assertTrue(kept().isEmpty())
   }
 
   @Test
@@ -668,7 +670,7 @@ class SaveSyncTest {
       assertEquals(listOf(canClose), prompts.asked)
       assertEquals(0, prompts.closed)
       assertContentEquals(v1, saveFile.readBytes())
-      assertTrue(sync.history(game).isEmpty())
+      assertTrue(kept().isEmpty())
       assertTrue(server.uploads.isEmpty())
       root.resolve("records").deleteRecursively()
     }
@@ -775,7 +777,7 @@ class SaveSyncTest {
       assertIs<SaveSyncResult.Conflict>(result.result)
       assertEquals(listOf(true), prompts.asked)
       assertContentEquals(mine, saveFile.readBytes(), "Both copies stay as they were")
-      assertTrue(sync.history(game).isEmpty())
+      assertTrue(kept().isEmpty())
     }
   }
 

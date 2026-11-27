@@ -76,7 +76,6 @@ class RommClient(
 
   override fun close() {
     http.close()
-    if (noRedirectsMade.isInitialized()) noRedirects.close()
     engine.close()
   }
 
@@ -88,13 +87,16 @@ class RommClient(
   suspend fun httpsAddress(): String? {
     if (baseUrl.protocol != URLProtocol.HTTP) return null
     val response = network {
-      noRedirects.request {
-        method = HttpMethod.Get
-        url {
-          takeFrom(baseUrl)
-          appendPathSegments("api", "heartbeat")
+      httpClient(engine) { followRedirects = false }
+        .use { noRedirects ->
+          noRedirects.request {
+            method = HttpMethod.Get
+            url {
+              takeFrom(baseUrl)
+              appendPathSegments("api", "heartbeat")
+            }
+          }
         }
-      }
     }
     val location = response.headers[HttpHeaders.Location] ?: return null
     if (response.status.value !in 300..399) return null
@@ -109,9 +111,6 @@ class RommClient(
       }
       .buildString()
   }
-
-  private val noRedirectsMade = lazy { httpClient(engine) { followRedirects = false } }
-  private val noRedirects by noRedirectsMade
 
   /** The user the token belongs to. */
   suspend fun me(): RommUser =
@@ -559,7 +558,7 @@ internal fun <T> decode(serializer: KSerializer<T>, text: String): T =
   try {
     RommJson.decodeFromString(serializer, text)
   } catch (e: IllegalArgumentException) {
-    throw RommException.InvalidResponse("The server sent a response this client can't read", e)
+    throw RommException.InvalidResponse("Unreadable response", e)
   }
 
 /** The exception for an error response with body [text]. */
@@ -569,11 +568,7 @@ internal fun errorFor(response: HttpResponse, text: String): RommException {
     401 -> RommException.Unauthorized(detail)
     403 -> RommException.Forbidden(detail)
     404 -> RommException.NotFound(detail)
-    429 ->
-      RommException.RateLimited(
-        detail,
-        response.headers[HttpHeaders.RetryAfter]?.toLongOrNull()?.seconds,
-      )
+    429 -> RommException.RateLimited(detail)
     in 500..599 -> RommException.ServerError(status, detail)
     else -> RommException.ClientError(status, detail)
   }

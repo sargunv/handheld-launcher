@@ -215,7 +215,7 @@ class DeviceGames(
         for ((path, _) in parts) SystemFileSystem.delete(path)
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
+        Removal.Failed(e.message ?: DELETE_FAILED)
       } finally {
         rescan()
       }
@@ -253,7 +253,7 @@ class DeviceGames(
         }
         Removal.Removed
       } catch (e: IOException) {
-        Removal.Failed(e.message ?: "The game's files couldn't be deleted")
+        Removal.Failed(e.message ?: DELETE_FAILED)
       } finally {
         // Even a removal that failed partway may have deleted some of the game.
         rescan()
@@ -334,6 +334,8 @@ internal fun isGameFile(path: String): Boolean {
   val extension = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
   return extension !in NotGames && !extension.matches(StateExtension)
 }
+
+private const val DELETE_FAILED = "Couldn't delete files"
 
 /**
  * The extensions of files that sit beside games but aren't games: saves, pictures, patches and

@@ -87,7 +87,6 @@ data class RommRomMetadata(
 @Serializable
 data class RommRomFile(
   val id: Long,
-  @SerialName("rom_id") val romId: Long,
   @SerialName("file_name") val fileName: String,
   @SerialName("file_path") val filePath: String,
   @SerialName("file_size_bytes") val fileSizeBytes: Long,
@@ -99,7 +98,6 @@ data class RommRomFile(
   @SerialName("sha1_hash") val sha1Hash: String? = null,
   /** The SHA-1 in a CHD's header. RomM 5.4 leaves it null and puts that SHA-1 in [sha1Hash]. */
   @SerialName("chd_sha1_hash") val chdSha1Hash: String? = null,
-  @SerialName("updated_at") val updatedAt: Instant,
 )
 
 /** A collection whose ROMs a user picked, as `GET /api/collections` lists it. */

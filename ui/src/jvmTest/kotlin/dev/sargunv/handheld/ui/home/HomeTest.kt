@@ -423,7 +423,7 @@ class HomeTest {
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
     awaitTag("download:2")
     // The test server doesn't serve the game, so the download fails and waits for a retry.
-    awaitText("The server didn't find it")
+    awaitText("Download failed · Not found")
     // Confirm opens the game's page.
     onNodeWithTag("hint:Confirm").assertTextEquals("A", "Open")
     press(Key.ButtonA)
