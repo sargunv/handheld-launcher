@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.downloads
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.toDomain
@@ -14,22 +15,24 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.storage.GameLayout
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -121,6 +124,9 @@ sealed interface RomStatus {
  * A file that resumed from an earlier attempt is checked against the server's hashes, and
  * downloaded again from the start when it doesn't match.
  *
+ * While the device is signed in with a device sign-in, the queue takes the games sent to it from
+ * RomM's web page, at the sign-in and every minute after.
+ *
  * @param library finds a platform's folder name.
  * @param games the games on the device, which a game already there isn't queued over.
  * @param romm the sign-in, whose client downloads the games.
@@ -137,8 +143,8 @@ class DownloadManager(
   private val romm: StateFlow<RommState>,
   private val storage: () -> List<StorageTarget>,
   scope: CoroutineScope,
-  private val canWrite: Flow<Boolean> = flowOf(true),
-  private val storageSettings: () -> StorageSettings = { StorageSettings() },
+  private val canWrite: Flow<Boolean>,
+  private val storageSettings: () -> StorageSettings,
 ) {
   private val file = JsonFile(queueFile, ListSerializer(Download.serializer()))
   private val mutex = Mutex()
@@ -200,6 +206,20 @@ class DownloadManager(
       signedInServer.filterNotNull().collect { server ->
         for (download in entries.value) {
           if (download.server != server) cancel(download.romId)
+        }
+      }
+    }
+    scope.launch {
+      accounts.collectLatest { account ->
+        // A token pasted from the server's web page is no device's, so nothing is sent to it.
+        val deviceId = account?.credentials?.deviceId ?: return@collectLatest
+        while (true) {
+          try {
+            takeInstallRequests(account.client, deviceId)
+          } catch (e: RommException) {
+            log.w(e) { "Taking the games sent to the device failed" }
+          }
+          delay(1.minutes)
         }
       }
     }
@@ -329,7 +349,7 @@ class DownloadManager(
    *
    * @throws RommException when the server can't be reached.
    */
-  suspend fun takeInstallRequests(client: RommClient, deviceId: String) {
+  private suspend fun takeInstallRequests(client: RommClient, deviceId: String) {
     val listed = client.installRequests(deviceId)
     val taken =
       if (listed.any { it.status == RommInstallStatus.Pending }) {
@@ -547,6 +567,8 @@ class DownloadManager(
     true
   }
 }
+
+private val log = Logger.withTag("DownloadManager")
 
 /** The folder on the storage target at [root] where downloads stay until they're whole. */
 private fun stagingRoot(root: String) = Path(GameLayout.platformFolder(root, ".handheld-staging"))

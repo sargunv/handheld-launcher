@@ -16,11 +16,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
-import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -28,8 +26,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -87,10 +83,8 @@ class RommSessionTest {
     }
   }
 
-  private fun session(
-    scope: CoroutineScope,
-    takeInstallRequests: suspend (RommClient, String) -> Unit = { _, _ -> awaitCancellation() },
-  ) = RommSession(store, library, Path(dir.path, "save-sync"), scope, server, takeInstallRequests)
+  private fun session(scope: CoroutineScope) =
+    RommSession(store, library, Path(dir.path, "save-sync"), scope, server)
 
   /** Runs [block] with a timeout in real time, since the sync runs on real threads. */
   private suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
@@ -178,39 +172,6 @@ class RommSessionTest {
   fun aRefusedTokenSaysSo() = runTest {
     refuses = true
     session(backgroundScope).awaitSync(SyncStatus.Unauthorized)
-  }
-
-  @Test
-  fun takesTheGamesSentToTheDeviceEveryMinuteWhileSignedIn() = runTest {
-    // When each poll came, in virtual time.
-    val polls = MutableStateFlow(emptyList<Long>())
-    session(backgroundScope) { _, deviceId ->
-      assertEquals("d1", deviceId)
-      polls.update { it + testScheduler.currentTime }
-      // A poll that fails waits for the next one.
-      if (polls.value.size == 1) throw RommException.ServerError(500, null)
-    }
-    store.save(signedIn.copy(deviceId = "d1"))
-    runCurrent()
-    advanceTimeBy(1.minutes)
-    runCurrent()
-    assertEquals(listOf(0L, 60_000L), polls.value)
-
-    store.clear()
-    runCurrent()
-    advanceTimeBy(5.minutes)
-    // A token pasted from the web page is no device's.
-    store.save(signedIn)
-    runCurrent()
-    advanceTimeBy(5.minutes)
-    assertEquals(listOf(0L, 60_000L), polls.value)
-
-    // The next account's work starts once the sync before it has stopped, on its real thread.
-    store.save(signedIn.copy(deviceId = "d1"))
-    assertEquals(
-      listOf(0L, 60_000L, 660_000L),
-      waitFor { polls.first { it.size >= 3 } }.take(3),
-    )
   }
 
   @Test

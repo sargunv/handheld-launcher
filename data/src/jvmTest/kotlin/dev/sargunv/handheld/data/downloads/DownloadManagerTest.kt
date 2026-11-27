@@ -28,6 +28,7 @@ import io.ktor.utils.io.writeFully
 import java.io.File
 import java.security.MessageDigest
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.CRC32
 import kotlin.io.path.createTempDirectory
 import kotlin.random.Random
@@ -38,11 +39,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -261,11 +264,12 @@ class DownloadManagerTest {
       Path(dir.path, "save-sync"),
     )
 
-  /** Takes the games that the server at [engine] sent to the device `dev-1` into [downloads]. */
-  private suspend fun takeSentGames(engine: () -> MockEngine, downloads: DownloadManager) =
-    RommClient(TEST_SERVER, "rmm_test", engine()).use {
-      downloads.takeInstallRequests(it, "dev-1")
-    }
+  /**
+   * A scope on real threads, where the queue takes the games sent to the device at each sign-in,
+   * and the next minute's poll comes after the test.
+   */
+  private fun TestScope.realTime() =
+    CoroutineScope(backgroundScope.coroutineContext + Dispatchers.Default)
 
   private suspend fun DownloadManager.awaitEmpty() = waitFor {
     queue.first { it.isEmpty() }
@@ -679,10 +683,8 @@ class DownloadManagerTest {
         }
       }
     val engine = server(installs = installs)
-    val downloads = manager(backgroundScope, engine, deviceId = "dev-1")
+    manager(realTime(), engine, deviceId = "dev-1")
 
-    takeSentGames(engine, downloads)
-    downloads.awaitEmpty()
     // The download reports to the server once it's out of the queue.
     waitFor { while (updates.size < 2) delay(10) }
 
@@ -721,8 +723,7 @@ class DownloadManagerTest {
           }
         },
       )
-    val downloads = manager(backgroundScope, engine, deviceId = "dev-1")
-    takeSentGames(engine, downloads)
+    val downloads = manager(realTime(), engine, deviceId = "dev-1")
     waitFor { downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L } }
 
     downloads.cancel(1)
@@ -755,20 +756,51 @@ class DownloadManagerTest {
         }
       }
     val engine = server(sizeOverride = { if (fits) null else 1L shl 60 }, installs = installs)
-    val downloads = manager(backgroundScope, engine, "dev-1")
-
-    takeSentGames(engine, downloads)
+    val romm = MutableStateFlow<RommState>(account(engine, deviceId = "dev-1"))
+    val downloads = manager(realTime(), engine, romm = romm)
     waitFor { downloads.queue.first { it.firstOrNull()?.state == DownloadState.Failed } }
 
-    // Sent again from the web page once there's room.
+    // Sent again from the web page once there's room, and taken at the next sign-in.
     sent = "req-2"
     fits = true
-    takeSentGames(engine, downloads)
-    downloads.awaitEmpty()
+    romm.value = account(engine, deviceId = "dev-1")
     waitFor { while (updates.none { it.first == "req-2" }) delay(10) }
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
     assertEquals(listOf("req-2" to """{"status":"done"}"""), updates.filter { it.first == "req-2" })
+  }
+
+  @Test
+  fun pollsForTheGamesSentToTheDeviceWhileSignedIn() = runTest {
+    val polls = AtomicInteger()
+    val canceled = CompletableDeferred<Unit>()
+    val engine =
+      server(
+        installs = { request ->
+          if (request.apiPath != "devices/dev-1/installs") null
+          else
+            when (polls.incrementAndGet()) {
+              // A poll that fails waits for the next one.
+              1 -> respondError(HttpStatusCode.InternalServerError)
+              2 ->
+                try {
+                  awaitCancellation()
+                } finally {
+                  canceled.complete(Unit)
+                }
+              else -> json("[]")
+            }
+        },
+      )
+    val romm = MutableStateFlow<RommState>(account(engine, deviceId = "dev-1"))
+    manager(backgroundScope, engine, romm = romm)
+    waitFor { while (polls.get() < 2) delay(10) }
+
+    romm.value = RommState.SignedOut
+    waitFor { canceled.await() }
+
+    romm.value = account(engine, deviceId = "dev-1")
+    waitFor { while (polls.get() < 3) delay(10) }
   }
 
   @Test

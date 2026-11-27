@@ -15,15 +15,14 @@ import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
@@ -75,43 +74,19 @@ internal fun ComposeUiTest.launchApp(
   setContent {
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
-    val dataDir = remember { createTempDirectory("handheld-data").toString() }
-    val games = remember {
-      DeviceGames(library, { storage }, scope, Path(dataDir, "local-content.json"))
+    val data = remember {
+      val dataDir = Path(createTempDirectory("handheld-data").toString())
+      HandheldData(credentials, library, dataDir, { storage }, scope, engine = server)
     }
-    val (romm, queue) =
-      remember {
-        lateinit var queue: DownloadManager
-        val romm =
-          RommSession(
-            credentials,
-            library,
-            Path(dataDir, "save-sync"),
-            scope,
-            server,
-          ) { client, id ->
-            queue.takeInstallRequests(client, id)
-          }
-        queue =
-          DownloadManager(
-            queueFile = Path(dataDir, "downloads.json"),
-            library = library,
-            games = games,
-            romm = romm.state,
-            storage = { storage },
-            scope = scope,
-          )
-        downloads = queue
-        romm to queue
-      }
+    downloads = data.downloads
     App(
       layout,
       heldKeys,
-      romm,
+      data.romm,
       DeviceDescription("install-1", "Test device", "test", null),
-      library,
-      queue,
-      games,
+      data.library,
+      data.downloads,
+      data.games,
       remember { Path(createTempDirectory("handheld-covers").toString()) },
       Modifier.trackHeldKeys(heldKeys),
       initialSettings = settings,
