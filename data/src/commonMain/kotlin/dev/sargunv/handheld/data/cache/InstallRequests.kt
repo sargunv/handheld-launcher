@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.data.cache
 
-import dev.sargunv.handheld.data.auth.CredentialStore
+import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.downloads.Download
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.romm.RommClient
@@ -32,17 +32,16 @@ suspend fun takeInstallRequests(client: RommClient, deviceId: String, downloads:
 
 /**
  * Tells the server that sent [download] from its web page, if one did, that its install ended with
- * [status], for [reason].
+ * [status], for [reason], signed in with [signedIn].
  */
 internal suspend fun reportInstall(
-  credentials: CredentialStore,
+  signedIn: RommCredentials,
   engine: () -> HttpClientEngine,
   download: Download,
   status: RommInstallStatus,
   reason: String? = null,
 ) {
   val requestId = download.installRequestId ?: return
-  val signedIn = credentials.load() ?: return
   val deviceId = signedIn.deviceId ?: return
   try {
     RommClient(signedIn.baseUrl, signedIn.token, engine()).use {
