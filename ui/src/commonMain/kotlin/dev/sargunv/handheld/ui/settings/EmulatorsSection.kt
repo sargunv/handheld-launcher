@@ -18,8 +18,8 @@ import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Screen
 
 /**
- * Every platform in the library, with the app its games open in when nothing else chooses, once
- * both the [platforms] and the [apps] installed are read.
+ * The Emulators section, with the library's [platforms] and installed [apps], each null while it's
+ * read.
  */
 internal fun LazyListScope.emulators(
   state: AppState,

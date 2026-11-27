@@ -114,7 +114,7 @@ class AppState(
     games.localGames().stateIn(scope, SharingStarted.WhileSubscribed(), emptyList())
 
   val libraryView = LibraryState(library, deviceStates, localGames) { libraryTab }
-  val settingsView = SettingsView(romm, achievements = retroAchievements != null)
+  val settingsView = SettingsView(romm, offersAchievements = retroAchievements != null)
 
   val account = Account(romm, device)
 

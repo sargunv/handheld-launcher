@@ -36,11 +36,14 @@ class RetroAchievementsTest {
   private val store = InMemoryRetroAchievementsStore()
   private val saved = mutableListOf<Settings>()
 
-  /** Holds back the server's answer until it completes. */
-  private var answer: CompletableDeferred<Unit>? = null
-
-  /** Opens the RetroAchievements section, whose server [accepts] the password or refuses it. */
-  private fun ComposeUiTest.launch(accepts: Boolean) {
+  /**
+   * Opens the RetroAchievements section, whose server [accepts] the password or refuses it once
+   * [answer] completes.
+   */
+  private fun ComposeUiTest.launch(
+    accepts: Boolean,
+    answer: CompletableDeferred<Unit> = CompletableDeferred(Unit),
+  ) {
     launchApp(
       saveSettings = { saved += it },
       retroAchievements =
@@ -48,7 +51,7 @@ class RetroAchievementsTest {
           RetroAchievementsClient(
             "HandheldLauncher/test rcheevos/12.5",
             MockEngine {
-              answer?.await()
+              answer.await()
               if (accepts) {
                 respond("""{"Success":true,"User":"Player","Token":"ra_token"}""")
               } else {
@@ -103,15 +106,16 @@ class RetroAchievementsTest {
 
   @Test
   fun finishesASignInAfterFocusLeavesTheSection() = runComposeUiTest {
-    val held = CompletableDeferred<Unit>().also { answer = it }
-    launch(accepts = true)
+    val held = CompletableDeferred<Unit>()
+    launch(accepts = true, answer = held)
     signIn("player", "hunter2")
     awaitText("Signing in")
     press(listOf(Key.DirectionLeft, Key.DirectionUp))
     awaitFocused("settings:RomM")
     held.complete(Unit)
-    waitUntil(timeoutMillis = 5_000) { runBlocking { store.load() } != null }
-    assertEquals(RetroAchievementsAccount("Player", "ra_token"), runBlocking { store.load() })
+    waitUntil(timeoutMillis = 5_000) {
+      runBlocking { store.load() } == RetroAchievementsAccount("Player", "ra_token")
+    }
   }
 
   @Test

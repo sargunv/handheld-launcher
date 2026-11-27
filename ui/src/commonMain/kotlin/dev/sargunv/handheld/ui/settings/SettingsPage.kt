@@ -88,13 +88,9 @@ enum class SettingsSection(val title: String, internal val description: String) 
     get() = "settings:$name"
 }
 
-/**
- * What the Settings page shows, which both screens follow. Signed out of [romm], it offers only
- * what needs no server: Controls, RomM (which says so) and About. It offers RetroAchievements when
- * [achievements] is.
- */
+/** What the Settings page shows, which both screens follow. */
 @Stable
-class SettingsView(private val romm: RommSession, private val achievements: Boolean) {
+class SettingsView(private val romm: RommSession, private val offersAchievements: Boolean) {
   /** The section last focused in the list or jumped to, which shows while it's offered. */
   var section: SettingsSection by mutableStateOf(SettingsSection.Controls)
     internal set
@@ -105,7 +101,7 @@ class SettingsView(private val romm: RommSession, private val achievements: Bool
       val signedIn = romm.state.collectAsState().value.signedIn == true
       return SettingsSection.entries.filter {
         when (it) {
-          SettingsSection.RetroAchievements -> signedIn && achievements
+          SettingsSection.RetroAchievements -> signedIn && offersAchievements
           SettingsSection.Emulators,
           SettingsSection.Storage -> signedIn
           else -> true
