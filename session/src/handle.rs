@@ -20,7 +20,7 @@ use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
     SendAchievementsRequest,
 };
-use crate::input::{Button, InputState, MAX_PORTS, Stick};
+use crate::input::{Button, InputState, MAX_PORTS, Stick, Trigger};
 use crate::pacing::{self, Vsync};
 use crate::platform::{self, PlatformWindow, VsyncClock};
 use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo};
@@ -418,13 +418,11 @@ impl GameSession {
         }
     }
 
-    /// Sets how far the analog trigger `button`, `L2` or `R2`, is pulled on
-    /// controller `port`, from 0 to 32767. Other buttons are ignored.
-    pub fn set_trigger(&self, port: u32, button: Button, value: i16) {
-        if matches!(button, Button::L2 | Button::R2)
-            && let Some(port) = self.port(port)
-        {
-            port.set_trigger(button, value);
+    /// Sets how far `trigger` is pulled on controller `port`, from 0 to 32767.
+    /// Ports past the last are ignored.
+    pub fn set_trigger(&self, port: u32, trigger: Trigger, value: i16) {
+        if let Some(port) = self.port(port) {
+            port.set_trigger(trigger, value);
         }
     }
 
