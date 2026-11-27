@@ -149,11 +149,11 @@ internal fun appName(
   packageName: String,
   core: String?,
   apps: List<InstalledApp>,
-  platform: PlatformSlug? = null,
+  platform: PlatformSlug,
 ): String {
   if (packageName == LaunchChoice.BUILT_IN) {
-    val builtInCore = core ?: platform?.let { LibretroCores.recommendedFor(it)?.library }
-    return builtInCore?.let { withCore(BUILT_IN_NAME, it) } ?: BUILT_IN_NAME
+    return LibretroCores.resolve(core, platform)?.let { withCore(BUILT_IN_NAME, it.library) }
+      ?: BUILT_IN_NAME
   }
   val name =
     apps.firstOrNull { it.packageName == packageName }?.label

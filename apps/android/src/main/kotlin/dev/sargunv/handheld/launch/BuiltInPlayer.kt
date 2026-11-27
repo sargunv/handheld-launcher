@@ -11,7 +11,7 @@ import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.builtInGameSave
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
-import dev.sargunv.handheld.domain.emulator.LibretroCores
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import java.io.File
@@ -33,27 +33,22 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
   private val saves = activity.handheldApp.builtInSaveFolders.saves
 
   /**
-   * Plays [request]'s game in [core], a libretro core's library name, or the platform's recommended
-   * core when it's null, and returns once the player is back from the game, telling [note] what the
-   * player should know. [onProgress] hears how a download of the core is going, and [chooseSave]
-   * which copy of the save to keep when both changed; null cancels the launch.
+   * Plays [request]'s game in [core], and returns once the player is back from the game, telling
+   * [note] what the player should know. [onProgress] hears how a download of the core is going, and
+   * [chooseSave] which copy of the save to keep when both changed; null cancels the launch.
    */
   suspend fun play(
     request: PlayRequest,
-    core: String?,
+    core: LibretroCore,
     onProgress: (String) -> Unit,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
     note: (String) -> Unit,
   ) {
-    val chosen =
-      core?.let(LibretroCores::byLibrary)
-        ?: LibretroCores.recommendedFor(request.platform)
-        ?: return note("No core for this platform")
     val coreFile =
       try {
         // The app's native libraries are built for the device's first ABI.
         InstalledCores(coresDir, Build.SUPPORTED_ABIS.first()).use { cores ->
-          cores.ensure(chosen) { downloaded, total ->
+          cores.ensure(core) { downloaded, total ->
             val percent = total?.takeIf { it > 0 }?.let { " ${downloaded * 100 / it}%" } ?: ""
             onProgress("Downloading core$percent")
           }
@@ -70,7 +65,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         File(folder).mkdirs()
         activity.handheldApp.settingsFile.read()
       }
-    val game = rom?.let { builtInGameSave(it.romId, chosen.library, File(saveRam)) }
+    val game = rom?.let { builtInGameSave(it.romId, core.library, File(saveRam)) }
     if (game != null) {
       if (!playSaves.beforeLaunch(request.title, game, chooseSave, note, emulator = null)) return
     }
@@ -83,8 +78,8 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         saveRam = saveRam,
         states = saves.statesOf(folder, request.romPath),
         input = settings.input,
-        stackedScreensOptions = chosen.stackedScreensOptions,
-        lowerScreenWidthShare = chosen.lowerScreenWidthShare,
+        stackedScreensOptions = core.stackedScreensOptions,
+        lowerScreenWidthShare = core.lowerScreenWidthShare,
         achievementsConsole = retroAchievementsConsole(request.platform),
         hardcore = settings.achievements.hardcore,
       )
@@ -94,7 +89,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     }
     val saveError = result?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
     if (saveError != null) note("Save write failed · $saveError")
-    else Log.i(TAG, "Back from the game in ${chosen.library}")
+    else Log.i(TAG, "Back from the game in ${core.library}")
     // When a write failed, the file still holds the last whole save.
     if (game != null) playSaves.afterPlay(game, note)
   }

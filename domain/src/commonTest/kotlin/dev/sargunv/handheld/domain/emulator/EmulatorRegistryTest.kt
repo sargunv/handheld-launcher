@@ -110,7 +110,13 @@ class EmulatorRegistryTest {
       for (emulator in EmulatorRegistry.forPlatform(platform)) {
         val input = LaunchInput(romPath = "/storage/emulated/0/ROMs/game.bin", platform = platform)
         for (recipe in listOfNotNull(emulator.recipe, emulator.forkRecipe)) {
-          val build = LaunchCommandBuilder.build(recipe, emulator.packageName, input)
+          val build =
+            LaunchCommandBuilder.build(
+              recipe,
+              emulator.packageName,
+              input,
+              LibretroCores.recommendedFor(platform),
+            )
           val command = assertIs<LaunchBuild.Ready>(build, "${emulator.id} on $platform").command
           assertEquals(emulator.packageName, command.packageName)
         }
