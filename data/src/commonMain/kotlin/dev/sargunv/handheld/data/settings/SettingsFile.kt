@@ -18,7 +18,7 @@ class SettingsFile<T : Any>(
   serializer: KSerializer<T>,
   private val default: T,
 ) {
-  private val file = JsonFile(path, serializer, json, unreadableIsMissing = true)
+  private val file = JsonFile(path, serializer, json)
 
   /**
    * The stored settings, or [default] when there's no file or it can't be read. It blocks, but

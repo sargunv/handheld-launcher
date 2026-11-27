@@ -90,9 +90,7 @@ internal class ContentScanner(
   cacheFile: Path,
   private val wholeFileLimit: Long = WHOLE_FILE_LIMIT,
 ) {
-  // A cache from an older version, or a damaged one, is read again from the files.
-  private val file =
-    JsonFile(cacheFile, ListSerializer(CachedContent.serializer()), unreadableIsMissing = true)
+  private val file = JsonFile(cacheFile, ListSerializer(CachedContent.serializer()))
   private val mutex = Mutex()
   private var cache: MutableMap<String, CachedContent>? = null
   /** Whether the cache has changes the file lacks. */

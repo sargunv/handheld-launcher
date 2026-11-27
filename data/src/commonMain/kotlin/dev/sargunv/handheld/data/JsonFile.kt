@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data
 
+import co.touchlab.kermit.Logger
 import kotlin.random.Random
 import kotlin.random.nextULong
 import kotlinx.coroutines.Dispatchers
@@ -21,16 +22,13 @@ internal val LenientJson = Json { ignoreUnknownKeys = true }
 
 /**
  * A value kept as JSON in the file at [path]. Writes go one at a time, and a read sees the whole of
- * one of them.
- *
- * @param unreadableIsMissing whether a file that can't be read or decoded reads as no value, rather
- *   than throwing.
+ * one of them. A file that can't be read or decoded reads as no value, so the next write replaces
+ * it.
  */
 internal class JsonFile<T : Any>(
   private val path: Path,
   private val serializer: KSerializer<T>,
   private val json: Json = LenientJson,
-  private val unreadableIsMissing: Boolean = false,
 ) {
   private val mutex = Mutex()
 
@@ -45,10 +43,15 @@ internal class JsonFile<T : Any>(
     } catch (_: FileNotFoundException) {
       null
     } catch (e: IOException) {
-      if (unreadableIsMissing) null else throw e
+      unreadable(e)
     } catch (e: IllegalArgumentException) {
-      if (unreadableIsMissing) null else throw e
+      unreadable(e)
     }
+
+  private fun unreadable(e: Exception): T? {
+    log.w(e) { "Couldn't read $path" }
+    return null
+  }
 
   suspend fun write(value: T) = locked { store(value) }
 
@@ -83,3 +86,5 @@ fun writeAtomically(path: Path, bytes: ByteArray) {
     SystemFileSystem.delete(temp, mustExist = false)
   }
 }
+
+private val log = Logger.withTag("JsonFile")
