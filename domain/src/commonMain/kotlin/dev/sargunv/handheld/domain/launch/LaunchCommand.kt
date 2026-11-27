@@ -21,7 +21,6 @@ data class LaunchCommand(
   val flags: Set<LaunchFlag> = emptySet(),
   val clipData: LaunchUri? = null,
   val method: LaunchMethod = LaunchMethod.Intent,
-  val stopBeforeLaunch: Boolean = false,
 ) {
   /** The files this command hands over by content URI, each to be granted once. */
   val readGrants: List<LaunchUri.ProviderFile>

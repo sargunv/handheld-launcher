@@ -41,7 +41,8 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  *
  * [androidLibrary] is the name on the Android buildbot where it differs, for cores built per
  * graphics API there. [retroArchFolder] is the folder RetroArch sorts the core's saves and states
- * into. [source] is where its Android builds come from.
+ * into, or null for a core the catalogue doesn't know. [source] is where its Android builds come
+ * from.
  *
  * [stackedScreensOptions] are the core options that make a two-screen system's core draw its
  * screens stacked in one frame, top above bottom, each in its own half of the frame, with no gap,
@@ -53,7 +54,7 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
 data class LibretroCore(
   val library: String,
   val androidLibrary: String = library,
-  val retroArchFolder: String,
+  val retroArchFolder: String?,
   val source: CoreSource = CoreSource.Buildbot,
   val stackedScreensOptions: Map<String, String> = emptyMap(),
   val lowerScreenWidthShare: Float? = null,
@@ -189,4 +190,13 @@ object LibretroCores {
 
   /** The known core whose library is [library], or null when there's none. */
   fun byLibrary(library: String): LibretroCore? = all.firstOrNull { it.library == library }
+
+  /**
+   * The core a game on [platform] runs in when a choice names [library]: the core of that library,
+   * or the platform's recommended one when [library] is null. A library the catalogue doesn't know
+   * is a core of that name on Android too.
+   */
+  fun resolve(library: String?, platform: PlatformSlug): LibretroCore? =
+    if (library == null) recommendedFor(platform)
+    else byLibrary(library) ?: LibretroCore(library, retroArchFolder = null)
 }

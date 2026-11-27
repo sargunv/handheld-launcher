@@ -56,7 +56,7 @@ class LaunchIntentsTest {
           ),
         )
         .command
-    val intent = LaunchIntents.toIntent(command, contentUris)
+    val intent = command.toIntent(contentUris)
 
     assertEquals(Intent.ACTION_VIEW, intent.action)
     assertEquals("dev.sargunv.pocketgoal", intent.`package`)
@@ -89,7 +89,7 @@ class LaunchIntentsTest {
             LaunchExtra.StringArray("args", listOf("-r", "PCSE00120")),
           ),
       )
-    val intent = LaunchIntents.toIntent(command, contentUris)
+    val intent = command.toIntent(contentUris)
 
     assertEquals("dev.example.emu", intent.component?.packageName)
     assertEquals("dev.example.emu.Play", intent.component?.className)
@@ -105,8 +105,7 @@ class LaunchIntentsTest {
   // DraStic opens `getData().getPath()` when the scheme is `file`.
   @Test
   fun fileUrisDecodeToTheRomPath() {
-    val intent =
-      LaunchIntents.toIntent(command("drastic", PlatformCatalog.NDS, awkwardRom), contentUris)
+    val intent = command("drastic", PlatformCatalog.NDS, awkwardRom).toIntent(contentUris)
     assertEquals("file", intent.data?.scheme)
     assertEquals(awkwardRom, intent.data?.path)
     assertNull(intent.type)
@@ -120,19 +119,14 @@ class LaunchIntentsTest {
   // Flycast opens `getData().toString()` as a path.
   @Test
   fun pathUrisKeepTheRomPathAsWritten() {
-    val intent =
-      LaunchIntents.toIntent(
-        command("flycast", PlatformCatalog.DREAMCAST, awkwardRom),
-        contentUris,
-      )
+    val intent = command("flycast", PlatformCatalog.DREAMCAST, awkwardRom).toIntent(contentUris)
     assertEquals(awkwardRom, intent.data.toString())
     assertNull(intent.clipData)
   }
 
   @Test
   fun pathExtrasKeepTheRomPath() {
-    val intent =
-      LaunchIntents.toIntent(command("seedlessds", PlatformCatalog.NDS, awkwardRom), contentUris)
+    val intent = command("seedlessds", PlatformCatalog.NDS, awkwardRom).toIntent(contentUris)
     assertEquals(awkwardRom, intent.getStringExtra("rom_path"))
   }
 
@@ -148,7 +142,7 @@ class LaunchIntentsTest {
           ),
         )
         .command
-    val data = LaunchIntents.toIntent(command, contentUris).data
+    val data = command.toIntent(contentUris).data
     assertEquals("linkboy", data?.scheme)
     assertEquals("emulator", data?.authority)
     assertEquals(path, data?.path)
@@ -156,7 +150,7 @@ class LaunchIntentsTest {
 
   @Test
   fun dolphinGetsItsRomAsAUriExtra() {
-    val intent = LaunchIntents.toIntent(command("dolphin", PlatformCatalog.GAMECUBE), contentUris)
+    val intent = command("dolphin", PlatformCatalog.GAMECUBE).toIntent(contentUris)
     assertEquals(IntentAction.MAIN, intent.action)
     assertEquals(setOf(IntentCategory.DEFAULT), intent.categories)
     assertEquals(romUri, intent.getParcelableExtra("AutoStartFile", Uri::class.java))

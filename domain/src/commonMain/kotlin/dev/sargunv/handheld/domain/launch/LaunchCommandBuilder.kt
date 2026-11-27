@@ -2,7 +2,7 @@
 
 package dev.sargunv.handheld.domain.launch
 
-import dev.sargunv.handheld.domain.emulator.LibretroCores
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
@@ -20,7 +20,7 @@ data class LaunchInput(
 sealed interface LaunchBuild {
   data class Ready(val command: LaunchCommand) : LaunchBuild
 
-  /** The recipe loads a libretro core, and none was given or is recommended for [platform]. */
+  /** The recipe loads a libretro core, and none runs [platform]. */
   data class MissingCore(val platform: PlatformSlug) : LaunchBuild
 }
 
@@ -32,21 +32,18 @@ object LaunchCommandBuilder {
 
   /**
    * The command that launches [input] in [packageName] the way [recipe] describes. [core] is the
-   * libretro core's library name, such as `snes9x_libretro`, for recipes that load one; null picks
-   * [LibretroCores.recommendedFor] the platform.
+   * libretro core for recipes that load one.
    */
   fun build(
     recipe: LaunchRecipe,
     packageName: String,
     input: LaunchInput,
-    core: String? = null,
+    core: LibretroCore? = null,
   ): LaunchBuild {
     val rom = LaunchUri.ProviderFile(input.romPath)
     val loadedCore =
       if (recipe.loadsCore) {
-        core
-          ?: LibretroCores.recommendedFor(input.platform)?.androidLibrary
-          ?: return LaunchBuild.MissingCore(input.platform)
+        core?.androidLibrary ?: return LaunchBuild.MissingCore(input.platform)
       } else {
         null
       }
@@ -110,7 +107,6 @@ object LaunchCommandBuilder {
           if (handsOverUri) recipe.flags + LaunchFlag.GrantReadUriPermission else recipe.flags,
         clipData = rom.takeIf { handsOverUri },
         method = recipe.method,
-        stopBeforeLaunch = recipe.stopBeforeLaunch,
       )
     return LaunchBuild.Ready(command)
   }

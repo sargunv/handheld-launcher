@@ -10,8 +10,7 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  * [data] and [extras] say where the ROM goes. [flags] never needs
  * [LaunchFlag.GrantReadUriPermission]: building a command adds it whenever the command hands over a
  * content URI. [grantRom] hands the ROM over by content URI as clip data even when the recipe
- * passes it only by path, for apps that may read it either way. [stopBeforeLaunch] marks apps that
- * ignore a launch while a previous session is still alive.
+ * passes it only by path, for apps that may read it either way.
  */
 data class LaunchRecipe(
   val action: String = IntentAction.VIEW,
@@ -23,7 +22,6 @@ data class LaunchRecipe(
   val flags: Set<LaunchFlag> = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask),
   val method: LaunchMethod = LaunchMethod.Intent,
   val grantRom: Boolean = false,
-  val stopBeforeLaunch: Boolean = false,
 ) {
   /** Whether the app loads a libretro core, which a launch names. */
   val loadsCore: Boolean

@@ -41,7 +41,7 @@ class ShellLaunchTest {
         "-f",
         "0x44008000",
       ),
-      ShellLaunch.argv(command),
+      command.amStartArgv(),
     )
   }
 
@@ -65,14 +65,14 @@ class ShellLaunchTest {
         "-f",
         "0x10008000",
       ),
-      ShellLaunch.argv(command),
+      command.amStartArgv(),
     )
   }
 
   @Test
   fun awkwardFileNamesReachTheCommandIntact() {
     val rom = "/storage/emulated/0/ROMs/Pokémon #1 (100%)?.nds"
-    fun dataOf(command: LaunchCommand) = ShellLaunch.argv(command).let { it[it.indexOf("-d") + 1] }
+    fun dataOf(command: LaunchCommand) = command.amStartArgv().let { it[it.indexOf("-d") + 1] }
 
     assertEquals(
       "file:///storage/emulated/0/ROMs/Pok%C3%A9mon%20%231%20(100%25)%3F.nds",
@@ -112,7 +112,7 @@ class ShellLaunchTest {
         "args",
         "-r,a\\,b",
       ),
-      ShellLaunch.argv(command),
+      command.amStartArgv(),
     )
   }
 
@@ -120,6 +120,6 @@ class ShellLaunchTest {
   fun contentUrisCantGoThroughTheShell() {
     val command = command("armsx2", PlatformCatalog.PS2, "/storage/emulated/0/ROMs/game.iso")
     assertEquals(LaunchMethod.Shell, command.method)
-    assertFailsWith<IllegalArgumentException> { ShellLaunch.argv(command) }
+    assertFailsWith<IllegalArgumentException> { command.amStartArgv() }
   }
 }

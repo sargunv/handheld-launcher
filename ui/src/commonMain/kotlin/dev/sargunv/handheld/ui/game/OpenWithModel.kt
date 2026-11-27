@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchChoice
@@ -119,7 +120,7 @@ internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<
         if (emulator?.recipe?.loadsCore == true && core != null) {
           AppOption(
             SavedChoice(app.packageName, core.library),
-            withCore(app.label, core.library),
+            withCore(app.label, core),
             true,
           )
         } else {
@@ -132,7 +133,7 @@ internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<
     }
   // The built-in session picks the platform's core when it plays, so the choice doesn't name one.
   val builtIn = core?.let {
-    AppOption(SavedChoice(LaunchChoice.BUILT_IN), withCore(BUILT_IN_NAME, it.library), true)
+    AppOption(SavedChoice(LaunchChoice.BUILT_IN), withCore(BUILT_IN_NAME, it), true)
   }
   return listOfNotNull(builtIn) + knownOptions + otherOptions
 }
@@ -149,21 +150,21 @@ internal fun appName(
   packageName: String,
   core: String?,
   apps: List<InstalledApp>,
-  platform: PlatformSlug? = null,
+  platform: PlatformSlug,
 ): String {
   if (packageName == LaunchChoice.BUILT_IN) {
-    val builtInCore = core ?: platform?.let { LibretroCores.recommendedFor(it)?.library }
-    return builtInCore?.let { withCore(BUILT_IN_NAME, it) } ?: BUILT_IN_NAME
+    return LibretroCores.resolve(core, platform)?.let { withCore(BUILT_IN_NAME, it) }
+      ?: BUILT_IN_NAME
   }
   val name =
     apps.firstOrNull { it.packageName == packageName }?.label
       ?: EmulatorRegistry.forPackage(packageName)?.displayName
       ?: packageName
-  return if (core != null) withCore(name, core) else name
+  return core?.let { LibretroCores.resolve(it, platform) }?.let { withCore(name, it) } ?: name
 }
 
-private fun withCore(name: String, core: String) =
-  "$name · ${LibretroCores.byLibrary(core)?.retroArchFolder ?: core}"
+private fun withCore(name: String, core: LibretroCore) =
+  "$name · ${core.retroArchFolder ?: core.library}"
 
 /** A line of the rule chain on the lower screen. [wins] marks the rule that opens the game. */
 internal data class ChainLine(val text: String, val wins: Boolean = false)

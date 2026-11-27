@@ -87,7 +87,6 @@ object EmulatorRegistry {
       mimeType = null,
       extras = mapOf("AppStartParameters" to ExtraValue.VitaTitleArgs),
       flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask, LaunchFlag.NoHistory),
-      stopBeforeLaunch = true,
     )
 
   private val melonDsActivity = "me.magnum.melonds.ui.emulator.EmulatorActivity"

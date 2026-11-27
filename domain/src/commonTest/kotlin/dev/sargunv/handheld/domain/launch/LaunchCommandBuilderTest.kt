@@ -3,6 +3,8 @@ package dev.sargunv.handheld.domain.launch
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.KnownEmulator
+import dev.sargunv.handheld.domain.emulator.LibretroCore
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
@@ -24,7 +26,7 @@ class LaunchCommandBuilderTest {
   private fun build(
     emulator: KnownEmulator,
     input: LaunchInput,
-    core: String? = null,
+    core: LibretroCore? = LibretroCores.recommendedFor(input.platform),
   ): LaunchCommand =
     assertIs<LaunchBuild.Ready>(
         LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input, core),
@@ -97,19 +99,6 @@ class LaunchCommandBuilderTest {
     assertEquals(
       "/data/data/com.retroarch/cores/mupen64plus_next_gles3_libretro_android.so",
       command.extras.first { it.key == "LIBRETRO" }.let { (it as LaunchExtra.StringValue).value },
-    )
-  }
-
-  @Test
-  fun aGivenCoreBeatsTheRecommendedOne() {
-    val command =
-      build(emulator("retroarch"), LaunchInput(rom, PlatformCatalog.NES), core = "fceumm_libretro")
-    assertEquals(
-      LaunchExtra.StringValue(
-        "LIBRETRO",
-        "/data/data/com.retroarch/cores/fceumm_libretro_android.so",
-      ),
-      command.extras.first { it.key == "LIBRETRO" },
     )
   }
 
@@ -221,7 +210,6 @@ class LaunchCommandBuilderTest {
       listOf(LaunchExtra.StringArray("AppStartParameters", listOf("-r", "PCSE00120"))),
       command.extras,
     )
-    assertTrue(command.stopBeforeLaunch)
 
     val noTitle = build("vita3k", PlatformCatalog.VITA, "/storage/emulated/0/ROMs/game.zip")
     assertTrue(noTitle.extras.isEmpty())
