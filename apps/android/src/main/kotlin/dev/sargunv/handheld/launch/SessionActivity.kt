@@ -6,7 +6,6 @@ import android.content.Intent
 import android.graphics.Color
 import android.hardware.display.DisplayManager
 import android.os.Bundle
-import android.util.Log
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewGroup
@@ -30,6 +29,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.SessionAchievementsHttp
 import dev.sargunv.handheld.achievements.message
@@ -75,7 +75,6 @@ import kotlinx.serialization.json.Json
 data class SessionLaunch(
   val core: String,
   val content: String,
-  val systemDir: String,
   val saveDir: String,
   val saveRam: String,
   val states: List<String>,
@@ -84,30 +83,17 @@ data class SessionLaunch(
    * The core's options that draw a two-screen system's screens stacked, for playing on two
    * displays, or none for a one-screen system.
    */
-  val stackedScreensOptions: Map<String, String> = emptyMap(),
+  val stackedScreensOptions: Map<String, String>,
   /** The bottom screen's share of the stacked frame's width, centred, or null for all of it. */
-  val lowerScreenWidthShare: Float? = null,
-  val achievementsConsole: Int? = null,
-  val hardcore: Boolean = false,
+  val lowerScreenWidthShare: Float?,
+  val achievementsConsole: Int?,
+  val hardcore: Boolean,
 )
 
 /**
  * A game in the built-in session, full screen. Back, or a controller's guide button, pauses it and
- * opens the quick menu over it, with the save-state slots on the second screen, while every game
- * button, Start included, goes to the game. It closes when the core quits on its own, on Quit in
- * the quick menu, on back before the game has started, or on HOME, which brings the launcher back,
- * and the session's save memory is written as it closes. A session that can't start closes with the
- * reason as its result's [EXTRA_START_ERROR], and one whose save memory couldn't be written as it
- * stopped closes with the reason as its [EXTRA_SAVE_ERROR], except on HOME, which leaves no result.
- *
- * The view fills the screen and the session fits the core's frame inside it at the core's aspect
- * ratio, following any change to it mid-game, so the view needs no new layout when that changes.
- *
- * A two-screen system's game, on a device with a second display, plays on both: the core draws its
- * screens stacked in one frame, and the session shows the top half here and the bottom half on the
- * second display, where touches reach the game. The save-state slots cover the bottom screen while
- * the quick menu is open. With one display, or a core whose session can't present to a second, the
- * game plays on this one, as the core lays it out by default.
+ * opens the quick menu over it. A two-screen system's game, on a device with a second display,
+ * shows its bottom screen there.
  */
 class SessionActivity : ComponentActivity() {
   private lateinit var view: GameSessionView
@@ -148,7 +134,7 @@ class SessionActivity : ComponentActivity() {
   private val listener =
     object : SessionListener {
       override fun coreQuit() {
-        Log.i(TAG, "the core quit")
+        log.i { "the core quit" }
         runOnUiThread { stopAndFinish() }
       }
 
@@ -307,7 +293,7 @@ class SessionActivity : ComponentActivity() {
       stopping.stop()
       null
     } catch (e: SessionException) {
-      Log.e(TAG, "couldn't write the save memory", e)
+      log.e(e) { "couldn't write the save memory" }
       e.message ?: e.toString()
     }
   }
@@ -333,7 +319,7 @@ class SessionActivity : ComponentActivity() {
       try {
         startSession(options(achievements), listener, http)
       } catch (e: SessionException) {
-        Log.e(TAG, "can't start the session", e)
+        log.e(e) { "can't start the session" }
         ready.cancel()
         setResult(RESULT_CANCELED, Intent().putExtra(EXTRA_START_ERROR, e.message ?: e.toString()))
         finish()
@@ -363,12 +349,12 @@ class SessionActivity : ComponentActivity() {
   private suspend fun achievementOptions(): AchievementOptions? {
     val console = launch.achievementsConsole
     if (console == null) {
-      Log.i(TAG, "RetroAchievements has no achievements for the game's platform")
+      log.i { "RetroAchievements has no achievements for the game's platform" }
       return null
     }
     val account = retroAchievementsStore(this).load()
     if (account == null) {
-      Log.i(TAG, "not signed in to RetroAchievements")
+      log.i { "not signed in to RetroAchievements" }
       return null
     }
     return AchievementOptions(
@@ -385,7 +371,7 @@ class SessionActivity : ComponentActivity() {
       contentPath = launch.content,
       // A zipped game whose core can't open zips is extracted here.
       contentCacheDir = File(cacheDir, "session-content").path,
-      systemDir = launch.systemDir,
+      systemDir = File(filesDir, "system").path,
       saveDir = launch.saveDir,
       saveRamPath = launch.saveRam,
       coreOptions = if (twoScreens) launch.stackedScreensOptions else emptyMap(),
@@ -429,8 +415,6 @@ class SessionActivity : ComponentActivity() {
   }
 
   companion object {
-    private const val TAG = "SessionActivity"
-
     private const val EXTRA_LAUNCH = "launch"
 
     /** Why the session couldn't start, in the result of one that couldn't. */
@@ -445,3 +429,5 @@ class SessionActivity : ComponentActivity() {
         .putExtra(EXTRA_LAUNCH, Json.encodeToString(launch))
   }
 }
+
+private val log = Logger.withTag("SessionActivity")

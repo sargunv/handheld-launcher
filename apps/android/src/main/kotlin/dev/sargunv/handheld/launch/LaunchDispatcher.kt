@@ -4,11 +4,10 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.os.FileUriExposedException
-import android.util.Log
 import androidx.core.content.FileProvider
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchMethod
-import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.launcherApps
 import java.io.File
 import java.io.IOException
@@ -18,12 +17,6 @@ import kotlinx.coroutines.withContext
 /** The outcome of [LaunchDispatcher.launch]. */
 sealed interface LaunchOutcome {
   data class Started(val method: LaunchMethod) : LaunchOutcome
-
-  /**
-   * The command hands over a file the launcher can't read without all-files access, which it
-   * doesn't have.
-   */
-  data object NeedsAllFilesAccess : LaunchOutcome
 
   data class Failed(val reason: String) : LaunchOutcome
 }
@@ -51,9 +44,6 @@ class LaunchDispatcher(private val context: Context) {
     .getOrNull()
 
   suspend fun launch(command: LaunchCommand): LaunchOutcome {
-    if (command.readGrants.isNotEmpty() && !context.handheldApp.allFilesAccess.value) {
-      return LaunchOutcome.NeedsAllFilesAccess
-    }
     if (command.method == LaunchMethod.Shell && startByShell(command)) {
       return LaunchOutcome.Started(LaunchMethod.Shell)
     }
@@ -84,7 +74,7 @@ class LaunchDispatcher(private val context: Context) {
     }
 
   private fun failed(reason: String, cause: Exception): LaunchOutcome {
-    Log.w(TAG, reason, cause)
+    log.w(cause) { reason }
     return LaunchOutcome.Failed(reason)
   }
 
@@ -97,15 +87,13 @@ class LaunchDispatcher(private val context: Context) {
         // am exits with 0 when it can't start the activity, and says why on lines like
         // "Error: Activity class {...} does not exist."
         val started = process.waitFor() == 0 && output.lines().none { it.startsWith("Error") }
-        if (!started) Log.w(TAG, "am start refused ${command.packageName}: $output")
+        if (!started) log.w { "am start refused ${command.packageName}: $output" }
         started
       } catch (e: IOException) {
-        Log.w(TAG, "am start failed for ${command.packageName}", e)
+        log.w(e) { "am start failed for ${command.packageName}" }
         false
       }
     }
-
-  private companion object {
-    const val TAG = "LaunchDispatcher"
-  }
 }
+
+private val log = Logger.withTag("LaunchDispatcher")

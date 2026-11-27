@@ -1,6 +1,5 @@
 package dev.sargunv.handheld.launch
 
-import android.content.Context
 import dev.sargunv.handheld.data.downloads.headerFile
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.Ps2CardRoots
@@ -13,38 +12,37 @@ import dev.sargunv.handheld.domain.saves.SaveFolders
 import dev.sargunv.handheld.domain.saves.SaveLayout
 import dev.sargunv.handheld.domain.saves.SaveLocations
 import dev.sargunv.handheld.domain.saves.SaveRoots
-import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.session.romGameId
 import java.io.File
 
 /** Where a game's save is on this device, or why it doesn't sync. */
-sealed interface SaveLookup {
+internal sealed interface SaveLookup {
   data class Found(val save: GameSave) : SaveLookup
 
-  /** The emulator isn't known, its save folder isn't, or the launcher can't sync its layout yet. */
+  /**
+   * The emulator isn't known, its save folder isn't, or the launcher can't sync its layout yet,
+   * such as a memory card every game shares.
+   */
   data object NotSupported : SaveLookup
-
-  /** The emulator keeps every game's saves on a shared memory card the launcher can't read. */
-  data object SharedCards : SaveLookup
 
   /** The emulator files saves by the game's id, which the launcher couldn't read from its file. */
   data object NoGameId : SaveLookup
 }
 
 /**
- * The save of the game at [romPath], the RomM ROM [romId], as [target] keeps it for [platform]: a
- * file per game, or folders filed under an id the game's file carries, which reading it finds.
+ * The save of the game at [romPath], the RomM ROM [romId], as [target] keeps it for [platform] on
+ * the shared storage [volumes], the device's own first: a file per game, or folders filed under an
+ * id the game's file carries, which reading it finds.
  */
-fun gameSaveFor(
-  context: Context,
+internal fun gameSaveFor(
   target: LaunchTarget,
   platform: PlatformSlug,
   romId: Long,
   romPath: String,
+  volumes: List<String>,
 ): SaveLookup {
   val emulator = target.emulator ?: return SaveLookup.NotSupported
   val location = SaveLocations.forEmulator(emulator.id, platform) ?: return SaveLookup.NotSupported
-  val volumes = context.handheldApp.storageTargets().map { it.root }
   val storage = volumes.firstOrNull() ?: return SaveLookup.NotSupported
   val roots =
     SaveRoots(
@@ -56,13 +54,7 @@ fun gameSaveFor(
   SaveFiles.candidates(location, romPath, roots)?.let { paths ->
     return SaveLookup.Found(GameSave(romId, emulator.id.value, SaveShape.Files(paths.map(::File))))
   }
-  if (SaveFolders.idKind(location, platform) == null) {
-    return when (location.layout) {
-      is SaveLayout.SharedMemoryCard,
-      is SaveLayout.Ps2MemoryCards -> SaveLookup.SharedCards
-      else -> SaveLookup.NotSupported
-    }
-  }
+  if (SaveFolders.idKind(location, platform) == null) return SaveLookup.NotSupported
   val headerPlatform = SessionRomHeaders.headerPlatform(platform) ?: return SaveLookup.NoGameId
   val file = headerFile(romPath) ?: return SaveLookup.NoGameId
   val id =

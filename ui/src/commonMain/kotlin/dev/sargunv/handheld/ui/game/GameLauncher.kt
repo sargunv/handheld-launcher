@@ -36,9 +36,8 @@ interface GameLauncher {
    *
    * @param onProgress hears what the launch is doing before the game starts, such as downloading
    *   the game's core, in a few words.
-   * @param closeEmulators whether the player turned on closing emulators, where
-   *   [canCloseEmulators]: the launcher checks whether an emulator is running, and offers to close
-   *   it.
+   * @param closeEmulators whether the player turned on closing emulators: the launcher checks
+   *   whether an emulator is running, and offers to close it.
    * @param askStillRunning asks what to do when RomM has a newer save, but the emulator may still
    *   hold the game in memory.
    * @param chooseSave asks which copy of the game's save to keep when both changed since they last
@@ -49,11 +48,9 @@ interface GameLauncher {
     path: String,
     rules: LaunchRules,
     collections: Set<CollectionId>,
-    onProgress: (String) -> Unit = {},
-    closeEmulators: Boolean = false,
-    askStillRunning: suspend (StillRunning) -> StillRunningChoice = {
-      StillRunningChoice.QuitFirst
-    },
+    onProgress: (String) -> Unit,
+    closeEmulators: Boolean,
+    askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String>
 

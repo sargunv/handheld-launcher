@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.launch
 
-import android.util.Log
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.BeforeLaunch
 import dev.sargunv.handheld.data.saves.GameSave
@@ -74,7 +74,7 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
         true
       }
       BeforeLaunch.Canceled -> {
-        Log.i(TAG, "Launch canceled; both saves are as they were")
+        log.i { "Launch canceled; both saves are as they were" }
         false
       }
       BeforeLaunch.QuitFirst -> {
@@ -148,7 +148,7 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   private fun signedIn(): SaveSync? =
     saveSync.value
       ?: run {
-        Log.i(TAG, "Not signed in, so the save didn't sync")
+        log.i { "Not signed in, so the save didn't sync" }
         null
       }
 
@@ -172,7 +172,7 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
       is SaveSyncResult.NoFolder -> note("RomM's save not placed · Emulator has no save folder yet")
       is SaveSyncResult.Resolved -> {
         val kept = if (result.kept == SaveCopy.Device) "this device's" else "RomM's"
-        Log.i(TAG, "Kept $kept save; the other is in the save history at ${result.history}")
+        log.i { "Kept $kept save; the other is in the save history at ${result.history}" }
         result.uploadError?.let {
           note("Kept $kept save · Other copy not sent: $it")
         }
@@ -181,12 +181,13 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
       is SaveSyncResult.UpToDate,
       is SaveSyncResult.Pushed,
       is SaveSyncResult.Conflict,
-      is SaveSyncResult.ServerNewer -> Log.i(TAG, "Synced the save: $result")
+      is SaveSyncResult.ServerNewer -> log.i { "Synced the save: $result" }
     }
   }
 
   private companion object {
-    const val TAG = "PlaySaves"
     const val SERVER_NEWER = "Save not sent · RomM's copy is newer"
   }
 }
+
+private val log = Logger.withTag("PlaySaves")
