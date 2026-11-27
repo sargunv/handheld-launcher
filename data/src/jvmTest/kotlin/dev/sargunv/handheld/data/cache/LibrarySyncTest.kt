@@ -141,7 +141,6 @@ class LibrarySyncTest {
       listOf(1L, 3L),
       cache.romsInCollection(CollectionKind.Smart, 1).first().map { it.id },
     )
-    assertEquals(listOf(1L), cache.search("game 1").map { it.id })
     assertEquals(listOf(3L, 2L), cache.recentlyAdded(2).first().map { it.id })
   }
 
@@ -175,7 +174,7 @@ class LibrarySyncTest {
 
     // The window starts a little before the newest change the first sync saw.
     assertEquals("2025-03-01T11:50:00Z", romRequests().single().url.parameters["updated_after"])
-    assertEquals(listOf(1L, 4L), cache.search("game").map { it.id }.sorted())
+    assertEquals(listOf(1L, 4L), cache.allRoms().first().map { it.id })
 
     server.requests.clear()
     sync.sync()

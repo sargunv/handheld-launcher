@@ -76,29 +76,6 @@ CREATE TABLE collection_rom (
   PRIMARY KEY (collection_kind, collection_id, rom_id)
 );
 
--- The search index's rowid is the ROM's id. Triggers keep it in step with the rom table.
-CREATE VIRTUAL TABLE rom_search USING fts5(
-  title,
-  alternative_names,
-  file_name,
-  tokenize = 'unicode61 remove_diacritics 2'
-);
-
-CREATE TRIGGER rom_search_insert AFTER INSERT ON rom BEGIN
-  INSERT INTO rom_search(rowid, title, alternative_names, file_name)
-  VALUES (new.id, new.title, new.alternative_names, new.file_name);
-END;
-
-CREATE TRIGGER rom_search_update AFTER UPDATE ON rom BEGIN
-  DELETE FROM rom_search WHERE rowid = old.id;
-  INSERT INTO rom_search(rowid, title, alternative_names, file_name)
-  VALUES (new.id, new.title, new.alternative_names, new.file_name);
-END;
-
-CREATE TRIGGER rom_search_delete AFTER DELETE ON rom BEGIN
-  DELETE FROM rom_search WHERE rowid = old.id;
-END;
-
 CREATE TABLE sync_state (
   key TEXT NOT NULL PRIMARY KEY,
   value TEXT NOT NULL
@@ -142,13 +119,6 @@ recentlyPlayed:
 SELECT rom.* FROM recently_played
 JOIN rom ON rom.id = recently_played.rom_id
 ORDER BY recently_played.last_played DESC, rom.id
-LIMIT :limit;
-
-search:
-SELECT rom.* FROM rom_search
-JOIN rom ON rom.id = rom_search.rowid
-WHERE rom_search MATCH :query
-ORDER BY bm25(rom_search, 10.0, 5.0, 1.0), rom.sort_key COLLATE NOCASE
 LIMIT :limit;
 
 romCount:
