@@ -30,7 +30,7 @@ object SessionRomHeaders : RomHeaders {
   internal fun headerFile(path: String): String? =
     DiscSets.headerFile(path) {
       try {
-        DiscSets.sheetText(File(it).readBytes())
+        DiscSets.sheetText(File(it).length()) { File(it).readBytes() }
       } catch (e: IOException) {
         null
       }

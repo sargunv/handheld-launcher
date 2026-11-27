@@ -333,9 +333,11 @@ private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
 
 /** The text of the sheet at [path], as [DiscSets.sheetText] reads it, or null when it can't. */
 private fun sheetText(path: Path): String? {
-  if (SystemFileSystem.metadataOrNull(path)?.isRegularFile != true) return null
+  val metadata = SystemFileSystem.metadataOrNull(path)?.takeIf { it.isRegularFile } ?: return null
   return try {
-    DiscSets.sheetText(SystemFileSystem.source(path).buffered().use { it.readByteArray() })
+    DiscSets.sheetText(metadata.size) {
+      SystemFileSystem.source(path).buffered().use { it.readByteArray() }
+    }
   } catch (e: IOException) {
     null
   }

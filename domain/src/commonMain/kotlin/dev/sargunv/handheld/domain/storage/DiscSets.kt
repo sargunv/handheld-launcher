@@ -11,11 +11,13 @@ object DiscSets {
   fun isSheet(fileName: String): Boolean = fileName.extension() in Sheets
 
   /**
-   * The text of a sheet made of [bytes]: UTF-8, else Latin-1, as cue sheets made on Windows often
-   * are. Null when it's too big to be one; real ones are a few kilobytes.
+   * The text of a sheet [size] bytes long, which [read] reads: UTF-8, else Latin-1, as cue sheets
+   * made on Windows often are. Null, without reading it, when it's too big to be one; real ones are
+   * a few kilobytes.
    */
-  fun sheetText(bytes: ByteArray): String? {
-    if (bytes.size > SHEET_LIMIT) return null
+  fun sheetText(size: Long, read: () -> ByteArray): String? {
+    if (size > SHEET_LIMIT) return null
+    val bytes = read().takeIf { it.size <= SHEET_LIMIT } ?: return null
     val text = bytes.decodeToString()
     if ('\uFFFD' !in text) return text
     return CharArray(bytes.size) { (bytes[it].toInt() and 0xff).toChar() }.concatToString()

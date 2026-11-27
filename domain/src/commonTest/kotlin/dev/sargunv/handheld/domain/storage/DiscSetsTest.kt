@@ -101,10 +101,10 @@ class DiscSetsTest {
     // Latin-1 encodes each of these characters as the one byte of its code point.
     val latin1 = ByteArray(cue.length) { cue[it].code.toByte() }
     for (bytes in listOf(cue.encodeToByteArray(), latin1)) {
-      val text = DiscSets.sheetText(bytes)
+      val text = DiscSets.sheetText(bytes.size.toLong()) { bytes }
       assertEquals("dir/Pokémon (Track 1).bin", DiscSets.headerFile("dir/game.cue") { text })
     }
-    assertNull(DiscSets.sheetText(ByteArray(1024 * 1024)))
+    assertNull(DiscSets.sheetText(1024 * 1024) { error("A big file isn't read") })
   }
 
   @Test
