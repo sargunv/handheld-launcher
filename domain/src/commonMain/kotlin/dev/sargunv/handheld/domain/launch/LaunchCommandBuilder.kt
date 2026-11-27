@@ -103,10 +103,10 @@ object LaunchCommandBuilder {
         data = data,
         mimeType = recipe.mimeType.takeIf { data != null },
         extras = extras,
-        flags =
-          if (handsOverUri) recipe.flags + LaunchFlag.GrantReadUriPermission else recipe.flags,
+        flags = recipe.flags,
         clipData = rom.takeIf { handsOverUri },
-        method = recipe.method,
+        // `am start` can't hand over content URIs.
+        method = if (handsOverUri) LaunchMethod.Intent else recipe.method,
       )
     return LaunchBuild.Ready(command)
   }

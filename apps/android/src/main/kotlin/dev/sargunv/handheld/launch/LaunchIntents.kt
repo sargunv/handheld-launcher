@@ -20,8 +20,9 @@ fun interface ContentUris {
 
 /**
  * The intent for `startActivity` that carries this command, with its files' content URIs from
- * [contentUris]. The read grant flag covers the data and clip data URIs; a command builder puts the
- * ROM in clip data whenever it hands over a content URI, so extras that name it are covered too.
+ * [contentUris]. A command with [LaunchCommand.readGrants] gets the read grant flag, which covers
+ * the data and clip data URIs; a command builder puts the ROM in clip data whenever it hands over a
+ * content URI, so extras that name it are covered too.
  */
 internal fun LaunchCommand.toIntent(contentUris: ContentUris): Intent {
   fun uri(value: LaunchUri): Uri =
@@ -50,16 +51,16 @@ internal fun LaunchCommand.toIntent(contentUris: ContentUris): Intent {
   }
   clipData?.let { intent.clipData = ClipData.newRawUri(null, uri(it)) }
   intent.addFlags(flags.intentFlags())
+  if (readGrants.isNotEmpty()) intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
   return intent
 }
 
 /**
  * The arguments that run this command through `am start`, for [LaunchMethod.Shell] launches, to
- * execute directly without a shell. The command must be able to use the shell
- * ([LaunchCommand.canUseShell]).
+ * execute directly without a shell.
  */
 internal fun LaunchCommand.amStartArgv(): List<String> {
-  require(canUseShell) { "a command with content URIs must go as an intent" }
+  require(readGrants.isEmpty()) { "a command with content URIs must go as an intent" }
   return buildList {
     add("/system/bin/am")
     add("start")
@@ -119,6 +120,5 @@ private fun Set<LaunchFlag>.intentFlags(): Int =
         LaunchFlag.ClearTask -> Intent.FLAG_ACTIVITY_CLEAR_TASK
         LaunchFlag.ClearTop -> Intent.FLAG_ACTIVITY_CLEAR_TOP
         LaunchFlag.NoHistory -> Intent.FLAG_ACTIVITY_NO_HISTORY
-        LaunchFlag.GrantReadUriPermission -> Intent.FLAG_GRANT_READ_URI_PERMISSION
       }
   }

@@ -40,17 +40,6 @@ data class LaunchCommand(
     }
 
   /**
-   * Whether `am start` can carry this command. It can't hand over content URIs, since only the app
-   * that owns the provider can grant them, so a command with any must go as an intent.
-   */
-  val canUseShell: Boolean
-    get() = readGrants.isEmpty()
-
-  /** How this command goes: by [method], unless that's the shell and the command can't use it. */
-  val dispatchMethod: LaunchMethod
-    get() = if (canUseShell) method else LaunchMethod.Intent
-
-  /**
    * The folders holding [readGrants], to grant [packageName] read access to along with the files,
    * so an app can open the tracks or discs a `.cue`, `.gdi` or `.m3u` lists beside it. A folder
    * that is a storage volume's root, or inside its `Android` folder where apps keep their own
@@ -113,7 +102,6 @@ enum class LaunchFlag {
   ClearTask,
   ClearTop,
   NoHistory,
-  GrantReadUriPermission,
 }
 
 /** How a launch command reaches the target app. */
@@ -123,8 +111,8 @@ enum class LaunchMethod {
 
   /**
    * `am start` from the app's own process. Emulators that hold all-files access read paths more
-   * reliably this way, since no URI grant is involved. A command that can't use the shell
-   * ([LaunchCommand.canUseShell]) goes as an intent instead.
+   * reliably this way, since no URI grant is involved. `am start` can't hand over content URIs, so
+   * a command with [LaunchCommand.readGrants] goes as an intent.
    */
   Shell,
 }

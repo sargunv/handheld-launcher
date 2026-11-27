@@ -9,7 +9,6 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -54,13 +53,12 @@ class LaunchCommandBuilderTest {
         categories = listOf(IntentCategory.DEFAULT),
         data = LaunchUri.ProviderFile(rom),
         mimeType = LaunchRecipe.OCTET_STREAM,
-        flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask, LaunchFlag.GrantReadUriPermission),
+        flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask),
         clipData = LaunchUri.ProviderFile(rom),
       ),
       command,
     )
     assertEquals(listOf(LaunchUri.ProviderFile(rom)), command.readGrants)
-    assertFalse(command.canUseShell)
   }
 
   @Test
@@ -90,7 +88,6 @@ class LaunchCommandBuilderTest {
       command.extras,
     )
     assertEquals(LaunchUri.ProviderFile(rom), command.clipData)
-    assertTrue(LaunchFlag.GrantReadUriPermission in command.flags)
   }
 
   @Test
@@ -130,7 +127,7 @@ class LaunchCommandBuilderTest {
     val oldBuild =
       build(duckStation, LaunchInput(rom, PlatformCatalog.PSX, installedVersionName = "0.1-9000"))
     assertEquals(LaunchExtra.UriString("bootPath", LaunchUri.ProviderFile(rom)), oldBuild.extras[0])
-    assertTrue(LaunchFlag.GrantReadUriPermission in oldBuild.flags)
+    assertEquals(listOf(LaunchUri.ProviderFile(rom)), oldBuild.readGrants)
 
     val unknownBuild = build(duckStation, LaunchInput(rom, PlatformCatalog.PSX))
     assertIs<LaunchExtra.UriString>(unknownBuild.extras[0])
@@ -150,7 +147,6 @@ class LaunchCommandBuilderTest {
     assertEquals(LaunchUri.Raw("file:///storage/emulated/0/ROMs/game.nds"), command.data)
     assertNull(command.mimeType)
     assertEquals(LaunchMethod.Shell, command.method)
-    assertTrue(command.canUseShell)
     assertTrue(command.categories.isEmpty())
   }
 
@@ -239,7 +235,14 @@ class LaunchCommandBuilderTest {
     val command = build("flycast", PlatformCatalog.DREAMCAST, "/storage/emulated/0/ROMs/game.chd")
     assertEquals(LaunchUri.Raw("/storage/emulated/0/ROMs/game.chd"), command.data)
     assertEquals(LaunchRecipe.OCTET_STREAM, command.mimeType)
-    assertTrue(command.canUseShell)
-    assertFalse(LaunchFlag.GrantReadUriPermission in command.flags)
+    assertEquals(LaunchMethod.Shell, command.method)
+    assertTrue(command.readGrants.isEmpty())
+  }
+
+  @Test
+  fun shellRecipesHandingOverAContentUriGoAsIntents() {
+    val command = build("armsx2", PlatformCatalog.PS2)
+    assertEquals(LaunchUri.ProviderFile(rom), command.data)
+    assertEquals(LaunchMethod.Intent, command.method)
   }
 }
