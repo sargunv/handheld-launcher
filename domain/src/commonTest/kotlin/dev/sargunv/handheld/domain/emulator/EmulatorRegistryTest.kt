@@ -13,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EmulatorRegistryTest {
@@ -68,11 +69,9 @@ class EmulatorRegistryTest {
 
   @Test
   fun patternsMatchWholePackageNames() {
-    val armsx2 = assertNotNull(EmulatorRegistry[EmulatorId("armsx2")])
-    assertTrue(armsx2.matches("com.armsx2"))
-    assertTrue(armsx2.matches("com.armsx2.nightly"))
-    assertTrue(!armsx2.matches("com.armsx21"))
-    assertTrue(!armsx2.matches("xcom.armsx2.nightly"))
+    assertEquals(EmulatorId("armsx2"), EmulatorRegistry.forPackage("com.armsx2.nightly")?.id)
+    assertNull(EmulatorRegistry.forPackage("com.armsx21"))
+    assertNull(EmulatorRegistry.forPackage("xcom.armsx2.nightly"))
   }
 
   @Test

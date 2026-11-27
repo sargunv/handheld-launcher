@@ -1,6 +1,6 @@
 // Ported from Argosy (https://github.com/rommapp/argosy-launcher), GPL-3.0.
 
-package dev.sargunv.handheld.domain.launch.android
+package dev.sargunv.handheld.launch
 
 import android.content.ClipData
 import android.content.ComponentName
@@ -11,11 +11,7 @@ import dev.sargunv.handheld.domain.launch.LaunchExtra
 import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchUri
 
-/**
- * Makes the content URIs a launch hands over. The app implements it with its FileProvider, as
- * `FileProvider.getUriForFile(context, authority, File(path))`, since it owns the provider and its
- * paths configuration.
- */
+/** Makes the content URIs a launch hands over. */
 fun interface ContentUris {
   /** A content URI for the file at [path]; throws when the provider can't serve it. */
   fun forFile(path: String): Uri
@@ -49,8 +45,9 @@ object LaunchIntents {
       }
 
     val intent = Intent(command.action)
-    if (command.activity != null) {
-      intent.component = ComponentName(command.packageName, command.activity)
+    val activity = command.activity
+    if (activity != null) {
+      intent.component = ComponentName(command.packageName, activity)
     } else {
       intent.setPackage(command.packageName)
     }

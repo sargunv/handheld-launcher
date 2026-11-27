@@ -1,6 +1,6 @@
 // Ported from Argosy (https://github.com/rommapp/argosy-launcher), GPL-3.0.
 
-package dev.sargunv.handheld.domain.launch.android
+package dev.sargunv.handheld.launch
 
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchExtra
@@ -61,14 +61,9 @@ object ShellLaunch {
     }
   }
 
-  /** [argv] as one line for `sh -c`, with every argument quoted. */
-  fun commandLine(command: LaunchCommand): String = argv(command).joinToString(" ") { quote(it) }
-
   private fun raw(uri: LaunchUri): String =
     when (uri) {
       is LaunchUri.Raw -> uri.value
       is LaunchUri.ProviderFile -> error("unreachable: content URIs are refused above")
     }
-
-  private fun quote(argument: String): String = "'" + argument.replace("'", "'\\''") + "'"
 }

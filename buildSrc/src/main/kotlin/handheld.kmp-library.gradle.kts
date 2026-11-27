@@ -16,5 +16,5 @@ kotlin {
   jvm()
 }
 
-// The bundled SQLite and Robolectric load native libraries.
+// The bundled SQLite loads native libraries.
 tasks.withType<Test>().configureEach { jvmArgs("--enable-native-access=ALL-UNNAMED") }

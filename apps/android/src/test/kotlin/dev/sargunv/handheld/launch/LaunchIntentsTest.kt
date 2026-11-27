@@ -1,4 +1,4 @@
-package dev.sargunv.handheld.domain.launch.android
+package dev.sargunv.handheld.launch
 
 import android.content.Intent
 import android.net.Uri
@@ -14,6 +14,7 @@ import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
 import dev.sargunv.handheld.domain.launch.LaunchUri
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -35,7 +36,7 @@ class LaunchIntentsTest {
 
   private fun command(
     emulator: String,
-    platform: dev.sargunv.handheld.domain.platform.PlatformSlug,
+    platform: PlatformSlug,
     romPath: String = rom,
   ) =
     EmulatorRegistry[EmulatorId(emulator)]!!.let {
