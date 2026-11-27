@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.firmware.FirmwareInstall
+import dev.sargunv.handheld.data.firmware.FirmwareInstaller
+import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.KeptSave
@@ -24,6 +26,7 @@ import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.LaunchTarget
 import dev.sargunv.handheld.domain.platform.PlatformSlug
+import dev.sargunv.handheld.domain.saves.BiosKnowledge
 import dev.sargunv.handheld.domain.storage.GameLayout
 import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.ui.game.GameLauncher
@@ -285,15 +288,25 @@ class AndroidGameLauncher(
     states.first { it.isAtLeast(Lifecycle.State.RESUMED) }
   }
 
-  /** Puts [target]'s firmware for [platform] in place, noting what went wrong. */
+  /**
+   * Puts the firmware [target]'s emulator needs for [platform] where it reads it, from the
+   * signed-in RomM server, noting what went wrong.
+   */
   private suspend fun placeFirmware(
     target: LaunchTarget,
     platform: PlatformSlug,
     note: (String) -> Unit,
   ) {
+    val emulator = target.emulator ?: return
+    val location = BiosKnowledge.locationFor(emulator.id, platform) ?: return
+    val signedIn = credentials.load() ?: return
+    val storage = activity.handheldApp.storageTargets().firstOrNull()?.root ?: return
     val result =
       try {
-        installFirmwareFor(activity, credentials, target, platform)
+        RommClient(signedIn.baseUrl, signedIn.token).use { client ->
+          FirmwareInstaller(client, File(activity.cacheDir, "firmware"))
+            .install(platform, location, location.folders(storage, target.packageName))
+        }
       } catch (e: RommException) {
         note("BIOS list failed · ${e.message}")
         return
@@ -307,8 +320,7 @@ class AndroidGameLauncher(
         note("BIOS not placed · Can't write ${result.folders.joinToString()}")
       is FirmwareInstall.Done ->
         for ((name, reason) in result.failed) note("BIOS not placed · $name: $reason")
-      FirmwareInstall.NoneOnServer,
-      null -> Unit
+      FirmwareInstall.NoneOnServer -> Unit
     }
   }
 

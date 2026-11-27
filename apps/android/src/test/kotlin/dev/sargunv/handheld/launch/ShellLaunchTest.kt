@@ -1,4 +1,4 @@
-package dev.sargunv.handheld.domain.launch.android
+package dev.sargunv.handheld.launch
 
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
@@ -7,7 +7,6 @@ import dev.sargunv.handheld.domain.launch.LaunchBuild
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchCommandBuilder
 import dev.sargunv.handheld.domain.launch.LaunchExtra
-import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
@@ -114,22 +113,6 @@ class ShellLaunchTest {
         "-r,a\\,b",
       ),
       ShellLaunch.argv(command),
-    )
-  }
-
-  @Test
-  fun commandLinesQuoteEveryArgument() {
-    val command =
-      LaunchCommand(
-        packageName = "dev.example.emu",
-        action = IntentAction.MAIN,
-        extras = listOf(LaunchExtra.StringValue("path", "/roms/Link's Awakening.gb")),
-        flags = setOf(LaunchFlag.NewTask),
-      )
-    assertEquals(
-      "'/system/bin/am' 'start' '-a' 'android.intent.action.MAIN' '-p' 'dev.example.emu' " +
-        "'-f' '0x10000000' '--es' 'path' '/roms/Link'\\''s Awakening.gb'",
-      ShellLaunch.commandLine(command),
     )
   }
 

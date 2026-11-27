@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.launch
 
+import dev.sargunv.handheld.data.downloads.sheetText
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -8,10 +9,9 @@ import dev.sargunv.handheld.session.Platform
 import dev.sargunv.handheld.session.romHeaderFields
 import dev.sargunv.handheld.ui.game.RomHeaderField
 import dev.sargunv.handheld.ui.game.RomHeaders
-import java.io.File
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.io.files.Path
 
 /**
  * Reads games' headers through the session, which knows each platform's own: of a folder, the file
@@ -27,14 +27,7 @@ object SessionRomHeaders : RomHeaders {
   }
 
   /** The file that holds the header of the game an emulator opens at [path]. */
-  internal fun headerFile(path: String): String? =
-    DiscSets.headerFile(path) {
-      try {
-        DiscSets.sheetText(File(it).length()) { File(it).readBytes() }
-      } catch (e: IOException) {
-        null
-      }
-    }
+  internal fun headerFile(path: String): String? = DiscSets.headerFile(path) { sheetText(Path(it)) }
 
   /** The header the games of [slug] carry, or null when the session reads none for it. */
   internal fun headerPlatform(slug: PlatformSlug): Platform? =

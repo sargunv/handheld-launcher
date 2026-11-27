@@ -29,10 +29,6 @@ data class KnownEmulator(
   val forkRecipe: LaunchRecipe? = null,
   val drawsBothScreens: Boolean = false,
 ) {
-  /** Whether [packageName] is this app: its own package, or a build its patterns match. */
-  fun matches(packageName: String): Boolean =
-    packageName == this.packageName || matchesPattern(packageName)
-
   /** Whether [packageName] is another build of this app, matched by [packagePatterns]. */
   fun matchesPattern(packageName: String): Boolean = packagePatterns.any {
     globToRegex(it).matches(packageName)
