@@ -1,9 +1,7 @@
 # Screens
 
-The screens' structure, first agreed in the wireframes
-([wireframes.html](wireframes.html)) and reworked after them, taking Steam
-Deck's layout as the model. It settles layout and behavior, not the visual
-design.
+The screens' structure, taking Steam Deck's layout as the model. It settles
+layout and behavior, not the visual design.
 
 ## Structure
 
@@ -55,16 +53,16 @@ the first time.
   server's collections. The lower screen describes the focused one.
 
 A opens a platform's or collection's games. Covers show whether the game is on
-the device and how far its download has got.
+the device and how far its download has got. The lower screen holds filters,
+sort and an A–Z jump. L and R move to the previous or next platform or
+collection, a shortcut that stops at the ends. B goes back to the tab, with the
+one you were in focused. X on a platform or collection opens its menu, which
+holds **Open with** for all of its games.
 
 A file in a platform's folder on the device that matches none of the server's
 games, by name or content, is a **local game**. It's in its platform's games, On
 device and All games, titled by its file name, with a plain tile for a cover.
-The tile and the lower screen say it's not on your server. The lower screen
-holds filters, sort and an A–Z jump. L and R move to the previous or next
-platform or collection, a shortcut that stops at the ends. B goes back to the
-tab, with the one you were in focused. X on a platform or collection opens its
-menu, which holds **Open with** for all of its games.
+The tile and the lower screen say it's not on your server.
 
 A disc set copied in loose, a playlist (`.m3u`), cue sheet (`.cue`) or GDI with
 the files it lists beside it, is one local game, which opens the playlist or
@@ -82,19 +80,23 @@ across devices, what the copy on the device says about itself in its header,
 such as its serial and region, and where the game opens, with the rule that
 decides it.
 
-A local game always has Play. Its menu holds Open with, for its file, Remove
-from device, which deletes the file after asking, and Upload to RomM, which
-sends the file to its platform's folder on the server after asking, and only
-then. A sign-in that didn't ask for permission to upload says so first, and
-offers to sign in again with it, to the same server, keeping the device's games,
-saves and settings. An account that may not upload is told so instead. Its
-progress shows on the primary action, and Back stops it. RomM's refusal shows in
-its words, and when the sign-in's permissions aren't known, as for a pasted
-token, it offers the same sign-in again. Once uploaded, RomM is asked to scan
-the platform and the library syncs. Its saves don't sync, since RomM files saves
-by its own games, and the lower screen says they stay on the device until the
-game is on your server. Once a scan matches the file to a game of the server,
-the page becomes that game's.
+A local game always has Play. Its menu holds:
+
+- **Open with**, for its file.
+- **Remove from device**, which deletes the file after asking.
+- **Upload to RomM**, which sends the file to its platform's folder on the
+  server after asking, and only then. A sign-in that didn't ask for permission
+  to upload says so first, and offers to sign in again with it, to the same
+  server, keeping the device's games, saves and settings. An account that may
+  not upload is told so instead. Its progress shows on the primary action, and
+  Back stops it. RomM's refusal shows in its words, and when the sign-in's
+  permissions aren't known, as for a pasted token, it offers the same sign-in
+  again. Once uploaded, RomM is asked to scan the platform and the library
+  syncs.
+
+Its saves don't sync, since RomM files saves by its own games, and the lower
+screen says they stay on the device until the game is on your server. Once a
+scan matches the file to a game of the server, the page becomes that game's.
 
 ## Open with
 
@@ -127,8 +129,8 @@ Sections in a list on the left, the focused section's settings on the right:
   up or down. New games go to the first that's on and has room; the last one on
   can't be turned off. Finding games looks on every volume, so a game on a
   volume that's off still shows and plays.
-- **About:** the version, the license and source, and the third-party
-  components' licenses.
+- **About:** the version, the licence and source, and the third-party
+  components' licences.
 
 ## Quick menu
 
@@ -141,8 +143,8 @@ something else.
 
 ## About
 
-From the quick menu. The app's version, its licence and where its source is, and
-the third-party components it's built from, each with its version and licence. A
+From Settings. The app's version, its licence and where its source is, and the
+third-party components it's built from, each with its version and licence. A
 shows a component's full licence text. The lower screen describes the focused
 component.
 
