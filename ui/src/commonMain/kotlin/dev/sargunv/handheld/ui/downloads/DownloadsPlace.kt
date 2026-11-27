@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.Download
 import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.DownloadProgress
 import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.data.downloads.StorageSpace
 import dev.sargunv.handheld.data.downloads.formatSize
@@ -56,6 +57,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Unit) {
   val queue by downloads.queue.collectAsState()
+  val progress by downloads.progress.collectAsState()
   var focusedId by remember { mutableStateOf<Long?>(null) }
   var menuFor by rememberSaveable { mutableStateOf<Long?>(null) }
   val focused = queue.find { it.romId == focusedId }
@@ -88,6 +90,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
             items(queue, key = { it.romId }) { download ->
               DownloadRow(
                 download,
+                download.progressIn(progress),
                 Modifier.onFocusChanged { if (it.isFocused) focusedId = download.romId },
                 onOpen = { onOpen(download) },
               )
@@ -132,7 +135,12 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
 }
 
 @Composable
-private fun DownloadRow(download: Download, modifier: Modifier, onOpen: () -> Unit) {
+private fun DownloadRow(
+  download: Download,
+  progress: DownloadProgress,
+  modifier: Modifier,
+  onOpen: () -> Unit,
+) {
   val key = "download:${download.romId}"
   Column(
     modifier
@@ -143,23 +151,23 @@ private fun DownloadRow(download: Download, modifier: Modifier, onOpen: () -> Un
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(download.title, color = Placeholder.text)
-    Text(statusText(download), color = Placeholder.mutedText, fontSize = 14.sp)
-    if (download.state == DownloadState.Downloading && download.totalBytes > 0) {
+    Text(statusText(download, progress), color = Placeholder.mutedText, fontSize = 14.sp)
+    if (download.state == DownloadState.Downloading && progress.totalBytes > 0) {
       Box(Modifier.fillMaxWidth().height(4.dp).background(Placeholder.dialog)) {
-        val fraction = (download.bytesDownloaded.toFloat() / download.totalBytes).coerceIn(0f, 1f)
+        val fraction = (progress.bytesDownloaded.toFloat() / progress.totalBytes).coerceIn(0f, 1f)
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Placeholder.text))
       }
     }
   }
 }
 
-internal fun statusText(download: Download): String =
+private fun statusText(download: Download, progress: DownloadProgress): String =
   when (download.state) {
     DownloadState.Queued -> "Queued · ${formatSize(download.sizeBytes)}"
     DownloadState.Downloading -> {
-      val percent =
-        if (download.totalBytes > 0) download.bytesDownloaded * 100 / download.totalBytes else 0
-      "${formatSize(download.bytesDownloaded)} of ${formatSize(download.totalBytes)} · $percent%"
+      val (bytes, total) = progress
+      val percent = if (total > 0) bytes * 100 / total else 0
+      "${formatSize(bytes)} of ${formatSize(total)} · $percent%"
     }
     DownloadState.Failed -> download.error ?: "The download failed"
   }

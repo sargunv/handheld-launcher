@@ -10,6 +10,7 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.FileCredentialStore
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.settings.SettingsFile
@@ -52,12 +53,17 @@ fun main(args: Array<String>) {
       LibraryCache.open(Path(dataDir, "library.db").toString())
     }
     val scope = rememberCoroutineScope()
+    val storage = { listOf(StorageTarget(dataDir.toString(), "Data folder")) }
+    val games = remember {
+      DeviceGames(library, storage, scope, Path(dataDir, "local-content.json"))
+    }
     val downloads = remember {
       DownloadManager(
         queueFile = Path(dataDir, "downloads.json"),
         library = library,
+        games = games,
         credentials = credentials,
-        storage = { listOf(StorageTarget(dataDir.toString(), "Data folder")) },
+        storage = storage,
         scope = scope,
         storageSettings = { settingsFile.read().storage },
       )
@@ -96,6 +102,7 @@ fun main(args: Array<String>) {
         device = device,
         library = library,
         downloads = downloads,
+        games = games,
         coverCacheDir = cacheDir(),
         initialSettings = settings,
         saveSettings = settingsFile::write,

@@ -12,16 +12,16 @@ import javax.crypto.SecretKey
  * signed out.
  */
 class KeystoreCredentialStore internal constructor(file: File, key: () -> SecretKey) :
-  CredentialStore {
+  CredentialStore() {
   constructor(file: File) : this(file, { KeystoreFile.keystoreKey(ALIAS) })
 
   private val store = KeystoreFile(file, RommCredentials.serializer(), key)
 
-  override suspend fun load(): RommCredentials? = store.load()
+  override suspend fun read(): RommCredentials? = store.load()
 
-  override suspend fun save(credentials: RommCredentials) = store.save(credentials)
+  override suspend fun write(credentials: RommCredentials) = store.save(credentials)
 
-  override suspend fun clear() = store.clear()
+  override suspend fun delete() = store.clear()
 
   private companion object {
     const val ALIAS = "romm-credentials"

@@ -9,6 +9,7 @@ import android.os.storage.StorageManager
 import android.provider.Settings as AndroidSettings
 import dev.sargunv.handheld.data.auth.KeystoreCredentialStore
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.saves.BuiltInSaveFolders
@@ -49,6 +50,13 @@ class HandheldApp : Application() {
    */
   val allFilesAccess by lazy { MutableStateFlow(Environment.isExternalStorageManager()) }
 
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+  /** The games on the device's storage. */
+  val deviceGames by lazy {
+    DeviceGames(libraryCache, ::storageTargets, scope, Path(filesDir.path, "local-content.json"))
+  }
+
   /**
    * The download queue. It goes on while the activity is gone, and [DownloadService] keeps the
    * process alive while there's work.
@@ -57,9 +65,10 @@ class HandheldApp : Application() {
     DownloadManager(
       queueFile = Path(filesDir.path, "downloads.json"),
       library = libraryCache,
+      games = deviceGames,
       credentials = credentials,
       storage = ::storageTargets,
-      scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+      scope = scope,
       canWrite = allFilesAccess,
       // Read when a download starts, so it follows what Settings stored last.
       storageSettings = { settingsFile.read().storage },

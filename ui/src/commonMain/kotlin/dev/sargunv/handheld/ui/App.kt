@@ -31,6 +31,8 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
+import dev.sargunv.handheld.data.cache.takeInstallRequests
+import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.RommException
@@ -92,6 +94,7 @@ import kotlinx.io.files.Path
  * @param library the library cache, which the app keeps open for as long as it runs.
  * @param downloads the download queue. While signed in, the app takes the games sent to this device
  *   from RomM's web page into it when it starts and every minute after.
+ * @param games the games on the device's storage.
  * @param coverCacheDir where covers are kept once fetched.
  * @param initialSettings the stored settings, which the app reads once, when it first composes.
  * @param saveSettings stores the settings each time they change, in the order they changed.
@@ -120,6 +123,7 @@ fun App(
   device: DeviceDescription,
   library: LibraryCache,
   downloads: DownloadManager,
+  games: DeviceGames,
   coverCacheDir: Path,
   modifier: Modifier = Modifier,
   initialSettings: Settings = Settings(),
@@ -140,6 +144,7 @@ fun App(
     remember(
       library,
       downloads,
+      games,
       launcher,
       apps,
       credentials,
@@ -154,6 +159,7 @@ fun App(
         initialSettings,
         library,
         downloads,
+        games,
         launcher,
         apps,
         credentials,
@@ -191,7 +197,7 @@ fun App(
         )
       }
   }
-  LaunchedEffect(state) { downloads.localGames().collect { state.localGames = it } }
+  LaunchedEffect(state) { games.localGames().collect { state.localGames = it } }
   val currentSaveSettings by rememberUpdatedState(saveSettings)
   LaunchedEffect(state) {
     snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }
@@ -200,9 +206,6 @@ fun App(
   val signedIn = account.signedIn
   LaunchedEffect(signedIn, state) {
     if (signedIn != true) return@LaunchedEffect
-    // The downloads a sign-out kept wait for this sign-in, and leave the queue if they're another
-    // server's games.
-    downloads.signedIn(credentials.load()?.baseUrl)
     // A new request starts the sync over.
     state.syncRequests.collectLatest {
       state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
@@ -222,9 +225,11 @@ fun App(
   }
   LaunchedEffect(signedIn, downloads) {
     if (signedIn != true) return@LaunchedEffect
+    // A token pasted from the server's web page is no device's, so nothing is sent to it.
+    val deviceId = credentials.load()?.deviceId ?: return@LaunchedEffect
     while (true) {
       try {
-        downloads.takeInstallRequests()
+        state.romm.client()?.use { takeInstallRequests(it, deviceId, downloads) }
       } catch (_: RommException) {
         // The server is out of reach; the next poll tries again.
       }

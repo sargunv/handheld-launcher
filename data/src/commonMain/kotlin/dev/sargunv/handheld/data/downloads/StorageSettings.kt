@@ -2,6 +2,22 @@ package dev.sargunv.handheld.data.downloads
 
 import kotlinx.serialization.Serializable
 
+/** Storage that games can go to, such as the device's shared storage or an SD card. */
+data class StorageTarget(
+  /** The storage's root folder, such as `/storage/emulated/0`. */
+  val root: String,
+  /** The name to show, such as `Internal shared storage`. */
+  val label: String,
+  /**
+   * What names this storage in [StorageSettings], the same each time it's mounted, such as an SD
+   * card's volume UUID.
+   */
+  val id: String = root,
+)
+
+/** How much room a [StorageTarget] has left. */
+data class StorageSpace(val target: StorageTarget, val freeBytes: Long)
+
 /**
  * Which storage new downloads may go to, and in what order to try them. By default every storage is
  * on, in the order the device lists them: its own storage first, then any SD card.

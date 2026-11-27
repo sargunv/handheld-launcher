@@ -24,11 +24,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.withStarted
 import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
-import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.launch.AndroidGameLauncher
 import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.SessionRomHeaders
@@ -39,7 +38,9 @@ import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
@@ -131,6 +132,7 @@ class MainActivity : ComponentActivity() {
         device = device,
         library = app.libraryCache,
         downloads = app.downloadManager,
+        games = app.deviceGames,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = app.settingsFile::write,
@@ -168,7 +170,9 @@ class MainActivity : ComponentActivity() {
     // The user may be back from granting all-files access, which queued downloads wait for.
     handheldApp.allFilesAccess.value = Environment.isExternalStorageManager()
     // Games may have been copied onto the device, or deleted, while the app was away.
-    if (!showsDebugScreen && !redirected) handheldApp.downloadManager.recheck()
+    if (!showsDebugScreen && !redirected) {
+      lifecycleScope.launch { handheldApp.deviceGames.rescan() }
+    }
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -203,21 +207,21 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Starts [DownloadService] whenever the activity shows and there's something to download, so the
-   * queue goes on in the background. An app in the background can't start one. It asks for
-   * all-files access, which writing games needs, and to show the download's progress in a
-   * notification, when it lacks them.
+   * Starts [DownloadService] when the queue gets something to download, so the queue goes on in the
+   * background. It waits for the activity to show, since an app in the background can't start one.
+   * While the queue has work, it asks once for all-files access, which writing games needs, and
+   * once that's granted, to show the download's progress in a notification.
    */
   private fun keepDownloadsRunning() {
+    val hasWork = handheldApp.downloadManager.queue.map { queue -> queue.any { it.isActive } }
     lifecycleScope.launch {
-      repeatOnLifecycle(Lifecycle.State.STARTED) {
-        handheldApp.downloadManager.queue
-          .map { queue -> queue.any { it.state != DownloadState.Failed } }
-          .distinctUntilChanged()
-          .collect { active ->
-            if (!active) return@collect
+      combine(hasWork, handheldApp.allFilesAccess, ::Pair)
+        .distinctUntilChanged()
+        .filter { it.first }
+        .collect { (_, allFilesAccess) ->
+          lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
-            if (!Environment.isExternalStorageManager()) {
+            if (!allFilesAccess) {
               startActivity(handheldApp.allFilesAccessSettings())
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -228,7 +232,7 @@ class MainActivity : ComponentActivity() {
             }
             DownloadService.start(this@MainActivity)
           }
-      }
+        }
     }
   }
 

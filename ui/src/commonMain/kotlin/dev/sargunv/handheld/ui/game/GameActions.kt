@@ -159,8 +159,8 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     scope.launch {
       val removal =
         when (game) {
-          is Rom -> state.downloads.remove(game)
-          is LocalGame -> state.downloads.remove(game)
+          is Rom -> state.games.remove(game)
+          is LocalGame -> state.games.remove(game)
         }
       // A local game removed is gone, so its page has nothing left to show.
       if (game is LocalGame && removal == Removal.Removed) {

@@ -23,7 +23,7 @@ import kotlinx.serialization.builtins.ListSerializer
  * disc set copied in loose is one: its playlist or descriptor, with the files it lists as
  * [otherFiles].
  */
-data class LocalFile(
+internal data class LocalFile(
   val path: String,
   /** The platform whose folder holds the file. */
   val platformId: Long,
@@ -40,12 +40,12 @@ data class LocalFile(
 }
 
 /** One of the other files of a disc set, as a scan found it. */
-data class LocalPart(val path: String, val sizeBytes: Long)
+internal data class LocalPart(val path: String, val sizeBytes: Long)
 
 /**
  * What the latest scan of the platforms' folders found besides the games named as RomM names them.
  */
-data class LocalScan(
+internal data class LocalScan(
   /** The library's games found by content in a file of another name, by ROM id: the file's path. */
   val matched: Map<Long, String> = emptyMap(),
   /** The files no game of the library matched, by name or by content. */
@@ -353,10 +353,11 @@ private fun descriptorText(path: Path): String? {
   else text
 }
 
-/** Files a scan never takes for a game: hidden ones, and downloads under way. */
+/** Files a scan never takes for a game: hidden ones, and another app's downloads under way. */
 private fun skipped(name: String) = name.startsWith('.') || name.endsWith(".part")
 
-private fun entriesOf(folder: Path): List<Path> =
+/** The entries of [folder] in name order, or none when it isn't a folder that can be read. */
+internal fun entriesOf(folder: Path): List<Path> =
   try {
     if (SystemFileSystem.metadataOrNull(folder)?.isDirectory == true) {
       SystemFileSystem.list(folder).sortedBy { it.name }
