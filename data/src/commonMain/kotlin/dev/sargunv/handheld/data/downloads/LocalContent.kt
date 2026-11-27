@@ -303,36 +303,27 @@ private fun ByteArray.readInt(offset: Int): Int =
   (0 until 4).fold(0) { value, i -> (value shl 8) or (this[offset + i].toInt() and 0xff) }
 
 /**
- * The disc sets copied in loose among [files], the entries of platforms' folders: each sheet that
- * no other lists, with the files beside it that it lists, and for a playlist, the files its discs'
- * sheets list too.
+ * The disc sets copied in loose among [files], the entries of platforms' folders, as
+ * [DiscSets.sets] finds them.
  */
 private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
   for (folder in files.groupBy { it.parent }.values) {
     val byName = folder.associateBy { it.name }
-    val listed =
-      folder
-        .filter { DiscSets.isSheet(it.name) }
-        .mapNotNull { sheet ->
-          val text = sheetText(sheet) ?: return@mapNotNull null
-          val names = DiscSets.listedFiles(sheet.name, text) ?: return@mapNotNull null
-          sheet.name to DiscSets.siblings(names, byName.keys).filter { it != sheet.name }
-        }
-        .toMap()
-    fun membersOf(name: String, seen: MutableSet<String>): List<String> =
-      listed[name].orEmpty().flatMap {
-        listOf(it) + if (seen.add(it)) membersOf(it, seen) else emptyList()
-      }
-    val members = listed.values.flatten().toSet()
-    for (name in listed.keys - members) {
-      val all = membersOf(name, mutableSetOf(name)).distinct().filter { it != name }
-      put(byName.getValue(name), all.map { byName.getValue(it) })
+    for ((head, members) in
+      DiscSets.sets(folder.map { it.name }) { sheetText(byName.getValue(it)) }) {
+      put(byName.getValue(head), members.map(byName::getValue))
     }
   }
 }
 
+/**
+ * The file that holds the header of the game an emulator opens at [path], as [DiscSets.headerFile]
+ * finds it.
+ */
+fun headerFile(path: String): String? = DiscSets.headerFile(path) { sheetText(Path(it)) }
+
 /** The text of the sheet at [path], as [DiscSets.sheetText] reads it, or null when it can't. */
-fun sheetText(path: Path): String? {
+private fun sheetText(path: Path): String? {
   val metadata = SystemFileSystem.metadataOrNull(path)?.takeIf { it.isRegularFile } ?: return null
   return try {
     DiscSets.sheetText(metadata.size) {

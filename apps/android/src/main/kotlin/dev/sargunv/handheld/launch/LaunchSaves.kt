@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.launch
 
 import android.content.Context
+import dev.sargunv.handheld.data.downloads.headerFile
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.data.saves.Ps2CardRoots
 import dev.sargunv.handheld.data.saves.SaveFolderRoots
@@ -63,7 +64,7 @@ fun gameSaveFor(
     }
   }
   val headerPlatform = SessionRomHeaders.headerPlatform(platform) ?: return SaveLookup.NoGameId
-  val file = SessionRomHeaders.headerFile(romPath) ?: return SaveLookup.NoGameId
+  val file = headerFile(romPath) ?: return SaveLookup.NoGameId
   val id =
     romGameId(headerPlatform, file, switchKeys(storage, target.packageName))
       ?: return SaveLookup.NoGameId
