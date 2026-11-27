@@ -130,13 +130,13 @@ fun MainSecondary(state: AppState) {
 }
 
 /**
- * Puts the ROM's screens in place of a local game's in the back stack once its file is the ROM's,
- * except while the local game plays. It runs until cancelled.
+ * Puts the ROM's screens in place of a local game's in the back stack once the adopt step has
+ * handed what was kept for the file to the ROM. It runs until cancelled.
  */
 private suspend fun AppState.followAdoptions() {
   val backStack = snapshotFlow { navigator.backStack.toList() }
-  combine(games.adoptions, snapshotFlow { playing }, backStack) { adoptions, playing, screens ->
-      val roms = adoptions.filter { it.local != playing }.associate { it.local to it.rom }
+  combine(handedOver, backStack) { handedOver, screens ->
+      val roms = handedOver.associate { it.local to it.rom }
       for (screen in screens) {
         val replacement =
           when (screen) {

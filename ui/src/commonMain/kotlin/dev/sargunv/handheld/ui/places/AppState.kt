@@ -33,13 +33,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -85,8 +88,10 @@ class AppState(
   /** Held while adopting and while [play] sets [playing], so nothing adopts the game it plays. */
   private val adoption = Mutex()
 
-  /** The adoptions still listed that [adopt] has handed over. */
-  private var handedOver = emptySet<Adoption>()
+  private val handover = MutableStateFlow(emptySet<Adoption>())
+
+  /** The adoptions still listed that the adopt step has handed over. */
+  val handedOver: StateFlow<Set<Adoption>> = handover.asStateFlow()
 
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
@@ -210,7 +215,7 @@ class AppState(
     combine(games.adoptions, snapshotFlow { playing }) { adoptions, _ -> adoptions }
       .collect { adoptions ->
         adoption.withLock {
-          handedOver = handedOver intersect adoptions.toSet()
+          handover.update { it intersect adoptions.toSet() }
           adopt(adoptions.filterNot { playing == it.local || playing == it.rom })
         }
       }
@@ -218,9 +223,9 @@ class AppState(
 
   /** Hands over what's kept for each of [pending] that isn't handed over yet, under [adoption]. */
   private suspend fun adopt(pending: List<Adoption>) {
-    val new = pending - handedOver
+    val new = pending - handover.value
     if (new.isEmpty()) return
     gameState.adopt(new)
-    handedOver += new
+    handover.update { it + new }
   }
 }
