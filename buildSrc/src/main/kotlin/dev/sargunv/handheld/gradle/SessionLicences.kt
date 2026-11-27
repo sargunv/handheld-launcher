@@ -8,10 +8,8 @@ import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
@@ -34,9 +32,6 @@ abstract class SessionLicences @Inject constructor(private val exec: ExecOperati
   @get:InputFiles
   @get:PathSensitive(PathSensitivity.RELATIVE)
   abstract val checkedIn: ConfigurableFileCollection
-  @get:InputFile
-  @get:PathSensitive(PathSensitivity.RELATIVE)
-  abstract val rcheevosLicence: RegularFileProperty
   @get:OutputDirectory abstract val outputDir: DirectoryProperty
 
   @TaskAction
@@ -53,8 +48,6 @@ abstract class SessionLicences @Inject constructor(private val exec: ExecOperati
         licenses.resolve("$hash.json"),
         mapOf("hash" to hash, "spdxId" to spdxId, "name" to name, "content" to text),
       )
-
-    licence("rcheevos", "MIT", "MIT License", rcheevosLicence.get().asFile.readText())
 
     // Offline, so the crates' licence texts come from their packaged sources, which the fetch
     // downloads once. It fetches every platform's crates, since cargo-about reads the metadata of

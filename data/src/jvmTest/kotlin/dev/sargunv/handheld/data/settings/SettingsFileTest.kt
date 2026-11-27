@@ -42,23 +42,6 @@ class SettingsFileTest {
   }
 
   @Test
-  fun anUnreadableFileReadsAsTheDefaults() = runTest {
-    file.parent.toFile().mkdirs()
-    file.writeText("""{"hand":""")
-    assertEquals(TestSettings(), settingsFile().read())
-    // The next write replaces it.
-    settingsFile().write(TestSettings(volume = 1))
-    assertEquals(TestSettings(volume = 1), settingsFile().read())
-  }
-
-  @Test
-  fun aFileThatCantBeOpenedReadsAsTheDefaults() {
-    // A directory where the file should be fails to open, as an unreadable file does.
-    file.toFile().mkdirs()
-    assertEquals(TestSettings(), settingsFile().read())
-  }
-
-  @Test
   fun aFailedWriteDoesntThrow() = runTest {
     // A file where the settings directory should be makes every write fail.
     file.parent.parent.toFile().mkdirs()

@@ -325,13 +325,15 @@ internal object Ps2FolderCard {
 
   /** [value]'s leading integer, as C's strtoll reads it, or 0. */
   private fun strtoll(value: String): Long {
-    val match = Regex("^\\s*[+-]?\\d+").find(value) ?: return 0
+    val match = LEADING_INTEGER.find(value) ?: return 0
     return match.value
       .trim()
       .toBigInteger()
       .coerceIn(Long.MIN_VALUE.toBigInteger(), Long.MAX_VALUE.toBigInteger())
       .toLong()
   }
+
+  private val LEADING_INTEGER = Regex("^\\s*[+-]?\\d+")
 
   private const val KEY_CAP = NAME_LENGTH + 8
   private const val VALUE_CAP = 32
