@@ -19,8 +19,8 @@ lockfile_mode = "merge"
 [env]
 # The runner images set ANDROID_HOME; locally it defaults to Android Studio's path.
 ANDROID_HOME = "{% if os() == 'macos' %}{% set sdk = env.HOME ~ '/Library/Android/sdk' %}{% else %}{% set sdk = env.HOME ~ '/Android/Sdk' %}{% endif %}{{ get_env(name='ANDROID_HOME', default=sdk) }}"
-# The NDK the session builds with, which cargo-ndk finds here. Install it with
-# `sdkmanager --install "ndk;<version>"`.
+# The NDK the session builds with, which cargo-ndk finds here. `mise run
+# android:ndk` installs it.
 ANDROID_NDK_HOME = "{{ env.ANDROID_HOME }}/ndk/30.0.16248370"
 # Where `mise run session:fixtures` puts the session's test fixtures.
 HANDHELD_SESSION_FIXTURES = "{{ get_env(name='XDG_CACHE_HOME', default=env.HOME ~ '/.cache') }}/handheld/session-fixtures"
@@ -49,6 +49,10 @@ run = "fnox exec -- ./gradlew :data:jvmTest --tests '*LiveLibrarySyncTest' --rer
 [tasks."run:desktop"]
 description = "Run the desktop app"
 run = "./gradlew :apps:desktop:run"
+
+[tasks."android:ndk"]
+description = "Install the NDK the session builds with"
+run = '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${ANDROID_NDK_HOME##*/}"'
 
 [tasks."android:debug-key"]
 description = "Unpack the project's shared debug signing key from fnox"

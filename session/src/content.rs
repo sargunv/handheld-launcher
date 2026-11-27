@@ -13,9 +13,6 @@ use std::path::{Path, PathBuf};
 
 use crate::session::{SessionError, SystemInfo};
 
-/// The archive formats the session extracts, by extension.
-const ARCHIVE_EXTENSIONS: &[&str] = &["zip"];
-
 /// Whether `content` is an archive the core can't open, which the session
 /// extracts the game from.
 fn extracts(content: &Path, info: &SystemInfo) -> bool {
@@ -23,7 +20,7 @@ fn extracts(content: &Path, info: &SystemInfo) -> bool {
         return false;
     };
     // A core that lists no extensions says nothing of what to extract.
-    ARCHIVE_EXTENSIONS.contains(&extension.as_str())
+    extension == "zip"
         && !info.block_extract
         && !info.valid_extensions.is_empty()
         && !accepts(info, &extension)

@@ -1,6 +1,6 @@
 //! Keyboard and gamepad input, mapped to the RetroPad.
 
-use gilrs::{Axis, Gilrs};
+use gilrs::{Axis, EventType, Gilrs};
 use handheld_session::{Button, Port, Stick};
 use winit::keyboard::KeyCode;
 
@@ -68,50 +68,41 @@ impl Gamepads {
         Self { gilrs }
     }
 
-    /// Reads every connected gamepad into `port`, combining their buttons
-    /// with `keyboard`'s. A button pressed since the last update counts as
-    /// held, even if it was released since. Each stick takes the gamepad
-    /// that pushes it furthest.
-    pub fn update(&mut self, port: &Port, keyboard: u16) {
-        let mut buttons = keyboard;
-        let (mut left, mut right) = ((0, 0), (0, 0));
-        if let Some(gilrs) = &mut self.gilrs {
-            while let Some(event) = gilrs.next_event() {
-                match event.event {
-                    gilrs::EventType::Connected => {
-                        log::info!("gamepad connected: {}", gilrs.gamepad(event.id).name());
-                    }
-                    gilrs::EventType::ButtonPressed(button, _) => {
-                        if let Some(b) = pad_button(button) {
-                            buttons |= b.mask();
-                        }
-                    }
-                    _ => {}
+    /// Applies the gamepads' button events to `port`, and sets each of its
+    /// sticks from the gamepad that pushes it furthest.
+    pub fn update(&mut self, port: &Port) {
+        let Some(gilrs) = &mut self.gilrs else {
+            return;
+        };
+        while let Some(event) = gilrs.next_event() {
+            let (button, pressed) = match event.event {
+                EventType::ButtonPressed(button, _) => (button, true),
+                EventType::ButtonReleased(button, _) => (button, false),
+                EventType::Connected => {
+                    log::info!("gamepad connected: {}", gilrs.gamepad(event.id).name());
+                    continue;
                 }
-            }
-            for (_, pad) in gilrs.gamepads() {
-                for g in GILRS_BUTTONS {
-                    if pad.is_pressed(g)
-                        && let Some(b) = pad_button(g)
-                    {
-                        buttons |= b.mask();
-                    }
-                }
-                // gilrs's sticks point up for positive Y; the RetroPad's
-                // point down.
-                let pad_left = (
-                    axis(pad.value(Axis::LeftStickX)),
-                    axis(-pad.value(Axis::LeftStickY)),
-                );
-                let pad_right = (
-                    axis(pad.value(Axis::RightStickX)),
-                    axis(-pad.value(Axis::RightStickY)),
-                );
-                left = further(left, pad_left);
-                right = further(right, pad_right);
+                _ => continue,
+            };
+            if let Some(button) = pad_button(button) {
+                port.set_button(button, pressed);
             }
         }
-        port.set_buttons(buttons);
+        let (mut left, mut right) = ((0, 0), (0, 0));
+        for (_, pad) in gilrs.gamepads() {
+            // gilrs's sticks point up for positive Y; the RetroPad's point
+            // down.
+            let pad_left = (
+                axis(pad.value(Axis::LeftStickX)),
+                axis(-pad.value(Axis::LeftStickY)),
+            );
+            let pad_right = (
+                axis(pad.value(Axis::RightStickX)),
+                axis(-pad.value(Axis::RightStickY)),
+            );
+            left = further(left, pad_left);
+            right = further(right, pad_right);
+        }
         port.set_stick(Stick::Left, left.0, left.1);
         port.set_stick(Stick::Right, right.0, right.1);
     }
@@ -122,25 +113,6 @@ fn further(a: (i16, i16), b: (i16, i16)) -> (i16, i16) {
     let magnitude = |(x, y): (i16, i16)| i32::from(x).pow(2) + i32::from(y).pow(2);
     if magnitude(b) > magnitude(a) { b } else { a }
 }
-
-const GILRS_BUTTONS: [gilrs::Button; 16] = [
-    gilrs::Button::South,
-    gilrs::Button::East,
-    gilrs::Button::West,
-    gilrs::Button::North,
-    gilrs::Button::LeftTrigger,
-    gilrs::Button::RightTrigger,
-    gilrs::Button::LeftTrigger2,
-    gilrs::Button::RightTrigger2,
-    gilrs::Button::LeftThumb,
-    gilrs::Button::RightThumb,
-    gilrs::Button::Select,
-    gilrs::Button::Start,
-    gilrs::Button::DPadUp,
-    gilrs::Button::DPadDown,
-    gilrs::Button::DPadLeft,
-    gilrs::Button::DPadRight,
-];
 
 fn axis(value: f32) -> i16 {
     (value.clamp(-1.0, 1.0) * 32767.0) as i16

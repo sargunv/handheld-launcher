@@ -246,7 +246,7 @@ impl Region {
     /// Where the region of a `width` by `height` frame shown at `aspect` goes
     /// on a `win_w` by `win_h` window: scaled to fit and centred, as
     /// (x, y, width, height).
-    pub(crate) fn fit(
+    pub fn fit(
         self,
         width: u32,
         height: u32,
