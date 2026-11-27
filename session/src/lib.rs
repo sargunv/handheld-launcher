@@ -39,6 +39,7 @@ pub use crate::handle::{
     AchievementsHttp, GameSession, SessionInfo, SessionListener, SessionOptions, WindowHandle,
 };
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
+pub use crate::pacing::core_period;
 pub use crate::rom_header::{HeaderField, rom_game_id, rom_header_fields};
 pub use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo, VideoOutput};
 pub use crate::video::{CapturedFrame, Frame, Region, VideoSink};

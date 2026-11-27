@@ -792,13 +792,7 @@ mod tests {
     use crate::audio::NullAudioSink;
     use crate::gl::Framebuffer;
     use crate::renderer::Gpu;
-    use crate::video::VideoSink;
-
-    struct Discard;
-
-    impl VideoSink for Discard {
-        fn frame(&mut self, _frame: Frame<'_>) {}
-    }
+    use crate::video::NullVideoSink;
 
     fn host() -> Host {
         Host::new(
@@ -807,7 +801,7 @@ mod tests {
             Options::new(HashMap::new()),
             Arc::new(InputState::new()),
             Box::new(NullAudioSink),
-            Output::Sink(Box::new(Discard)),
+            Output::Sink(Box::new(NullVideoSink)),
         )
     }
 

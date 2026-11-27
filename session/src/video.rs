@@ -22,6 +22,16 @@ pub struct CapturedFrame {
     pub pixels: Vec<u8>,
 }
 
+impl From<Frame<'_>> for CapturedFrame {
+    fn from(frame: Frame<'_>) -> Self {
+        Self {
+            width: frame.width,
+            height: frame.height,
+            pixels: frame.pixels.to_vec(),
+        }
+    }
+}
+
 /// Receives the frames a session produces when it doesn't present them to a
 /// window itself.
 ///
@@ -31,6 +41,13 @@ pub struct CapturedFrame {
 pub trait VideoSink {
     /// Takes the frame. It's valid only for the duration of the call.
     fn frame(&mut self, frame: Frame<'_>);
+}
+
+/// A sink that drops every frame.
+pub(crate) struct NullVideoSink;
+
+impl VideoSink for NullVideoSink {
+    fn frame(&mut self, _frame: Frame<'_>) {}
 }
 
 /// The pixel formats a software-rendering core can produce.
