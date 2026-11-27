@@ -6,6 +6,10 @@
 
 package dev.sargunv.handheld.data.saves
 
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+
 /**
  * PCSX2's folder cards: a directory named as the card file would be, holding `_pcsx2_superblock`
  * and a directory per save folder. A save folder holds the save's files, an `_pcsx2_index` with
@@ -338,46 +342,21 @@ internal object Ps2FolderCard {
   private fun todToUnix(entry: ByteArray, at: Int): Long {
     val month = (entry[at + 5].toInt() and 0xFF).takeIf { it != 0 } ?: 1
     val day = (entry[at + 4].toInt() and 0xFF).takeIf { it != 0 } ?: 1
-    val days = daysFromCivil(u16(entry, at + 6).toLong(), month.toLong(), day.toLong())
-    return days * 86400 +
+    val date = LocalDate.of(u16(entry, at + 6), 1, 1).plusMonths(month - 1L).plusDays(day - 1L)
+    return date.toEpochDay() * 86400 +
       (entry[at + 3].toInt() and 0xFF) * 3600L +
       (entry[at + 2].toInt() and 0xFF) * 60L +
       (entry[at + 1].toInt() and 0xFF)
   }
 
   private fun unixToTod(t: Long, out: ByteArray, at: Int) {
-    val days = Math.floorDiv(t, 86400L)
-    val secs = t - days * 86400
-    val (y, m, d) = civilFromDays(days)
+    val time = LocalDateTime.ofEpochSecond(t, 0, ZoneOffset.UTC)
     out[at] = 0
-    out[at + 1] = (secs % 60).toByte()
-    out[at + 2] = (secs / 60 % 60).toByte()
-    out[at + 3] = (secs / 3600).toByte()
-    out[at + 4] = d.toByte()
-    out[at + 5] = m.toByte()
-    putU16(out, at + 6, y.toInt())
-  }
-
-  // Howard Hinnant's civil calendar algorithms, as sigil has them.
-
-  private fun daysFromCivil(year: Long, m: Long, d: Long): Long {
-    val y = if (m <= 2) year - 1 else year
-    val era = Math.floorDiv(y, 400L)
-    val yoe = y - era * 400
-    val doy = (153 * (if (m > 2) m - 3 else m + 9) + 2) / 5 + d - 1
-    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
-    return era * 146097 + doe - 719468
-  }
-
-  private fun civilFromDays(days: Long): Triple<Long, Long, Long> {
-    val z = days + 719468
-    val era = Math.floorDiv(z, 146097L)
-    val doe = z - era * 146097
-    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
-    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
-    val mp = (5 * doy + 2) / 153
-    val d = doy - (153 * mp + 2) / 5 + 1
-    val m = if (mp < 10) mp + 3 else mp - 9
-    return Triple(yoe + era * 400 + if (m <= 2) 1 else 0, m, d)
+    out[at + 1] = time.second.toByte()
+    out[at + 2] = time.minute.toByte()
+    out[at + 3] = time.hour.toByte()
+    out[at + 4] = time.dayOfMonth.toByte()
+    out[at + 5] = time.monthValue.toByte()
+    putU16(out, at + 6, time.year)
   }
 }
