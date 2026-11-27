@@ -75,7 +75,7 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
             if (outcome.result is SaveSyncResult.Conflict) {
               chooseLater("Played this device's save")
             } else {
-              "Played this device's save · RomM's newer save waits"
+              "Played this device's save · RomM's newer save comes at the next play"
             },
           )
           true
