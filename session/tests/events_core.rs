@@ -30,7 +30,7 @@ fn stripes(h: &Harness) -> Vec<[u8; 4]> {
 #[test]
 fn every_port_reaches_the_core() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None, &[], None, None).unwrap();
+    let mut h = Harness::start(CORE).unwrap();
     h.run(1);
     // The core declares three ports, so the session sets a RetroPad on those.
     assert_eq!(stripes(&h), [GRAY, GRAY, GRAY, BLACK]);
@@ -50,7 +50,7 @@ fn every_port_reaches_the_core() {
 #[test]
 fn takes_a_new_video_and_audio_mode_mid_game() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None, &[], None, None).unwrap();
+    let mut h = Harness::start(CORE).unwrap();
     h.run(1);
     assert_eq!(h.session.av_info().sample_rate, 44_100.0);
 

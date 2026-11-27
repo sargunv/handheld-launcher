@@ -6,6 +6,7 @@ mod common;
 
 use std::cell::RefCell;
 use std::io::Write;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -78,19 +79,16 @@ fn account(hardcore: bool) -> AchievementOptions {
 type Waiting = Rc<RefCell<Vec<(u64, AchievementsRequest)>>>;
 
 /// Starts `content` in Gambatte, taking part in RetroAchievements.
-fn start(content: &str, hardcore: bool) -> (Harness, Waiting) {
+fn start(content: PathBuf, hardcore: bool) -> (Harness, Waiting) {
     let waiting = Waiting::default();
     let sent = waiting.clone();
-    let h = Harness::start(
-        CORE,
-        Some(content),
-        &[],
-        Some((
+    let h = Harness::with(CORE, |c| {
+        c.content = Some(content);
+        c.achievements = Some((
             account(hardcore),
             Box::new(move |id, request| sent.borrow_mut().push((id, request))),
-        )),
-        None,
-    )
+        ));
+    })
     .unwrap();
     (h, waiting)
 }
@@ -114,7 +112,7 @@ fn load(h: &mut Harness, waiting: &Waiting) -> Vec<String> {
 #[test]
 fn identifies_the_game_and_reads_its_memory() {
     let _lock = lock();
-    let (mut h, waiting) = start(GAME, false);
+    let (mut h, waiting) = start(fixture(GAME), false);
     assert_eq!(load(&mut h, &waiting), vec![GAME_HASH]);
     let AchievementStatus::Ready {
         game, achievements, ..
@@ -141,14 +139,14 @@ fn hashes_the_game_extracted_from_a_zip() {
     zip.write_all(&std::fs::read(fixture(GAME)).unwrap())
         .unwrap();
     zip.finish().unwrap();
-    let (mut h, waiting) = start(archive.to_str().unwrap(), false);
+    let (mut h, waiting) = start(archive, false);
     assert_eq!(load(&mut h, &waiting), vec![GAME_HASH]);
 }
 
 #[test]
 fn hardcore_refuses_to_load_states() {
     let _lock = lock();
-    let (mut h, waiting) = start(GAME, true);
+    let (mut h, waiting) = start(fixture(GAME), true);
     load(&mut h, &waiting);
     assert!(h.session.hardcore_restricts());
     let state = h.dirs.path().join("ucity.state");
