@@ -42,14 +42,14 @@ import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
+import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.LocalFocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.help
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.HelpHolder
-import dev.sargunv.handheld.ui.signin.help
 import kotlinx.coroutines.channels.Channel
 
 /** The sections of Settings, in the order the page lists them. */
@@ -240,7 +240,7 @@ internal fun SettingRow(
 ) {
   Row(
     Modifier.fillMaxWidth()
-      .help(view.help, label, help, hasMenu = onMenu != null)
+      .help(view.help, key, label, help, hasMenu = onMenu != null)
       .then(if (enabled) Modifier else Modifier.semantics { disabled() })
       .focusItem(
         key,

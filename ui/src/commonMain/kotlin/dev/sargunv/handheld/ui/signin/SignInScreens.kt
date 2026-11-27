@@ -50,7 +50,9 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.help
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
@@ -376,7 +378,7 @@ internal fun TextEntry(
     }
   Box(
     modifier
-      .help(helpHolder, label, help)
+      .help(helpHolder, key, label, help)
       .focusRequester(itemRequester)
       .focusItem(
         key,
@@ -454,7 +456,7 @@ private fun SignInButton(
   onConfirm: () -> Unit,
 ) {
   Box(
-    Modifier.help(state.help, label, help)
+    Modifier.help(state.help, key, label, help)
       .focusItem(key, onConfirm = onConfirm)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
@@ -474,7 +476,7 @@ private fun SignInToggle(
   onToggle: () -> Unit,
 ) {
   Row(
-    Modifier.help(state.help, label, help)
+    Modifier.help(state.help, key, label, help)
       .semantics { toggleableState = ToggleableState(checked) }
       .focusItem(key, onConfirm = onToggle, role = Role.Switch)
       .background(Placeholder.tile)
