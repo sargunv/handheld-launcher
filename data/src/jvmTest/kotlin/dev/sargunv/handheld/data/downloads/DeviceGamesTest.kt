@@ -344,17 +344,21 @@ class DeviceGamesTest {
     val track = File(psx, "Demo.bin").apply { writeBytes(disc1) }
     val other = File(psx, "Other.bin").apply { writeBytes(disc1) }
     val games = games(backgroundScope)
-    val local = waitFor {
-      games.localGames().first { games -> games.any { it.path == cue.path } }
+    suspend fun scanned(sized: (Long) -> Boolean) = waitFor {
+      games.localGames().first { games -> games.any { it.path == cue.path && sized(it.sizeBytes) } }
     }
       .single { it.path == cue.path }
+    val local = scanned { true }
 
     // A track that changed since the scan isn't the one it found.
     track.writeBytes(disc2)
     assertEquals(Removal.NotOnDevice, games.remove(local))
     assertTrue(cue.exists() && track.exists())
+    // The removal's rescan finds the changed track; once it's back, the next one finds the set.
+    scanned { it != local.sizeBytes }
     track.writeBytes(disc1)
-    assertEquals(Removal.Removed, games.remove(local))
+    games.rescan()
+    assertEquals(Removal.Removed, games.remove(scanned { it == local.sizeBytes }))
     assertFalse(cue.exists())
     assertFalse(track.exists())
     assertTrue(other.exists())
