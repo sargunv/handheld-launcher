@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.RomStatus
+import dev.sargunv.handheld.data.downloads.UploadPhase
 import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
@@ -51,7 +52,6 @@ import dev.sargunv.handheld.ui.saves.SaveConflictScreen
 import dev.sargunv.handheld.ui.saves.StillRunningDialog
 import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.launch
 
 /** What the Game screen knows of its game. */
 private sealed interface ShownGame {
@@ -94,7 +94,7 @@ private fun rememberShownGame(state: AppState, key: GameKey): ShownGame {
  * and isn't on the server, so its saves stay on the device.
  *
  * A launch runs while the screen shows, so while one is under way, leaving the screen asks first,
- * and the menu and the main menu wait.
+ * and the menu and the main menu wait. An upload goes on when the screen goes away.
  */
 @Composable
 internal fun GameScreen(state: AppState, screen: Screen.Game) {
@@ -123,22 +123,33 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     // A game that isn't on the device shows its page, where it can download.
     if (currentStatus is RomStatus.OnDevice) actions.play(current, currentStatus.path)
   }
-  val upload = actions.upload
+  LaunchedEffect(actions) { actions.showUploads(screen.key) }
+  // A local game removed here leaves with its file.
+  LaunchedEffect(shown, actions.removedLocalGame) {
+    if (shown == ShownGame.Gone && actions.removedLocalGame) state.navigator.back()
+  }
+  val latestUpload by state.uploads.upload.collectAsState()
+  val uploading = latestUpload?.isRunning == true
+  val upload = latestUpload?.takeIf { it.game.key == screen.key }
   val primary =
-    when (upload) {
-      is UploadState.Sending ->
-        PrimaryAction.Waiting("Uploading${upload.percent?.let { " $it%" }.orEmpty()}")
-      UploadState.Finishing -> PrimaryAction.Waiting("Adding to your library")
-      UploadState.Checking,
+    when (val phase = upload?.phase) {
+      is UploadPhase.Sending -> PrimaryAction.StopUpload(phase.percent)
+      UploadPhase.Finishing -> PrimaryAction.Waiting("Adding to your library")
+      is UploadPhase.Ended,
       null -> current?.let { primaryAction(it, status, actions.playing, actions.playProgress) }
     }
-  val hasMenu = current != null && status != null && !actions.playing && upload == null
+  val hasMenu =
+    current != null &&
+      status != null &&
+      !actions.playing &&
+      !actions.checkingUploads &&
+      upload?.isRunning != true
   BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = state.gameBusy) {
     FocusScope(
       Modifier.fillMaxSize().onAction { action ->
         when {
           action == Action.Menu && hasMenu -> actions.dialog = GameDialog.Menu
-          // The main menu waits for the launch or the upload, as it would leave the screen.
+          // The main menu waits for the launch, as it would leave the screen.
           action == Action.MainMenu && state.gameBusy -> Unit
           else -> return@onAction false
         }
@@ -148,9 +159,9 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
       val conflict = actions.saveConflict
       if (conflict != null) {
         SaveConflictScreen(
-          conflict.conflict,
-          onChoose = { conflict.choice.complete(it) },
-          onCancel = { conflict.choice.complete(null) },
+          conflict.question,
+          onChoose = { conflict.answer.complete(it) },
+          onCancel = { conflict.answer.complete(null) },
         )
         return@FocusScope
       }
@@ -183,12 +194,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             if (current != null && primary != null) {
               MenuButton("primary", primary.label, enabled = primary.isAction) {
                 when (primary) {
-                  is PrimaryAction.Download ->
-                    if (current is Rom) scope.launch { state.downloads.enqueue(current) }
-                  PrimaryAction.Retry ->
-                    if (current is Rom) scope.launch { state.downloads.retry(current.id) }
+                  is PrimaryAction.Download -> if (current is Rom) state.downloads.enqueue(current)
+                  PrimaryAction.Retry -> if (current is Rom) state.downloads.retry(current.id)
                   is PrimaryAction.Play -> actions.play(current, primary.path)
-                  else -> Unit
+                  is PrimaryAction.StopUpload -> state.uploads.stop()
+                  is PrimaryAction.Waiting -> Unit
                 }
               }
             }
@@ -218,13 +228,8 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         }
         HintBar(
           buildList {
-            if (primary?.isAction == true) add(Hint(Action.Confirm, primary.label))
-            when (upload) {
-              is UploadState.Sending -> add(Hint(Action.Back, "Stop upload"))
-              UploadState.Finishing -> Unit
-              UploadState.Checking,
-              null -> add(Hint(Action.Back, "Back"))
-            }
+            if (primary?.isAction == true) add(Hint(Action.Confirm, primary.hint))
+            add(Hint(Action.Back, "Back"))
             if (hasMenu) add(Hint(Action.Menu, "Menu"))
           },
           mainMenu = !state.gameBusy,
@@ -237,10 +242,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             GameMenu(
               current,
               status,
+              uploading,
               onDismissRequest = close,
               onCancelDownload = {
                 close()
-                if (current is Rom) scope.launch { state.downloads.cancel(current.id) }
+                if (current is Rom) state.downloads.cancel(current.id)
               },
               onRemove = { actions.dialog = GameDialog.Remove },
               onUpload = {
@@ -274,15 +280,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             dialog.reason,
             onSignInAgain = {
               close()
-              scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+              state.signOut(allowUploads = true, keepQueue = true)
             },
             onDismissRequest = close,
           )
-        GameDialog.StopUpload ->
-          StopUploadDialog(screen.title, onKeep = close) {
-            close()
-            actions.stopUpload()
-          }
         GameDialog.Leave ->
           LeaveDialog(
             screen.title,
@@ -295,7 +296,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         null -> Unit
       }
       actions.stillRunning?.let { asking ->
-        StillRunningDialog(asking.prompt, onChoose = { asking.choice.complete(it) })
+        StillRunningDialog(asking.question, onChoose = { asking.answer.complete(it) })
       }
     }
   }
@@ -334,6 +335,10 @@ internal suspend fun collectionsOf(state: AppState, game: LibraryGame) =
 internal sealed interface PrimaryAction {
   val label: String
 
+  /** What the hint bar calls it. */
+  val hint: String
+    get() = label
+
   /** Whether pressing it does something now. */
   val isAction: Boolean
     get() = true
@@ -348,6 +353,12 @@ internal sealed interface PrimaryAction {
 
   data class Play(val path: String) : PrimaryAction {
     override val label = "Play"
+  }
+
+  /** The upload is sending the file, [percent] of it once the server says. */
+  data class StopUpload(val percent: Int?) : PrimaryAction {
+    override val label = "Uploading${percent?.let { " $it%" }.orEmpty()}"
+    override val hint = "Stop upload"
   }
 
   /** The game is on its way or running, so the action waits. */

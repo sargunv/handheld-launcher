@@ -19,7 +19,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,7 +47,6 @@ import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.places.MenuButton
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Downloads: the queue, in the order it downloads. Confirm opens a game with [onOpen], and the menu
@@ -61,7 +59,6 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
   var focusedId by remember { mutableStateOf<Long?>(null) }
   var menuFor by remember { mutableStateOf<Long?>(null) }
   val focused = queue.find { it.romId == focusedId }
-  val scope = rememberCoroutineScope()
 
   FocusScope(
     Modifier.fillMaxSize().onAction { action ->
@@ -119,12 +116,12 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
           )
           if (menuDownload.state == DownloadState.Failed) {
             MenuButton("menu:retry", "Retry") {
-              scope.launch { downloads.retry(menuDownload.romId) }
+              downloads.retry(menuDownload.romId)
               close()
             }
           }
           MenuButton("menu:cancel", "Cancel download") {
-            scope.launch { downloads.cancel(menuDownload.romId) }
+            downloads.cancel(menuDownload.romId)
             close()
           }
         }

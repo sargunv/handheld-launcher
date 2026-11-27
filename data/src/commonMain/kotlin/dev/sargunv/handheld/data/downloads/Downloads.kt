@@ -17,11 +17,13 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -132,7 +134,7 @@ sealed interface RomStatus {
  * @param romm the sign-in, whose client downloads the games.
  * @param storage lists the mounted storage targets, the device's own first.
  * @param storageSettings which of them new downloads may go to, and in what order.
- * @param scope runs the downloads, for as long as it's active.
+ * @param scope runs the downloads and the commands for the queue, for as long as it's active.
  * @param canWrite whether the app may write to the storage targets now. Downloads wait while it's
  *   false, such as before the user grants access, rather than failing.
  */
@@ -142,12 +144,15 @@ class DownloadManager(
   private val games: DeviceGames,
   private val romm: StateFlow<RommState>,
   private val storage: () -> List<StorageTarget>,
-  scope: CoroutineScope,
+  private val scope: CoroutineScope,
   private val canWrite: Flow<Boolean>,
   private val storageSettings: () -> StorageSettings,
 ) {
   private val file = JsonFile(queueFile, ListSerializer(Download.serializer()))
   private val mutex = Mutex()
+
+  /** Held by each command for the queue while it runs, so they run in the order they're given. */
+  private val commands = Mutex()
   private val entries =
     MutableStateFlow(
       // A download that was running when the app stopped starts again from where it got.
@@ -155,7 +160,15 @@ class DownloadManager(
         if (it.state == DownloadState.Downloading) it.copy(state = DownloadState.Queued) else it
       },
     )
-  private var running: Pair<Long, Job>? = null
+  private var running: Running? = null
+
+  /**
+   * The running download's job. Once its game begins to move into place, it's [moving], and a
+   * cancel no longer stops it.
+   */
+  private class Running(val romId: Long, val job: Job) {
+    var moving = false
+  }
 
   /** The queue, in the order it downloads. */
   val queue: StateFlow<List<Download>> = entries.asStateFlow()
@@ -193,7 +206,7 @@ class DownloadManager(
         val job =
           mutex.withLock {
             nextFor(entries.value, account.credentials.baseUrl)?.let { download ->
-              scope.launch { run(download, account) }.also { running = download.romId to it }
+              scope.launch { run(download, account) }.also { running = Running(download.romId, it) }
             }
           } ?: continue
         job.join()
@@ -204,9 +217,7 @@ class DownloadManager(
       // At a sign-in to another server, the games of the one before leave the queue, without
       // telling either server, since their ids are that server's.
       signedInServer.filterNotNull().collect { server ->
-        for (download in entries.value) {
-          if (download.server != server) cancel(download.romId)
-        }
+        commands.withLock { drop { it.server != server } }
       }
     }
     scope.launch {
@@ -242,12 +253,19 @@ class DownloadManager(
   }
 
   /**
-   * Adds [rom] to the end of the queue, unless it's in the queue or on the device already, or the
-   * device is signed out. Returns whether it was added.
+   * Runs [block] in the queue's scope, after the commands given before it, so a command finishes
+   * when its caller goes away. The returned job ends once the queue shows what it did.
    */
-  suspend fun enqueue(rom: Rom): Boolean {
-    val folder = library.platform(rom.platformId)?.fsSlug ?: return false
-    return enqueue(rom, folder, emptyList(), null)
+  private fun command(block: suspend () -> Unit): Job =
+    // Undispatched, so each command waits for the lock in the order the commands are given.
+    scope.launch(start = CoroutineStart.UNDISPATCHED) { commands.withLock { block() } }
+
+  /**
+   * Adds [rom] to the end of the queue, unless it's in the queue or on the device already, or the
+   * device is signed out.
+   */
+  fun enqueue(rom: Rom): Job = command {
+    library.platform(rom.platformId)?.fsSlug?.let { enqueue(rom, it, emptyList(), null) }
   }
 
   private suspend fun enqueue(
@@ -276,7 +294,7 @@ class DownloadManager(
   }
 
   /** Queues a failed download again, where it was in the queue. */
-  suspend fun retry(romId: Long) {
+  fun retry(romId: Long): Job = command {
     edit { list ->
       list.map {
         if (it.romId == romId && it.state == DownloadState.Failed) {
@@ -291,22 +309,51 @@ class DownloadManager(
    * is signed in to the game's server, the server hears that it was canceled, if it asked for the
    * game. A download whose game has already moved into place finishes instead.
    */
-  suspend fun cancel(romId: Long) =
-    // Once begun, a cancel finishes even if the screen that asked goes away.
-    withContext(NonCancellable) {
-      val job = mutex.withLock { running?.takeIf { it.first == romId }?.second }
-      job?.cancel()
-      job?.join()
-      val download = entries.value.find { it.romId == romId } ?: return@withContext
-      download.storageRoot?.let {
-        withContext(Dispatchers.IO) { deleteIfCan(stagingFolder(it, romId)) }
+  fun cancel(romId: Long): Job = cancel(romm.value as? RommAccount) { it.romId == romId }
+
+  /**
+   * Cancels every download in the queue, as at a sign-out of [account]. The server hears of each
+   * install it asked for.
+   */
+  fun dropQueue(account: RommAccount): Job {
+    val queued = entries.value.mapTo(mutableSetOf()) { it.romId }
+    return cancel(account) { it.romId in queued }
+  }
+
+  /** Cancels the downloads [which] picks, and tells [account]'s server of those from it. */
+  private fun cancel(account: RommAccount?, which: (Download) -> Boolean): Job =
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+      val canceled = commands.withLock { drop(which) }
+      // After the lock, so a server that's slow to answer holds up no other command.
+      for (download in canceled) {
+        if (account?.credentials?.baseUrl == download.server) {
+          reportInstall(account, download, RommInstallStatus.Cancelled)
+        }
       }
-      edit { list -> list.filterNot { it.romId == romId } }
-      val account =
-        (romm.value as? RommAccount)?.takeIf { it.credentials.baseUrl == download.server }
-          ?: return@withContext
-      reportInstall(account, download, RommInstallStatus.Cancelled)
     }
+
+  /**
+   * Takes the downloads [which] picks out of the queue, stops them and deletes what they
+   * downloaded. Returns them. A download whose game is moving into place stays, and finishes.
+   */
+  private suspend fun drop(which: (Download) -> Boolean): List<Download> {
+    // They leave the queue before the running one stops, so the queue starts none of them.
+    val (dropped, stopping) =
+      mutex.withLock {
+        val moving = running?.takeIf { it.moving }?.romId
+        val (dropped, kept) = entries.value.partition { which(it) && it.romId != moving }
+        store(kept)
+        dropped to running?.takeIf { r -> dropped.any { it.romId == r.romId } }?.job
+      }
+    stopping?.cancelAndJoin()
+    withContext(Dispatchers.IO) {
+      val roots = storage().map { it.root }
+      for (download in dropped) {
+        for (root in roots) deleteIfCan(stagingFolder(root, download.romId))
+      }
+    }
+    return dropped
+  }
 
   /**
    * Whether [rom] is on the device, or how far its download has got. A download leaves the queue
@@ -398,7 +445,11 @@ class DownloadManager(
         return fail(download, account, e)
       }
     // From the move into place on, a cancel doesn't stop the download. Once the move lands, the
-    // game is installed, and nothing fails it.
+    // game is installed, and nothing fails it. A game dropped from the queue meanwhile stays put.
+    val moving = mutex.withLock {
+      entries.value.any { it.romId == download.romId }.also { if (it) running?.moving = true }
+    }
+    if (!moving) return
     withContext(NonCancellable) {
       val outcome =
         try {
@@ -554,9 +605,12 @@ class DownloadManager(
 
   /** Changes the queue and stores it. Returns whether it changed. */
   private suspend fun edit(change: (List<Download>) -> List<Download>): Boolean = mutex.withLock {
-    val before = entries.value
-    val after = change(before)
-    if (after == before) return@withLock false
+    store(change(entries.value))
+  }
+
+  /** Stores [after] as the queue, while [mutex] is held. Returns whether it changed. */
+  private suspend fun store(after: List<Download>): Boolean {
+    if (after == entries.value) return false
     // Once stored, the change shows, even when the caller is cancelled meanwhile.
     withContext(NonCancellable) {
       file.write(after)
@@ -565,7 +619,7 @@ class DownloadManager(
     // Only a running download has progress, and it goes once the queue shows the download's end.
     val running = after.filter { it.state == DownloadState.Downloading }.map { it.romId }
     progressing.update { it.filterKeys(running::contains) }
-    true
+    return true
   }
 }
 

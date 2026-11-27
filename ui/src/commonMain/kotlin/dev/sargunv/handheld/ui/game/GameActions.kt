@@ -4,14 +4,15 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.downloads.Removal
+import dev.sargunv.handheld.data.downloads.UploadOutcome
+import dev.sargunv.handheld.data.downloads.UploadPhase
 import dev.sargunv.handheld.data.downloads.UploadResult
-import dev.sargunv.handheld.data.downloads.uploadLocalGame
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
+import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
@@ -24,32 +25,14 @@ import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.io.IOException
 
-/** A save conflict waiting for the player's choice. */
-internal class PendingChoice(val conflict: SaveConflict) {
-  val choice = CompletableDeferred<SaveCopy?>()
-}
-
-/** An emulator that may still hold the game, waiting for the player's choice. */
-internal class PendingStillRunning(val prompt: StillRunning) {
-  val choice = CompletableDeferred<StillRunningChoice>()
-}
-
-/** How Upload to RomM is going. */
-internal sealed interface UploadState {
-  /** Asking what the sign-in may do. */
-  data object Checking : UploadState
-
-  /** Sending the file, [percent] of it once the server says how much it has. */
-  data class Sending(val percent: Int?) : UploadState
-
-  /** The server has the whole file, so the upload can't stop any more. */
-  data object Finishing : UploadState
+/** A [question] waiting for the player's [answer]. */
+internal class Pending<Q, A>(val question: Q) {
+  val answer = CompletableDeferred<A>()
 }
 
 /** The dialog open over the Game screen. */
@@ -61,8 +44,6 @@ internal sealed interface GameDialog {
   /** Asks to upload, with what the sign-in may do. */
   data class Upload(val access: UploadAccess) : GameDialog
 
-  data object StopUpload : GameDialog
-
   data object Leave : GameDialog
 
   /** Offers to sign in again with uploads allowed, saying [reason]. */
@@ -70,8 +51,9 @@ internal sealed interface GameDialog {
 }
 
 /**
- * What the Game screen does with its game in [scope]: play, remove or upload it. A launch or an
- * upload ends the dialog that asks about it.
+ * What the Game screen does with its game in [scope]: play, remove or upload it. A launch ends the
+ * dialog that asks about it. A removal and an upload run in data's scope, so they finish when the
+ * screen goes away.
  */
 @Stable
 internal class GameActions(private val state: AppState, private val scope: CoroutineScope) {
@@ -88,20 +70,19 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   var notes by mutableStateOf(emptyList<String>())
     private set
 
-  var saveConflict: PendingChoice? by mutableStateOf(null)
+  var saveConflict: Pending<SaveConflict, SaveCopy?>? by mutableStateOf(null)
     private set
 
-  var stillRunning: PendingStillRunning? by mutableStateOf(null)
+  var stillRunning: Pending<StillRunning, StillRunningChoice>? by mutableStateOf(null)
     private set
 
-  var upload: UploadState? by mutableStateOf(null)
+  /** Whether it's asking what the sign-in may upload, before it asks the player. */
+  var checkingUploads by mutableStateOf(false)
     private set
 
-  private var uploadJob: Job? = null
-
-  private fun closeDialog(which: GameDialog) {
-    if (dialog == which) dialog = null
-  }
+  /** Whether the player removed the local game here, so the screen leaves once its file is gone. */
+  var removedLocalGame by mutableStateOf(false)
+    private set
 
   fun play(game: LibraryGame, path: String) {
     notes = emptyList()
@@ -117,57 +98,46 @@ internal class GameActions(private val state: AppState, private val scope: Corou
               collectionsOf(state, game),
               onProgress = { playProgress = it },
               closeEmulators = state.settings.closeEmulators,
-              askStillRunning = { prompt ->
-                val asking = PendingStillRunning(prompt)
-                stillRunning = asking
-                try {
-                  asking.choice.await()
-                } finally {
-                  stillRunning = null
-                }
-              },
+              askStillRunning = { prompt -> ask(prompt) { stillRunning = it } },
             ) { conflict ->
-              val asking = PendingChoice(conflict)
-              saveConflict = asking
-              try {
-                asking.choice.await()
-              } finally {
-                saveConflict = null
-              }
+              ask(conflict) { saveConflict = it }
             }
           }
       } finally {
         playProgress = null
-        closeDialog(GameDialog.Leave)
+        if (dialog == GameDialog.Leave) dialog = null
       }
     }
   }
 
-  /**
-   * Back while [AppState.gameBusy]: it cancels a save choice, or asks before leaving or stopping
-   * the upload.
-   */
+  /** Asks [question], which [show] holds while the player answers, and returns the answer. */
+  private suspend fun <Q, A> ask(question: Q, show: (Pending<Q, A>?) -> Unit): A {
+    val pending = Pending<Q, A>(question)
+    show(pending)
+    try {
+      return pending.answer.await()
+    } finally {
+      show(null)
+    }
+  }
+
+  /** Back while [AppState.gameBusy]: it cancels a save choice, or asks before leaving. */
   fun back() {
     val conflict = saveConflict
     when {
-      conflict != null -> conflict.choice.complete(null)
+      conflict != null -> conflict.answer.complete(null)
       playing -> dialog = GameDialog.Leave
-      upload is UploadState.Sending -> dialog = GameDialog.StopUpload
     }
   }
 
   fun remove(game: LibraryGame) {
+    if (game is LocalGame) removedLocalGame = true
     scope.launch {
       val removal =
         when (game) {
           is Rom -> state.games.remove(game)
           is LocalGame -> state.games.remove(game)
         }
-      // A local game removed is gone, so its page has nothing left to show.
-      if (game is LocalGame && removal == Removal.Removed) {
-        state.navigator.back()
-        return@launch
-      }
       notes =
         when (removal) {
           is Removal.HoldsOtherFiles ->
@@ -182,14 +152,14 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   /** Asks to upload, once it knows what the sign-in may do, or says why it can't. */
   fun askToUpload() {
     notes = emptyList()
-    upload = UploadState.Checking
+    checkingUploads = true
     // Undispatched, so an access that's known asks straight away.
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
       val access =
         try {
           state.romm.uploadAccess.filterNotNull().first()
         } finally {
-          upload = null
+          checkingUploads = false
         }
       // A game that started meanwhile comes first.
       if (playing) return@launch
@@ -205,64 +175,52 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   /** Uploads [game], with [access] saying what the sign-in may do. */
   fun upload(game: LocalGame, access: UploadAccess) {
     notes = emptyList()
-    // Undispatched, so the upload is under way in [AppState.uploading] before this returns.
-    uploadJob =
-      scope.launch(start = CoroutineStart.UNDISPATCHED) {
-        upload = UploadState.Sending(null)
-        state.uploading = true
-        try {
-          val client = state.romm.account?.client ?: return@launch
-          val result =
-            uploadLocalGame(
-              client,
-              game,
-              onFinishing = {
-                upload = UploadState.Finishing
-                closeDialog(GameDialog.StopUpload)
-              },
-            ) { sent, total ->
-              if (sent < total) upload = UploadState.Sending((sent * 100 / total).toInt())
-            }
-          notes =
-            listOf(
-              when (result) {
-                UploadResult.Added -> "Uploaded to RomM"
-                UploadResult.AwaitingScan ->
-                  "Uploaded to RomM · In your library after its next scan"
-              },
-            )
-          // The library learns of the game, and this page becomes its page.
-          state.romm.syncNow()
-        } catch (e: RommException.Forbidden) {
-          log.w(e) { "Upload of ${game.path} refused" }
-          val refused = "Upload refused · No upload permission"
-          notes = listOf(refused)
-          // A sign-in whose permissions aren't known, or don't include uploading, may be why.
-          if (access != UploadAccess.Allowed) dialog = GameDialog.AllowUploads(refused)
-        } catch (e: RommException.Status) {
-          log.w(e) { "Upload of ${game.path} refused" }
-          notes = listOf(labelled("Upload refused", e.message))
-        } catch (e: RommException) {
-          log.w(e) { "Upload of ${game.path} failed" }
-          notes = listOf(labelled("Upload failed", e.message))
-        } catch (e: IOException) {
-          log.w(e) { "Reading ${game.path} for upload failed" }
-          notes = listOf(labelled("File read failed", e.message))
-        } finally {
-          upload = null
-          state.uploading = false
-          uploadJob = null
-          closeDialog(GameDialog.StopUpload)
-        }
-      }
+    state.uploads.start(game, access)
   }
 
-  /** Stops the upload, unless the server has the whole file meanwhile, and then it finishes. */
-  fun stopUpload() {
-    if (upload !is UploadState.Sending) return
-    uploadJob?.cancel()
-    notes = listOf("Upload stopped")
+  /**
+   * Shows in [notes] how the latest upload of the game [key] names ended. A refusal seen here as it
+   * happens, which the sign-in's permissions may be the cause of, offers to sign in again. It runs
+   * until cancelled.
+   */
+  suspend fun showUploads(key: GameKey) {
+    var running = false
+    state.uploads.upload
+      .filterNotNull()
+      .filter { it.game.key == key }
+      .collect { upload ->
+        val phase = upload.phase
+        if (phase !is UploadPhase.Ended) {
+          running = true
+          return@collect
+        }
+        val outcome = phase.outcome
+        notes = listOf(uploadNote(outcome))
+        if (
+          running &&
+            outcome is UploadOutcome.Failed &&
+            outcome.cause is RommException.Forbidden &&
+            upload.access != UploadAccess.Allowed
+        ) {
+          dialog = GameDialog.AllowUploads(UPLOAD_FORBIDDEN)
+        }
+        running = false
+      }
   }
 }
 
-private val log = Logger.withTag("GameActions")
+private const val UPLOAD_FORBIDDEN = "Upload refused · No upload permission"
+
+private fun uploadNote(outcome: UploadOutcome): String =
+  when (outcome) {
+    UploadResult.Added -> "Uploaded to RomM"
+    UploadResult.AwaitingScan -> "Uploaded to RomM · In your library after its next scan"
+    UploadOutcome.Stopped -> "Upload stopped"
+    is UploadOutcome.Failed ->
+      when (val cause = outcome.cause) {
+        is RommException.Forbidden -> UPLOAD_FORBIDDEN
+        is RommException.Status -> labelled("Upload refused", cause.message)
+        else -> labelled("Upload failed", cause.message)
+      }
+    is UploadOutcome.ReadFailed -> labelled("File read failed", outcome.cause.message)
+  }

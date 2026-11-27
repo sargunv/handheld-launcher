@@ -1,26 +1,118 @@
 package dev.sargunv.handheld.data.downloads
 
 import co.touchlab.kermit.Logger
+import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.LocalGame
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.io.IOException
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
 
+/** An upload of [game] to RomM at its [phase], begun when the sign-in could do as [access] says. */
+data class Upload(val game: LocalGame, val access: UploadAccess, val phase: UploadPhase) {
+  val isRunning: Boolean
+    get() = phase !is UploadPhase.Ended
+}
+
+sealed interface UploadPhase {
+  /** Sending the file, [percent] of it once the server says how much it has. */
+  data class Sending(val percent: Int?) : UploadPhase
+
+  /** The server has the whole file, so the upload can't stop any more. */
+  data object Finishing : UploadPhase
+
+  data class Ended(val outcome: UploadOutcome) : UploadPhase
+}
+
+/** How an upload ended: with the file on the server, as an [UploadResult] says, or not. */
+sealed interface UploadOutcome {
+  data object Stopped : UploadOutcome
+
+  /** The server refused the upload, or couldn't be reached. */
+  data class Failed(val cause: RommException) : UploadOutcome
+
+  /** The game's file couldn't be read. */
+  data class ReadFailed(val cause: IOException) : UploadOutcome
+}
+
+/**
+ * Uploads local games to the server [romm] is signed in to, one at a time, in [scope], so an upload
+ * goes on when the screen that started it goes away. Once a game is uploaded, the library syncs,
+ * unless the device has signed out of the server meanwhile.
+ */
+class UploadManager
+internal constructor(private val romm: RommSession, private val scope: CoroutineScope) {
+  private val latest = MutableStateFlow<Upload?>(null)
+
+  /** The latest upload, running or ended, or null before the first. */
+  val upload: StateFlow<Upload?> = latest.asStateFlow()
+
+  private var job: Job? = null
+
+  /** Uploads [game], which the sign-in may do as [access] says, unless an upload is running. */
+  fun start(game: LocalGame, access: UploadAccess) {
+    val client = romm.account?.client ?: return
+    val before = latest.value
+    val started = Upload(game, access, UploadPhase.Sending(null))
+    if (before?.isRunning == true || !latest.compareAndSet(before, started)) return
+    fun show(phase: UploadPhase) {
+      latest.value = started.copy(phase = phase)
+    }
+    job = scope.launch {
+      val outcome =
+        try {
+          uploadLocalGame(
+            client,
+            game,
+            onFinishing = { show(UploadPhase.Finishing) },
+            onProgress = { sent, total ->
+              if (sent < total) show(UploadPhase.Sending((sent * 100 / total).toInt()))
+            },
+          )
+        } catch (e: CancellationException) {
+          show(UploadPhase.Ended(UploadOutcome.Stopped))
+          throw e
+        } catch (e: RommException) {
+          log.w(e) { "Upload of ${game.path} failed" }
+          UploadOutcome.Failed(e)
+        } catch (e: IOException) {
+          log.w(e) { "Reading ${game.path} for upload failed" }
+          UploadOutcome.ReadFailed(e)
+        }
+      show(UploadPhase.Ended(outcome))
+      if (outcome is UploadResult && romm.account?.client == client) romm.syncNow()
+    }
+  }
+
+  /** Stops the upload while it's sending, and the server drops what it received. */
+  fun stop() {
+    if (latest.value?.phase is UploadPhase.Sending) job?.cancel()
+  }
+}
+
 /** How an upload of a local game to RomM ended, once the file is on the server. */
-enum class UploadResult {
+enum class UploadResult : UploadOutcome {
   /** The server scanned the game's platform, so the game is in its library now. */
   Added,
 

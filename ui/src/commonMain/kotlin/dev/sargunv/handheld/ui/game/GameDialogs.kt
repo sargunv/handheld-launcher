@@ -18,11 +18,15 @@ import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.MenuButton
 
-/** The Game screen's menu, with what [game]'s [status] allows. */
+/**
+ * The Game screen's menu, with what [game]'s [status] allows. Uploads run one at a time, so it
+ * offers none while one is [uploading].
+ */
 @Composable
 internal fun GameMenu(
   game: LibraryGame,
   status: RomStatus?,
+  uploading: Boolean,
   onDismissRequest: () -> Unit,
   onCancelDownload: () -> Unit,
   onRemove: () -> Unit,
@@ -45,7 +49,7 @@ internal fun GameMenu(
         null -> Unit
       }
       // A disc set's other files would stay behind, since the upload sends one file.
-      if (game is LocalGame && game.otherFiles.isEmpty()) {
+      if (game is LocalGame && game.otherFiles.isEmpty() && !uploading) {
         MenuButton("menu:upload", "Upload to RomM", onConfirm = onUpload)
       }
       MenuButton("menu:open-with", "Open with", onConfirm = onOpenWith)
@@ -80,20 +84,6 @@ internal fun UploadDialog(game: LocalGame, onDismissRequest: () -> Unit, onUploa
     onConfirm = onUpload,
     onDismissRequest = onDismissRequest,
     fact = "${game.fileName} · ${formatSize(game.sizeBytes)}",
-  )
-}
-
-/** Asks before stopping the upload of [title]. */
-@Composable
-internal fun StopUploadDialog(title: String, onKeep: () -> Unit, onStop: () -> Unit) {
-  ConfirmDialog(
-    "stopUpload",
-    "Stop uploading $title?",
-    "Stop upload",
-    onConfirm = onStop,
-    onDismissRequest = onKeep,
-    fact = "RomM discards the part it received",
-    cancelLabel = "Keep uploading",
   )
 }
 

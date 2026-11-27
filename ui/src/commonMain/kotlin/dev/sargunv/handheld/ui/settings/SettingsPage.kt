@@ -22,7 +22,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
@@ -59,7 +58,6 @@ import dev.sargunv.handheld.ui.places.signedIn
 import dev.sargunv.handheld.ui.signin.AllowUploadsDialog
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.launch
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
@@ -139,7 +137,6 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
   val signedIn = romm.signedIn == true
   val sections = settingsSections(signedIn, state.retroAchievements != null)
   val section = view.shown(sections)
-  val scope = rememberCoroutineScope()
   var dialog by remember { mutableStateOf<SettingsDialog?>(null) }
   val open = { it: SettingsDialog -> dialog = it }
   val close = { dialog = null }
@@ -200,7 +197,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
               SettingsSection.RomM ->
                 (romm as? RommAccount)?.let { account ->
                   romm(state, account, sync, uploadAccess, open) {
-                    scope.launch { state.signOut(keepQueue = true) }
+                    state.signOut(keepQueue = true)
                   }
                 }
               SettingsSection.RetroAchievements -> retroAchievements(state)
@@ -227,7 +224,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
         SignOutDialog(
           onSignOut = {
             close()
-            scope.launch { state.signOut() }
+            state.signOut()
           },
           onDismissRequest = close,
         )
@@ -236,7 +233,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
           UPLOADS_NOT_REQUESTED,
           onSignInAgain = {
             close()
-            scope.launch { state.signOut(allowUploads = true, keepQueue = true) }
+            state.signOut(allowUploads = true, keepQueue = true)
           },
           onDismissRequest = close,
         )

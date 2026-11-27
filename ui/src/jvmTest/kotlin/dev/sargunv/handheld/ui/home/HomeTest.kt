@@ -46,6 +46,7 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
 import kotlin.io.path.createTempDirectory
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.CompletableDeferred
@@ -57,6 +58,10 @@ import kotlinx.coroutines.runBlocking
 class HomeTest {
   /** The presses of the system's HOME, which [pressHome] makes. */
   private val homePresses = Channel<Unit>(Channel.UNLIMITED)
+
+  private val storage = createTempDirectory("home-storage").toFile()
+
+  @AfterTest fun cleanUp() = check(storage.deleteRecursively())
 
   /**
    * A server with three games on one platform. The user played game 2 last and game 1 before it,
@@ -317,7 +322,6 @@ class HomeTest {
 
   @Test
   fun homeDuringAPlayLeavesItsScreenAlone() = runComposeUiTest {
-    val storage = createTempDirectory("home-storage").toFile()
     File(storage, "ROMs/gb/Game 2.gb").apply {
       parentFile.mkdirs()
       writeText("game")
@@ -335,7 +339,6 @@ class HomeTest {
     onNodeWithTag("primary").assertExists()
     hold.complete(Unit)
     awaitText("Played")
-    check(storage.deleteRecursively())
   }
 
   @Test

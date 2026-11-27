@@ -10,6 +10,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.downloads.UploadManager
 import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.romm.RommState
@@ -31,7 +32,6 @@ import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
 import dev.sargunv.handheld.ui.signin.SignInState
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,13 +43,12 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 /** State the app's two screens share, over [data] and [platform]. */
 @Stable
 class AppState(
   settings: Settings,
-  data: HandheldData,
+  private val data: HandheldData,
   platform: AppPlatform,
   /** Runs the RetroAchievements sign-ins and sign-outs, so they finish when a screen goes away. */
   scope: CoroutineScope,
@@ -58,6 +57,7 @@ class AppState(
   val romm: RommSession = data.romm
   val library: LibraryCache = data.library
   val downloads: DownloadManager = data.downloads
+  val uploads: UploadManager = data.uploads
   val games: DeviceGames = data.games
   val launcher: GameLauncher = platform.launcher
   val apps: AppCatalog = platform.apps
@@ -88,15 +88,12 @@ class AppState(
   var playing: GameKey? by mutableStateOf(null)
     private set
 
-  /** Whether the Game screen is sending a game to the server. */
-  internal var uploading: Boolean by mutableStateOf(false)
-
   /**
-   * Whether the Game screen is busy with a play or an upload, which leaving it would stop, so HOME,
-   * Back and the main menu wait.
+   * Whether the Game screen is busy with a play, which leaving it would stop, so HOME, Back and the
+   * main menu wait.
    */
   val gameBusy: Boolean
-    get() = playing != null || uploading
+    get() = playing != null
 
   /** Held while adopting, so [play] waits for an adopt of its game that's under way. */
   private val adoption = Mutex()
@@ -171,19 +168,14 @@ class AppState(
    * queue, since they're games of this server, unless [keepQueue], for signing in again to the same
    * one: they wait for the sign-in, and a sign-in to another server drops them then. The next
    * sign-in opens on Home. It asks for permission to upload games when [allowUploads].
-   *
-   * Once begun, it finishes even if the screen that asked goes away.
    */
-  suspend fun signOut(allowUploads: Boolean = false, keepQueue: Boolean = false) =
-    withContext(NonCancellable) {
-      // Before the credentials go, so the server hears of the canceled installs it asked for.
-      if (!keepQueue) for (download in downloads.queue.value) downloads.cancel(download.romId)
-      val address = romm.account?.credentials?.baseUrl.orEmpty()
-      romm.signIn.signOut()
-      signIn = SignInState(romm.signIn, device, address, allowUploads)
-      navigator.backToStart()
-      place = Place.Home
-    }
+  fun signOut(allowUploads: Boolean = false, keepQueue: Boolean = false) {
+    val address = romm.account?.credentials?.baseUrl.orEmpty()
+    data.signOut(keepQueue)
+    signIn = SignInState(romm.signIn, device, address, allowUploads)
+    navigator.backToStart()
+    place = Place.Home
+  }
 
   /**
    * The game [key] names: a ROM from the library, or a local game once the scan of the platforms'

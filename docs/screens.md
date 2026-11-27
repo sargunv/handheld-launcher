@@ -88,11 +88,11 @@ A local game always has Play. Its menu holds:
   server after asking, and only then. A sign-in that didn't ask for permission
   to upload says so first, and offers to sign in again with it, to the same
   server, keeping the device's games, saves and settings. An account that may
-  not upload is told so instead. Its progress shows on the primary action, and
-  Back stops it. RomM's refusal shows in its words, and when the sign-in's
-  permissions aren't known, as for a pasted token, it offers the same sign-in
-  again. Once uploaded, RomM is asked to scan the platform and the library
-  syncs.
+  not upload is told so instead. Its progress shows on the primary action, which
+  offers Stop. Leaving the page leaves the upload running, and signing out stops
+  it. RomM's refusal shows in its words, and when the sign-in's permissions
+  aren't known, as for a pasted token, it offers the same sign-in again. Once
+  uploaded, RomM is asked to scan the platform and the library syncs.
 
 Its saves don't sync, since RomM files saves by its own games, and the lower
 screen says they stay on the device until the game is on your server. Once a

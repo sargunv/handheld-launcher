@@ -6,6 +6,7 @@ import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.downloads.UploadManager
 import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.romm.RommState
@@ -23,11 +24,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
 
 /**
- * The games on the device, the sign-in to RomM, the download queue and save sync, for as long as
- * [scope] runs.
+ * The games on the device, the sign-in to RomM, the download queue, uploads and save sync, for as
+ * long as [scope] runs.
  *
  * @param dataDir where the download queue, the content scan's cache, save sync's records and the
  *   built-in session's saves go.
@@ -43,7 +45,7 @@ class HandheldData(
   dataDir: Path,
   cacheDir: Path,
   storage: () -> List<StorageTarget>,
-  scope: CoroutineScope,
+  private val scope: CoroutineScope,
   canWrite: Flow<Boolean> = flowOf(true),
   storageSettings: () -> StorageSettings = { StorageSettings() },
   engine: () -> HttpClientEngine = { OkHttp.create() },
@@ -63,6 +65,20 @@ class HandheldData(
       canWrite = canWrite,
       storageSettings = storageSettings,
     )
+
+  val uploads = UploadManager(romm, scope)
+
+  /**
+   * Signs out of the server, and stops an upload that's sending. Unless [keepQueue], the downloads
+   * not yet done leave the queue, and the server hears of each install it asked for that was
+   * canceled.
+   */
+  fun signOut(keepQueue: Boolean) {
+    val account = romm.account
+    uploads.stop()
+    if (!keepQueue && account != null) downloads.dropQueue(account)
+    scope.launch { romm.signIn.signOut() }
+  }
 
   /**
    * The signed-in account's save sync, or null while signed out. There's one for each account, so
