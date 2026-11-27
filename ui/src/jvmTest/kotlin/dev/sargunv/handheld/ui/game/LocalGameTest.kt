@@ -50,8 +50,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -77,9 +75,6 @@ class LocalGameTest {
 
   /** What an upload waits for before it starts, when there's something. */
   @Volatile private var uploadHold: CompletableDeferred<Unit>? = null
-
-  /** The presses of the system's HOME. */
-  private val homePresses = Channel<Unit>(Channel.UNLIMITED)
 
   /** The scopes the account's role grants, or null when the server doesn't say. */
   @Volatile private var accountScopes: String? = null
@@ -159,7 +154,6 @@ class LocalGameTest {
       saveSettings = { saved += it },
       launcher = launcher,
       open = open,
-      homePresses = homePresses.receiveAsFlow(),
     )
 
   /** Launches, and goes to the Library once the sync has filled it. */
@@ -357,16 +351,23 @@ class LocalGameTest {
   }
 
   @Test
-  fun homeDuringAnUploadLeavesItsScreenAlone() = runComposeUiTest {
+  fun anUploadGoesOnWhenItsPageCloses() = runComposeUiTest {
     val hold = CompletableDeferred<Unit>()
     uploadHold = hold
-    openHomebrew()
+    openLibrary()
+    assertFocused("library:platform:1")
+    press(Key.ButtonA)
+    assertFocused("game:1")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitText("Play")
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitTag("upload:confirm")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitText("Uploading")
-    homePresses.trySend(Unit)
-    waitForIdle()
+    press(Key.ButtonB)
+    assertFocused(homebrewTag)
+    press(Key.ButtonA)
+    awaitText("Uploading")
     onNodeWithTag("primary").assertTextEquals("Uploading")
     hold.complete(Unit)
     awaitText("Homebrew (World)")

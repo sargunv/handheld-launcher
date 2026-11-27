@@ -11,7 +11,7 @@ import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -69,13 +69,13 @@ sealed interface Removal {
  *
  * @param storage lists the mounted storage targets, the device's own first. Finding games looks on
  *   all of them.
- * @param scope runs the scans, for as long as it's active.
+ * @param scope runs the scans and the removals, for as long as it's active.
  * @param contentCacheFile keeps what the scan for games by content read from each file.
  */
 class DeviceGames(
   private val library: LibraryCache,
   private val storage: () -> List<StorageTarget>,
-  scope: CoroutineScope,
+  private val scope: CoroutineScope,
   contentCacheFile: Path,
 ) {
   /**
@@ -184,40 +184,37 @@ class DeviceGames(
    * taken for one. The sheet goes last, so a removal that fails partway leaves the game to remove
    * again.
    */
-  suspend fun remove(game: LocalGame): Removal =
-    // Once begun, a removal finishes even if the screen that asked goes away.
-    withContext(NonCancellable + Dispatchers.IO) {
-      try {
-        val unmatched = listing.value?.scan?.unmatched.orEmpty()
-        val found = unmatched.find { it.path == game.path && it.totalBytes == game.sizeBytes }
-        // A track another local game's sheet also lists stays, for that game.
-        val shared =
-          unmatched
-            .filter { it.path != game.path }
-            .flatMapTo(mutableSetOf()) { other -> other.otherFiles.map { it.path } + other.path }
-        val parts =
-          found
-            ?.let {
-              it.otherFiles.filter { part -> part.path !in shared } +
-                LocalPart(it.path, it.sizeBytes)
-            }
-            .orEmpty()
-            .map { Path(it.path) to it.sizeBytes }
-        val unchanged =
-          parts.isNotEmpty() &&
-            parts.all { (path, size) ->
-              val metadata = SystemFileSystem.metadataOrNull(path)
-              metadata?.isRegularFile == true && metadata.size == size
-            }
-        if (!unchanged) return@withContext Removal.NotOnDevice
-        for ((path, _) in parts) SystemFileSystem.delete(path)
-        Removal.Removed
-      } catch (e: IOException) {
-        Removal.Failed(e.message)
-      } finally {
-        rescan()
-      }
+  suspend fun remove(game: LocalGame): Removal = removal {
+    try {
+      val unmatched = listing.value?.scan?.unmatched.orEmpty()
+      val found = unmatched.find { it.path == game.path && it.totalBytes == game.sizeBytes }
+      // A track another local game's sheet also lists stays, for that game.
+      val shared =
+        unmatched
+          .filter { it.path != game.path }
+          .flatMapTo(mutableSetOf()) { other -> other.otherFiles.map { it.path } + other.path }
+      val parts =
+        found
+          ?.let {
+            it.otherFiles.filter { part -> part.path !in shared } + LocalPart(it.path, it.sizeBytes)
+          }
+          .orEmpty()
+          .map { Path(it.path) to it.sizeBytes }
+      val unchanged =
+        parts.isNotEmpty() &&
+          parts.all { (path, size) ->
+            val metadata = SystemFileSystem.metadataOrNull(path)
+            metadata?.isRegularFile == true && metadata.size == size
+          }
+      if (!unchanged) return@removal Removal.NotOnDevice
+      for ((path, _) in parts) SystemFileSystem.delete(path)
+      Removal.Removed
+    } catch (e: IOException) {
+      Removal.Failed(e.message)
+    } finally {
+      rescan()
     }
+  }
 
   /**
    * Deletes [rom]'s own files from the device: its file, or for a ROM of several files, its folder.
@@ -225,38 +222,43 @@ class DeviceGames(
    * its download wrote, such as a save an emulator keeps beside the game, stays as it is. So does
    * one that holds more files of a name than the game has.
    */
-  suspend fun remove(rom: Rom): Removal =
-    // Once begun, a removal finishes even if the screen that asked goes away.
-    withContext(NonCancellable + Dispatchers.IO) {
-      try {
-        val folder = library.platform(rom.platformId)?.fsSlug
-        val path =
-          folder?.let { locateByName(rom, it) }
-            ?: matchedFile(rom.id)?.also {
-              // A file matched by content is read again first, in case it changed since the scan.
-              if (!scanner.stillMatches(it, rom)) return@withContext Removal.NotOnDevice
-            }
-            ?: return@withContext Removal.NotOnDevice
-        if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
-          // A file is the game's while no more files have its name than the game has, so a stray
-          // file that shares a name with one of the game's isn't taken for it.
-          val expected =
-            (rom.files.map { it.fileName } + playlistName(path.name)).groupingBy { it }.eachCount()
-          val found = filesIn(path).groupingBy { it.name }.eachCount()
-          val others = found.filter { (name, count) -> count > (expected[name] ?: 0) }.keys
-          if (others.isNotEmpty()) return@withContext Removal.HoldsOtherFiles(others.sorted())
-          deleteRecursively(path)
-        } else {
-          SystemFileSystem.delete(path)
-        }
-        Removal.Removed
-      } catch (e: IOException) {
-        Removal.Failed(e.message)
-      } finally {
-        // Even a removal that failed partway may have deleted some of the game.
-        rescan()
+  suspend fun remove(rom: Rom): Removal = removal {
+    try {
+      val folder = library.platform(rom.platformId)?.fsSlug
+      val path =
+        folder?.let { locateByName(rom, it) }
+          ?: matchedFile(rom.id)?.also {
+            // A file matched by content is read again first, in case it changed since the scan.
+            if (!scanner.stillMatches(it, rom)) return@removal Removal.NotOnDevice
+          }
+          ?: return@removal Removal.NotOnDevice
+      if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+        // A file is the game's while no more files have its name than the game has, so a stray
+        // file that shares a name with one of the game's isn't taken for it.
+        val expected =
+          (rom.files.map { it.fileName } + playlistName(path.name)).groupingBy { it }.eachCount()
+        val found = filesIn(path).groupingBy { it.name }.eachCount()
+        val others = found.filter { (name, count) -> count > (expected[name] ?: 0) }.keys
+        if (others.isNotEmpty()) return@removal Removal.HoldsOtherFiles(others.sorted())
+        deleteRecursively(path)
+      } else {
+        SystemFileSystem.delete(path)
       }
+      Removal.Removed
+    } catch (e: IOException) {
+      Removal.Failed(e.message)
+    } finally {
+      // Even a removal that failed partway may have deleted some of the game.
+      rescan()
     }
+  }
+
+  /**
+   * Runs [block], a removal, in [scope], so it finishes when its caller goes away, and returns what
+   * it returns.
+   */
+  private suspend fun removal(block: suspend CoroutineScope.() -> Removal): Removal =
+    scope.async(Dispatchers.IO, block = block).await()
 
   /**
    * Where [rom] is on the device: in its [platformFolder] on a storage target by its server name,
