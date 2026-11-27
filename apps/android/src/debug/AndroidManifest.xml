@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Runs a core in a game session, started with adb's `am start`. Like the launcher, it
+         handles configuration changes itself, so connecting a gamepad doesn't restart the core. -->
+    <activity
+      android:name=".SessionTestActivity"
+      android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|density|uiMode"
+      android:exported="true"
+      android:launchMode="singleTask" />
+  </application>
+</manifest>

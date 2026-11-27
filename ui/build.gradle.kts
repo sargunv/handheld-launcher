@@ -23,7 +23,6 @@ kotlin {
       api(libs.compose.ui)
       api(libs.kotlinx.coroutines.core)
       api(libs.kotlinx.serialization.core)
-      implementation(libs.kotlinx.serialization.json)
       implementation(libs.compose.unstyled)
       implementation(libs.navigation3.ui)
       implementation(libs.navigationevent.compose)

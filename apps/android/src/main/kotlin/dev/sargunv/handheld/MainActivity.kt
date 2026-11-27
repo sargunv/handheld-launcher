@@ -3,7 +3,6 @@ package dev.sargunv.handheld
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.hardware.input.InputManager
 import android.os.Build
@@ -61,8 +60,6 @@ class MainActivity : ComponentActivity() {
 
   private var player: AndroidGameLauncher? = null
 
-  private var showsDebugScreen = false
-
   private val device by lazy {
     DeviceDescription(
       identifier = installIdentifier(Path(filesDir.path, "install-id")),
@@ -74,9 +71,6 @@ class MainActivity : ComponentActivity() {
     )
   }
 
-  /** Whether this activity handed its launch to the launcher in the home task, and closed. */
-  private var redirected = false
-
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     // The system keeps the home app's launcher in a home task of its own, apart from the task an
@@ -87,18 +81,10 @@ class MainActivity : ComponentActivity() {
     } else if (isDefaultHome()) {
       // A launch from another launcher or a tool goes to the one in the home task.
       startActivity(launcherIntent().putExtras(intent))
-      redirected = true
       finishAndRemoveTask()
       return
     }
     running += this
-    val debugScreen = debugScreen(this)
-    if (debugScreen != null) {
-      // A debug screen takes the controller's input as it comes, without the launcher's mapping.
-      showsDebugScreen = true
-      setContent { debugScreen() }
-      return
-    }
     forcedLayout = forcedLayout(intent)
     // A recreated activity has already shown the screen its intent asked for.
     if (savedInstanceState == null) openRequest = openRequest(intent)
@@ -159,9 +145,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onDestroy() {
     running -= this
-    if (!showsDebugScreen && !redirected) {
-      getSystemService(InputManager::class.java).unregisterInputDeviceListener(gamepadMotion)
-    }
+    getSystemService(InputManager::class.java).unregisterInputDeviceListener(gamepadMotion)
     super.onDestroy()
   }
 
@@ -170,9 +154,7 @@ class MainActivity : ComponentActivity() {
     // The user may be back from granting all-files access, which queued downloads wait for.
     handheldApp.allFilesAccess.value = Environment.isExternalStorageManager()
     // Games may have been copied onto the device, or deleted, while the app was away.
-    if (!showsDebugScreen && !redirected) {
-      lifecycleScope.launch { handheldApp.deviceGames.rescan() }
-    }
+    lifecycleScope.launch { handheldApp.deviceGames.rescan() }
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -182,12 +164,6 @@ class MainActivity : ComponentActivity() {
     // The second display's home only hands the controller back, and the launcher stays as it was.
     if (intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false)) return
     setIntent(intent)
-    // The activity picks a debug screen when it's created, so a launch that opens, leaves or
-    // changes one recreates it. That also closes a game session the old screen was running.
-    if (showsDebugScreen || debugScreen(this) != null) {
-      recreate()
-      return
-    }
     val home = isHomeIntent(intent.action, intent.categories)
     // HOME keeps the layout a development launch forced, unless it carries one from such a launch.
     if (!home || intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
@@ -245,39 +221,30 @@ class MainActivity : ComponentActivity() {
   }
 
   override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-    (!showsDebugScreen && gamepadMotion.onGenericMotionEvent(event)) ||
-      super.dispatchGenericMotionEvent(event)
+    gamepadMotion.onGenericMotionEvent(event) || super.dispatchGenericMotionEvent(event)
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (!hasFocus && !showsDebugScreen) gamepadMotion.release()
+    if (!hasFocus) gamepadMotion.release()
   }
 
   /**
-   * Reads the `layout` extra (`frame` or `folded`) that debuggable builds accept, so a device with
-   * one display can show the dual-screen frame: `am start -n ... --es layout frame`.
+   * Reads the `layout` extra (`frame` or `folded`), so a device with one display can show the
+   * dual-screen frame: `am start -n ... --es layout frame`.
    */
-  private fun forcedLayout(intent: Intent): DualScreenLayout? {
-    if (!isDebuggable) return null
-    return when (intent.getStringExtra("layout")) {
+  private fun forcedLayout(intent: Intent): DualScreenLayout? =
+    when (intent.getStringExtra("layout")) {
       "frame" -> DualScreenLayout.Frame
       "folded" -> DualScreenLayout.Folded
       else -> null
     }
-  }
 
   /**
-   * Reads the `open` extra that debuggable builds accept, which shows a screen straight away, such
-   * as `--es open place:downloads`, `--es open game:42` or `--es open library:gba`. See
-   * [OpenTarget.parse] for the targets.
+   * Reads the `open` extra, which shows a screen straight away, such as `--es open place:downloads`
+   * or `--es open game:42`. See [OpenTarget.parse] for the targets.
    */
-  private fun openRequest(intent: Intent): OpenRequest? {
-    if (!isDebuggable) return null
-    return intent.getStringExtra("open")?.let(OpenTarget::parse)?.let(::OpenRequest)
-  }
-
-  private val isDebuggable: Boolean
-    get() = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+  private fun openRequest(intent: Intent): OpenRequest? =
+    intent.getStringExtra("open")?.let(OpenTarget::parse)?.let(::OpenRequest)
 }
 
 /**
