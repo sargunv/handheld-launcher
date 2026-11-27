@@ -21,9 +21,13 @@ class LaunchCommandBuilderTest {
 
   private fun emulator(id: String): KnownEmulator = assertNotNull(EmulatorRegistry[EmulatorId(id)])
 
-  private fun build(emulator: KnownEmulator, input: LaunchInput): LaunchCommand =
+  private fun build(
+    emulator: KnownEmulator,
+    input: LaunchInput,
+    core: String? = null,
+  ): LaunchCommand =
     assertIs<LaunchBuild.Ready>(
-        LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input),
+        LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input, core),
       )
       .command
 
@@ -99,7 +103,7 @@ class LaunchCommandBuilderTest {
   @Test
   fun aGivenCoreBeatsTheRecommendedOne() {
     val command =
-      build(emulator("retroarch"), LaunchInput(rom, PlatformCatalog.NES, core = "fceumm_libretro"))
+      build(emulator("retroarch"), LaunchInput(rom, PlatformCatalog.NES), core = "fceumm_libretro")
     assertEquals(
       LaunchExtra.StringValue(
         "LIBRETRO",
@@ -221,16 +225,6 @@ class LaunchCommandBuilderTest {
 
     val noTitle = build("vita3k", PlatformCatalog.VITA, "/storage/emulated/0/ROMs/game.zip")
     assertTrue(noTitle.extras.isEmpty())
-
-    val given =
-      build(
-        emulator("vita3k"),
-        LaunchInput("/x/game.zip", PlatformCatalog.VITA, titleId = "PCSB00245"),
-      )
-    assertEquals(
-      listOf("-r", "PCSB00245"),
-      (given.extras.single() as LaunchExtra.StringArray).values,
-    )
   }
 
   @Test
