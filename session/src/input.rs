@@ -38,6 +38,13 @@ impl Button {
     }
 }
 
+/// An analog trigger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
+pub enum Trigger {
+    L2,
+    R2,
+}
+
 /// An analog stick.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, uniffi::Enum)]
 pub enum Stick {
@@ -140,15 +147,10 @@ impl Port {
     /// read the trigger as a button see it pressed while it's pulled past
     /// halfway or [`Port::set_button`] holds it, since many gamepads report
     /// their triggers only as axes.
-    ///
-    /// # Panics
-    ///
-    /// If `button` isn't [`Button::L2`] or [`Button::R2`].
-    pub fn set_trigger(&self, button: Button, value: i16) {
-        let index = match button {
-            Button::L2 => 0,
-            Button::R2 => 1,
-            _ => panic!("{button:?} isn't an analog trigger"),
+    pub fn set_trigger(&self, trigger: Trigger, value: i16) {
+        let index = match trigger {
+            Trigger::L2 => 0,
+            Trigger::R2 => 1,
         };
         self.triggers[index].store(value.max(0), Ordering::Relaxed);
     }
@@ -325,7 +327,7 @@ mod tests {
     fn analog_reads_sticks_and_triggers() {
         let state = InputState::new();
         state.port(0).set_stick(Stick::Right, -100, 200);
-        state.port(0).set_trigger(Button::R2, 1234);
+        state.port(0).set_trigger(Trigger::R2, 1234);
         state.port(0).set_button(Button::L2, true);
         let analog = ffi::RETRO_DEVICE_ANALOG;
         let right = ffi::RETRO_DEVICE_INDEX_ANALOG_RIGHT;
@@ -356,8 +358,8 @@ mod tests {
     fn triggers_pulled_past_halfway_press_their_buttons() {
         let state = InputState::new();
         let joypad = ffi::RETRO_DEVICE_JOYPAD;
-        state.port(0).set_trigger(Button::L2, i16::MAX / 4);
-        state.port(0).set_trigger(Button::R2, i16::MAX);
+        state.port(0).set_trigger(Trigger::L2, i16::MAX / 4);
+        state.port(0).set_trigger(Trigger::R2, i16::MAX);
         assert_eq!(
             query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_L2),
             0
@@ -370,7 +372,7 @@ mod tests {
             query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_MASK),
             Button::R2.mask() as i16
         );
-        state.port(0).set_trigger(Button::R2, 0);
+        state.port(0).set_trigger(Trigger::R2, 0);
         assert_eq!(
             query_one(&state, joypad, 0, ffi::RETRO_DEVICE_ID_JOYPAD_R2),
             0

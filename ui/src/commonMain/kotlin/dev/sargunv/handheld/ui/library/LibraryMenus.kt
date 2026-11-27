@@ -111,7 +111,7 @@ internal fun GamesMenu(
         FocusLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
           items(letters.toList()) { letter ->
             MenuButton("menu:jump:$letter", letter.toString()) {
-              choose { view.jump = Jump(letter) }
+              choose { view.jumpTo(letter) }
             }
           }
         }

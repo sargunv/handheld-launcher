@@ -4,10 +4,10 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import dev.sargunv.handheld.domain.emulator.CoreSource
 import dev.sargunv.handheld.domain.emulator.LibretroCore
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.request.head
 import io.ktor.client.request.header
@@ -62,7 +62,7 @@ class CoreDownloadException(message: String, cause: Throwable? = null) : IOExcep
 class InstalledCores(
   dir: Path,
   val abi: String,
-  private val engine: HttpClientEngine = platformHttpEngine(),
+  private val engine: HttpClientEngine = OkHttp.create(),
 ) : AutoCloseable {
   private val abiDir = Path(dir, abi)
   private val records =
@@ -182,7 +182,7 @@ class InstalledCores(
         val asset = source.assetFor(abi, release.assets.map { it.name })
         if (asset == null) {
           log.w { "${source.repository} ${release.tag} has no build for $abi" }
-          throw CoreDownloadException("No core build · $abi")
+          throw CoreDownloadException("No build for $abi")
         }
         Build(release.assets.first { it.name == asset }.url, release.tag)
       }
@@ -237,7 +237,7 @@ class InstalledCores(
 
   private fun serverError(url: String, status: HttpStatusCode): CoreDownloadException {
     log.w { "$url: $status" }
-    return CoreDownloadException("Core server error · ${status.value}")
+    return CoreDownloadException("Server error ${status.value}")
   }
 
   private companion object {
@@ -248,11 +248,3 @@ class InstalledCores(
     const val CHUNK_SIZE = 64L * 1024
   }
 }
-
-/**
- * Extracts the core's library, the zip's one `.so` file, from [zip] into [target], checking each
- * byte against the zip's checksum.
- *
- * @throws CoreDownloadException when the zip is broken or holds no library.
- */
-internal expect fun extractLibrary(zip: Path, target: Path)

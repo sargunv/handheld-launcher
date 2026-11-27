@@ -118,7 +118,7 @@ impl Options {
         unsafe {
             while !vars.is_null() && !(*vars).key.is_null() {
                 let key = string((*vars).key);
-                let spec = opt_string((*vars).value).unwrap_or_default();
+                let spec = string((*vars).value);
                 if let Some(option) = parse_v0(key, &spec) {
                     declared.push(option);
                 }

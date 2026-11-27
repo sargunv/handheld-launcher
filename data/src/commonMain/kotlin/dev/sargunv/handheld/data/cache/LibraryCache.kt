@@ -143,7 +143,7 @@ private constructor(
       ?.toDomain(queries.filesOfRom(id).awaitAsList().map { it.toDomain() })
   }
 
-  suspend fun romCount(): Long = transaction { queries.romCount().awaitAsOne() }
+  internal suspend fun romCount(): Long = transaction { queries.romCount().awaitAsOne() }
 
   internal suspend fun replacePlatforms(platforms: List<Platform>) = transaction {
     queries.deletePlatforms()

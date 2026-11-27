@@ -2,6 +2,7 @@ package dev.sargunv.handheld.data.romm
 
 import dev.sargunv.handheld.data.httpClient
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
@@ -58,10 +59,11 @@ import kotlinx.serialization.serializer
  * @param token a client API token, sent as a bearer token. Without one, only the calls that need no
  *   sign-in work.
  */
-class RommClient(
+class RommClient
+internal constructor(
   baseUrl: String,
   private val token: String? = null,
-  private val engine: HttpClientEngine = platformHttpEngine(),
+  private val engine: HttpClientEngine = OkHttp.create(),
 ) : AutoCloseable {
   /** The server's address, without a trailing slash. */
   val baseUrl: Url = Url(baseUrl.trimEnd('/'))
@@ -84,7 +86,7 @@ class RommClient(
    * null when it doesn't. It asks without credentials and follows no redirect, so nothing secret
    * goes out before the address is known to be encrypted.
    */
-  suspend fun httpsAddress(): String? {
+  internal suspend fun httpsAddress(): String? {
     if (baseUrl.protocol != URLProtocol.HTTP) return null
     val response = network {
       httpClient(engine) { followRedirects = false }
@@ -113,36 +115,37 @@ class RommClient(
   }
 
   /** The user the token belongs to. */
-  suspend fun me(): RommUser =
+  internal suspend fun me(): RommUser =
     get<RommUser?>("users", "me") ?: throw RommException.Unauthorized(null)
 
-  suspend fun platforms(): List<RommPlatform> = get("platforms")
+  internal suspend fun platforms(): List<RommPlatform> = get("platforms")
 
   /**
    * Every ROM with its files, or only those the server changed after [updatedAfter], a page at a
    * time. Paging by offset can skip or repeat a ROM when the server's ROMs change during the walk.
    */
-  fun allRoms(updatedAfter: Instant?, pageSize: Int = 200): Flow<RommPage<RommRom>> = flow {
-    var offset = 0
-    var total: Int? = null
-    while (true) {
-      val page =
-        romPage(pageSize, offset, withTotal = total == null) {
-          updatedAfter?.let { append("updated_after", it.toString()) }
-          append("order_by", "id")
-          append("order_dir", "asc")
-          append("with_files", "true")
-        }
-      total = total ?: page.total
-      if (page.items.isEmpty()) break
-      emit(page)
-      offset += page.items.size
-      if (total != null && offset >= total) break
+  internal fun allRoms(updatedAfter: Instant?, pageSize: Int = 200): Flow<RommPage<RommRom>> =
+    flow {
+      var offset = 0
+      var total: Int? = null
+      while (true) {
+        val page =
+          romPage(pageSize, offset, withTotal = total == null) {
+            updatedAfter?.let { append("updated_after", it.toString()) }
+            append("order_by", "id")
+            append("order_dir", "asc")
+            append("with_files", "true")
+          }
+        total = total ?: page.total
+        if (page.items.isEmpty()) break
+        emit(page)
+        offset += page.items.size
+        if (total != null && offset >= total) break
+      }
     }
-  }
 
   /** The [limit] ROMs the user played last, most recent first, without their files. */
-  suspend fun recentlyPlayed(limit: Int): List<RommRom> =
+  internal suspend fun recentlyPlayed(limit: Int): List<RommRom> =
     romPage(limit, offset = 0, withTotal = false) {
         append("last_played", "true")
         append("order_by", "last_played")
@@ -169,16 +172,16 @@ class RommClient(
     }
 
   /** The ids of every ROM the user can see. */
-  suspend fun romIds(): List<Long> = get("roms", "identifiers")
+  internal suspend fun romIds(): List<Long> = get("roms", "identifiers")
 
-  suspend fun rom(id: Long): RommRom = get("roms", id.toString())
+  internal suspend fun rom(id: Long): RommRom = get("roms", id.toString())
 
-  suspend fun collections(): List<RommCollection> = get("collections")
+  internal suspend fun collections(): List<RommCollection> = get("collections")
 
-  suspend fun smartCollections(): List<RommSmartCollection> = get("collections", "smart")
+  internal suspend fun smartCollections(): List<RommSmartCollection> = get("collections", "smart")
 
   /** The firmware the server has for a platform. */
-  suspend fun firmware(platformId: Long): List<RommFirmware> =
+  internal suspend fun firmware(platformId: Long): List<RommFirmware> =
     get("firmware") { append("platform_id", platformId.toString()) }
 
   /** The user's saves of a ROM. */
@@ -186,18 +189,18 @@ class RommClient(
     get("saves") { append("rom_id", romId.toString()) }
 
   /** The install requests for a device that are pending or that it has taken, oldest first. */
-  suspend fun installRequests(deviceId: String): List<RommInstallRequest> =
+  internal suspend fun installRequests(deviceId: String): List<RommInstallRequest> =
     get("devices", deviceId, "installs")
 
   /**
    * Takes every pending install request for a device, and returns all the requests it has taken,
    * oldest first. The device then reports how each ended with [updateInstallRequest].
    */
-  suspend fun claimInstallRequests(deviceId: String): List<RommInstallRequest> =
+  internal suspend fun claimInstallRequests(deviceId: String): List<RommInstallRequest> =
     send(HttpMethod.Post, listOf("devices", deviceId, "installs", "claim"))
 
   /** Reports how an install request the device took ended, which ends it on the server. */
-  suspend fun updateInstallRequest(
+  internal suspend fun updateInstallRequest(
     deviceId: String,
     requestId: String,
     status: RommInstallStatus,
@@ -209,11 +212,17 @@ class RommClient(
     }
 
   /** Cancels an install request that's pending or taken, which ends it on the server. */
-  suspend fun cancelInstallRequest(deviceId: String, requestId: String): RommInstallRequest =
+  internal suspend fun cancelInstallRequest(
+    deviceId: String,
+    requestId: String,
+  ): RommInstallRequest =
     send(HttpMethod.Delete, listOf("devices", deviceId, "installs", requestId))
 
   /** Declares what this device can do, such as taking games sent from RomM's web page. */
-  suspend fun updateDeviceCapabilities(deviceId: String, capabilities: Map<String, Boolean>) {
+  internal suspend fun updateDeviceCapabilities(
+    deviceId: String,
+    capabilities: Map<String, Boolean>,
+  ) {
     request(HttpMethod.Put, listOf("devices", deviceId)) {
       jsonBody(RommDeviceCapabilities(capabilities))
     }
@@ -224,7 +233,7 @@ class RommClient(
    * each file's hashes, for checking the result: a resume doesn't detect a file that changed on the
    * server in between.
    */
-  suspend fun downloadRomFile(
+  internal suspend fun downloadRomFile(
     fileId: Long,
     fileName: String,
     target: Path,
@@ -235,7 +244,7 @@ class RommClient(
     }
 
   /** Downloads a firmware file to [target], resuming from what [target] already holds. */
-  suspend fun downloadFirmware(
+  internal suspend fun downloadFirmware(
     firmwareId: Long,
     fileName: String,
     target: Path,
@@ -246,7 +255,7 @@ class RommClient(
     }
 
   /** Downloads a save's file to [target], which must be empty or missing. */
-  suspend fun downloadSave(saveId: Long, target: Path): DownloadResult =
+  internal suspend fun downloadSave(saveId: Long, target: Path): DownloadResult =
     http.download(target, onProgress = {}) {
       endpoint(HttpMethod.Get, listOf("saves", saveId.toString(), "content"))
     }
@@ -260,7 +269,7 @@ class RommClient(
    * Without [overwrite], the server may keep an earlier save in the slot with the same bytes
    * instead of the upload, even one from another emulator, and return that save.
    */
-  suspend fun uploadSave(
+  internal suspend fun uploadSave(
     romId: Long,
     fileName: String,
     content: ByteArray,
@@ -307,7 +316,7 @@ class RommClient(
    * into the folder of the platform [platformId], and returns the upload's id. The server refuses a
    * file whose name its platform's folder already holds. Needs the `roms.write` scope.
    */
-  suspend fun startUpload(
+  internal suspend fun startUpload(
     platformId: Long,
     fileName: String,
     totalSize: Long,
@@ -327,7 +336,7 @@ class RommClient(
       .uploadId
 
   /** Sends chunk [index] of the upload [uploadId]. */
-  suspend fun uploadChunk(uploadId: String, index: Int, bytes: ByteArray) {
+  internal suspend fun uploadChunk(uploadId: String, index: Int, bytes: ByteArray) {
     request(HttpMethod.Put, listOf("roms", "upload", uploadId)) {
       header("x-chunk-index", index.toString())
       contentType(ContentType.Application.OctetStream)
@@ -336,12 +345,12 @@ class RommClient(
   }
 
   /** Puts the upload [uploadId]'s chunks together into the game's file on the server. */
-  suspend fun completeUpload(uploadId: String) {
+  internal suspend fun completeUpload(uploadId: String) {
     request(HttpMethod.Post, listOf("roms", "upload", uploadId, "complete"))
   }
 
   /** Stops the upload [uploadId], and the server drops what it received. */
-  suspend fun cancelUpload(uploadId: String) {
+  internal suspend fun cancelUpload(uploadId: String) {
     request(HttpMethod.Post, listOf("roms", "upload", uploadId, "cancel"))
   }
 
@@ -349,20 +358,20 @@ class RommClient(
    * Asks the server for a quick scan of the platform [platformId], which adds the games new in its
    * folder to the library, and returns the scan task's id. Needs the `tasks.run` scope.
    */
-  suspend fun scanPlatform(platformId: Long): String =
+  internal suspend fun scanPlatform(platformId: Long): String =
     send<ScanTask>(HttpMethod.Post, listOf("tasks", "scan")) {
         jsonBody(ScanRequest(listOf(platformId)))
       }
       .taskId
 
   /** The status of the server's task [taskId], such as `queued`, `started` or `finished`. */
-  suspend fun taskStatus(taskId: String): String = get<ScanTask>("tasks", taskId).status
+  internal suspend fun taskStatus(taskId: String): String = get<ScanTask>("tasks", taskId).status
 
   /**
    * Starts a device sign-in. Show the user [DeviceCode.userCode] and [DeviceCode.verificationUrl],
    * then call [awaitDeviceAuth]. Needs no token.
    */
-  suspend fun startDeviceAuth(request: DeviceAuthRequest): DeviceCode {
+  internal suspend fun startDeviceAuth(request: DeviceAuthRequest): DeviceCode {
     val response =
       send<DeviceAuthInitResponse>(HttpMethod.Post, listOf("auth", "device", "init")) {
         jsonBody(request)
@@ -382,7 +391,7 @@ class RommClient(
    * @throws RommException.DeviceAuthDenied when the user denies it.
    * @throws RommException.DeviceAuthExpired when the code expires first.
    */
-  suspend fun awaitDeviceAuth(code: DeviceCode): DeviceToken {
+  internal suspend fun awaitDeviceAuth(code: DeviceCode): DeviceToken {
     var interval = code.interval
     var waited = Duration.ZERO
     while (waited < code.expiresIn) {
@@ -429,7 +438,7 @@ class RommClient(
    * The absolute URL of a path the server returned, such as a cover's. RomM returns paths from its
    * own root, which is [baseUrl]'s path when the server is served under one.
    */
-  fun resolve(path: String): String {
+  internal fun resolve(path: String): String {
     val query = path.substringAfter('?', "")
     return URLBuilder(baseUrl)
       .apply {

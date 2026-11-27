@@ -4,9 +4,8 @@
 mod common;
 
 use std::path::Path;
-use std::time::{Duration, Instant};
 
-use common::{lock, options};
+use common::{lock, options, wait_until};
 use handheld_session::{GameSession, SessionError, SessionOptions};
 
 /// The cartridge's 128 KiB of battery-backed RAM.
@@ -50,14 +49,9 @@ fn writes_save_memory_soon_after_it_changes_while_running() {
     session
         .load_state(blank.to_string_lossy().into_owned())
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while std::fs::read(&save).unwrap() == pattern {
-        assert!(
-            Instant::now() < deadline,
-            "save memory wasn't written while running"
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_until("save memory written while running", || {
+        std::fs::read(&save).unwrap() != pattern
+    });
     assert_eq!(std::fs::read(&save).unwrap().len(), SAVE_RAM_SIZE);
     session.stop().unwrap();
 }

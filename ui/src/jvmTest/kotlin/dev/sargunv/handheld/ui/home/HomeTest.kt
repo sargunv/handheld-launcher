@@ -23,6 +23,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.awaitFocused
@@ -31,6 +32,8 @@ import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.collection
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.fakeRomm
+import dev.sargunv.handheld.ui.game.FakeLauncher
+import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.lastPlayed
 import dev.sargunv.handheld.ui.launchApp
@@ -41,10 +44,14 @@ import dev.sargunv.handheld.ui.press
 import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
+import java.io.File
+import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalTestApi::class)
 class HomeTest {
@@ -76,11 +83,15 @@ class HomeTest {
     played: Boolean = true,
     settings: Settings = Settings(),
     saveSettings: suspend (Settings) -> Unit = {},
+    storage: List<StorageTarget> = emptyList(),
+    launcher: GameLauncher = GameLauncher.Unsupported,
   ) {
     launchApp(
       server(fail, played),
+      storage = storage,
       settings = settings,
       saveSettings = saveSettings,
+      launcher = launcher,
       homePresses = homePresses.receiveAsFlow(),
       layout = DualScreenLayout.Separate,
     )
@@ -302,6 +313,29 @@ class HomeTest {
     pressHome()
     awaitFocused("continue:2")
     onNodeWithTag("primary").assertDoesNotExist()
+  }
+
+  @Test
+  fun homeDuringAPlayLeavesItsScreenAlone() = runComposeUiTest {
+    val storage = createTempDirectory("home-storage").toFile()
+    File(storage, "ROMs/gb/Game 2.gb").apply {
+      parentFile.mkdirs()
+      writeText("game")
+    }
+    val hold = CompletableDeferred<Unit>()
+    val launcher = FakeLauncher(hold = hold)
+    launch(storage = listOf(StorageTarget(storage.path, "Test storage")), launcher = launcher)
+    awaitTag("continue:2")
+    waitUntil(timeoutMillis = 5_000) {
+      onAllNodes(hasTestTag("hint:Confirm") and hasText("Play")).fetchSemanticsNodes().isNotEmpty()
+    }
+    press(Key.ButtonA)
+    runBlocking { launcher.started.await() }
+    pressHome()
+    onNodeWithTag("primary").assertExists()
+    hold.complete(Unit)
+    awaitText("Played")
+    check(storage.deleteRecursively())
   }
 
   @Test

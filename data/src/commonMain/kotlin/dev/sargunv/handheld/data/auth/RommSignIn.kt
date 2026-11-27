@@ -1,13 +1,14 @@
 package dev.sargunv.handheld.data.auth
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.romm.DefaultDeviceScopes
 import dev.sargunv.handheld.data.romm.DeviceAuthRequest
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.UploadScopes
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import io.ktor.client.engine.HttpClientEngine
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /** This device, as it introduces itself to a server it pairs with. */
 data class DeviceDescription(
@@ -42,7 +43,7 @@ enum class UploadAccess {
  */
 class RommSignIn(
   private val store: CredentialStore,
-  private val engine: () -> HttpClientEngine = ::platformHttpEngine,
+  private val engine: () -> HttpClientEngine,
 ) {
   /**
    * Signs in by pairing: the server issues a code, [onCode] shows it, and a user approves it on the
@@ -52,6 +53,7 @@ class RommSignIn(
    * @param allowUploads also asks for [UploadScopes], so the device can upload games to the server.
    * @throws RommException.DeviceAuthDenied when the user denies the code.
    * @throws RommException.DeviceAuthExpired when the code expires before anyone approves it.
+   * @throws RommException.Unreachable when [address] isn't one the engine can send to.
    */
   suspend fun withDeviceCode(
     address: String,
@@ -80,11 +82,10 @@ class RommSignIn(
     val user =
       RommClient(baseUrl, token.accessToken, engine()).use { client ->
         // The server's web page offers to send games only to a device that says it takes them.
-        // Without it, the device still signs in.
         try {
           client.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
         } catch (e: RommException) {
-          // The token may lack the scope; sending games from the web page then stays off.
+          log.w(e) { "Couldn't offer this device for games sent from the web page" }
         }
         client.me()
       }
@@ -106,6 +107,7 @@ class RommSignIn(
    * checked against the server before it's stored.
    *
    * @throws RommException.Unauthorized when the server doesn't accept the token.
+   * @throws RommException.Unreachable when [address] isn't one the engine can send to.
    */
   suspend fun withToken(address: String, token: String): RommCredentials {
     val baseUrl = encryptedIfOffered(address)
@@ -122,10 +124,18 @@ class RommSignIn(
    * [address], or its `https://` address when it's a plain `http://` one whose server redirects
    * there, so no credentials go out unencrypted to a server that offers encryption.
    */
-  private suspend fun encryptedIfOffered(address: String): String =
-    RommClient(address, engine = engine()).use { it.httpsAddress() } ?: address
+  private suspend fun encryptedIfOffered(address: String): String {
+    try {
+      address.toHttpUrl()
+    } catch (e: IllegalArgumentException) {
+      throw RommException.Unreachable(e)
+    }
+    return RommClient(address, engine = engine()).use { it.httpsAddress() } ?: address
+  }
 
   private companion object {
     const val CLIENT_NAME = "handheld"
   }
 }
+
+private val log = Logger.withTag("RommSignIn")

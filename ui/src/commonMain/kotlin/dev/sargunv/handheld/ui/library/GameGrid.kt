@@ -20,14 +20,13 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -38,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
@@ -60,6 +60,8 @@ import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.describes
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
  * The games of [source]'s shelf, open from its tab. L and R step between shelves, stopping at the
@@ -236,21 +238,15 @@ private fun ShelfHeader(shelves: List<LibraryShelf>, shelf: LibraryShelf, grid: 
 @Composable
 private fun GameGrid(state: AppState, games: GridGames) {
   val view = state.libraryView
-  val deviceStates by state.deviceStates.collectAsState()
   val grid = rememberLazyGridState()
   val scope = LocalFocusScope.current
-  val jump = view.jump
-  LaunchedEffect(jump) {
-    if (jump == null) return@LaunchedEffect
-    try {
-      val target = games.index[jump.letter] ?: return@LaunchedEffect
+  val currentGames by rememberUpdatedState(games)
+  LaunchedEffect(view, scope) {
+    view.jumps.receiveAsFlow().collectLatest { letter ->
+      val current = currentGames
+      val target = current.index[letter] ?: return@collectLatest
       grid.scrollToItem(target)
-      // The grid composes the items it scrolled to during the next layout.
-      withFrameNanos {}
-      scope?.focus(gameTag(games.shown[target]))
-    } finally {
-      // Clearing it any sooner would cancel this effect.
-      if (view.jump === jump) view.jump = null
+      scope?.focus(gameTag(current.shown[target]))
     }
   }
   FocusLazyVerticalGrid(
@@ -262,29 +258,31 @@ private fun GameGrid(state: AppState, games: GridGames) {
     horizontalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     items(games.shown, key = { gameTag(it) }) { game ->
-      val deviceState = deviceStateOf(game, deviceStates)
+      val status = statusOf(game, games.statuses)
       LibraryCover(
         game = game,
-        deviceState = deviceState,
+        status = status,
         modifier =
           Modifier.aspectRatio(3f / 4f)
             .describes(state, Focused.OnGame(game))
             .focusItem(
               gameTag(game),
               onConfirm = { state.navigator.push(Screen.Game(game.key, game.title)) },
-              stateDescription = deviceStateText(deviceState),
+              stateDescription = statusText(status),
             ),
       )
     }
   }
 }
 
-/** What a screen reader says for a game's [DeviceState]. */
-private fun deviceStateText(state: DeviceState?) =
-  when (state) {
-    DeviceState.OnDevice -> "On this device"
-    is DeviceState.Downloading -> "Downloading"
-    null -> "Not on this device"
+/** What a screen reader says for a game's [status]. */
+private fun statusText(status: RomStatus) =
+  when (status) {
+    is RomStatus.OnDevice -> "On this device"
+    RomStatus.Queued,
+    is RomStatus.Downloading -> "Downloading"
+    is RomStatus.Failed,
+    RomStatus.NotOnDevice -> "Not on this device"
   }
 
 /**
@@ -292,7 +290,7 @@ private fun deviceStateText(state: DeviceState?) =
  * so its tile shows its title, and says it's not on the server.
  */
 @Composable
-private fun LibraryCover(game: LibraryGame, deviceState: DeviceState?, modifier: Modifier) {
+private fun LibraryCover(game: LibraryGame, status: RomStatus, modifier: Modifier) {
   Box(modifier) {
     when (game) {
       is Rom -> Cover(game.coverSmallUrl, game.title, Modifier.fillMaxSize())
@@ -304,8 +302,8 @@ private fun LibraryCover(game: LibraryGame, deviceState: DeviceState?, modifier:
           description = "${game.title}, $NOT_ON_SERVER",
         )
     }
-    when (deviceState) {
-      DeviceState.OnDevice ->
+    when (status) {
+      is RomStatus.OnDevice ->
         Box(
           Modifier.align(Alignment.TopEnd)
             .padding(8.dp)
@@ -318,7 +316,9 @@ private fun LibraryCover(game: LibraryGame, deviceState: DeviceState?, modifier:
               },
             ),
         )
-      is DeviceState.Downloading ->
+      RomStatus.Queued,
+      is RomStatus.Downloading -> {
+        val progress = (status as? RomStatus.Downloading)?.progress
         Box(
           Modifier.align(Alignment.BottomStart)
             .fillMaxWidth()
@@ -327,13 +327,13 @@ private fun LibraryCover(game: LibraryGame, deviceState: DeviceState?, modifier:
         ) {
           Box(
             Modifier.fillMaxHeight()
-              .fillMaxWidth(deviceState.progress ?: 1f)
-              .background(
-                if (deviceState.progress == null) Placeholder.mutedText else Placeholder.text,
-              ),
+              .fillMaxWidth(progress ?: 1f)
+              .background(if (progress == null) Placeholder.mutedText else Placeholder.text),
           )
         }
-      null -> Unit
+      }
+      is RomStatus.Failed,
+      RomStatus.NotOnDevice -> Unit
     }
   }
 }

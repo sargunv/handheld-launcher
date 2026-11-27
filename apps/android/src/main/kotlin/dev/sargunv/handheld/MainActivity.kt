@@ -24,13 +24,15 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withStarted
-import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.launch.AndroidGameLauncher
+import dev.sargunv.handheld.launch.BuiltInPlayer
 import dev.sargunv.handheld.launch.PlayCompanion
+import dev.sargunv.handheld.launch.PlaySaves
 import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.ui.App
+import dev.sargunv.handheld.ui.AppPlatform
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -58,8 +60,6 @@ class MainActivity : ComponentActivity() {
   /** The presses of HOME while the launcher was in front. */
   private val homePresses = Channel<Unit>(Channel.CONFLATED)
 
-  private var player: AndroidGameLauncher? = null
-
   private val device by lazy {
     DeviceDescription(
       identifier = installIdentifier(Path(filesDir.path, "install-id")),
@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     // The system keeps the home app's launcher in a home task of its own, apart from the task an
     // explicit launch starts, so one launcher could run in each. The one in the home task stays.
-    if (isHomeIntent(intent.action, intent.categories)) {
+    if (intent.isHome()) {
       // One that ran before the app became the home app closes.
       for (other in running.toList()) other.finishAndRemoveTask()
     } else if (isDefaultHome()) {
@@ -92,14 +92,32 @@ class MainActivity : ComponentActivity() {
     val app = handheldApp
     val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val launcher = AndroidGameLauncher(this).also { player = it }
-    val retroAchievements = retroAchievementsSignIn(this)
-    val apps = InstalledApps(this)
+    val saves = PlaySaves(app.data.saveSync)
+    val launcher =
+      AndroidGameLauncher(
+        activity = this,
+        romm = app.data.romm,
+        saves = saves,
+        builtIn = BuiltInPlayer(this, saves, app.data.builtInSaveFolders.saves, app.settingsFile),
+        emulators = app.emulators,
+        allFilesAccess = app.allFilesAccess,
+        storageVolumes = { app.storageTargets().map { it.root } },
+      )
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
       AppInfo(app.versionName) {
         resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() }
       }
+    val platform =
+      AppPlatform(
+        device = device,
+        launcher = launcher,
+        apps = InstalledApps(this),
+        romHeaders = SessionRomHeaders,
+        retroAchievements = app.retroAchievementsSignIn,
+        appInfo = appInfo,
+        gameState = app.data.builtInSaveFolders,
+      )
     val opens = openRequests.receiveAsFlow()
     val homes = homePresses.receiveAsFlow()
     setContent {
@@ -115,18 +133,11 @@ class MainActivity : ComponentActivity() {
         modifier = Modifier.exposeTestTags(),
         layout = layout,
         heldKeys = heldKeys,
-        romm = app.data.romm,
-        device = device,
-        library = app.data.library,
-        downloads = app.data.downloads,
-        games = app.data.games,
+        data = app.data,
+        platform = platform,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = app.settingsFile::write,
-        launcher = launcher,
-        retroAchievements = retroAchievements,
-        apps = apps,
-        romHeaders = SessionRomHeaders,
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(
@@ -138,8 +149,6 @@ class MainActivity : ComponentActivity() {
         },
         openRequests = opens,
         homePresses = homes,
-        appInfo = appInfo,
-        gameState = app.builtInSaveFolders,
       )
     }
   }
@@ -165,22 +174,12 @@ class MainActivity : ComponentActivity() {
     // The second display's home only hands the controller back, and the launcher stays as it was.
     if (intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false)) return
     setIntent(intent)
-    val home = isHomeIntent(intent.action, intent.categories)
-    // HOME keeps the layout a development launch forced, unless it carries one from such a launch.
-    if (!home || intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
-    when (
-      val response =
-        respondTo(
-          home = home,
-          open = openTarget(intent),
-          wasInFront = wasInFront,
-          playing = player?.isPlaying == true,
-        )
-    ) {
-      is IntentResponse.Open -> openRequests.trySend(response.target)
-      IntentResponse.PressHome -> homePresses.trySend(Unit)
-      IntentResponse.Show -> Unit
-    }
+    if (intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
+    // HOME is a press in the app only when the launcher was in front, the way launchers start over
+    // on their first page. From another app it only brings the launcher back as it was.
+    val open = openTarget(intent)
+    if (open != null) openRequests.trySend(open)
+    else if (intent.isHome() && wasInFront) homePresses.trySend(Unit)
   }
 
   /**
@@ -199,7 +198,7 @@ class MainActivity : ComponentActivity() {
           lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
             if (!allFilesAccess) {
-              startActivity(handheldApp.allFilesAccessSettings())
+              startActivity(allFilesAccessSettings())
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=

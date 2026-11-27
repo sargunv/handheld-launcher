@@ -91,7 +91,7 @@ class InMemoryCredentialStore(private val initial: RommCredentials? = null) : Cr
  * signed out.
  */
 class FileCredentialStore(path: Path) : CredentialStore() {
-  private val file = JsonFile(path, RommCredentials.serializer(), unreadableIsMissing = true)
+  private val file = JsonFile(path, RommCredentials.serializer())
 
   override suspend fun read(): RommCredentials? = file.read()
 

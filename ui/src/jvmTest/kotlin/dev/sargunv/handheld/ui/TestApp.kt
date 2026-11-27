@@ -16,16 +16,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.ui.about.AppInfo
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
@@ -50,7 +49,7 @@ internal const val TestServer = "https://romm.test"
  * download queue in new, empty directories. It shows [open] once signed in, and takes each of
  * [homePresses] as a press of HOME.
  *
- * @return the app's download queue, which downloads from [server].
+ * @return the app's data, whose RomM client talks to [server].
  */
 internal fun ComposeUiTest.launchApp(
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
@@ -69,39 +68,47 @@ internal fun ComposeUiTest.launchApp(
   open: OpenTarget? = null,
   homePresses: Flow<Unit> = emptyFlow(),
   layout: DualScreenLayout = DualScreenLayout.Frame,
-): DownloadManager {
-  lateinit var downloads: DownloadManager
+): HandheldData {
+  lateinit var data: HandheldData
   setContent {
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
-    val data = remember {
+    data = remember {
       val dataDir = Path(createTempDirectory("handheld-data").toString())
-      HandheldData(credentials, library, dataDir, { storage }, scope, engine = server)
+      HandheldData(
+        credentials = credentials,
+        library = library,
+        dataDir = dataDir,
+        cacheDir = dataDir,
+        storage = { storage },
+        scope = scope,
+        engine = server,
+      )
     }
-    downloads = data.downloads
     App(
       layout,
       heldKeys,
-      data.romm,
-      DeviceDescription("install-1", "Test device", "test", null),
-      data.library,
-      data.downloads,
-      data.games,
+      data,
+      remember {
+        AppPlatform(
+          DeviceDescription("install-1", "Test device", "test", null),
+          launcher,
+          apps,
+          romHeaders,
+          retroAchievements,
+          appInfo,
+          gameState,
+        )
+      },
       remember { Path(createTempDirectory("handheld-covers").toString()) },
       Modifier.trackHeldKeys(heldKeys),
       initialSettings = settings,
       saveSettings = saveSettings,
-      launcher = launcher,
-      apps = apps,
-      romHeaders = romHeaders,
       openRequests = remember { if (open != null) flowOf(open) else emptyFlow() },
       homePresses = homePresses,
-      appInfo = appInfo,
-      retroAchievements = retroAchievements,
-      gameState = gameState,
     )
   }
-  return downloads
+  return data
 }
 
 /** Presses each key in turn. */

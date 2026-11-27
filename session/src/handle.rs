@@ -20,7 +20,7 @@ use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
     SendAchievementsRequest,
 };
-use crate::input::{Button, InputState, MAX_PORTS, Stick};
+use crate::input::{Button, InputState, MAX_PORTS, Stick, Trigger};
 use crate::pacing::{self, Vsync};
 use crate::platform::{self, PlatformWindow, VsyncClock};
 use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo};
@@ -68,16 +68,6 @@ pub struct SessionOptions {
     pub achievements: Option<AchievementOptions>,
 }
 
-/// A window to present to, from the platform's own window system.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum WindowHandle {
-    /// An Android `ANativeWindow`, as a pointer. The session takes over one
-    /// reference to it, such as `ANativeWindow_fromSurface` returns, and
-    /// releases it when the window is detached or replaced, or attaching it
-    /// fails.
-    Android { window: u64 },
-}
-
 /// A window that shows the session, for [`GameSession::touch`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum Screen {
@@ -115,10 +105,12 @@ impl SessionInfo {
     /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
     /// whether they changed.
     fn set_av(&mut self, av: AvInfo) -> bool {
-        let changed = self.fps != av.fps
-            || self.base_width != av.base_width
-            || self.base_height != av.base_height
-            || self.aspect_ratio != av.aspect_ratio;
+        let changed = (
+            self.fps,
+            self.base_width,
+            self.base_height,
+            self.aspect_ratio,
+        ) != (av.fps, av.base_width, av.base_height, av.aspect_ratio);
         self.fps = av.fps;
         self.base_width = av.base_width;
         self.base_height = av.base_height;
@@ -292,14 +284,12 @@ impl GameSession {
         self.info.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// Presents to `window` from now on, instead of any window before it, and
-    /// shows the last frame on it at once.
-    pub fn attach_window(
-        &self,
-        window: WindowHandle,
-        width: u32,
-        height: u32,
-    ) -> Result<(), SessionError> {
+    /// Presents to `window`, an `ANativeWindow` pointer, from now on, instead
+    /// of any window before it, and shows the last frame on it at once. The
+    /// session takes over one reference to the window, such as
+    /// `ANativeWindow_fromSurface` returns, and releases it when the window is
+    /// detached or replaced, or attaching fails.
+    pub fn attach_window(&self, window: u64, width: u32, height: u32) -> Result<(), SessionError> {
         // Take ownership first, so the window is released on every path.
         let window = PlatformWindow::adopt(window)?;
         self.request(|reply| Command::AttachWindow(window, width, height, reply))
@@ -321,10 +311,12 @@ impl GameSession {
     /// draws its screens stacked, top above bottom, with no gap. Of the bottom
     /// half, it shows the share of the width that
     /// [`SessionOptions::lower_screen_width_share`] gives. It replaces
-    /// any lower window before it and shows the last frame on it at once.
+    /// any lower window before it and shows the last frame on it at once. It
+    /// takes over the window's reference as [`GameSession::attach_window`]
+    /// does.
     pub fn attach_lower_window(
         &self,
-        window: WindowHandle,
+        window: u64,
         width: u32,
         height: u32,
     ) -> Result<(), SessionError> {
@@ -416,13 +408,11 @@ impl GameSession {
         }
     }
 
-    /// Sets how far the analog trigger `button`, `L2` or `R2`, is pulled on
-    /// controller `port`, from 0 to 32767. Other buttons are ignored.
-    pub fn set_trigger(&self, port: u32, button: Button, value: i16) {
-        if matches!(button, Button::L2 | Button::R2)
-            && let Some(port) = self.port(port)
-        {
-            port.set_trigger(button, value);
+    /// Sets how far `trigger` is pulled on controller `port`, from 0 to 32767.
+    /// Ports past the last are ignored.
+    pub fn set_trigger(&self, port: u32, trigger: Trigger, value: i16) {
+        if let Some(port) = self.port(port) {
+            port.set_trigger(trigger, value);
         }
     }
 

@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use clap::{Parser, ValueEnum};
 use handheld_session::{
     AudioSink, CapturedFrame, Frame, InputState, NativeWindow, NullAudioSink, Region, Session,
-    SessionConfig, VideoOutput, VideoSink,
+    SessionConfig, VideoOutput, VideoSink, core_period,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -98,11 +98,7 @@ struct FrameSlot(Rc<RefCell<Option<CapturedFrame>>>);
 
 impl VideoSink for FrameSlot {
     fn frame(&mut self, frame: Frame<'_>) {
-        *self.0.borrow_mut() = Some(CapturedFrame {
-            width: frame.width,
-            height: frame.height,
-            pixels: frame.pixels.to_vec(),
-        });
+        *self.0.borrow_mut() = Some(frame.into());
     }
 }
 
@@ -160,7 +156,6 @@ struct App {
     input: Arc<InputState>,
     controls: input::Controls,
     next_frame: Instant,
-    frame_period: Duration,
     frames_run: u64,
     stats: (Instant, u64),
     save_ram: PathBuf,
@@ -168,25 +163,20 @@ struct App {
     error: Option<String>,
 }
 
-/// Where zipped games are extracted for cores that can't open them, in
-/// $XDG_CACHE_HOME.
-fn content_cache() -> PathBuf {
-    std::env::var_os("XDG_CACHE_HOME")
+/// The runner's directory in the XDG base directory `var`, which defaults to
+/// `fallback` in $HOME.
+fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
+    std::env::var_os(var)
         .map(PathBuf::from)
         .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache")
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(fallback)
         })
-        .join("handheld/session-runner/content")
+        .join("handheld/session-runner")
 }
 
 impl App {
     fn new(args: Args) -> Self {
-        let data = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/share")
-            })
-            .join("handheld/session-runner");
+        let data = xdg_dir("XDG_DATA_HOME", ".local/share");
         let save_dir = args.save_dir.clone().unwrap_or_else(|| data.join("saves"));
         let stem = args
             .content
@@ -205,7 +195,6 @@ impl App {
             input: Arc::new(InputState::new()),
             controls: input::Controls::new(),
             next_frame: Instant::now(),
-            frame_period: Duration::from_secs_f64(1.0 / 60.0),
             frames_run: 0,
             stats: (Instant::now(), 0),
             error: None,
@@ -264,7 +253,8 @@ impl App {
         let config = SessionConfig {
             core: self.args.core.clone(),
             content: self.args.content.clone(),
-            content_cache: Some(content_cache()),
+            // Where zipped games are extracted for cores that can't open them.
+            content_cache: Some(xdg_dir("XDG_CACHE_HOME", ".cache").join("content")),
             system_dir: self
                 .args
                 .system_dir
@@ -288,7 +278,6 @@ impl App {
             av.base_width.max(1) * self.args.scale,
             av.base_height.max(1) * self.args.scale,
         ));
-        self.frame_period = av.frame_period();
         self.next_frame = Instant::now();
         self.session = Some(session);
         self.window = Some(window);
@@ -301,8 +290,6 @@ impl App {
         };
         self.controls.update(self.input.port(0));
         session.run_frame();
-        // The core may change its frame rate mid-game.
-        self.frame_period = session.av_info().frame_period();
         self.frames_run += 1;
         if let (Some(cpu), Some(window)) = (&mut self.cpu, &self.window) {
             cpu.present(window, session.av_info().aspect_ratio);
@@ -384,10 +371,15 @@ impl ApplicationHandler for App {
         let now = Instant::now();
         if now >= self.next_frame {
             self.run_frame(event_loop);
-            self.next_frame += self.frame_period;
+            let Some(session) = &self.session else {
+                return;
+            };
+            // Read after the frame, as the core may change its rate mid-game.
+            let period = core_period(session.av_info().fps);
+            self.next_frame += period;
             // After a stall, carry on from now rather than rushing to catch up.
             if self.next_frame < now {
-                self.next_frame = now + self.frame_period;
+                self.next_frame = now + period;
             }
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));

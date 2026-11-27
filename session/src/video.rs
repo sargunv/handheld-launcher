@@ -22,6 +22,16 @@ pub struct CapturedFrame {
     pub pixels: Vec<u8>,
 }
 
+impl From<Frame<'_>> for CapturedFrame {
+    fn from(frame: Frame<'_>) -> Self {
+        Self {
+            width: frame.width,
+            height: frame.height,
+            pixels: frame.pixels.to_vec(),
+        }
+    }
+}
+
 /// Receives the frames a session produces when it doesn't present them to a
 /// window itself.
 ///
@@ -31,6 +41,15 @@ pub struct CapturedFrame {
 pub trait VideoSink {
     /// Takes the frame. It's valid only for the duration of the call.
     fn frame(&mut self, frame: Frame<'_>);
+}
+
+/// A sink that drops every frame.
+#[cfg(any(test, not(target_os = "android")))]
+pub(crate) struct NullVideoSink;
+
+#[cfg(any(test, not(target_os = "android")))]
+impl VideoSink for NullVideoSink {
+    fn frame(&mut self, _frame: Frame<'_>) {}
 }
 
 /// The pixel formats a software-rendering core can produce.
@@ -137,35 +156,6 @@ fn expand6(v: u16) -> u8 {
     ((v << 2) | (v >> 4)) as u8
 }
 
-/// The largest rectangle with `aspect` that fits the window, centered, as
-/// (x, y, width, height). A non-positive `aspect` uses the frame's own.
-pub(crate) fn fit(
-    width: u32,
-    height: u32,
-    aspect: f32,
-    win_w: u32,
-    win_h: u32,
-) -> (i32, i32, i32, i32) {
-    let aspect = if aspect > 0.0 {
-        f64::from(aspect)
-    } else {
-        f64::from(width) / f64::from(height.max(1))
-    };
-    let (win_w, win_h) = (f64::from(win_w), f64::from(win_h));
-    let (w, h) = if win_w / win_h.max(1.0) > aspect {
-        (win_h * aspect, win_h)
-    } else {
-        (win_w, win_w / aspect)
-    };
-    let (w, h) = (w.round(), h.round());
-    (
-        ((win_w - w) / 2.0).round() as i32,
-        ((win_h - h) / 2.0).round() as i32,
-        w as i32,
-        h as i32,
-    )
-}
-
 /// The part of the core's frame a window shows. A two-screen system's core
 /// draws its screens stacked, top above bottom, with no gap, so a session with
 /// a lower window shows the frame's top half on the main window and its bottom
@@ -241,12 +231,19 @@ impl Region {
         win_w: u32,
         win_h: u32,
     ) -> (i32, i32, i32, i32) {
-        fit(
-            self.columns(width).1,
-            self.rows(height).1,
-            self.aspect(width, height, aspect),
-            win_w,
-            win_h,
+        let aspect = f64::from(self.aspect(width, height, aspect));
+        let (win_w, win_h) = (f64::from(win_w), f64::from(win_h));
+        let (w, h) = if win_w / win_h.max(1.0) > aspect {
+            (win_h * aspect, win_h)
+        } else {
+            (win_w, win_w / aspect)
+        };
+        let (w, h) = (w.round(), h.round());
+        (
+            ((win_w - w) / 2.0).round() as i32,
+            ((win_h - h) / 2.0).round() as i32,
+            w as i32,
+            h as i32,
         )
     }
 }
@@ -366,9 +363,15 @@ mod tests {
 
     #[test]
     fn fit_letterboxes_and_pillarboxes() {
-        assert_eq!(fit(320, 240, 4.0 / 3.0, 1920, 1080), (240, 0, 1440, 1080));
-        assert_eq!(fit(320, 240, 4.0 / 3.0, 800, 1000), (0, 200, 800, 600));
-        assert_eq!(fit(256, 224, 0.0, 256, 224), (0, 0, 256, 224));
+        assert_eq!(
+            Region::Whole.fit(320, 240, 4.0 / 3.0, 1920, 1080),
+            (240, 0, 1440, 1080)
+        );
+        assert_eq!(
+            Region::Whole.fit(320, 240, 4.0 / 3.0, 800, 1000),
+            (0, 200, 800, 600)
+        );
+        assert_eq!(Region::Whole.fit(256, 224, 0.0, 256, 224), (0, 0, 256, 224));
     }
 
     #[test]
@@ -388,11 +391,14 @@ mod tests {
             assert!((region.aspect(256, 384, 0.0) - 4.0 / 3.0).abs() < 1e-6);
         }
         // On the Thor's screens.
-        let (w, h) = (256, 192);
-        let top = Region::Top.aspect(256, 384, 2.0 / 3.0);
-        let bottom = Region::bottom(None).aspect(256, 384, 2.0 / 3.0);
-        assert_eq!(fit(w, h, top, 1920, 1080), (240, 0, 1440, 1080));
-        assert_eq!(fit(w, h, bottom, 1240, 1080), (0, 75, 1240, 930));
+        assert_eq!(
+            Region::Top.fit(256, 384, 2.0 / 3.0, 1920, 1080),
+            (240, 0, 1440, 1080)
+        );
+        assert_eq!(
+            Region::bottom(None).fit(256, 384, 2.0 / 3.0, 1240, 1080),
+            (0, 75, 1240, 930)
+        );
     }
 
     #[test]

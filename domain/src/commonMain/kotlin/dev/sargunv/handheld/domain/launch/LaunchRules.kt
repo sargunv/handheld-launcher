@@ -4,7 +4,7 @@ import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.jvm.JvmInline
 
-/** A RomM collection, by id. Regular, smart and virtual collections each have their own ids. */
+/** A RomM collection, by its kind and id, as `regular:3` or `smart:3`. */
 @JvmInline
 value class CollectionId(val value: String) {
   override fun toString(): String = value

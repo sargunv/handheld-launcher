@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.launch
 
-import android.util.Log
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.saves.BeforeLaunch
 import dev.sargunv.handheld.data.saves.GameSave
@@ -9,6 +9,7 @@ import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.data.saves.SaveSyncResult
 import dev.sargunv.handheld.data.saves.StandaloneEmulator
 import dev.sargunv.handheld.data.saves.beforeLaunch
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.SaveVersion
 import java.io.IOException
@@ -37,25 +38,24 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   ): Boolean {
     val sync = signedIn() ?: return true
     val outcome =
-      try {
-        sync.beforeLaunch(
-          game,
-          emulator,
-          chooseSave = { result ->
-            chooseSave(
-              SaveConflict(
-                title,
-                SaveVersion(result.device.modifiedAt, result.device.sizeBytes),
-                SaveVersion(result.server.updatedAt, result.server.fileSizeBytes),
-              ),
-            )
-          },
-        )
-      } catch (e: RommException) {
-        note(failed(e))
-        return true
-      } catch (e: IOException) {
-        note(failed(e))
+      trySync(
+        {
+          sync.beforeLaunch(
+            game,
+            emulator,
+            chooseSave = { result ->
+              chooseSave(
+                SaveConflict(
+                  title,
+                  SaveVersion(result.device.modifiedAt, result.device.sizeBytes),
+                  SaveVersion(result.server.updatedAt, result.server.fileSizeBytes),
+                ),
+              )
+            },
+          )
+        },
+      ) {
+        note(it)
         return true
       }
     return when (outcome) {
@@ -74,7 +74,7 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
         true
       }
       BeforeLaunch.Canceled -> {
-        Log.i(TAG, "Launch canceled; both saves are as they were")
+        log.i { "Launch canceled; both saves are as they were" }
         false
       }
       BeforeLaunch.QuitFirst -> {
@@ -103,18 +103,16 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   suspend fun afterPlay(game: GameSave, note: (String) -> Unit) {
     val sync = signedIn() ?: return
     val result =
-      try {
-        sync.push(game)
-      } catch (e: RommException) {
-        return note(failed(e))
-      } catch (e: IOException) {
-        return note(failed(e))
+      trySync({ sync.push(game) }) {
+        return note(it)
       }
     when (result) {
       // The conflict screen comes before a launch, so the choice waits for the next one.
       is SaveSyncResult.Conflict -> note(conflictLater(result))
       is SaveSyncResult.ServerNewer -> note(SERVER_NEWER)
-      else -> describe(result, note)
+      SaveSyncResult.NoSave,
+      is SaveSyncResult.UpToDate,
+      is SaveSyncResult.Pushed -> log.i { "Synced the save: $result" }
     }
   }
 
@@ -125,12 +123,8 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
   suspend fun push(game: GameSave): String {
     val sync = signedIn() ?: return "Not signed in"
     val result =
-      try {
-        sync.push(game)
-      } catch (e: RommException) {
-        return failed(e)
-      } catch (e: IOException) {
-        return failed(e)
+      trySync({ sync.push(game) }) {
+        return it
       }
     return when (result) {
       SaveSyncResult.NoSave -> "No save yet"
@@ -138,17 +132,13 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
       is SaveSyncResult.ServerNewer -> SERVER_NEWER
       is SaveSyncResult.Conflict -> conflictLater(result)
       is SaveSyncResult.UpToDate -> "Already on RomM"
-      // A push never writes to the device or settles a conflict.
-      is SaveSyncResult.Pulled,
-      is SaveSyncResult.NoFolder,
-      is SaveSyncResult.Resolved -> "Save synced"
     }
   }
 
   private fun signedIn(): SaveSync? =
     saveSync.value
       ?: run {
-        Log.i(TAG, "Not signed in, so the save didn't sync")
+        log.i { "Not signed in, so the save didn't sync" }
         null
       }
 
@@ -159,8 +149,18 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
 
   private fun chooseLater(label: String) = "$label · Choose at the next play"
 
-  // A failed sync writes nothing, and its record stays as it was, so the next sync tries again.
-  private fun failed(e: Exception) = "Save sync failed · ${e.message}"
+  /**
+   * Runs the sync [call], or logs why it failed and passes [onFailure] the note that says so. A
+   * failed sync writes nothing, and its record stays as it was, so the next sync tries again.
+   */
+  private inline fun <T> trySync(call: () -> T, onFailure: (String) -> Nothing): T =
+    try {
+      call()
+    } catch (e: Exception) {
+      if (e !is RommException && e !is IOException) throw e
+      log.w(e) { "Save sync failed" }
+      onFailure(labelled("Save sync failed", e.message))
+    }
 
   private fun describe(result: SaveSyncResult, note: (String) -> Unit) {
     when (result) {
@@ -172,7 +172,7 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
       is SaveSyncResult.NoFolder -> note("RomM's save not placed · Emulator has no save folder yet")
       is SaveSyncResult.Resolved -> {
         val kept = if (result.kept == SaveCopy.Device) "this device's" else "RomM's"
-        Log.i(TAG, "Kept $kept save; the other is in the save history at ${result.history}")
+        log.i { "Kept $kept save; the other is in the save history" }
         result.uploadError?.let {
           note("Kept $kept save · Other copy not sent: $it")
         }
@@ -181,12 +181,13 @@ class PlaySaves(private val saveSync: StateFlow<SaveSync?>) {
       is SaveSyncResult.UpToDate,
       is SaveSyncResult.Pushed,
       is SaveSyncResult.Conflict,
-      is SaveSyncResult.ServerNewer -> Log.i(TAG, "Synced the save: $result")
+      is SaveSyncResult.ServerNewer -> log.i { "Synced the save: $result" }
     }
   }
 
   private companion object {
-    const val TAG = "PlaySaves"
     const val SERVER_NEWER = "Save not sent · RomM's copy is newer"
   }
 }
+
+private val log = Logger.withTag("PlaySaves")

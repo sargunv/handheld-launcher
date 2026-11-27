@@ -12,22 +12,17 @@ import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.LaunchUri
 
-/** Makes the content URIs a launch hands over. */
-fun interface ContentUris {
-  /** A content URI for the file at [path]; throws when the provider can't serve it. */
-  fun forFile(path: String): Uri
-}
-
 /**
- * The intent for `startActivity` that carries this command, with its files' content URIs from
- * [contentUris]. A command with [LaunchCommand.readGrants] gets the read grant flag, which covers
- * the data and clip data URIs; a command builder puts the ROM in clip data whenever it hands over a
- * content URI, so extras that name it are covered too.
+ * The intent for `startActivity` that carries this command, with each file's content URI from
+ * [uriFor], which throws when the provider can't serve the file. A command with
+ * [LaunchCommand.readGrants] gets the read grant flag, which covers the data and clip data URIs; a
+ * command builder puts the ROM in clip data whenever it hands over a content URI, so extras that
+ * name it are covered too.
  */
-internal fun LaunchCommand.toIntent(contentUris: ContentUris): Intent {
+internal fun LaunchCommand.toIntent(uriFor: (String) -> Uri): Intent {
   fun uri(value: LaunchUri): Uri =
     when (value) {
-      is LaunchUri.ProviderFile -> contentUris.forFile(value.path)
+      is LaunchUri.ProviderFile -> uriFor(value.path)
       is LaunchUri.Raw -> Uri.parse(value.value)
     }
 

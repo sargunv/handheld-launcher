@@ -18,7 +18,9 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
  * [paths] are candidate folders, most likely first, written with [SavePaths] placeholders.
  * [platforms] limits the location to those platforms' games; null applies it to every platform the
  * emulator runs that has no location of its own. [requiresRoot] marks folders only root can read.
- * [syncable] is false where the layout is known but saves there can't be synced safely yet.
+ * [syncable] is false where the layout is known but saves there can't be synced safely yet. [keys]
+ * are where a Switch emulator may keep the `prod.keys` that reading a game's title id needs, most
+ * likely first.
  */
 data class SaveLocation(
   val emulator: EmulatorId,
@@ -27,6 +29,7 @@ data class SaveLocation(
   val platforms: Set<PlatformSlug>? = null,
   val requiresRoot: Boolean = false,
   val syncable: Boolean = true,
+  val keys: List<String> = emptyList(),
 )
 
 /** Placeholders in save, state and BIOS paths. */
@@ -125,7 +128,13 @@ object SaveLocations {
     )
 
   private fun switch(id: String, folder: String) =
-    inAppData(id, "{package}", folder, SaveLayout.SwitchUserSave)
+    SaveLocation(
+      id(id),
+      listOf(appFiles("{package}", folder)),
+      SaveLayout.SwitchUserSave,
+      keys =
+        listOf(appFiles("{package}", "keys/prod.keys"), appFiles("{package}", "system/prod.keys")),
+    )
 
   private fun pizzaBoy(id: String, packageName: String, sharedFolder: String) =
     SaveLocation(

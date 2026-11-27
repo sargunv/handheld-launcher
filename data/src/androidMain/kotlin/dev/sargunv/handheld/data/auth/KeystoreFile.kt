@@ -5,6 +5,7 @@ import android.security.keystore.KeyProperties
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.writeAtomically
 import java.io.File
+import java.io.IOException
 import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -55,12 +56,19 @@ internal class KeystoreFile<T : Any>(
     }
   }
 
+  /** Encrypts and writes [value], throwing an [IOException] when either fails. */
   suspend fun save(value: T) = io {
-    val cipher = Cipher.getInstance(TRANSFORMATION)
-    cipher.init(Cipher.ENCRYPT_MODE, key())
     val plain = LenientJson.encodeToString(serializer, value).encodeToByteArray()
-    // The Keystore picks the IV; it goes first, so the file reads back on its own.
-    writeAtomically(Path(file.path), cipher.iv + cipher.doFinal(plain))
+    val sealed =
+      try {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        // The Keystore picks the IV; it goes first, so the file reads back on its own.
+        cipher.iv + cipher.doFinal(plain)
+      } catch (e: GeneralSecurityException) {
+        throw IOException(e.message, e)
+      }
+    writeAtomically(Path(file.path), sealed)
   }
 
   suspend fun clear() {

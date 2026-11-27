@@ -67,10 +67,8 @@ object GameLayout {
       PlatformCatalog.TG_CD,
     )
 
+  private val DiscNumber = Regex("""\b(?:disc|disk|cd)\s*(\d+)""", RegexOption.IGNORE_CASE)
+
   private fun discNumber(name: String): Int? =
-    Regex("""\b(?:disc|disk|cd)\s*(\d+)""", RegexOption.IGNORE_CASE)
-      .find(name)
-      ?.groupValues
-      ?.get(1)
-      ?.toIntOrNull()
+    DiscNumber.find(name)?.groupValues?.get(1)?.toIntOrNull()
 }

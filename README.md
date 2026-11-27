@@ -17,6 +17,6 @@ mise run build
 mise run run:desktop
 ```
 
-## License
+## Licence
 
 [GPL-3.0-or-later](LICENSE)

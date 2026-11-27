@@ -3,8 +3,8 @@ package dev.sargunv.handheld.data.achievements
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
-import dev.sargunv.handheld.data.romm.platformHttpEngine
 import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -30,7 +30,7 @@ import kotlinx.serialization.Serializable
  */
 class RetroAchievementsClient(
   private val userAgent: String,
-  private val engine: HttpClientEngine = platformHttpEngine(),
+  private val engine: HttpClientEngine = OkHttp.create(),
 ) : AutoCloseable {
   private val http = httpClient(engine, socketTimeoutMillis = 30_000)
 
@@ -71,7 +71,7 @@ class RetroAchievementsClient(
     val user = response.user
     val token = response.token
     if (!response.success || user == null || token == null) {
-      throw RetroAchievementsException(response.error ?: "Sign-in refused")
+      throw RetroAchievementsException(response.error)
     }
     return RetroAchievementsAccount(username = user, token = token)
   }
@@ -110,7 +110,7 @@ class RetroAchievementsClient(
     try {
       block()
     } catch (e: IOException) {
-      throw RetroAchievementsException("RetroAchievements unreachable · ${e.message}", e)
+      throw RetroAchievementsException("RetroAchievements unreachable", e)
     }
 
   @Serializable
@@ -136,6 +136,6 @@ class RetroAchievementsClient(
   }
 }
 
-/** A request to RetroAchievements that failed, with why in plain words as its message. */
-class RetroAchievementsException(message: String, cause: Throwable? = null) :
+/** A request to RetroAchievements that failed, with why as its message when that's known. */
+class RetroAchievementsException(message: String?, cause: Throwable? = null) :
   Exception(message, cause)

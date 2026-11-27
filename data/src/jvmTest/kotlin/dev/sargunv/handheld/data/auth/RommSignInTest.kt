@@ -126,6 +126,14 @@ class RommSignInTest {
   }
 
   @Test
+  fun refusesAnAddressTheEngineCannotSendTo() = runTest {
+    val signIn = RommSignIn(store) { MockEngine { error("No request should go out") } }
+    for (address in listOf("https://romm%20x.com", "https://romm..example.com")) {
+      assertFailsWith<RommException.Unreachable> { signIn.withToken(address, "rmm_good") }
+    }
+  }
+
+  @Test
   fun keepsCredentialsInAFile() = runTest {
     val dir = Path(SystemTemporaryDirectory, "credentials-test-${Random.nextLong().toULong()}")
     val path = Path(dir, "credentials.json")

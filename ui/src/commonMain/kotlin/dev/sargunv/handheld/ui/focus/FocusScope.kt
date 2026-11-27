@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.flow.first
 
 /**
  * The focus scopes on screen, in the order they appeared. The last one is the active one: the
@@ -48,6 +50,11 @@ class FocusScopes internal constructor() {
     val wasActive = active === scope
     stack.remove(scope)
     if (wasActive) active?.restorePending = true
+  }
+
+  /** Dismisses every open dialog, the top one first. */
+  internal fun closeDialogs() {
+    stack.asReversed().mapNotNull { it.dismiss }.forEach { it() }
   }
 }
 
@@ -88,6 +95,11 @@ internal class FocusMemory(
   /** Whether no items are composed. Reading this observes it. */
   val isEmpty: Boolean
     get() = items.isEmpty()
+
+  /** Waits until the item with [key] is composed. */
+  suspend fun awaitItem(key: String) {
+    snapshotFlow { key in items }.first { it }
+  }
 
   fun register(key: String, requester: FocusRequester) {
     items[key] = requester
@@ -131,8 +143,12 @@ internal constructor(
   saved: MutableState<String?>,
   private val scopes: FocusScopes?,
   internal val parent: FocusScopeState? = null,
-  internal val isModal: Boolean = false,
+  /** Closes the dialog this scope is, or null when it isn't one. */
+  internal val dismiss: (() -> Unit)? = null,
 ) {
+  internal val isModal: Boolean
+    get() = dismiss != null
+
   internal val memory = FocusMemory(saved) { isRecording }
   internal var hasFocus by mutableStateOf(false)
 
@@ -165,13 +181,14 @@ internal constructor(
   }
 
   /**
-   * Moves focus to the item with [key], such as the target of a jump, and remembers it as the item
-   * to restore. Returns false if that item isn't composed.
+   * Waits until the item with [key], such as the target of a jump, is composed, then moves focus to
+   * it and remembers it as the item to restore.
    */
-  fun focus(key: String): Boolean {
+  suspend fun focus(key: String) {
+    memory.awaitItem(key)
     memory.select(key)
     restorePending = false
-    return memory.focusRemembered()
+    memory.focusRemembered()
   }
 }
 
@@ -195,22 +212,23 @@ fun FocusScope(
   modifier: Modifier = Modifier,
   initialFocus: String? = null,
   content: @Composable BoxScope.() -> Unit,
-) = FocusScope(modifier, initialFocus, isModal = false, content)
+) = FocusScope(modifier, initialFocus, dismiss = null, content)
 
 /**
- * A [FocusScope] that stays above scopes appearing outside it while it's open, as a dialog does.
+ * A [FocusScope] that, with a [dismiss], is a dialog: it stays above scopes appearing outside it
+ * while it's open, and [FocusScopes.closeDialogs] calls [dismiss].
  */
 @Composable
 internal fun FocusScope(
   modifier: Modifier,
   initialFocus: String?,
-  isModal: Boolean,
+  dismiss: (() -> Unit)?,
   content: @Composable BoxScope.() -> Unit,
 ) {
   val saved = rememberSaveable { mutableStateOf(initialFocus) }
   val scopes = LocalFocusScopes.current
   val parent = LocalFocusScope.current
-  val state = remember(saved, scopes) { FocusScopeState(saved, scopes, parent, isModal) }
+  val state = remember(saved, scopes) { FocusScopeState(saved, scopes, parent, dismiss) }
 
   if (scopes != null) {
     DisposableEffect(scopes, state) {

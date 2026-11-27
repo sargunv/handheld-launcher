@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.downloads
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
@@ -90,9 +91,7 @@ internal class ContentScanner(
   cacheFile: Path,
   private val wholeFileLimit: Long = WHOLE_FILE_LIMIT,
 ) {
-  // A cache from an older version, or a damaged one, is read again from the files.
-  private val file =
-    JsonFile(cacheFile, ListSerializer(CachedContent.serializer()), unreadableIsMissing = true)
+  private val file = JsonFile(cacheFile, ListSerializer(CachedContent.serializer()))
   private val mutex = Mutex()
   private var cache: MutableMap<String, CachedContent>? = null
   /** Whether the cache has changes the file lacks. */
@@ -180,7 +179,7 @@ internal class ContentScanner(
         file.write(cache.values.toList())
         dirty = false
       } catch (e: IOException) {
-        // The next scan writes it again, and meanwhile reads only what this one hasn't.
+        log.w(e) { "Couldn't write the content cache" }
       }
     }
     LocalScan(matched, unmatched)
@@ -365,3 +364,5 @@ internal fun entriesOf(folder: Path): List<Path> =
   } catch (e: IOException) {
     emptyList()
   }
+
+private val log = Logger.withTag("LocalContent")

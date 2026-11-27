@@ -100,11 +100,7 @@ class UploadsTest {
     val server = MockServer {
       json("""{"detail": "Forbidden"}""", HttpStatusCode.Forbidden)
     }
-    val error =
-      assertFailsWith<RommException.Forbidden> {
-        uploadLocalGame(server.client, game, chunkSize = 4)
-      }
-    assertEquals("Not allowed · Forbidden", error.message)
+    assertFailsWith<RommException.Forbidden> { uploadLocalGame(server.client, game, chunkSize = 4) }
     assertEquals(listOf("roms/upload/start"), server.requests.map { it.apiPath })
   }
 
@@ -125,7 +121,7 @@ class UploadsTest {
       assertFailsWith<RommException.ClientError> {
         uploadLocalGame(server.client, game, chunkSize = 4)
       }
-    assertEquals("Chunk exceeds maximum allowed size", error.detail)
+    assertEquals("Chunk exceeds maximum allowed size", error.message)
     assertEquals(
       listOf("roms/upload/start", "roms/upload/u1", "roms/upload/u1/cancel"),
       server.requests.map { it.apiPath },

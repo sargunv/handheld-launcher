@@ -15,6 +15,7 @@ import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
@@ -22,6 +23,7 @@ import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.io.IOException
@@ -73,8 +75,8 @@ internal sealed interface GameDialog {
 internal class GameActions(private val state: AppState, private val scope: CoroutineScope) {
   var dialog: GameDialog? by mutableStateOf(null)
 
-  var playing by mutableStateOf(false)
-    private set
+  val playing: Boolean
+    get() = state.playing != null
 
   /** What the launch is doing before the game starts, such as getting its core. */
   var playProgress: String? by mutableStateOf(null)
@@ -104,9 +106,9 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   }
 
   fun play(game: LibraryGame, path: String) {
-    playing = true
     notes = emptyList()
-    scope.launch {
+    // Undispatched, so the play is under way in [AppState.playing] before this returns.
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
       try {
         notes =
           state.play(game.key) {
@@ -116,7 +118,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
               state.settings.launch.toRules(),
               collectionsOf(state, game),
               onProgress = { playProgress = it },
-              closeEmulators = state.settings.closeEmulators && state.launcher.canCloseEmulators,
+              closeEmulators = state.settings.closeEmulators,
               askStillRunning = { prompt ->
                 val asking = PendingStillRunning(prompt)
                 stillRunning = asking
@@ -137,7 +139,6 @@ internal class GameActions(private val state: AppState, private val scope: Corou
             }
           }
       } finally {
-        playing = false
         playProgress = null
         closeDialog(GameDialog.Leave)
       }
@@ -170,7 +171,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         when (removal) {
           is Removal.HoldsOtherFiles ->
             listOf("Nothing removed · The folder also holds ${removal.names.joinToString()}")
-          is Removal.Failed -> listOf("Remove failed · ${removal.reason}")
+          is Removal.Failed -> listOf(labelled("Remove failed", removal.reason))
           Removal.Removed,
           Removal.NotOnDevice -> emptyList()
         }
@@ -189,9 +190,8 @@ internal class GameActions(private val state: AppState, private val scope: Corou
           upload = null
         }
       // A game that started meanwhile comes first.
-      if (playing) return@launch
+      if (playing || access == null) return@launch
       when (access) {
-        null -> notes = listOf(SIGN_IN_TO_UPLOAD)
         UploadAccess.NotRequested -> dialog = GameDialog.AllowUploads(UPLOADS_NOT_REQUESTED)
         UploadAccess.AccountMayNot -> notes = listOf(UPLOADS_NOT_FOR_ACCOUNT)
         UploadAccess.Allowed,
@@ -206,12 +206,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     notes = emptyList()
     uploadJob = scope.launch {
       try {
-        val client =
-          state.romm.account?.client
-            ?: run {
-              notes = listOf(SIGN_IN_TO_UPLOAD)
-              return@launch
-            }
+        val client = state.romm.account?.client ?: return@launch
         val result =
           uploadLocalGame(
             client,
@@ -239,11 +234,14 @@ internal class GameActions(private val state: AppState, private val scope: Corou
         // A sign-in whose permissions aren't known, or don't include uploading, may be why.
         if (access != UploadAccess.Allowed) dialog = GameDialog.AllowUploads(refused)
       } catch (e: RommException.Status) {
-        notes = listOf("Upload refused · ${e.detail ?: e.message}")
+        log.w(e) { "Upload of ${game.path} refused" }
+        notes = listOf(labelled("Upload refused", e.message))
       } catch (e: RommException) {
-        notes = listOf("Upload failed · ${e.message}")
+        log.w(e) { "Upload of ${game.path} failed" }
+        notes = listOf(labelled("Upload failed", e.message))
       } catch (e: IOException) {
-        notes = listOf("File read failed · ${e.message}")
+        log.w(e) { "Reading ${game.path} for upload failed" }
+        notes = listOf(labelled("File read failed", e.message))
       } finally {
         upload = null
         uploadJob = null
@@ -259,7 +257,5 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     notes = listOf("Upload stopped")
   }
 }
-
-private const val SIGN_IN_TO_UPLOAD = "Sign in to RomM to upload"
 
 private val log = Logger.withTag("GameActions")

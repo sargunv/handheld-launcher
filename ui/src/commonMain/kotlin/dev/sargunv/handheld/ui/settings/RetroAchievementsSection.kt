@@ -3,7 +3,6 @@ package dev.sargunv.handheld.ui.settings
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -15,7 +14,6 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.signin.TextEntry
-import kotlinx.coroutines.launch
 
 internal fun LazyListScope.retroAchievements(state: AppState) {
   val account = state.retroAchievements ?: return
@@ -47,14 +45,13 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       )
     }
     item(key = "signOut") {
-      val scope = rememberCoroutineScope()
       SettingRow(
         view,
         "settings:ra:signOut",
         "Sign out",
         null,
         "Signs this device out of RetroAchievements.",
-        onConfirm = { scope.launch { account.signOut() } },
+        onConfirm = account::signOut,
       )
     }
     return
@@ -78,7 +75,6 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
     )
   }
   item(key = "password") {
-    val scope = rememberCoroutineScope()
     TextEntry(
       view.help,
       key = "settings:ra:password",
@@ -92,13 +88,12 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
           keyboardType = KeyboardType.Password,
           imeAction = ImeAction.Done,
         ),
-      onSubmit = { scope.launch { account.submit() } },
+      onSubmit = account::submit,
       modifier = Modifier.fillMaxWidth(),
       secure = true,
     )
   }
   item(key = "signIn") {
-    val scope = rememberCoroutineScope()
     SettingRow(
       view,
       "settings:ra:signIn",
@@ -106,7 +101,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       null,
       "Earns achievements in games that play in Built-in.",
       enabled = !account.busy,
-      onConfirm = { scope.launch { account.submit() } },
+      onConfirm = account::submit,
     )
   }
   val status = if (account.busy) "Signing in" else account.error

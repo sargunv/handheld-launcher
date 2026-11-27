@@ -3,15 +3,17 @@
 
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::pacing::Vsync;
-use crate::{Frame, NativeWindow, Region, SessionError, VideoOutput, VideoSink, WindowHandle};
+use crate::video::NullVideoSink;
+use crate::{NativeWindow, Region, SessionError, VideoOutput};
 
-/// The app's own logger takes the session's logs.
+/// Whatever runs the session here, such as the runner or the tests, installs
+/// its own logger.
 pub(crate) fn init_logging() {}
 
 pub(crate) enum PlatformWindow {}
 
 impl PlatformWindow {
-    pub(crate) fn adopt(_handle: WindowHandle) -> Result<Self, SessionError> {
+    pub(crate) fn adopt(_window: u64) -> Result<Self, SessionError> {
         Err(SessionError::UnsupportedWindow)
     }
 
@@ -43,11 +45,5 @@ pub(crate) fn audio_sink() -> Box<dyn AudioSink> {
 /// Discards frames: the session keeps the last one itself, for
 /// `GameSession::capture_frame`.
 pub(crate) fn video_output(_lower: Region) -> VideoOutput {
-    VideoOutput::Sink(Box::new(DiscardFrames))
-}
-
-struct DiscardFrames;
-
-impl VideoSink for DiscardFrames {
-    fn frame(&mut self, _frame: Frame<'_>) {}
+    VideoOutput::Sink(Box::new(NullVideoSink))
 }

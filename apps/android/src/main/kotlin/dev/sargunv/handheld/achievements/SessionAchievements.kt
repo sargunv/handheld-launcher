@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.achievements
 
-import android.util.Log
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.session.AchievementFailure
 import dev.sargunv.handheld.session.AchievementStatus
@@ -26,25 +26,22 @@ internal class SessionAchievementsHttp(
   override fun request(id: ULong, request: AchievementsRequest) {
     scope.launch(Dispatchers.IO) {
       val response = client.send(request.url, request.postData, request.contentType)
-      if (response == null) Log.w(TAG, "RetroAchievements is out of reach")
+      if (response == null) log.w { "RetroAchievements is out of reach" }
       // The first requests go out while the session is starting.
       session
         .await()
         .achievementsResponse(id, response?.status?.toUShort(), response?.body ?: ByteArray(0))
     }
   }
-
-  private companion object {
-    const val TAG = "SessionAchievements"
-  }
 }
+
+private val log = Logger.withTag("SessionAchievements")
 
 /** What the player reads when the session's achievements fail. */
 internal fun AchievementFailure.message(): String =
   when (this) {
-    AchievementFailure.SignInExpired ->
-      "RetroAchievements sign-in expired · Sign in again in Settings"
-    is AchievementFailure.SignIn -> "RetroAchievements sign-in failed · $detail"
+    AchievementFailure.SignInExpired -> "Sign-in expired · Sign in again in Settings"
+    is AchievementFailure.SignIn -> "Sign-in failed · $detail"
     is AchievementFailure.LoadGame -> "Achievements unavailable · $detail"
   }
 

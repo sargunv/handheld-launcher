@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.launcherIntent
 import dev.sargunv.handheld.secondaryDisplay
@@ -61,7 +62,8 @@ object PlayCompanion {
         Intent(activity, PlayCompanionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         ActivityOptions.makeBasic().setLaunchDisplayId(display.displayId).toBundle(),
       )
-    } catch (_: SecurityException) {
+    } catch (e: SecurityException) {
+      log.w(e) { "can't show the companion on display ${display.displayId}" }
       current.value = null
     }
   }
@@ -71,6 +73,8 @@ object PlayCompanion {
     current.value = null
   }
 }
+
+private val log = Logger.withTag("PlayCompanion")
 
 /** The activity [PlayCompanion] shows. */
 class PlayCompanionActivity : ComponentActivity() {

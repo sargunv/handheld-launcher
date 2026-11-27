@@ -71,11 +71,11 @@ class LibraryModelTest {
     val shelves = platformShelves(listOf(gb, nes), emptyList()) + collectionShelves(listOf(couch))
     val romPlatforms = mapOf(1L to 1L, 2L to 1L, 3L to 2L, 4L to 2L)
     val collectionRoms = mapOf((CollectionKind.Regular to 1L) to setOf(1L, 2L, 4L))
-    val states =
+    val statuses =
       mapOf(
-        1L to DeviceState.OnDevice,
-        3L to DeviceState.OnDevice,
-        4L to DeviceState.Downloading(0f),
+        1L to RomStatus.OnDevice("/ROMs/gb/a.gb"),
+        3L to RomStatus.OnDevice("/ROMs/nes/c.nes"),
+        4L to RomStatus.Downloading(0, 100),
       )
     assertEquals(
       listOf(
@@ -83,7 +83,7 @@ class LibraryModelTest {
         Triple("platform:2", 2, 1),
         Triple("collection:Regular:1", 3, 1),
       ),
-      shelfSummaries(shelves, romPlatforms, collectionRoms, states, emptyList()).map {
+      shelfSummaries(shelves, romPlatforms, collectionRoms, statuses, emptyList()).map {
         Triple(it.shelf.key, it.games, it.onDevice)
       },
     )
@@ -115,8 +115,13 @@ class LibraryModelTest {
   @Test
   fun onDeviceKeepsTheGamesOnTheDeviceOrOnTheirWay() {
     val roms = listOf(rom(1, "a"), rom(2, "b"), rom(3, "c"))
-    val states = mapOf(1L to DeviceState.OnDevice, 3L to DeviceState.Downloading(0.5f))
-    assertEquals(listOf(1L, 3L), roms.onDevice(states).map { it.id })
+    val statuses =
+      mapOf(
+        1L to RomStatus.OnDevice("/ROMs/gb/a.gb"),
+        2L to RomStatus.Failed("Offline"),
+        3L to RomStatus.Downloading(50, 100),
+      )
+    assertEquals(listOf(1L, 3L), roms.onDevice(statuses).map { it.id })
   }
 
   @Test
@@ -135,15 +140,16 @@ class LibraryModelTest {
   @Test
   fun filtersByWhetherAGameIsOnTheDevice() {
     val roms = listOf(rom(1, "a"), rom(2, "b"), rom(3, "c"))
-    val states = mapOf(1L to DeviceState.OnDevice, 2L to DeviceState.Downloading(0.5f))
+    val statuses =
+      mapOf(1L to RomStatus.OnDevice("/ROMs/gb/a.gb"), 2L to RomStatus.Downloading(50, 100))
     assertEquals(
       listOf(1L),
-      roms.shown(LibraryFilter.OnDevice, LibrarySort.Name, states).map { it.id },
+      roms.shown(LibraryFilter.OnDevice, LibrarySort.Name, statuses).map { it.id },
     )
     // A game still downloading isn't on the device yet.
     assertEquals(
       listOf(2L, 3L),
-      roms.shown(LibraryFilter.NotOnDevice, LibrarySort.Name, states).map { it.id },
+      roms.shown(LibraryFilter.NotOnDevice, LibrarySort.Name, statuses).map { it.id },
     )
   }
 
@@ -152,26 +158,5 @@ class LibraryModelTest {
     val roms = listOf(rom(1, "1942"), rom(2, "alpha"), rom(3, "Avenger"), rom(4, "zeta"))
     assertEquals(mapOf('#' to 0, 'A' to 1, 'Z' to 3), jumpIndex(roms))
     assertEquals('#', jumpLetter(rom(5, "")))
-  }
-
-  @Test
-  fun downloadStatusesBecomeDeviceStates() {
-    assertEquals(
-      mapOf(
-        1L to DeviceState.OnDevice,
-        2L to DeviceState.Downloading(null),
-        3L to DeviceState.Downloading(0.25f),
-        4L to DeviceState.Downloading(null),
-      ),
-      deviceStatesOf(
-        mapOf(
-          1L to RomStatus.OnDevice("/ROMs/gb/a.gb"),
-          2L to RomStatus.Queued,
-          3L to RomStatus.Downloading(25, 100),
-          4L to RomStatus.Downloading(0, 0),
-          5L to RomStatus.Failed("Offline"),
-        ),
-      ),
-    )
   }
 }

@@ -45,10 +45,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation3.runtime.NavEntry
+import co.touchlab.kermit.Logger
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.romm.DeviceCode
+import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.focusItem
@@ -58,8 +60,10 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
-import kotlinx.coroutines.CancellationException
+import io.ktor.http.URLProtocol
+import io.ktor.http.parseUrl
 import kotlinx.coroutines.launch
+import kotlinx.io.IOException
 
 /** The steps of signing in. */
 sealed interface SignInScreen {
@@ -187,10 +191,11 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
     try {
       state.signIn.withDeviceCode(baseUrl, state.device, state.allowUploads) { code = it }
       state.onSignedIn()
-    } catch (e: CancellationException) {
-      throw e
-    } catch (e: Exception) {
+    } catch (e: RommException) {
       error = signInErrorMessage(e, baseUrl, SignInMethod.Code)
+    } catch (e: IOException) {
+      log.w(e) { "Saving the sign-in failed" }
+      error = SIGN_IN_NOT_SAVED
     }
   }
   ScreenColumn(canGoBack = true) {
@@ -253,10 +258,11 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       try {
         state.signIn.withToken(baseUrl, token)
         state.onSignedIn()
-      } catch (e: CancellationException) {
-        throw e
-      } catch (e: Exception) {
+      } catch (e: RommException) {
         error = signInErrorMessage(e, baseUrl, SignInMethod.Token)
+      } catch (e: IOException) {
+        log.w(e) { "Saving the sign-in failed" }
+        error = SIGN_IN_NOT_SAVED
       } finally {
         checking = false
       }
@@ -313,10 +319,17 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
 private const val TOKEN_HELP =
   "Sign in with a client API token that you create in RomM, instead of approving a code."
 
-/** Says that the server at [url] isn't encrypted, when it isn't. */
+internal const val SIGN_IN_NOT_SAVED = "Sign-in not saved"
+
+/**
+ * Says that the server at [url] isn't encrypted, when it isn't. Plain HTTP is allowed, for a server
+ * on a private network or a tailnet.
+ */
 @Composable
 private fun UnencryptedNote(url: String?) {
-  unencryptedNote(url)?.let { Text(it, color = Placeholder.mutedText) }
+  if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
+    Text("Unencrypted connection", color = Placeholder.mutedText)
+  }
 }
 
 @Composable
@@ -490,3 +503,5 @@ private fun SignInToggle(
 
 /** Makes text that a screen reader says as soon as it appears, such as an error. */
 private fun Modifier.announced() = semantics { liveRegion = LiveRegionMode.Polite }
+
+private val log = Logger.withTag("SignInScreens")

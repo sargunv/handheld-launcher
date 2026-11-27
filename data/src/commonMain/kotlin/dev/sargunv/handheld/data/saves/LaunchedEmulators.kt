@@ -78,13 +78,7 @@ sealed interface EmulatorState {
  * device restarted, or [EmulatorProbe.isRunning] says so.
  */
 class LaunchedEmulators(path: Path) {
-  // An unreadable file loses only the records, which next launches write again.
-  private val file =
-    JsonFile(
-      path,
-      MapSerializer(String.serializer(), Launch.serializer()),
-      unreadableIsMissing = true,
-    )
+  private val file = JsonFile(path, MapSerializer(String.serializer(), Launch.serializer()))
 
   @Serializable internal data class Launch(val romId: Long?, val boot: Boot)
 

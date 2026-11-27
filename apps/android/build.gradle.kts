@@ -25,7 +25,6 @@ val sessionLicences =
     workspace = root
     targets = androidAbis.values.toList()
     checkedIn.from(root.dir("licences"), root.dir("session/licences"))
-    rcheevosLicence = root.file("session/vendor/rcheevos/LICENSE")
     outputDir = layout.buildDirectory.dir("generated/licences")
   }
 
@@ -57,6 +56,7 @@ dependencies {
   implementation(project(":data"))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.core)
+  implementation(libs.kermit)
   implementation(libs.kotlinx.serialization.json)
   implementation(project(":session"))
   testImplementation(libs.kotlin.test.junit)

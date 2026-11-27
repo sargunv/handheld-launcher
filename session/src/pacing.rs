@@ -183,7 +183,7 @@ pub(crate) fn vsyncs_per_frame(fps: f64, period: Duration) -> Option<u32> {
 
 /// The core's frame period at `fps`, or at 60 frames a second if it gives
 /// no usable rate.
-pub(crate) fn core_period(fps: f64) -> Duration {
+pub fn core_period(fps: f64) -> Duration {
     if fps.is_finite() && fps > 1.0 {
         Duration::from_secs_f64(1.0 / fps)
     } else {

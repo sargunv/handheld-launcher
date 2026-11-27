@@ -14,9 +14,10 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.achievements.InMemoryRetroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
+import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
-import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.launchApp
@@ -28,22 +29,32 @@ import io.ktor.http.HttpStatusCode
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
+import kotlinx.io.IOException
 
 @OptIn(ExperimentalTestApi::class)
 class RetroAchievementsTest {
   private val store = InMemoryRetroAchievementsStore()
   private val saved = mutableListOf<Settings>()
 
-  /** Opens the RetroAchievements section, whose server [accepts] the password or refuses it. */
-  private fun ComposeUiTest.launch(accepts: Boolean) {
+  /**
+   * Opens the RetroAchievements section, whose server [accepts] the password or refuses it once
+   * [answer] completes, keeping the account in [accounts].
+   */
+  private fun ComposeUiTest.launch(
+    accepts: Boolean,
+    answer: CompletableDeferred<Unit> = CompletableDeferred(Unit),
+    accounts: RetroAchievementsStore = store,
+  ) {
     launchApp(
       saveSettings = { saved += it },
       retroAchievements =
-        RetroAchievementsSignIn(store) {
+        RetroAchievementsSignIn(accounts) {
           RetroAchievementsClient(
             "HandheldLauncher/test rcheevos/12.5",
             MockEngine {
+              answer.await()
               if (accepts) {
                 respond("""{"Success":true,"User":"Player","Token":"ra_token"}""")
               } else {
@@ -97,13 +108,43 @@ class RetroAchievementsTest {
   }
 
   @Test
+  fun finishesASignInAfterFocusLeavesTheSection() = runComposeUiTest {
+    val held = CompletableDeferred<Unit>()
+    launch(accepts = true, answer = held)
+    signIn("player", "hunter2")
+    awaitText("Signing in")
+    press(listOf(Key.DirectionLeft, Key.DirectionUp))
+    awaitFocused("settings:RomM")
+    held.complete(Unit)
+    waitUntil(timeoutMillis = 5_000) {
+      runBlocking { store.load() } == RetroAchievementsAccount("Player", "ra_token")
+    }
+  }
+
+  @Test
   fun saysWhyASignInFailed() = runComposeUiTest {
     launch(accepts = false)
     signIn("player", "wrong")
     awaitText("Invalid user/password combination.")
     onNodeWithTag("settings:ra:status")
-      .assertTextEquals("Invalid user/password combination. Please try again.")
+      .assertTextEquals("Sign-in failed · Invalid user/password combination. Please try again.")
     assertNull(runBlocking { store.load() })
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")
+  }
+
+  @Test
+  fun saysWhenASignInIsNotSaved() = runComposeUiTest {
+    launch(
+      accepts = true,
+      accounts =
+        object : RetroAchievementsStore by store {
+          override suspend fun save(account: RetroAchievementsAccount) {
+            throw IOException("Keystore unavailable")
+          }
+        },
+    )
+    signIn("player", "hunter2")
+    awaitText("Sign-in not saved")
+    onNodeWithTag("settings:ra:status").assertTextEquals("Sign-in not saved")
   }
 }

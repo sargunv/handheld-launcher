@@ -20,6 +20,10 @@ abstract class UniffiBindgen @Inject constructor(private val exec: ExecOperation
   @get:InputFiles
   @get:PathSensitive(PathSensitivity.RELATIVE)
   abstract val config: ConfigurableFileCollection
+  /** The bindgen crate's sources, which `cargo run` builds. */
+  @get:InputFiles
+  @get:PathSensitive(PathSensitivity.RELATIVE)
+  abstract val sources: ConfigurableFileCollection
   @get:Internal abstract val workspace: DirectoryProperty
   @get:OutputDirectory abstract val outputDir: DirectoryProperty
 

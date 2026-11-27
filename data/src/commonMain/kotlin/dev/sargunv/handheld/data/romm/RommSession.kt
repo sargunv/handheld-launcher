@@ -136,8 +136,8 @@ class RommSession(
     val accountScopes =
       try {
         account.client.me().oauthScopes
-      } catch (_: RommException) {
-        // Out of reach, or the token may not read the account: what it may do stays as it was.
+      } catch (e: RommException) {
+        log.w(e) { "Couldn't read the account's scopes" }
         emptyList()
       }
     return when {

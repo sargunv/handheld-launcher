@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.downloads
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.domain.LocalGame
@@ -81,16 +82,16 @@ suspend fun uploadLocalGame(
       withContext(NonCancellable) {
         try {
           client.cancelUpload(uploadId)
-        } catch (_: RommException) {
-          // The server drops an upload left unfinished in time.
+        } catch (e: RommException) {
+          log.w(e) { "Couldn't cancel upload $uploadId" }
         }
       }
       throw e
     }
     try {
       scan(client, game.platformId, scanPoll, scanTimeout)
-    } catch (_: RommException) {
-      // The file is on the server whether or not its scan can be followed.
+    } catch (e: RommException) {
+      log.w(e) { "Couldn't follow the scan of platform ${game.platformId}" }
       UploadResult.AwaitingScan
     }
   }
@@ -135,4 +136,6 @@ private val ScanEnded = setOf("finished", "failed", "stopped", "canceled")
  * The size of each chunk of an upload: 8 MiB, well under the server's 64 MiB limit, so a chunk that
  * fails costs little to send again.
  */
-const val UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+internal const val UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+
+private val log = Logger.withTag("Uploads")

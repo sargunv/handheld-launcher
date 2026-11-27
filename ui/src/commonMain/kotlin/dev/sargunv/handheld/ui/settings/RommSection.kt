@@ -2,7 +2,6 @@ package dev.sargunv.handheld.ui.settings
 
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommState
@@ -12,7 +11,6 @@ import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.label
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
 import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
-import kotlinx.coroutines.launch
 
 /** The RomM section, with what this sign-in may upload, or null while that's being asked. */
 internal fun LazyListScope.romm(
@@ -21,6 +19,7 @@ internal fun LazyListScope.romm(
   sync: SyncStatus,
   uploadAccess: UploadAccess?,
   open: (SettingsDialog) -> Unit,
+  signInAgain: () -> Unit,
 ) {
   sectionHeading("RomM")
   val view = state.settingsView
@@ -66,14 +65,13 @@ internal fun LazyListScope.romm(
   }
   if (sync == SyncStatus.Unauthorized) {
     item(key = "signInAgain") {
-      val scope = rememberCoroutineScope()
       SettingRow(
         view,
         "settings:romm:signInAgain",
         "Sign in again",
         null,
         "Your games and saves stay on this device.",
-        onConfirm = { scope.launch { state.signOut(keepQueue = true) } },
+        onConfirm = signInAgain,
       )
     }
   }
