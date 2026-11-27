@@ -60,7 +60,7 @@ private fun historyKey(romId: Long, owner: String): String =
 /**
  * The save memory at [saveRam] of the ROM [romId], as the built-in session keeps it when the core
  * [coreLibrary] runs the game. Only that file syncs: the save states beside it stay on this device,
- * and so do the backups the session and its quick menu keep there as `<name>.<time>.bak`.
+ * and so do the backups the session keeps there as `<name>.<time>.bak`.
  *
  * The server keeps each core's saves apart, but every core uses the game's one file, so the file
  * has one sync record and one history, whichever core ran last. After a switch of cores, the file

@@ -16,38 +16,23 @@ use crate::session::{SessionError, SystemInfo};
 /// The archive formats the session extracts, by extension.
 const ARCHIVE_EXTENSIONS: &[&str] = &["zip"];
 
-/// What the session does with a game file before the core loads it.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Plan {
-    /// The core loads the file itself.
-    PassThrough,
-    /// The file is an archive the core can't open, so the session extracts
-    /// the game from it.
-    Extract,
-}
-
-/// Whether `content` goes to the core as is or is extracted first.
-pub(crate) fn plan(content: &Path, info: &SystemInfo) -> Plan {
+/// Whether `content` is an archive the core can't open, which the session
+/// extracts the game from.
+fn extracts(content: &Path, info: &SystemInfo) -> bool {
     let Some(extension) = extension_of(content) else {
-        return Plan::PassThrough;
+        return false;
     };
-    let is_archive = ARCHIVE_EXTENSIONS.contains(&extension.as_str());
     // A core that lists no extensions says nothing of what to extract.
-    if !is_archive
-        || info.block_extract
-        || info.valid_extensions.is_empty()
-        || accepts(info, &extension)
-    {
-        Plan::PassThrough
-    } else {
-        Plan::Extract
-    }
+    ARCHIVE_EXTENSIONS.contains(&extension.as_str())
+        && !info.block_extract
+        && !info.valid_extensions.is_empty()
+        && !accepts(info, &extension)
 }
 
 /// The index of the entry the core loads among an archive's `entries`, given
 /// as each file's name and uncompressed size: the largest whose extension the
 /// core accepts, the first of those if several are as large.
-pub(crate) fn choose_entry<'a>(
+fn choose_entry<'a>(
     entries: impl IntoIterator<Item = (&'a str, u64)>,
     info: &SystemInfo,
 ) -> Option<usize> {
@@ -69,8 +54,8 @@ pub(crate) fn prepare(
     info: &SystemInfo,
     cache: Option<&Path>,
 ) -> Result<PathBuf, SessionError> {
-    match (plan(content, info), cache) {
-        (Plan::Extract, Some(cache)) => extract(content, info, cache),
+    match cache {
+        Some(cache) if extracts(content, info) => extract(content, info, cache),
         _ => Ok(content.to_owned()),
     }
 }
@@ -160,25 +145,18 @@ mod tests {
         }
     }
 
-    #[test]
-    fn extracts_a_zip_the_core_cant_open() {
-        let mesen = core(&["nes", "fds", "unf", "unif"]);
-        assert_eq!(
-            plan(Path::new("/roms/Tetris (USA).zip"), &mesen),
-            Plan::Extract
-        );
-        assert_eq!(
-            plan(Path::new("/roms/Tetris (USA).ZIP"), &mesen),
-            Plan::Extract
-        );
+    /// Whether `prepare` hands the core `content` as it is, without opening
+    /// it.
+    fn passes(content: &str, info: &SystemInfo) -> bool {
+        let dir = tempfile::tempdir().unwrap();
+        let content = Path::new(content);
+        matches!(prepare(content, info, Some(dir.path())), Ok(p) if p == content)
     }
 
     #[test]
     fn passes_a_zip_the_core_opens() {
-        let fbneo = core(&["zip", "7z"]);
-        assert_eq!(plan(Path::new("/roms/sf2.zip"), &fbneo), Plan::PassThrough);
-        let upper = core(&["ZIP"]);
-        assert_eq!(plan(Path::new("/roms/sf2.zip"), &upper), Plan::PassThrough);
+        assert!(passes("/roms/sf2.zip", &core(&["zip", "7z"])));
+        assert!(passes("/roms/sf2.zip", &core(&["ZIP"])));
     }
 
     #[test]
@@ -187,30 +165,21 @@ mod tests {
             block_extract: true,
             ..core(&["bin"])
         };
-        assert_eq!(plan(Path::new("/roms/game.zip"), &info), Plan::PassThrough);
+        assert!(passes("/roms/game.zip", &info));
     }
 
     #[test]
     fn passes_files_that_arent_archives() {
         let mesen = core(&["nes"]);
-        assert_eq!(
-            plan(Path::new("/roms/Tetris.nes"), &mesen),
-            Plan::PassThrough
-        );
-        assert_eq!(plan(Path::new("/roms/Tetris"), &mesen), Plan::PassThrough);
+        assert!(passes("/roms/Tetris.nes", &mesen));
+        assert!(passes("/roms/Tetris", &mesen));
         // The core rejects it, but extracting won't help.
-        assert_eq!(
-            plan(Path::new("/roms/Tetris.7z"), &mesen),
-            Plan::PassThrough
-        );
+        assert!(passes("/roms/Tetris.7z", &mesen));
     }
 
     #[test]
     fn passes_a_zip_when_the_core_lists_no_extensions() {
-        assert_eq!(
-            plan(Path::new("/roms/game.zip"), &core(&[])),
-            Plan::PassThrough
-        );
+        assert!(passes("/roms/game.zip", &core(&[])));
     }
 
     #[test]
@@ -258,7 +227,8 @@ mod tests {
         let cache = dir.path().join("cache");
         let mesen = core(&["nes"]);
 
-        let first = dir.path().join("First.zip");
+        // Whatever the extension's case.
+        let first = dir.path().join("First.ZIP");
         write_zip(&first, &[("First.nes", b"first game")]);
         let extracted = prepare(&first, &mesen, Some(&cache)).unwrap();
         assert_eq!(extracted, cache.join("First.nes"));

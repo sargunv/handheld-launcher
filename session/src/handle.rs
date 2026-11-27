@@ -9,7 +9,7 @@
 //! tell the app goes to its [`SessionListener`], on a thread of its own.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -20,9 +20,9 @@ use crate::achievements::{
     AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
     SendAchievementsRequest,
 };
-use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
 use crate::pacing::{self, Vsync};
+use crate::platform::{self, PlatformWindow, VsyncClock};
 use crate::save::SaveRam;
 use crate::session::{AvInfo, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, Region, VideoSink};
@@ -257,7 +257,7 @@ impl GameSession {
         listener: Option<Arc<dyn SessionListener>>,
         http: Option<Arc<dyn AchievementsHttp>>,
     ) -> Result<Arc<Self>, SessionError> {
-        crate::platform::init_logging();
+        platform::init_logging();
         if http.is_none() {
             options.achievements = None;
         }
@@ -438,7 +438,10 @@ impl GameSession {
         self.request(|reply| Command::SaveState(path.into(), reply))
     }
 
-    /// Restores a state that [`GameSession::save_state`] wrote.
+    /// Restores a state that [`GameSession::save_state`] wrote. The state
+    /// brings its own save memory, so save memory as it was goes to a backup
+    /// beside its file first, as `<name>.<unix time>.bak`, and the state
+    /// isn't loaded if that fails.
     pub fn load_state(&self, path: String) -> Result<(), SessionError> {
         self.request(|reply| Command::LoadState(path.into(), reply))
     }
@@ -502,42 +505,6 @@ impl Drop for GameSession {
     }
 }
 
-/// A window the session owns while it's attached.
-struct PlatformWindow {
-    #[cfg(target_os = "android")]
-    window: crate::platform::AndroidWindow,
-}
-
-impl PlatformWindow {
-    fn adopt(handle: WindowHandle) -> Result<Self, SessionError> {
-        match handle {
-            #[cfg(target_os = "android")]
-            WindowHandle::Android { window } => {
-                // SAFETY: the caller hands over a reference, as documented on
-                // `WindowHandle::Android`.
-                let window = unsafe { crate::platform::AndroidWindow::adopt(window) }
-                    .ok_or(SessionError::UnsupportedWindow)?;
-                Ok(Self { window })
-            }
-            #[cfg(not(target_os = "android"))]
-            WindowHandle::Android { .. } => Err(SessionError::UnsupportedWindow),
-        }
-    }
-
-    fn native(&self) -> crate::NativeWindow {
-        #[cfg(target_os = "android")]
-        {
-            self.window.native()
-        }
-        #[cfg(not(target_os = "android"))]
-        unreachable!("no window type exists on this platform")
-    }
-}
-
-// SAFETY: an `ANativeWindow` reference may be used and released from any
-// thread.
-unsafe impl Send for PlatformWindow {}
-
 /// The sink of a session in [`VideoMode::Offscreen`]. The session keeps the
 /// last frame itself, for [`Session::capture_frame`].
 struct DiscardFrames;
@@ -587,7 +554,7 @@ fn run(
         aspect_ratio: av.aspect_ratio,
     };
     session.set_audio_paused(true);
-    let vsync = presents_to_window.then(vsync_clock).flatten();
+    let vsync = presents_to_window.then(VsyncClock::new).flatten();
     let info = Arc::new(Mutex::new(info));
     if started.send(Ok(info.clone())).is_err() {
         return;
@@ -636,7 +603,7 @@ fn start_session(
         system_dir: options.system_dir.into(),
         save_dir: options.save_dir.into(),
         video,
-        audio: audio_sink(),
+        audio: platform::audio_sink(),
         input,
         options: options.core_options,
         achievements: options.achievements.map(|achievements| {
@@ -649,45 +616,6 @@ fn start_session(
     // SAFETY: `GameSession::start` documents that the core runs as native
     // code; choosing it is the app's call.
     unsafe { Session::new(config) }
-}
-
-/// The platform's audio output, or none where the session has no output.
-fn audio_sink() -> Box<dyn AudioSink> {
-    #[cfg(target_os = "android")]
-    match crate::platform::AAudioSink::new() {
-        Ok(sink) => return Box::new(sink),
-        Err(e) => log::error!("can't open audio output, so the session plays none: {e}"),
-    }
-    Box::new(NullAudioSink)
-}
-
-/// The display's vsync, for a session that presents to windows on a platform
-/// that tells it.
-#[cfg(target_os = "android")]
-type VsyncClock = crate::platform::VsyncClock;
-
-#[cfg(target_os = "android")]
-fn vsync_clock() -> Option<VsyncClock> {
-    VsyncClock::new()
-}
-
-#[cfg(not(target_os = "android"))]
-enum VsyncClock {}
-
-#[cfg(not(target_os = "android"))]
-impl VsyncClock {
-    fn set_running(&mut self, _running: bool) {
-        match *self {}
-    }
-
-    fn vsync(&self) -> Option<Vsync> {
-        match *self {}
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-fn vsync_clock() -> Option<VsyncClock> {
-    None
 }
 
 /// The session thread's state.
@@ -886,7 +814,7 @@ impl Runner {
                 let _ = reply.send(self.session.save_state(&path));
             }
             Command::LoadState(path, reply) => {
-                let _ = reply.send(self.session.load_state(&path));
+                let _ = reply.send(self.load_state(&path));
             }
             Command::CaptureFrame(reply) => {
                 let _ = reply.send(Ok(self.session.capture_frame()));
@@ -913,6 +841,15 @@ impl Runner {
         if !paused {
             self.next_frame = Instant::now();
         }
+    }
+
+    /// Loads the state at `path`, after backing up save memory, which the
+    /// state's replaces.
+    fn load_state(&mut self, path: &Path) -> Result<(), SessionError> {
+        if let Some(save_ram) = &mut self.save_ram {
+            save_ram.back_up(&self.session)?;
+        }
+        self.session.load_state(path)
     }
 
     fn stop(&mut self) -> Result<(), SessionError> {

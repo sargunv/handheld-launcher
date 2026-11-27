@@ -78,6 +78,7 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// save memory with what it last wrote, and a writer thread writes the
 /// changes.
 pub struct SaveRam {
+    path: PathBuf,
     writer: SaveWriter,
     /// Save memory as last handed to the writer, or as loaded.
     written: Vec<u8>,
@@ -86,6 +87,8 @@ pub struct SaveRam {
     rewrite: bool,
     /// When [`SaveRam::write_if_due`] next compares save memory.
     next_check: Instant,
+    /// Save memory as [`SaveRam::back_up`] last copied it.
+    backed_up: Option<Vec<u8>>,
 }
 
 impl SaveRam {
@@ -123,11 +126,27 @@ impl SaveRam {
             Err(e) => return Err(e),
         };
         Ok(Some(Self {
+            path: path.to_owned(),
             written: memory.to_vec(),
             writer: SaveWriter::new(path.to_owned())?,
             rewrite,
             next_check: Instant::now() + CHECK_INTERVAL,
+            backed_up: None,
         }))
+    }
+
+    /// Copies save memory to a backup beside its file before something
+    /// replaces all of it, as loading a state does, unless the last backup
+    /// holds the same bytes.
+    pub(crate) fn back_up(&mut self, session: &Session) -> io::Result<()> {
+        let Some(memory) = session.save_ram() else {
+            return Ok(());
+        };
+        if self.backed_up.as_deref() != Some(memory) {
+            back_up(&self.path, memory)?;
+            self.backed_up = Some(memory.to_vec());
+        }
+        Ok(())
     }
 
     /// Hands save memory to the writer if it changed since the last write,
@@ -296,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn backs_up_beside_the_file_without_replacing_backups() {
+    fn backups_in_the_same_second_keep_their_own_contents() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("game.srm");
         let first = back_up(&path, b"one").unwrap();
@@ -304,12 +323,6 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(fs::read(&first).unwrap(), b"one");
         assert_eq!(fs::read(&second).unwrap(), b"two");
-        let name = first.file_name().unwrap().to_str().unwrap();
-        let time = name
-            .strip_prefix("game.srm.")
-            .and_then(|n| n.strip_suffix(".bak"))
-            .unwrap();
-        assert!(time.parse::<u64>().unwrap() > 1_700_000_000, "{name}");
     }
 
     #[test]

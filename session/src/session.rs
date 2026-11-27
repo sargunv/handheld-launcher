@@ -17,11 +17,12 @@ use crate::achievements::{
 use crate::audio::AudioSink;
 use crate::content;
 use crate::core::{Core, CoreLoadError};
+use crate::cstr::{opt_string, path_cstring};
 use crate::ffi;
 use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
 use crate::host::{self, Gpu, Host};
 use crate::input::{InputState, MAX_PORTS};
-use crate::options::{Options, opt_string};
+use crate::options::Options;
 use crate::save::write_atomically;
 use crate::video::{CapturedFrame, Region, VideoSink};
 use crate::vulkan::{VulkanContext, VulkanError};
@@ -761,12 +762,4 @@ impl Drop for Session {
         // reach it.
         drop(unsafe { Box::from_raw(self.host.as_ptr()) });
     }
-}
-
-fn path_cstring(path: &Path) -> CString {
-    use std::os::unix::ffi::OsStrExt;
-    CString::new(path.as_os_str().as_bytes()).unwrap_or_else(|_| {
-        log::warn!("path {} contains a null byte", path.display());
-        CString::default()
-    })
 }

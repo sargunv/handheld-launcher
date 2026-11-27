@@ -7,15 +7,14 @@ mod aaudio;
 mod android;
 #[cfg(target_os = "android")]
 mod choreographer;
+#[cfg(not(target_os = "android"))]
+mod headless;
 
 #[cfg(target_os = "android")]
-pub(crate) use aaudio::AAudioSink;
+pub(crate) use aaudio::audio_sink;
 #[cfg(target_os = "android")]
-pub(crate) use android::{AndroidWindow, init_logging};
+pub(crate) use android::{PlatformWindow, init_logging};
 #[cfg(target_os = "android")]
 pub(crate) use choreographer::VsyncClock;
-
-/// Sends the session's logs where the platform shows them. The app's own
-/// logger takes them elsewhere.
 #[cfg(not(target_os = "android"))]
-pub(crate) fn init_logging() {}
+pub(crate) use headless::{PlatformWindow, VsyncClock, audio_sink, init_logging};

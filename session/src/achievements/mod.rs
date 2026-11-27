@@ -27,6 +27,7 @@ use std::ffi::{CStr, CString, c_char, c_int, c_uint, c_void};
 use std::path::Path;
 use std::ptr::NonNull;
 
+use crate::cstr::{opt_string, path_cstring, string};
 use crate::ffi::{retro_memory_descriptor, retro_memory_map};
 
 /// How a session takes part in RetroAchievements.
@@ -665,24 +666,6 @@ unsafe fn convert(achievement: &ffi::rc_client_achievement_t) -> Achievement {
     }
 }
 
-/// A C string as an owned string, or empty for null.
-///
-/// # Safety
-///
-/// `s` is null or a valid C string.
-unsafe fn string(s: *const c_char) -> String {
-    // SAFETY: forwarded from the caller.
-    unsafe { opt_string(s) }.unwrap_or_default()
-}
-
-/// # Safety
-///
-/// `s` is null or a valid C string.
-unsafe fn opt_string(s: *const c_char) -> Option<String> {
-    // SAFETY: forwarded from the caller.
-    (!s.is_null()).then(|| unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned())
-}
-
 /// The `len` items at `ptr`, or none for null.
 ///
 /// # Safety
@@ -695,11 +678,6 @@ unsafe fn slice<'a, T>(ptr: *const T, len: u32) -> &'a [T] {
         // SAFETY: forwarded from the caller.
         unsafe { std::slice::from_raw_parts(ptr, len as usize) }
     }
-}
-
-fn path_cstring(path: &Path) -> CString {
-    use std::os::unix::ffi::OsStrExt;
-    CString::new(path.as_os_str().as_bytes()).unwrap_or_default()
 }
 
 /// The clause rcheevos asks clients to add to their User-Agent, such as

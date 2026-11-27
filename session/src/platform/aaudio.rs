@@ -8,7 +8,7 @@ use ndk::audio::{
     AudioSharingMode, AudioStream, AudioStreamBuilder, AudioUsage,
 };
 
-use crate::audio::{AudioSink, BufferStatus};
+use crate::audio::{AudioSink, BufferStatus, NullAudioSink};
 
 /// How much audio, in seconds, rate control keeps queued beyond a burst
 /// when a frame's audio comes: a stream's callback takes a burst at a time,
@@ -25,9 +25,20 @@ const HEADROOM_SECONDS: f64 = 0.05;
 /// the stream says its rate.
 const RING_SAMPLES: usize = 2 * (192_000.0 * 0.2) as usize;
 
+/// AAudio's output, or none if it can't be opened.
+pub(crate) fn audio_sink() -> Box<dyn AudioSink> {
+    match AAudioSink::new() {
+        Ok(sink) => Box::new(sink),
+        Err(e) => {
+            log::error!("can't open audio output, so the session plays none: {e}");
+            Box::new(NullAudioSink)
+        }
+    }
+}
+
 /// Plays the session's audio on the default output, in a low-latency AAudio
 /// stream fed from a lock-free queue.
-pub(crate) struct AAudioSink {
+struct AAudioSink {
     stream: AudioStream,
     queue: rtrb::Producer<f32>,
     rate: u32,
@@ -44,7 +55,7 @@ pub(crate) struct AAudioSink {
 }
 
 impl AAudioSink {
-    pub(crate) fn new() -> Result<Self, AudioError> {
+    fn new() -> Result<Self, AudioError> {
         let (stream, queue, disconnected) = open(None)?;
         let rate = u32::try_from(stream.sample_rate()).unwrap_or(48_000);
         set_buffer_size(&stream, stream.frames_per_burst());

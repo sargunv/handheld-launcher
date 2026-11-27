@@ -26,11 +26,6 @@ import kotlinx.io.files.Path
  * The quick menu's hold on a game in the built-in session: its save states, one file per slot in
  * [statePaths], each with a picture of the game beside it, and the session's speed.
  *
- * A state holds the game's save memory too, which loading it puts back, and the session then writes
- * to [saveRamPath]. So before a load, the save file as it is goes to a backup beside it, as
- * `<name>.<unix time>.bak`, the way the session keeps a save it replaces: an in-game save made
- * since the state isn't lost.
- *
  * @param session the running session, or null once it has stopped.
  */
 internal class SessionQuickMenu(
@@ -92,14 +87,8 @@ internal class SessionQuickMenu(
       val path = statePaths[slot - 1]
       val running = session() ?: return@withContext STOPPED
       try {
-        // Pausing writes save memory, so the backup has the latest.
-        running.pause()
-        backUpSaveRam()
         running.loadState(path)
         null
-      } catch (e: IOException) {
-        Log.e(TAG, "can't back up the save before loading a state", e)
-        "Couldn't back up the game's save, so the state wasn't loaded: ${e.message}"
       } catch (e: SessionException) {
         Log.e(TAG, "can't load the state in $path", e)
         failure(e)
@@ -113,33 +102,6 @@ internal class SessionQuickMenu(
   override fun resume() = onResume()
 
   override fun quit() = onQuit()
-
-  /**
-   * Copies the save file to `<name>.<unix time>.bak` beside it, unless it's missing or the newest
-   * such backup already holds the same bytes.
-   */
-  private fun backUpSaveRam() {
-    val save = File(saveRamPath).takeIf { it.isFile } ?: return
-    val bytes = save.readBytes()
-    val backups =
-      save.parentFile?.listFiles { file ->
-        file.name.startsWith("${save.name}.") && file.name.endsWith(".bak")
-      }
-    val newest = backups?.maxByOrNull { it.lastModified() }
-    if (newest != null && newest.readBytes().contentEquals(bytes)) return
-    val time = System.currentTimeMillis() / 1000
-    val backup =
-      generateSequence(0) { it + 1 }
-        .map { n -> File(save.parentFile, "${save.name}.$time${if (n == 0) "" else "-$n"}.bak") }
-        .first { !it.exists() }
-    val partial = File(save.parentFile, "${backup.name}.partial")
-    try {
-      partial.writeBytes(bytes)
-      if (!partial.renameTo(backup)) throw IOException("can't write $backup")
-    } finally {
-      partial.delete()
-    }
-  }
 
   /** Writes [frame] to [file] as a PNG, replacing it only once the new one is whole. */
   private fun writePng(frame: CapturedFrame, file: File) {
@@ -159,18 +121,18 @@ internal class SessionQuickMenu(
   private fun failure(e: SessionException): String =
     when (e) {
       is SessionException.StatesUnsupported,
-      is SessionException.StatesNotPersistent -> "This game's core can't save states."
-      is SessionException.Serialize -> "The core couldn't save the game's state."
-      is SessionException.Unserialize -> "The core couldn't restore that state."
-      is SessionException.Hardcore -> "Hardcore mode doesn't allow loading states."
-      is SessionException.Io -> "Couldn't read or write the state: ${e.message}"
+      is SessionException.StatesNotPersistent -> "Can't save states"
+      is SessionException.Serialize -> "Save state failed"
+      is SessionException.Unserialize -> "Load state failed"
+      is SessionException.Hardcore -> "Hardcore · No loading states"
+      is SessionException.Io -> "State file error · ${e.message}"
       is SessionException.Stopped -> STOPPED
       else -> e.message ?: e.toString()
     }
 
   private companion object {
     const val TAG = "SessionQuickMenu"
-    const val STOPPED = "The game has stopped."
+    const val STOPPED = "Game stopped"
 
     /** How many times its own speed a game runs while fast forward is on. */
     const val FAST_FORWARD_SPEED = 4u
