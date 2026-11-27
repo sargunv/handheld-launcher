@@ -105,7 +105,7 @@ class MainActivity : ComponentActivity() {
         emulators = app.emulators,
         plays = app.plays,
         allFilesAccess = app.allFilesAccess,
-        openAllFilesAccess = app::openAllFilesAccessSettings,
+        openAllFilesAccess = { app.openAllFilesAccessSettings(this) },
         storageVolumes = { app.storageTargets().map { it.root } },
       )
     // About reads the list of components that the build puts in the app's resources.
@@ -209,7 +209,7 @@ class MainActivity : ComponentActivity() {
           lifecycle.withStarted {
             // Games go to shared storage, where the app writes only with all-files access.
             if (!allFilesAccess) {
-              handheldApp.openAllFilesAccessSettings()
+              handheldApp.openAllFilesAccessSettings(this@MainActivity)
             } else if (
               Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=

@@ -1,5 +1,6 @@
 package dev.sargunv.handheld
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.Intent
@@ -45,21 +46,21 @@ class HandheldApp : Application() {
   }
 
   /** Whether the app has all-files access, which games in shared storage need. */
-  val allFilesAccess: StateFlow<Boolean> by lazy { allFilesAccessGranted.asStateFlow() }
+  val allFilesAccess: StateFlow<Boolean>
+    get() = allFilesAccessGranted
 
   /** Reads [allFilesAccess] again, as the user may be back from granting it. */
   fun refreshAllFilesAccess() {
     allFilesAccessGranted.value = Environment.isExternalStorageManager()
   }
 
-  /** Opens the system page where the user grants the app all-files access. */
-  fun openAllFilesAccessSettings() {
-    startActivity(
+  /** Opens the system page where the user grants the app all-files access, over [from]. */
+  fun openAllFilesAccessSettings(from: Activity) {
+    from.startActivity(
       Intent(
-          AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-          Uri.fromParts("package", packageName, null),
-        )
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+        Uri.fromParts("package", packageName, null),
+      ),
     )
   }
 

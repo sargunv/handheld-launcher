@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.data.downloads.formatSize
 import kotlinx.coroutines.CoroutineScope
@@ -42,18 +43,23 @@ class BackgroundWorkService : Service() {
     @OptIn(FlowPreview::class)
     scope.launch {
       // The system limits how often an app updates a notification.
-      merge(downloads.queue, downloads.progress, plays.pending, plays.sending)
-        .sample(1000)
-        .collect {
-          // Read now rather than from the sample, so work that started since keeps the service.
-          if (downloads.queue.value.none { it.isActive } && plays.pending.value.isEmpty()) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-          } else {
-            manager.notify(NOTIFICATION, notification())
-          }
+      merge(downloads.queue, downloads.progress, plays.pending, plays.sends).sample(1000).collect {
+        // Read now rather than from the sample, so work that started since keeps the service.
+        if (downloads.queue.value.none { it.isActive } && plays.pending.value.isEmpty()) {
+          stopForeground(STOP_FOREGROUND_REMOVE)
+          stopSelf()
+        } else {
+          manager.notify(NOTIFICATION, notification())
         }
+      }
     }
+  }
+
+  /** Called once a data sync service has run six hours in a day, on Android 15 and later. */
+  override fun onTimeout(startId: Int, fgsType: Int) {
+    log.w { "Out of foreground service time; stopping" }
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
   }
 
   override fun onDestroy() {
@@ -67,7 +73,6 @@ class BackgroundWorkService : Service() {
     val play = plays.pending.value.lastOrNull()
     val builder =
       Notification.Builder(this, CHANNEL)
-        .setSmallIcon(android.R.drawable.stat_sys_download)
         .setOngoing(true)
         .setContentIntent(
           PendingIntent.getActivity(
@@ -82,6 +87,7 @@ class BackgroundWorkService : Service() {
         val (bytes, total) = current.progressIn(downloads.progress.value)
         val waiting = queue.count { it.isActive }
         builder
+          .setSmallIcon(android.R.drawable.stat_sys_download)
           .setContentTitle(current.title)
           .setContentText(
             "${formatSize(bytes)} of ${formatSize(total)}" +
@@ -93,8 +99,11 @@ class BackgroundWorkService : Service() {
         builder
           .setSmallIcon(android.R.drawable.stat_notify_sync)
           .setContentTitle(play)
-          .setContentText(if (plays.sending.value) "Syncing save" else "Playing")
-      else -> builder.setContentTitle("Waiting to download")
+          .setContentText(if (plays.sends.value > 0) "Syncing save" else "Playing")
+      else ->
+        builder
+          .setSmallIcon(android.R.drawable.stat_sys_download)
+          .setContentTitle("Waiting to download")
     }
     return builder.build()
   }
@@ -109,3 +118,5 @@ class BackgroundWorkService : Service() {
     }
   }
 }
+
+private val log = Logger.withTag("BackgroundWork")

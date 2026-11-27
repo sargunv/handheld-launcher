@@ -4,10 +4,10 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.saves.GameSave
 import dev.sargunv.handheld.ui.play.CompanionSync
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,8 +16,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** How a game in [SessionActivity] ended. */
@@ -48,17 +46,16 @@ internal class Plays(
   /** The titles of the plays whose game or after-game half is under way, oldest first. */
   val pending: StateFlow<List<String>> = titles.asStateFlow()
 
-  private val sendLock = Mutex()
-  private val sendingNow = MutableStateFlow(false)
+  private val sendCount = MutableStateFlow(0)
 
-  /** Whether a save is on its way to RomM, after a game or from the companion's Sync. */
-  val sending: StateFlow<Boolean> = sendingNow.asStateFlow()
+  /** How many saves are on their way to RomM, after a game or from the companion's Sync. */
+  val sends: StateFlow<Int> = sendCount.asStateFlow()
 
-  private var session: CompletableDeferred<SessionEnd>? = null
+  private val session = AtomicReference<CompletableDeferred<SessionEnd>?>()
 
-  /** Records how the game in [SessionActivity] ended. */
+  /** Records how the game in [SessionActivity] ended, for the play that started it. */
   fun sessionEnded(end: SessionEnd) {
-    session?.complete(end)
+    session.getAndSet(null)?.complete(end)
   }
 
   /**
@@ -74,7 +71,7 @@ internal class Plays(
     return play(
       title,
       start = {
-        session = end
+        session.set(end)
         start()
         true
       },
@@ -177,8 +174,7 @@ internal class Plays(
   private fun push(save: GameSave?, appName: String, state: MutableStateFlow<CompanionSync>) {
     if (state.value == CompanionSync.Syncing) return
     state.value = CompanionSync.Syncing
-    // Undispatched, so it queues for the lock before a later afterPlay can.
-    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    scope.launch {
       state.value =
         CompanionSync.Done(
           if (save == null) "Save sync unsupported · $appName" else send { saves.push(save) },
@@ -186,13 +182,13 @@ internal class Plays(
     }
   }
 
-  /** Runs [block] after any send before it. */
-  private suspend fun <T> send(block: suspend () -> T): T = sendLock.withLock {
-    sendingNow.value = true
+  /** Runs [block], counted in [sends]. SaveSync sends one save at a time, in the order asked. */
+  private suspend fun <T> send(block: suspend () -> T): T {
+    sendCount.update { it + 1 }
     try {
-      block()
+      return block()
     } finally {
-      sendingNow.value = false
+      sendCount.update { it - 1 }
     }
   }
 
