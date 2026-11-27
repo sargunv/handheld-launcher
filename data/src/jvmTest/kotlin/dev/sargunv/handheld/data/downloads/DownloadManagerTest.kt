@@ -28,7 +28,6 @@ import io.ktor.utils.io.writeFully
 import java.io.File
 import java.security.MessageDigest
 import java.util.Collections
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.CRC32
 import kotlin.io.path.createTempDirectory
 import kotlin.random.Random
@@ -38,6 +37,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -771,15 +772,17 @@ class DownloadManagerTest {
   }
 
   @Test
-  fun pollsForTheGamesSentToTheDeviceWhileSignedIn() = runTest {
-    val polls = AtomicInteger()
+  fun pollsForTheGamesSentToTheDeviceEveryMinuteWhileSignedIn() = runTest {
+    // Each poll's path, and when it came in virtual time.
+    val polls = MutableStateFlow(emptyList<Pair<String, Long>>())
     val canceled = CompletableDeferred<Unit>()
     val engine =
       server(
         installs = { request ->
-          if (request.apiPath != "devices/dev-1/installs") null
-          else
-            when (polls.incrementAndGet()) {
+          if (!request.apiPath.endsWith("/installs")) null
+          else {
+            polls.update { it + (request.apiPath to testScheduler.currentTime) }
+            when (polls.value.size) {
               // A poll that fails waits for the next one.
               1 -> respondError(HttpStatusCode.InternalServerError)
               2 ->
@@ -790,17 +793,26 @@ class DownloadManagerTest {
                 }
               else -> json("[]")
             }
+          }
         },
       )
-    val romm = MutableStateFlow<RommState>(account(engine, deviceId = "dev-1"))
+    // A token pasted from the server's web page is no device's, so nothing polls for it.
+    val romm = MutableStateFlow<RommState>(account(engine))
     manager(backgroundScope, engine, romm = romm)
-    waitFor { while (polls.get() < 2) delay(10) }
+    advanceTimeBy(5.minutes)
+
+    romm.value = account(engine, deviceId = "dev-1")
+    val start = testScheduler.currentTime
+    assertEquals(
+      listOf("devices/dev-1/installs" to start, "devices/dev-1/installs" to start + 60_000),
+      waitFor { polls.first { it.size >= 2 } },
+    )
 
     romm.value = RommState.SignedOut
     waitFor { canceled.await() }
 
     romm.value = account(engine, deviceId = "dev-1")
-    waitFor { while (polls.get() < 3) delay(10) }
+    waitFor { polls.first { it.size >= 3 } }
   }
 
   @Test
