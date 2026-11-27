@@ -11,7 +11,6 @@ import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import dev.sargunv.handheld.data.auth.UploadAccess
-import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.SyncStatus
@@ -117,16 +116,7 @@ internal fun LazyListScope.romm(section: RommSection) {
     )
   }
   item(key = "account") {
-    // Asked of the server each time, since nothing keeps it.
-    val account by
-      produceState<String?>(null, state.sync) {
-        value =
-          try {
-            state.romm.client()?.use { it.me().username } ?: "Unknown"
-          } catch (_: RommException) {
-            "Unreachable"
-          }
-      }
+    val account by produceState<String?>(null) { value = state.credentials.load()?.username }
     SettingRow(
       view,
       "settings:romm:account",

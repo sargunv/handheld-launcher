@@ -1,10 +1,6 @@
-@file:UseSerializers(RommInstantSerializer::class)
-
 package dev.sargunv.handheld.data.auth
 
 import dev.sargunv.handheld.data.JsonFile
-import dev.sargunv.handheld.data.romm.RommInstantSerializer
-import kotlin.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
@@ -13,25 +9,26 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.files.Path
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.UseSerializers
 
-/** How this device signs in to a RomM server. */
+/** How this device signs in to a RomM server, and as whom. */
 @Serializable
 data class RommCredentials(
   /** The server's address. */
   val baseUrl: String,
   /** The client API token. */
   val token: String,
+  /** The id of the RomM user the token belongs to, which stays the same across renames. */
+  val userId: Long,
+  /** The user's name, as of the sign-in. */
+  val username: String,
   /** The server's id for this device, when the token is bound to one. */
   val deviceId: String? = null,
   /** The scopes the token holds, when the server said. */
   val scopes: List<String> = emptyList(),
-  /** When the token expires, or null when it doesn't or the server didn't say. */
-  val expiresAt: Instant? = null,
 ) {
   override fun toString() =
-    "RommCredentials(baseUrl=$baseUrl, token=<redacted>, deviceId=$deviceId, scopes=$scopes, " +
-      "expiresAt=$expiresAt)"
+    "RommCredentials(baseUrl=$baseUrl, token=<redacted>, userId=$userId, username=$username, " +
+      "deviceId=$deviceId, scopes=$scopes)"
 }
 
 /**

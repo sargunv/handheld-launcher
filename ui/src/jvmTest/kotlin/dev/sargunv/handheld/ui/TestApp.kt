@@ -55,7 +55,8 @@ internal const val TestServer = "https://romm.test"
  */
 internal fun ComposeUiTest.launchApp(
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
-  credentials: CredentialStore = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token")),
+  credentials: CredentialStore =
+    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player")),
   library: LibraryCache = LibraryCache.open(path = null),
   storage: List<StorageTarget> = emptyList(),
   settings: Settings = Settings(),

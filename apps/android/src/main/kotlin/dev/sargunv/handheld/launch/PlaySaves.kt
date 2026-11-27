@@ -157,7 +157,7 @@ class PlaySaves(private val context: Context, private val credentials: Credentia
         val sync =
           SaveSync(
             client,
-            records = recordsDir(signedIn.baseUrl, client.me().id),
+            records = recordsDir(signedIn.baseUrl, signedIn.userId),
             history = saveHistory(context),
             staging = File(context.cacheDir, "save-staging"),
           )

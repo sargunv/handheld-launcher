@@ -89,7 +89,8 @@ class GameTest {
     gameFile.writeText("game")
     launchApp(
       server,
-      credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", "thor")),
+      credentials =
+        InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player", "thor")),
       storage = listOf(StorageTarget(storage.path, "Test storage")),
       launcher = launcher,
       apps = apps,

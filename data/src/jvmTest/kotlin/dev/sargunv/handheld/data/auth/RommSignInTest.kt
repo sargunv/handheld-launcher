@@ -25,7 +25,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.time.Instant
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
@@ -65,10 +64,7 @@ class RommSignInTest {
           path == "/api/auth/device/token" && polls++ == 0 ->
             json("""{"detail":"authorization_pending"}""", HttpStatusCode.BadRequest)
           path == "/api/auth/device/token" ->
-            json(
-              """{"access_token": "rmm_issued", "device_id": "d1", "scopes": $grantedScopes,
-                  "expires_at": "2026-01-01T00:00:00+00:00"}""",
-            )
+            json("""{"access_token": "rmm_issued", "device_id": "d1", "scopes": $grantedScopes}""")
           path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
           path == "/api/users/me" && token in setOf("Bearer rmm_good", "Bearer rmm_issued") ->
             json(Fixtures.me.replace("""["me.read", "roms.read"]""", accountScopes))
@@ -89,13 +85,7 @@ class RommSignInTest {
     assertEquals("ABCD2345", codes.single().userCode)
     assertEquals("$TEST_SERVER/pair/device?user_code=ABCD2345", codes.single().verificationUrl)
     assertEquals(
-      RommCredentials(
-        TEST_SERVER,
-        "rmm_issued",
-        "d1",
-        listOf("roms.read"),
-        Instant.parse("2026-01-01T00:00:00Z"),
-      ),
+      RommCredentials(TEST_SERVER, "rmm_issued", 1, "player", "d1", listOf("roms.read")),
       credentials,
     )
     assertEquals(credentials, store.load())
@@ -155,7 +145,7 @@ class RommSignInTest {
   @Test
   fun storesAWorkingToken() = runTest {
     val credentials = signIn.withToken(TEST_SERVER, "  rmm_good\n")
-    assertEquals(RommCredentials(TEST_SERVER, "rmm_good"), credentials)
+    assertEquals(RommCredentials(TEST_SERVER, "rmm_good", 1, "player"), credentials)
     assertEquals(credentials, store.load())
   }
 
@@ -183,7 +173,8 @@ class RommSignInTest {
     val fileStore = FileCredentialStore(path)
     try {
       assertNull(fileStore.load())
-      val credentials = RommCredentials(TEST_SERVER, "rmm_secret", "d1", listOf("roms.read"), null)
+      val credentials =
+        RommCredentials(TEST_SERVER, "rmm_secret", 1, "player", "d1", listOf("roms.read"))
       fileStore.save(credentials)
       assertEquals(credentials, FileCredentialStore(path).load())
       assertFalse("rmm_secret" in credentials.toString())

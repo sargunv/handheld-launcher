@@ -78,22 +78,25 @@ class RommSignIn(
         onCode(code)
         client.awaitDeviceAuth(code)
       }
-    // The server's web page offers to send games only to a device that says it takes them. Without
-    // it, the device still signs in.
-    try {
-      RommClient(baseUrl, token.accessToken, engine()).use {
-        it.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
+    val user =
+      RommClient(baseUrl, token.accessToken, engine()).use { client ->
+        // The server's web page offers to send games only to a device that says it takes them.
+        // Without it, the device still signs in.
+        try {
+          client.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
+        } catch (e: RommException) {
+          // The token may lack the scope; sending games from the web page then stays off.
+        }
+        client.me()
       }
-    } catch (e: RommException) {
-      // The token may lack the scope; sending games from the web page then stays off.
-    }
     val credentials =
       RommCredentials(
         baseUrl = baseUrl,
         token = token.accessToken,
+        userId = user.id,
+        username = user.username,
         deviceId = token.deviceId,
         scopes = token.scopes,
-        expiresAt = token.expiresAt,
       )
     store.save(credentials)
     return credentials
@@ -107,8 +110,9 @@ class RommSignIn(
    */
   suspend fun withToken(address: String, token: String): RommCredentials {
     val baseUrl = encryptedIfOffered(address)
-    RommClient(baseUrl, token.trim(), engine()).use { it.me() }
-    val credentials = RommCredentials(baseUrl = baseUrl, token = token.trim())
+    val user = RommClient(baseUrl, token.trim(), engine()).use { it.me() }
+    val credentials =
+      RommCredentials(baseUrl, token.trim(), userId = user.id, username = user.username)
     store.save(credentials)
     return credentials
   }

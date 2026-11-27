@@ -236,7 +236,7 @@ class DownloadManagerTest {
     targets: List<StorageTarget> = listOf(StorageTarget(storage.path, "Test storage")),
     storageSettings: StorageSettings = StorageSettings(),
     credentials: CredentialStore =
-      InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", deviceId)),
+      InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player", deviceId)),
   ) =
     DownloadManager(
       queueFile = queueFile,
@@ -353,7 +353,7 @@ class DownloadManagerTest {
   @Test
   fun aQueuedGameWaitsForItsServersSignIn() = runTest {
     fillLibrary()
-    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player"))
     // The queue can't start before the sign-out, since it waits for storage access.
     val writable = MutableStateFlow(false)
     val downloads =
@@ -364,7 +364,7 @@ class DownloadManagerTest {
     credentials.clear()
     writable.value = true
 
-    credentials.save(RommCredentials(TEST_SERVER, "rmm_new"))
+    credentials.save(RommCredentials(TEST_SERVER, "rmm_new", 1, "player"))
     downloads.awaitEmpty()
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
@@ -377,7 +377,7 @@ class DownloadManagerTest {
   @Test
   fun aSignInToAnotherServerDropsTheQueue() = runTest {
     fillLibrary()
-    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player"))
     val writable = MutableStateFlow(false)
     val first = manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
     assertTrue(first.enqueue(gameRom))
@@ -385,7 +385,7 @@ class DownloadManagerTest {
 
     val restarted =
       manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
-    credentials.save(RommCredentials("https://other.test", "rmm_other"))
+    credentials.save(RommCredentials("https://other.test", "rmm_other", 1, "player"))
     writable.value = true
     restarted.awaitEmpty()
     assertEquals(emptyList(), contentRequests())
@@ -395,7 +395,7 @@ class DownloadManagerTest {
   @Test
   fun signingOutAsADownloadStartsLeavesTheNextGameQueued() = runTest {
     fillLibrary()
-    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test"))
+    val credentials = InMemoryCredentialStore(RommCredentials(TEST_SERVER, "rmm_test", 1, "player"))
     val writable = MutableStateFlow(false)
     val downloads =
       manager(backgroundScope, server(), canWrite = writable, credentials = credentials)
@@ -424,7 +424,7 @@ class DownloadManagerTest {
     assertEquals(listOf(RomStatus.NotOnDevice, RomStatus.Queued), next.value)
     assertEquals(listOf("rmm_test"), contentTokens())
 
-    credentials.save(RommCredentials(TEST_SERVER, "rmm_new"))
+    credentials.save(RommCredentials(TEST_SERVER, "rmm_new", 1, "player"))
     downloads.awaitEmpty()
     val folder = file("ROMs/psx/Saga (USA)")
     assertDownloaded(next.value, disc1.size + disc2.size.toLong(), folder)
