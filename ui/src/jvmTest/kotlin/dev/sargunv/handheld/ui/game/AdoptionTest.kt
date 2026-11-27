@@ -30,6 +30,7 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -138,6 +139,35 @@ class AdoptionTest {
     waitUntil(timeoutMillis = 5_000) { Adoption(local, rom) in adopted }
     waitUntil(timeoutMillis = 5_000) { saved.lastOrNull()?.launch?.games == mapOf(rom to choice) }
     assertEquals(choice, saved.last().launch.games[rom])
+  }
+
+  @Test
+  fun aRomWhoseFileStillHasLocalSavesPlaysWithThem() = runComposeUiTest {
+    serverHasHomebrew = true
+    // The saves kept per game, whose adoption waits until the test lets it.
+    val saves = ConcurrentHashMap(mapOf<GameKey, String>(local to "local save"))
+    val letAdopt = CompletableDeferred<Unit>()
+    val playedWith = CompletableDeferred<String?>()
+    launchApp(
+      server,
+      library = library,
+      storage = listOf(StorageTarget(storage.path, "Test storage")),
+      launcher = FakeLauncher(onPlay = { playedWith.complete(saves[rom]) }),
+      gameState =
+        PerGameState { adoptions ->
+          if (adoptions.isNotEmpty()) letAdopt.await()
+          for (adoption in adoptions) {
+            saves.remove(adoption.local)?.let { saves[adoption.rom] = it }
+          }
+        },
+      open = OpenRequest(OpenTarget.Game(rom.romId)),
+    )
+    awaitText("Play")
+    press(Key.ButtonA)
+    waitForIdle()
+    letAdopt.complete(Unit)
+    awaitText("Played")
+    assertEquals("local save", runBlocking { playedWith.await() })
   }
 
   private companion object {

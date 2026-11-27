@@ -7,8 +7,6 @@ import java.io.File
 import java.io.IOException
 import kotlin.time.Clock
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -23,18 +21,13 @@ class BuiltInSaveFolders(
   private val history: File,
   private val clock: Clock = Clock.System,
 ) : PerGameState {
-  private val lock = Mutex()
-
   override suspend fun adopt(adoptions: List<Adoption>) =
     withContext(Dispatchers.IO) {
-      // A play and a scan may adopt the same game at once.
-      lock.withLock {
-        for (adoption in adoptions) {
-          try {
-            adopt(adoption)
-          } catch (e: IOException) {
-            // What's left stays in the local folder, which the next adoption tries again.
-          }
+      for (adoption in adoptions) {
+        try {
+          adopt(adoption)
+        } catch (e: IOException) {
+          // What's left stays in the local folder, which the next adoption tries again.
         }
       }
     }
@@ -72,7 +65,7 @@ class BuiltInSaveFolders(
 
   /** Deletes [folder] and the folders above it, up to the local games' own, while they're empty. */
   private fun pruneEmpty(folder: File?) {
-    val root = File(saves.localFolderOf("/")).absoluteFile
+    val root = File(saves.localRoot).absoluteFile
     var current = folder?.absoluteFile
     while (current != null && current != root && current.startsWith(root)) {
       if (current.list()?.isEmpty() != true || !current.delete()) return

@@ -23,6 +23,8 @@ internal class FakeLauncher(
   /** Holds each launch, saying it's getting the core, until it completes. */
   private val hold: CompletableDeferred<Unit>? = null,
   private val keptSaves: List<KeptSave> = emptyList(),
+  /** Hears each launch as it starts. */
+  private val onPlay: () -> Unit = {},
 ) : GameLauncher {
   /** Completes once a launch starts. */
   val started = CompletableDeferred<Unit>()
@@ -50,6 +52,7 @@ internal class FakeLauncher(
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
+    onPlay()
     started.complete(Unit)
     if (hold != null) {
       onProgress("Getting the core 40%")

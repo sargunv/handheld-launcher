@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -46,6 +45,7 @@ import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.cover.Cover
+import dev.sargunv.handheld.ui.downloads.downloadFailedLabel
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
@@ -116,12 +116,6 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   val actions = remember { GameActions(state, scope) }
   val shown = rememberShownGame(state, screen.key)
   val current = (shown as? ShownGame.Found)?.game
-  // While the game plays, what's kept for it stays where the launch found it.
-  DisposableEffect(actions.playing, current?.key) {
-    val key = current?.key?.takeIf { actions.playing }
-    if (key != null) state.playing = key
-    onDispose { if (key != null && state.playing == key) state.playing = null }
-  }
   val status by
     remember(current) {
         when (current) {
@@ -143,10 +137,16 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
     // A game that isn't on the device shows its page, where it can download.
     if (currentStatus is RomStatus.OnDevice) actions.play(current, currentStatus.path)
   }
+  val upload = actions.upload
   val primary =
-    actions.uploadProgress?.let { PrimaryAction.Waiting(it) }
-      ?: current?.let { primaryAction(it, status, actions.playing, actions.playProgress) }
-  val hasMenu = current != null && status != null && !actions.busy && !actions.checkingUpload
+    when (upload) {
+      is UploadState.Sending ->
+        PrimaryAction.Waiting("Uploading${upload.percent?.let { " $it%" }.orEmpty()}")
+      UploadState.Finishing -> PrimaryAction.Waiting("Adding to your library")
+      UploadState.Checking,
+      null -> current?.let { primaryAction(it, status, actions.playing, actions.playProgress) }
+    }
+  val hasMenu = current != null && status != null && !actions.playing && upload == null
   BackHandler(onBack = actions::back, Modifier.fillMaxSize(), enabled = actions.busy) {
     FocusScope(
       Modifier.fillMaxSize().onAction { action ->
@@ -189,7 +189,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             current?.let { GameFacts(state, it) }
             if (shown == ShownGame.Gone) {
               Text(
-                "This game's file is no longer on the device.",
+                "File no longer on this device",
                 color = Placeholder.mutedText,
                 modifier = Modifier.testTag("note"),
               )
@@ -233,9 +233,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
         HintBar(
           buildList {
             if (primary?.isAction == true) add(Hint(Action.Confirm, primary.label))
-            when {
-              !actions.uploading -> add(Hint(Action.Back, "Back"))
-              !actions.uploadFinishing -> add(Hint(Action.Back, "Stop upload"))
+            when (upload) {
+              is UploadState.Sending -> add(Hint(Action.Back, "Stop upload"))
+              UploadState.Finishing -> Unit
+              UploadState.Checking,
+              null -> add(Hint(Action.Back, "Back"))
             }
             if (hasMenu) add(Hint(Action.Menu, "Menu"))
             if (!actions.busy) add(Hint(Action.MainMenu, "Main menu"))
@@ -274,11 +276,11 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               actions.remove(current)
             }
           }
-        GameDialog.Upload ->
+        is GameDialog.Upload ->
           if (current is LocalGame) {
             UploadDialog(current, close) {
               close()
-              actions.upload(current)
+              actions.upload(current, dialog.access)
             }
           }
         is GameDialog.AllowUploads ->
@@ -394,8 +396,7 @@ private fun statusLines(status: RomStatus?): List<String> =
   when (status) {
     is RomStatus.Downloading ->
       listOf("${formatSize(status.bytesDownloaded)} of ${formatSize(status.totalBytes)}")
-    is RomStatus.Failed ->
-      listOf(listOfNotNull("Download failed", status.error).joinToString(" · "))
+    is RomStatus.Failed -> listOf(downloadFailedLabel(status.error))
     else -> emptyList()
   }
 
@@ -449,7 +450,7 @@ private fun LocalSecondary(state: AppState, game: LocalGame) {
       modifier = Modifier.testTag("game:not-on-server").semantics { heading() },
     )
     Text(
-      "Saves stay on this device until the game is on your server.",
+      "Saves kept on this device",
       color = Placeholder.mutedText,
       modifier = Modifier.testTag("game:saves-local"),
     )
@@ -512,7 +513,7 @@ private fun RomSecondary(state: AppState, current: Rom) {
         is SaveHistoryState.Failed -> Text(shown.reason, color = Placeholder.mutedText)
         is SaveHistoryState.Loaded ->
           if (shown.saves.isEmpty()) {
-            Text("No saves on RomM yet.", color = Placeholder.mutedText)
+            Text("No saves on RomM", color = Placeholder.mutedText)
           } else {
             for (save in shown.saves) {
               val details =
@@ -602,8 +603,8 @@ private suspend fun loadSaveHistory(state: AppState, romId: Long): SaveHistorySt
       val thisDevice = state.credentials.load()?.deviceId
       state.romm.client()?.use {
         SaveHistoryState.Loaded(serverSaveHistory(it.saves(romId = romId), thisDevice))
-      } ?: SaveHistoryState.Failed("Sign in to see saves on RomM.")
+      } ?: SaveHistoryState.Failed("Sign in to see saves on RomM")
     }
   } catch (e: RommException) {
-    SaveHistoryState.Failed("Couldn't reach RomM for the game's saves: ${e.message}")
+    SaveHistoryState.Failed("Saves unavailable · ${e.message}")
   }
