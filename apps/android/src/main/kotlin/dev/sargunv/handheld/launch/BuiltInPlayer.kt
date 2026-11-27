@@ -55,7 +55,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
         InstalledCores(coresDir, Build.SUPPORTED_ABIS.first()).use { cores ->
           cores.ensure(chosen) { downloaded, total ->
             val percent = total?.takeIf { it > 0 }?.let { " ${downloaded * 100 / it}%" } ?: ""
-            onProgress("Getting the core$percent")
+            onProgress("Downloading core$percent")
           }
         }
       } catch (e: IOException) {

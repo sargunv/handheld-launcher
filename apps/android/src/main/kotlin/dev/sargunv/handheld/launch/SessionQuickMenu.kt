@@ -31,7 +31,6 @@ import kotlinx.io.files.Path
 internal class SessionQuickMenu(
   private val session: () -> GameSession?,
   private val statePaths: List<String>,
-  private val saveRamPath: String,
   override val hardcore: Boolean,
   private val onResume: () -> Unit,
   private val onQuit: () -> Unit,

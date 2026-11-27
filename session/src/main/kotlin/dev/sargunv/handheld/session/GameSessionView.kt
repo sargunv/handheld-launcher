@@ -12,8 +12,8 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * Shows a [GameSession] in [VideoMode.WINDOW] and feeds it the gamepad's input while focused, and
- * touches while it runs, as libretro's pointer.
+ * Shows a [GameSession] and feeds it the gamepad's input while focused, and touches while it runs,
+ * as libretro's pointer.
  *
  * The session runs only while the view's surface exists, its window is visible and [running] is
  * true, so it pauses when the app goes to the background or the screen turns off. The view never
@@ -149,8 +149,6 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
           // The core quit, and the session stopped as it does when told to.
         } catch (e: SessionException) {
           Log.e(TAG, "the session failed to ${if (resume) "resume" else "pause"}", e)
-        } catch (_: IllegalStateException) {
-          // The owner closed the session first, which wrote its save memory.
         }
       }
     }
@@ -179,17 +177,13 @@ internal fun GameSession.touch(screen: Screen, view: View, event: MotionEvent): 
   val pressed = lifting != -1 && pressing.isNotEmpty()
   // A release stays where the last fingers were.
   val at = if (pressed) pressing else (0 until event.pointerCount).toList()
-  try {
-    touch(
-      screen,
-      at.map { event.getX(it) }.average().toFloat(),
-      at.map { event.getY(it) }.average().toFloat(),
-      view.width.toUInt(),
-      view.height.toUInt(),
-      pressed,
-    )
-  } catch (_: IllegalStateException) {
-    // The owner closed the session.
-  }
+  touch(
+    screen,
+    at.map { event.getX(it) }.average().toFloat(),
+    at.map { event.getY(it) }.average().toFloat(),
+    view.width.toUInt(),
+    view.height.toUInt(),
+    pressed,
+  )
   return true
 }

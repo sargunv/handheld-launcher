@@ -55,7 +55,7 @@ internal class FakeLauncher(
     onPlay()
     started.complete(Unit)
     if (hold != null) {
-      onProgress("Getting the core 40%")
+      onProgress("Downloading core 40%")
       try {
         hold.await()
       } catch (e: CancellationException) {

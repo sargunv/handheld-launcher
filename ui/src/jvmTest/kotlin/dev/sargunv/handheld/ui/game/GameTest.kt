@@ -145,7 +145,7 @@ class GameTest {
     val launcher = FakeLauncher(hold = hold)
     openGame(launcher)
     press(Key.ButtonA)
-    awaitText("Getting the core 40%")
+    awaitText("Downloading core 40%")
     // The menu waits for the launch, since what it opens would leave the screen.
     onNodeWithTag("hint:Menu").assertDoesNotExist()
     press(Key.ButtonB)
@@ -154,7 +154,7 @@ class GameTest {
     press(Key.ButtonA)
     onNodeWithTag("leave:cancel").assertDoesNotExist()
     assertFalse(launcher.canceled)
-    onNodeWithText("Getting the core 40%").assertExists()
+    onNodeWithText("Downloading core 40%").assertExists()
     // Leaving stops the launch.
     press(Key.ButtonB)
     press(listOf(Key.DirectionRight, Key.ButtonA))
@@ -169,7 +169,7 @@ class GameTest {
     val launcher = FakeLauncher(hold = hold)
     openGame(launcher)
     press(Key.ButtonA)
-    awaitText("Getting the core 40%")
+    awaitText("Downloading core 40%")
     press(Key.ButtonB)
     onNodeWithTag("leave:cancel").assertIsFocused()
     hold.complete(Unit)
