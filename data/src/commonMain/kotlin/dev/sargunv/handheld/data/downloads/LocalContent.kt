@@ -47,7 +47,7 @@ internal data class LocalPart(val path: String, val sizeBytes: Long)
 internal data class LocalScan(
   /** The library's games found by content in a file of another name, by ROM id: the file's path. */
   val matched: Map<Long, String> = emptyMap(),
-  /** The files no game of the library matched, by name or by content. */
+  /** The files that may be games and that no game of the library matched, by name or content. */
   val unmatched: List<LocalFile> = emptyList(),
 )
 
@@ -101,7 +101,8 @@ internal class ContentScanner(
   /**
    * Scans each platform's folder on each of the [targets] for files that aren't [roms] by name, and
    * matches them to [roms] by content. A ROM on the device by name isn't matched again. A disc set
-   * copied in loose is one file, its sheet, and the files it lists aren't read.
+   * copied in loose is one file, its sheet, and the files it lists aren't read. Files that aren't
+   * games by [isGameFile] aren't read or listed.
    */
   suspend fun scan(
     targets: List<StorageTarget>,
@@ -122,7 +123,7 @@ internal class ContentScanner(
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
       // Each target's files in name order, the targets in the order they fill.
-      val loose = entries.filterNot { it.name in names || skipped(it.name) }
+      val loose = entries.filterNot { it.name in names || !isGameFile(it.name) }
       val candidates = folderRoms.filter {
         it.files.size == 1 && GameLayout.romName(it) !in present
       }
@@ -334,8 +335,26 @@ private fun sheetText(path: Path): String? {
   }
 }
 
-/** Files a scan never takes for a game: hidden ones, and another app's downloads under way. */
-private fun skipped(name: String) = name.startsWith('.') || name.endsWith(".part")
+/** Whether the file named [name] may be a game: hidden files, [NotGames] and save states aren't. */
+internal fun isGameFile(name: String): Boolean {
+  if (name.startsWith('.')) return false
+  val extension = name.substringAfterLast('.', "").lowercase()
+  return extension !in NotGames && !extension.matches(StateExtension)
+}
+
+/**
+ * The extensions of files that sit beside games but aren't games: saves, pictures, patches and
+ * cheats, notes and settings, and files another app is still writing. Not `.md`, a Mega Drive
+ * ROM's.
+ */
+private val NotGames =
+  ("srm sav sa1 dsv eep fla sra mpk rtc mcr mcd png jpg jpeg gif bmp webp ips bps ups xdelta cht " +
+      "txt nfo pdf xml json ini cfg log db tmp bak part")
+    .split(' ')
+    .toSet()
+
+/** Save states, such as `.state`, `.state1` or `.st0`, and RetroArch's `.auto`. */
+private val StateExtension = Regex("""state\d*|st\d+|auto""")
 
 /** The entries of [folder] in name order, or none when it isn't a folder that can be read. */
 internal fun entriesOf(folder: Path): List<Path> =

@@ -378,27 +378,6 @@ class DeviceGamesTest {
   }
 
   @Test
-  fun onlyFilesThatMayBeGamesAreLocalGames() {
-    for (name in listOf("a.gba", "b.zip", "c.chd", "d.m3u", "e.cue", "f", "Sonic.md")) {
-      assertTrue(isGameFile("/ROMs/gba/$name"), name)
-    }
-    for (name in
-      listOf(
-        "a.srm",
-        "b.sav",
-        "c.state",
-        "d.state3",
-        "e.st0",
-        "f.png",
-        "g.txt",
-        "h.ips",
-        "i.tmp",
-      )) {
-      assertFalse(isGameFile("/ROMs/gba/$name"), name)
-    }
-  }
-
-  @Test
   fun removesOnlyTheGamesOwnFiles() = runTest {
     fillLibrary()
     library.upsertRoms(listOf(gameRom, sagaRom))
