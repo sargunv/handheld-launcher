@@ -19,7 +19,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -64,9 +63,7 @@ internal fun LibraryTabs(
   gridStates: SaveableStateHolder,
 ) {
   fun switchTo(next: LibraryTab?) {
-    if (next == null || next == tab) return
-    state.libraryTab = next
-    state.focused = null
+    if (next != null) state.libraryTab = next
   }
   Column(
     Modifier.fillMaxSize().onAction { action ->
@@ -84,7 +81,16 @@ internal fun LibraryTabs(
       key(tab) {
         when (tab) {
           LibraryTab.OnDevice,
-          LibraryTab.AllGames -> TabGames(state, tab, gridStates)
+          LibraryTab.AllGames ->
+            GameGridPane(
+              state = state,
+              gridStates = gridStates,
+              source = GridSource.OfTab(tab),
+              title = tab.title,
+              empty =
+                if (tab == LibraryTab.OnDevice) "No games" else state.sync.emptyLabel("No games"),
+              backHint = "Home",
+            )
           LibraryTab.Platforms,
           LibraryTab.Collections -> ShelfList(state, tab, shelves, focused)
         }
@@ -144,31 +150,6 @@ internal fun buttonLabel(action: Action): String {
   return PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
 }
 
-/** The games of a tab of games: those on the device or on their way, or the whole library. */
-@Composable
-private fun TabGames(state: AppState, tab: LibraryTab, gridStates: SaveableStateHolder) {
-  val cache = state.library
-  val all by remember(cache) { cache.allRoms() }.collectAsState(null)
-  val onDevice = tab == LibraryTab.OnDevice
-  // The local games are on the device, and in the whole library.
-  val local = state.localGames
-  val roms =
-    remember(all, onDevice, state.deviceStates, local) {
-      (if (onDevice) all?.onDevice(state.deviceStates) else all)?.let { it + local }
-    }
-  GameGridPane(
-    state = state,
-    gridStates = gridStates,
-    sourceKey = "tab:${tab.name}",
-    title = tab.title,
-    roms = roms,
-    // Every game on the On device tab is on the device, so it has nothing to filter.
-    filters = !onDevice,
-    empty = if (onDevice) "No games" else state.sync.emptyLabel("No games"),
-    backHint = "Home",
-  )
-}
-
 /**
  * The platforms or collections of [tab], focused on [focused]. Confirm opens the focused one, and
  * the menu offers Open with for its games.
@@ -181,7 +162,7 @@ private fun ShelfList(
   focused: LibraryShelf?,
 ) {
   val view = state.libraryView
-  val summaries = rememberShelfSummaries(state, shelves.orEmpty())
+  val summaries by view.summaries(tab).collectAsState()
   var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
   val menuShelf = shelves?.find { it.key == menuFor }
   val hasShelves = summaries.isNotEmpty()
@@ -214,10 +195,7 @@ private fun ShelfList(
             summaries = summaries,
             focused = focused,
             onFocus = { view.focusShelf(tab, it.key) },
-            onOpen = {
-              view.open(tab, it.key, OpenedFrom.Tab)
-              state.focused = null
-            },
+            onOpen = { view.open(tab, it.key, OpenedFrom.Tab) },
           )
         }
       }
@@ -286,18 +264,3 @@ private fun ShelfTiles(
 }
 
 private fun shelfTileKey(shelf: LibraryShelf) = "library:${shelf.key}"
-
-/** The [shelves] with their counts of games, all and on this device. */
-@Composable
-internal fun rememberShelfSummaries(
-  state: AppState,
-  shelves: List<LibraryShelf>,
-): List<ShelfSummary> {
-  val cache = state.library
-  val romPlatforms by remember(cache) { cache.romPlatforms() }.collectAsState(emptyMap())
-  val collectionRoms by remember(cache) { cache.collectionRoms() }.collectAsState(emptyMap())
-  val local = state.localGames
-  return remember(shelves, romPlatforms, collectionRoms, state.deviceStates, local) {
-    shelfSummaries(shelves, romPlatforms, collectionRoms, state.deviceStates, local)
-  }
-}

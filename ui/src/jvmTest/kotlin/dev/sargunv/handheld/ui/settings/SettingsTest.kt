@@ -40,7 +40,6 @@ import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.page
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
 import dev.sargunv.handheld.ui.press
@@ -105,7 +104,7 @@ class SettingsTest {
       storage = storage,
       saveSettings = { saved += it },
       apps = apps,
-      open = open?.let(::OpenRequest),
+      open = open,
     )
 
   /** Waits for Open with's list to take the focus, which comes a frame after its text. */

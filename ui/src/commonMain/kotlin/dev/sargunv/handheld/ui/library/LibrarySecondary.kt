@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -50,9 +51,10 @@ private val ShelfTabs = setOf(LibraryTab.Platforms, LibraryTab.Collections)
 
 @Composable
 private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
-  val shelves = rememberShelves(state, tab).orEmpty()
-  val shelf = shelves.shelfAt(state.libraryView.shelfKey(tab))
-  val summary = rememberShelfSummaries(state, shelves).find { it.shelf == shelf }
+  val view = state.libraryView
+  val summaries by view.summaries(tab).collectAsState()
+  val shelf = summaries.map { it.shelf }.shelfAt(view.shelfKey(tab))
+  val summary = summaries.find { it.shelf == shelf }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (summary != null) {
       val about = (summary.shelf as? LibraryShelf.OfCollection)?.collection?.description
@@ -65,6 +67,7 @@ private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
 @Composable
 private fun GamesSecondary(state: AppState, filters: Boolean) {
   val view = state.libraryView
+  val letters = view.grid.collectAsState().value?.letters.orEmpty()
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Box(Modifier.fillMaxWidth().weight(1f)) {
       (state.focused as? Focused.OnGame)?.let { GameDescription(state, it.game) }
@@ -85,12 +88,12 @@ private fun GamesSecondary(state: AppState, filters: Boolean) {
         view.sort = nextSort
       }
     }
-    if (view.letters.isNotEmpty()) {
+    if (letters.isNotEmpty()) {
       FlowRow(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        for (letter in view.letters) {
+        for (letter in letters) {
           TouchChip("touch:jump:$letter", letter.toString(), selected = false) {
             view.jump = Jump(letter)
           }

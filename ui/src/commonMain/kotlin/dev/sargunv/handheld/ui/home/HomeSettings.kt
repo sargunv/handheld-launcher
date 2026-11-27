@@ -28,13 +28,13 @@ data class HomeSettings(
    * Moves [shelf] before the shelf above it among [shown], the shelves on screen. Does nothing to
    * the first one.
    */
-  fun moveUp(shelf: HomeShelf, shown: List<HomeShelf> = visible) = swap(shelf, shown, -1)
+  fun moveUp(shelf: HomeShelf, shown: List<HomeShelf>) = swap(shelf, shown, -1)
 
   /**
    * Moves [shelf] after the shelf below it among [shown], the shelves on screen. Does nothing to
    * the last one.
    */
-  fun moveDown(shelf: HomeShelf, shown: List<HomeShelf> = visible) = swap(shelf, shown, 1)
+  fun moveDown(shelf: HomeShelf, shown: List<HomeShelf>) = swap(shelf, shown, 1)
 
   private fun swap(shelf: HomeShelf, shown: List<HomeShelf>, step: Int): HomeSettings {
     if (shelf !in shown) return this

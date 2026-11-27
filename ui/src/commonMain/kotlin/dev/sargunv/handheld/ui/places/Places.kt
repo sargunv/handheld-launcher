@@ -13,13 +13,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
@@ -128,6 +128,7 @@ internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: 
 internal fun GameDescription(state: AppState, game: LibraryGame) {
   val library = state.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
+  val deviceStates by state.deviceStates.collectAsState()
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
       (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
@@ -149,7 +150,7 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
       when (game) {
         is Rom -> {
           val onDevice =
-            when (state.deviceStates[game.id]) {
+            when (deviceStates[game.id]) {
               DeviceState.OnDevice -> "On this device"
               is DeviceState.Downloading -> "Downloading"
               null -> "Not on this device"
@@ -214,8 +215,7 @@ private fun PlacesScreen(state: AppState) {
         // place shows.
         places.SaveableStateProvider(state.place.name) {
           when (state.place) {
-            // A new key starts Home's state over, focus and scroll positions included.
-            Place.Home -> key(state.homeResets) { HomePlace(state) }
+            Place.Home -> HomePlace(state)
             Place.Library -> LibraryPlace(state)
             Place.Downloads ->
               DownloadsPlace(state.downloads) {
@@ -270,7 +270,7 @@ internal fun MenuButton(
 ) {
   Box(
     Modifier.then(if (enabled) Modifier else Modifier.semantics { disabled() })
-      .focusItem(key, onConfirm = onConfirm)
+      .focusItem(key, onConfirm = onConfirm.takeIf { enabled }, role = Role.Button)
       .background(Placeholder.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
   ) {

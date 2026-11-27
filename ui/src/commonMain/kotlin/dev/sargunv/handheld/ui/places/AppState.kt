@@ -2,7 +2,6 @@ package dev.sargunv.handheld.ui.places
 
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -33,20 +32,28 @@ import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
+import dev.sargunv.handheld.ui.library.deviceStatesOf
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
 import io.ktor.client.engine.HttpClientEngine
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -62,6 +69,8 @@ class AppState(
   val credentials: CredentialStore,
   httpEngine: () -> HttpClientEngine,
   device: DeviceDescription,
+  /** Runs what the state keeps up to date, for as long as the app shows. */
+  scope: CoroutineScope,
   /** The RetroAchievements account, on platforms whose games can earn achievements. */
   val retroAchievements: RetroAchievementsState? = null,
   /** What About says about this build. */
@@ -93,7 +102,18 @@ class AppState(
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
   var sync: SyncStatus by mutableStateOf(SyncStatus.NotStarted)
-  val libraryView = LibraryState()
+
+  /**
+   * The games on the device or on their way, by ROM id. A game missing here is only on the server.
+   */
+  val deviceStates: StateFlow<Map<Long, DeviceState>> =
+    downloads.statuses().map(::deviceStatesOf).stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+  /** The local games: files on the device that match none of the server's games. */
+  val localGames: StateFlow<List<LocalGame>> =
+    games.localGames().stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+  val libraryView = LibraryState(library, deviceStates, localGames, { libraryTab }, scope)
   val settingsView = SettingsView()
 
   /** Signs in to the RomM server, and out of it. */
@@ -107,17 +127,10 @@ class AppState(
   /** The syncs to run: one as collecting starts, and one for each [syncNow]. */
   val syncRequests: Flow<Unit> = syncRequested.onStart { emit(Unit) }
 
-  /**
-   * The games on the device or on their way, by ROM id. A game missing here is only on the server.
-   */
-  var deviceStates: Map<Long, DeviceState> by mutableStateOf(emptyMap())
+  private val homeStartsOver = Channel<Unit>(Channel.CONFLATED)
 
-  /** The local games: files on the device that match none of the server's games. */
-  var localGames: List<LocalGame> by mutableStateOf(emptyList())
-
-  /** Counts the times Home started over, so its focus and scroll positions start over too. */
-  var homeResets: Int by mutableIntStateOf(0)
-    private set
+  /** Each time Home starts over, so its focus and scroll positions start over too. */
+  val homeStarts: Flow<Unit> = homeStartsOver.receiveAsFlow()
 
   val inputSettings: InputSettings
     get() = settings.input
@@ -131,14 +144,12 @@ class AppState(
     }
 
   /**
-   * Shows [next]. The lower screen describes nothing until something there takes focus. Leaving the
-   * Library closes a shelf that Home opened, since Back on it would go Home.
+   * Shows [next]. Leaving the Library closes a shelf that Home opened, since Back on it goes Home.
    */
   fun showPlace(next: Place) {
     if (next == place) return
     if (place == Place.Library && libraryView.openedFrom == OpenedFrom.Home) libraryView.close()
     place = next
-    focused = null
   }
 
   /**
@@ -149,7 +160,6 @@ class AppState(
     showPlace(Place.Library)
     libraryTab = tab
     libraryView.open(tab, shelfKey, from)
-    focused = null
   }
 
   /** Goes to [next] from the main menu: the screens over the places close, and [next] shows. */
@@ -165,7 +175,7 @@ class AppState(
   fun goHome() {
     navigator.backToStart()
     showPlace(Place.Home)
-    homeResets++
+    homeStartsOver.trySend(Unit)
   }
 
   /** Syncs the library with the server again, starting over if a sync is under way. */
@@ -189,9 +199,8 @@ class AppState(
       account.signOut(allowUploads)
       navigator.backToStart()
       place = Place.Home
-      focused = null
       sync = SyncStatus.NotStarted
-      homeResets++
+      homeStartsOver.trySend(Unit)
     }
 
   /**

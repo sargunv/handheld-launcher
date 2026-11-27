@@ -32,13 +32,15 @@ import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.trackHeldKeys
-import dev.sargunv.handheld.ui.places.HomePress
-import dev.sargunv.handheld.ui.places.OpenRequest
+import dev.sargunv.handheld.ui.places.OpenTarget
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import kotlin.io.path.createTempDirectory
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.io.files.Path
 
 /** The server the tests sign in to. */
@@ -46,8 +48,8 @@ internal const val TestServer = "https://romm.test"
 
 /**
  * Shows the app, signed in to [TestServer] unless [credentials] says otherwise, with covers and the
- * download queue in new, empty directories. The app reads [homePress] as it composes, so a test
- * presses HOME by changing the state it reads.
+ * download queue in new, empty directories. It shows [open] once signed in, and takes each of
+ * [homePresses] as a press of HOME.
  *
  * @return the app's download queue, which downloads from a server that has nothing.
  */
@@ -64,8 +66,8 @@ internal fun ComposeUiTest.launchApp(
   appInfo: AppInfo = AppInfo.Unknown,
   retroAchievements: RetroAchievementsSignIn? = null,
   gameState: PerGameState = PerGameState.None,
-  open: OpenRequest? = null,
-  homePress: () -> HomePress? = { null },
+  open: OpenTarget? = null,
+  homePresses: Flow<Unit> = emptyFlow(),
   layout: DualScreenLayout = DualScreenLayout.Frame,
 ): DownloadManager {
   lateinit var downloads: DownloadManager
@@ -103,8 +105,8 @@ internal fun ComposeUiTest.launchApp(
       launcher = launcher,
       apps = apps,
       romHeaders = romHeaders,
-      openRequest = open,
-      homePress = homePress(),
+      openRequests = remember { if (open != null) flowOf(open) else emptyFlow() },
+      homePresses = homePresses,
       appInfo = appInfo,
       retroAchievements = retroAchievements,
       gameState = gameState,

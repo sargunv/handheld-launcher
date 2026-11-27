@@ -34,13 +34,13 @@ import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.places.HomePress
-import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.io.files.Path
 
@@ -52,11 +52,11 @@ class MainActivity : ComponentActivity() {
   /** A layout forced from the launch intent, for development on single-display devices. */
   private var forcedLayout by mutableStateOf<DualScreenLayout?>(null)
 
-  /** A screen to show, from the launch intent, for development tools. */
-  private var openRequest by mutableStateOf<OpenRequest?>(null)
+  /** The screens to show, from launch intents, for development tools. */
+  private val openRequests = Channel<OpenTarget>(Channel.CONFLATED)
 
-  /** The latest press of HOME while the launcher was in front. */
-  private var homePress by mutableStateOf<HomePress?>(null)
+  /** The presses of HOME while the launcher was in front. */
+  private val homePresses = Channel<Unit>(Channel.CONFLATED)
 
   private var player: AndroidGameLauncher? = null
 
@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
     running += this
     forcedLayout = forcedLayout(intent)
     // A recreated activity has already shown the screen its intent asked for.
-    if (savedInstanceState == null) openRequest = openRequest(intent)
+    if (savedInstanceState == null) openTarget(intent)?.let(openRequests::trySend)
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
     val app = handheldApp
     val settings = app.settingsFile.read()
@@ -101,6 +101,8 @@ class MainActivity : ComponentActivity() {
       AppInfo(app.versionName) {
         resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() }
       }
+    val opens = openRequests.receiveAsFlow()
+    val homes = homePresses.receiveAsFlow()
     setContent {
       val display = rememberSecondaryDisplay()
       // The presentation draws over the play companion's activity on the same display.
@@ -135,8 +137,8 @@ class MainActivity : ComponentActivity() {
             )
           }
         },
-        openRequest = openRequest,
-        homePress = homePress,
+        openRequests = opens,
+        homePresses = homes,
         appInfo = appInfo,
         gameState = app.builtInSaveFolders,
       )
@@ -171,13 +173,13 @@ class MainActivity : ComponentActivity() {
       val response =
         respondTo(
           home = home,
-          open = openRequest(intent),
+          open = openTarget(intent),
           wasInFront = wasInFront,
           playing = player?.isPlaying == true,
         )
     ) {
-      is IntentResponse.Open -> openRequest = response.request
-      IntentResponse.PressHome -> homePress = HomePress()
+      is IntentResponse.Open -> openRequests.trySend(response.target)
+      IntentResponse.PressHome -> homePresses.trySend(Unit)
       IntentResponse.Show -> Unit
     }
   }
@@ -243,8 +245,8 @@ class MainActivity : ComponentActivity() {
    * Reads the `open` extra, which shows a screen straight away, such as `--es open place:downloads`
    * or `--es open game:42`. See [OpenTarget.parse] for the targets.
    */
-  private fun openRequest(intent: Intent): OpenRequest? =
-    intent.getStringExtra("open")?.let(OpenTarget::parse)?.let(::OpenRequest)
+  private fun openTarget(intent: Intent): OpenTarget? =
+    intent.getStringExtra("open")?.let(OpenTarget::parse)
 }
 
 /**

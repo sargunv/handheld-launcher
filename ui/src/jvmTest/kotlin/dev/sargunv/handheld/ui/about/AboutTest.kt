@@ -63,7 +63,7 @@ class AboutTest {
     awaitFocused("component:crates.io:alpha@1.0.0")
     onNodeWithText("About").assert(isHeading())
     onNodeWithText("Version 1.2.3").assertExists()
-    onNodeWithTag("about:source").assertTextEquals(SourceUrl)
+    onNodeWithTag("about:source").assertTextEquals("Source · $SourceUrl")
     onNodeWithText("1.0.0 · MIT").assertExists()
     onNodeWithText("2.0 · Apache-2.0").assertExists()
     // The lower screen describes the focused component.

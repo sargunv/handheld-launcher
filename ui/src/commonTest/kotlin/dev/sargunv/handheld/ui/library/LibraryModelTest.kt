@@ -45,7 +45,7 @@ class LibraryModelTest {
   fun listsThePlatformsWithGamesAndEveryCollection() {
     assertEquals(
       listOf("platform:1", "platform:2"),
-      platformShelves(listOf(gb, nes, empty)).map { it.key },
+      platformShelves(listOf(gb, nes, empty), emptyList()).map { it.key },
     )
     // Home lists every collection, so the tab has each one Home opens.
     assertEquals(
@@ -56,7 +56,7 @@ class LibraryModelTest {
 
   @Test
   fun stepsBetweenShelvesAndStopsAtTheEnds() {
-    val shelves = platformShelves(listOf(gb, nes))
+    val shelves = platformShelves(listOf(gb, nes), emptyList())
     assertEquals("platform:2", shelves.step("platform:1", 1)?.key)
     assertNull(shelves.step("platform:2", 1))
     assertNull(shelves.step("platform:1", -1))
@@ -68,7 +68,7 @@ class LibraryModelTest {
 
   @Test
   fun countsEachShelfsGamesOnTheDevice() {
-    val shelves = platformShelves(listOf(gb, nes)) + collectionShelves(listOf(couch))
+    val shelves = platformShelves(listOf(gb, nes), emptyList()) + collectionShelves(listOf(couch))
     val romPlatforms = mapOf(1L to 1L, 2L to 1L, 3L to 2L, 4L to 2L)
     val collectionRoms = mapOf((CollectionKind.Regular to 1L) to setOf(1L, 2L, 4L))
     val states =
@@ -83,7 +83,7 @@ class LibraryModelTest {
         Triple("platform:2", 2, 1),
         Triple("collection:Regular:1", 3, 1),
       ),
-      shelfSummaries(shelves, romPlatforms, collectionRoms, states).map {
+      shelfSummaries(shelves, romPlatforms, collectionRoms, states, emptyList()).map {
         Triple(it.shelf.key, it.games, it.onDevice)
       },
     )
@@ -163,7 +163,7 @@ class LibraryModelTest {
         3L to DeviceState.Downloading(0.25f),
         4L to DeviceState.Downloading(null),
       ),
-      deviceStates(
+      deviceStatesOf(
         mapOf(
           1L to RomStatus.OnDevice("/ROMs/gb/a.gb"),
           2L to RomStatus.Queued,
