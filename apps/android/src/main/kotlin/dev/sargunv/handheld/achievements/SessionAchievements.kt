@@ -28,16 +28,9 @@ internal class SessionAchievementsHttp(
       val response = client.send(request.url, request.postData, request.contentType)
       if (response == null) Log.w(TAG, "RetroAchievements is out of reach")
       // The first requests go out while the session is starting.
-      val running = session.await()
-      try {
-        running.achievementsResponse(
-          id,
-          response?.status?.toUShort(),
-          response?.body ?: ByteArray(0),
-        )
-      } catch (_: IllegalStateException) {
-        // The session closed meanwhile.
-      }
+      session
+        .await()
+        .achievementsResponse(id, response?.status?.toUShort(), response?.body ?: ByteArray(0))
     }
   }
 

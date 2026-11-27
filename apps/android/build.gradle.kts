@@ -6,6 +6,7 @@ import dev.sargunv.handheld.gradle.androidAbis
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
+  alias(libs.plugins.kotlin.serialization)
   alias(libs.plugins.aboutlibraries.android)
 }
 
@@ -63,6 +64,7 @@ dependencies {
   implementation(project(":data"))
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.core)
+  implementation(libs.kotlinx.serialization.json)
   implementation(project(":session"))
   testImplementation(libs.kotlin.test.junit)
 }

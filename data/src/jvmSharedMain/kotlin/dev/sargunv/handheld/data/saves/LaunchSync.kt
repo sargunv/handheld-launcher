@@ -18,6 +18,17 @@ enum class StillRunningChoice {
   CloseNow,
 }
 
+/**
+ * The standalone emulator that keeps a game's save, as [state] says, for [beforeLaunch].
+ * [askStillRunning] asks the player what to do when it may still hold the game, offering to close
+ * it when there's a [close], which closes it and returns whether it's gone.
+ */
+class StandaloneEmulator(
+  val state: EmulatorState,
+  val askStillRunning: suspend (canClose: Boolean) -> StillRunningChoice,
+  val close: (suspend () -> Boolean)? = null,
+)
+
 /** What [beforeLaunch] did. */
 sealed interface BeforeLaunch {
   /** The save synced as [result] says, and the game can launch. */
@@ -40,14 +51,14 @@ sealed interface BeforeLaunch {
 }
 
 /**
- * Syncs [game]'s save before it launches, when [emulator] is what's known about the emulator that
- * keeps it.
+ * Syncs [game]'s save before it launches, when [emulator] is the standalone emulator that keeps it,
+ * or null when nothing else holds the game, as for the built-in session.
  *
  * When the emulator may still hold the game, it never pulls without asking: a newer save on RomM,
- * or the player choosing RomM's copy in a conflict, asks [askStillRunning] first, which offers to
- * close the emulator when [canClose]. [close] closes it and returns whether it's gone. When the
- * emulator may be running with another game, a pull goes ahead but remembers the copy it replaced,
- * for [SaveSync.sync]'s check, unless the save is on shared PS2 cards, which any game holds.
+ * or the player choosing RomM's copy in a conflict, asks the emulator's
+ * [askStillRunning][StandaloneEmulator.askStillRunning] first. When the emulator may be running
+ * with another game, a pull goes ahead but remembers the copy it replaced, for [SaveSync.sync]'s
+ * check, unless the save is on shared PS2 cards, which any game holds.
  *
  * @param chooseSave asks which copy to keep when both changed. Null cancels the launch.
  * @throws RommException when the server can't be reached or refuses a call.
@@ -55,25 +66,25 @@ sealed interface BeforeLaunch {
  */
 suspend fun SaveSync.beforeLaunch(
   game: GameSave,
-  emulator: EmulatorState,
-  canClose: Boolean,
+  emulator: StandaloneEmulator?,
   chooseSave: suspend (SaveSyncResult.Conflict) -> SaveCopy?,
-  askStillRunning: suspend (canClose: Boolean) -> StillRunningChoice,
-  close: suspend () -> Boolean,
 ): BeforeLaunch {
-  val mayRun = emulator is EmulatorState.MayBeRunning
+  val state = emulator?.state
+  val mayRun = state is EmulatorState.MayBeRunning
   // Shared PS2 cards hold every game's saves, so an emulator running any game holds them.
   val holds =
-    emulator is EmulatorState.MayBeRunning &&
-      (emulator.holds(game.romId) || game.shape is SaveShape.Cards)
+    state is EmulatorState.MayBeRunning &&
+      (state.holds(game.romId) || game.shape is SaveShape.Cards)
 
   // Pulls with [pull], asking first when the emulator holds the game.
   suspend fun guarded(found: SaveSyncResult, pull: suspend () -> BeforeLaunch): BeforeLaunch {
     if (!holds) return pull()
-    return when (askStillRunning(canClose)) {
+    val close = emulator.close
+    return when (emulator.askStillRunning(close != null)) {
       StillRunningChoice.QuitFirst -> BeforeLaunch.QuitFirst
       StillRunningChoice.PlayDeviceSave -> BeforeLaunch.Skipped(found)
-      StillRunningChoice.CloseNow -> if (canClose && close()) pull() else BeforeLaunch.CloseFailed
+      StillRunningChoice.CloseNow ->
+        if (close != null && close()) pull() else BeforeLaunch.CloseFailed
     }
   }
 
@@ -82,14 +93,7 @@ suspend fun SaveSync.beforeLaunch(
     is SaveSyncResult.ServerNewer ->
       guarded(found) {
         // The emulator is closed by now, so this looks again as if it never ran.
-        beforeLaunch(
-          game,
-          EmulatorState.NotRunning("closed"),
-          canClose = false,
-          chooseSave,
-          askStillRunning,
-          close,
-        )
+        beforeLaunch(game, emulator = null, chooseSave)
       }
     is SaveSyncResult.Conflict -> {
       when (chooseSave(found) ?: return BeforeLaunch.Canceled) {

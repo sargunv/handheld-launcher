@@ -588,20 +588,23 @@ class SaveSyncTest {
     val asked = mutableListOf<Boolean>()
     var closed = 0
 
+    private suspend fun close(): Boolean {
+      closed++
+      return closes
+    }
+
     suspend fun run(sync: SaveSync, game: GameSave, emulator: EmulatorState, canClose: Boolean) =
       sync.beforeLaunch(
         game,
-        emulator,
-        canClose,
+        StandaloneEmulator(
+          emulator,
+          askStillRunning = {
+            asked += it
+            choice ?: error("Asked about the emulator")
+          },
+          close = if (canClose) ::close else null,
+        ),
         chooseSave = { keep },
-        askStillRunning = {
-          asked += it
-          choice ?: error("Asked about the emulator")
-        },
-        close = {
-          closed++
-          closes
-        },
       )
   }
 
