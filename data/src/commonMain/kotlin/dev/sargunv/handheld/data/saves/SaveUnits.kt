@@ -55,17 +55,7 @@ internal sealed interface SaveUnit {
 
 /** A save that's one file, at the first of [candidates] that exists, most likely first. */
 internal data class FileUnit(val candidates: List<File>) : SaveUnit {
-  override fun read(): LocalCopy? {
-    val file = candidates.firstOrNull { it.isFile } ?: return null
-    val bytes = file.readBytes()
-    return LocalCopy(
-      file,
-      file.name,
-      bytes,
-      md5(bytes),
-      Instant.fromEpochMilliseconds(file.lastModified()),
-    )
-  }
+  override fun read(): LocalCopy? = candidates.firstOrNull { it.isFile }?.let(::copyOf)
 
   // Folders aren't created, because they may belong to the emulator, which has to own them.
   override fun target(serverName: String): File? {
@@ -79,12 +69,21 @@ internal data class FileUnit(val candidates: List<File>) : SaveUnit {
 
   override fun folders() = candidates.mapNotNull { it.parent }.distinct()
 
-  override fun write(
-    target: File,
-    bytes: ByteArray,
-    replaced: String?,
-    keep: (LocalCopy) -> Unit,
-  ) = writeAtomically(Path(target.path), bytes)
+  override fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit) {
+    if (target.isFile) copyOf(target).let { if (it.hash != replaced) keep(it) }
+    writeAtomically(Path(target.path), bytes)
+  }
+
+  private fun copyOf(file: File): LocalCopy {
+    val bytes = file.readBytes()
+    return LocalCopy(
+      file,
+      file.name,
+      bytes,
+      md5(bytes),
+      Instant.fromEpochMilliseconds(file.lastModified()),
+    )
+  }
 }
 
 /**

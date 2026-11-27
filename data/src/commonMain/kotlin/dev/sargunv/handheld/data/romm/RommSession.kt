@@ -10,7 +10,6 @@ import dev.sargunv.handheld.data.cache.LibrarySync
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -23,7 +22,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 
 /** Whether the device is signed in to a RomM server: [Unknown], [SignedOut] or a [RommAccount]. */
@@ -134,18 +132,17 @@ class RommSession(
   }
 
   private suspend fun syncLibrary(account: RommAccount) {
+    val librarySync = LibrarySync(account.client, library, account.credentials.userId)
     // A new request starts the sync over.
     syncRequests
       .onStart { emit(Unit) }
       .collectLatest {
         coroutineScope {
           launch { uploads.value = uploadAccess(account) }
-          syncStatus.value =
-            if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
+          syncStatus.value = if (librarySync.isFirst()) SyncStatus.FirstSync else SyncStatus.Syncing
           syncStatus.value =
             try {
-              // Reading the server's pages is work too, so it stays off the main thread.
-              withContext(Dispatchers.Default) { LibrarySync(account.client, library).sync() }
+              librarySync.sync()
               SyncStatus.Synced
             } catch (_: RommException.Unauthorized) {
               SyncStatus.Unauthorized

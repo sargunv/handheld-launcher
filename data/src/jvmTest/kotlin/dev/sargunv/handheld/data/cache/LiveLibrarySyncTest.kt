@@ -33,7 +33,7 @@ class LiveLibrarySyncTest {
   }
 
   private suspend fun check(client: RommClient, cache: LibraryCache) {
-    val sync = LibrarySync(client, cache)
+    val sync = LibrarySync(client, cache, client.me().id)
     sync.sync()
     val romCount = cache.romCount()
     assertEquals(client.romIds().size.toLong(), romCount)

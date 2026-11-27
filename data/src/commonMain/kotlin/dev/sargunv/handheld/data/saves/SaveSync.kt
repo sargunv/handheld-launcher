@@ -434,12 +434,7 @@ internal fun keepInHistory(
   var file = File(folder, prefix + name)
   var n = 1
   while (file.exists()) file = File(folder, "$prefix${n++}-$name")
-  Files.newOutputStream(file.toPath(), StandardOpenOption.CREATE_NEW, StandardOpenOption.SYNC).use {
-    it.write(bytes)
-  }
-  if (!file.readBytes().contentEquals(bytes)) {
-    throw IOException("History copy failed")
-  }
+  Files.write(file.toPath(), bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.SYNC)
   return file
 }
 

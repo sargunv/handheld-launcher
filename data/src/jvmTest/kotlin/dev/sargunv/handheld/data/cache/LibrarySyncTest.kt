@@ -18,6 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -97,7 +98,7 @@ class LibrarySyncTest {
         }
       }
     }
-  private val sync = LibrarySync(server.client, cache, pageSize = 2)
+  private val sync = LibrarySync(server.client, cache, userId = 1, pageSize = 2)
 
   /** The requests that walked the library's ROMs, leaving out the one for recently played ROMs. */
   private fun romRequests() =
@@ -244,11 +245,32 @@ class LibrarySyncTest {
           else -> respondError(HttpStatusCode.NotFound)
         }
       }
-    LibrarySync(other.client, cache).sync()
+    LibrarySync(other.client, cache, userId = 1).sync()
 
     assertNull(other.requests.first { it.apiPath == "roms" }.url.parameters["updated_after"])
     assertEquals(0, cache.romCount())
     assertEquals(emptyList(), cache.platforms().first())
+  }
+
+  @Test
+  fun startsOverForAnotherAccountOnTheSameServer() = runTest {
+    library.roms += mapOf(1L to "2025-01-01T00:00:00+00:00")
+    library.lastPlayed[1L] = "2025-02-01T00:00:00+00:00"
+    sync.sync()
+
+    val other = LibrarySync(server.client, cache, userId = 2, pageSize = 2)
+    assertTrue(other.isFirst())
+    // Even when the other account's sync fails, it sees none of the first account's library.
+    library.failRoms = true
+    assertFailsWith<RommException> { other.sync() }
+    assertEquals(0, cache.romCount())
+    assertEquals(emptyList(), cache.recentlyPlayed(10).first())
+
+    library.failRoms = false
+    server.requests.clear()
+    other.sync()
+    assertNull(romRequests().first().url.parameters["updated_after"])
+    assertEquals(1, cache.romCount())
   }
 
   @Test
