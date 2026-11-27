@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use handheld_session::{
     AudioSink, CapturedFrame, Frame, InputState, Session, SessionConfig, SessionError,
@@ -51,6 +52,19 @@ pub fn options(dir: &Path, core: &str, content: Option<&str>) -> SessionOptions 
         core_options: HashMap::new(),
         lower_screen_width_share: None,
         achievements: None,
+    }
+}
+
+/// How long a test waits for a session running on its own thread.
+pub const WAIT: Duration = Duration::from_secs(10);
+
+/// Polls `cond` until it holds, failing the test if it doesn't within
+/// [`WAIT`].
+pub fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
+    let deadline = Instant::now() + WAIT;
+    while !cond() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 

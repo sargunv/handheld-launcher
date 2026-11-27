@@ -7,9 +7,8 @@ mod common;
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
-use common::{Harness, lock, options, pixel};
+use common::{Harness, WAIT, lock, options, pixel, wait_until};
 use handheld_session::{
     AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionListener,
 };
@@ -85,11 +84,11 @@ fn takes_a_new_video_and_audio_mode_mid_game() {
 }
 
 /// A listener that says when the core quits.
-struct Forward(Mutex<Sender<()>>);
+struct Forward(Sender<()>);
 
 impl SessionListener for Forward {
     fn core_quit(&self) {
-        let _ = self.0.lock().unwrap().send(());
+        let _ = self.0.send(());
     }
 
     fn achievement_event(&self, _event: AchievementEvent) {}
@@ -99,14 +98,12 @@ fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<()>) {
     let (heard, receiver) = mpsc::channel();
     let session = GameSession::start(
         options(dir, CORE, None),
-        Some(Arc::new(Forward(Mutex::new(heard)))),
+        Some(Arc::new(Forward(heard))),
         None,
     )
     .unwrap();
     (session, receiver)
 }
-
-const WAIT: Duration = Duration::from_secs(10);
 
 #[test]
 fn info_follows_a_new_video_mode() {
@@ -116,11 +113,7 @@ fn info_follows_a_new_video_mode() {
     assert_eq!(session.info().base_width, 320);
     session.set_button(0, Button::Select, true);
     session.resume();
-    let deadline = Instant::now() + WAIT;
-    while session.info().base_width == 320 {
-        assert!(Instant::now() < deadline, "info kept the first video mode");
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    wait_until("the new video mode", || session.info().base_width != 320);
     let info = session.info();
     assert_eq!(
         (info.base_width, info.base_height, info.aspect_ratio),
@@ -144,14 +137,14 @@ fn tells_the_app_when_the_core_quits() {
 }
 
 /// A listener that stops its session when the core quits, as an app would.
-struct StopOnQuit(Mutex<Option<Arc<GameSession>>>, Mutex<Sender<()>>);
+struct StopOnQuit(Mutex<Option<Arc<GameSession>>>, Sender<()>);
 
 impl SessionListener for StopOnQuit {
     fn core_quit(&self) {
         if let Some(session) = self.0.lock().unwrap().take() {
             session.stop().unwrap();
         }
-        let _ = self.1.lock().unwrap().send(());
+        let _ = self.1.send(());
     }
 
     fn achievement_event(&self, _event: AchievementEvent) {}
@@ -162,7 +155,7 @@ fn the_listener_may_stop_the_session() {
     let _lock = lock();
     let dir = tempfile::tempdir().unwrap();
     let (stopped, receiver) = mpsc::channel();
-    let listener = Arc::new(StopOnQuit(Mutex::new(None), Mutex::new(stopped)));
+    let listener = Arc::new(StopOnQuit(Mutex::new(None), stopped));
     let session = GameSession::start(
         options(dir.path(), CORE, None),
         Some(listener.clone()),
