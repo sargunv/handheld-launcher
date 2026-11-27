@@ -29,6 +29,14 @@ class LibretroCoresTest {
   }
 
   @Test
+  fun anUnknownCoreFallsBackToThePlatformsCore() {
+    assertEquals(
+      LibretroCores.recommendedFor(PlatformCatalog.SNES),
+      LibretroCores.resolve("bsnes_libretro", PlatformCatalog.SNES),
+    )
+  }
+
+  @Test
   fun findsAReleaseAssetForAnAbi() {
     val source = LibretroCores.byLibrary("azahar_libretro")?.source
     assertTrue(source is CoreSource.GitHubRelease)

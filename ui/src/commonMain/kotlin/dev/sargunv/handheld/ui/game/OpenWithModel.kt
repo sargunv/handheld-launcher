@@ -163,8 +163,7 @@ internal fun appName(
   return core?.let { LibretroCores.resolve(it, platform) }?.let { withCore(name, it) } ?: name
 }
 
-private fun withCore(name: String, core: LibretroCore) =
-  "$name · ${core.retroArchFolder ?: core.library}"
+private fun withCore(name: String, core: LibretroCore) = "$name · ${core.retroArchFolder}"
 
 /** A line of the rule chain on the lower screen. [wins] marks the rule that opens the game. */
 internal data class ChainLine(val text: String, val wins: Boolean = false)
