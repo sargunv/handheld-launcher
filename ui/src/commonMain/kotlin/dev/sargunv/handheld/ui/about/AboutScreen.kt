@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import com.mikepenz.aboutlibraries.entity.Library
+import com.mikepenz.aboutlibraries.entity.License
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -47,9 +49,9 @@ import kotlinx.coroutines.launch
 
 /** The third-party components, or null until they're read. */
 @Composable
-private fun rememberComponents(info: AppInfo): List<Component>? {
-  val components by produceState<List<Component>?>(null, info) { value = info.components() }
-  return components
+private fun rememberLibraries(info: AppInfo): List<Library>? {
+  val libraries by produceState<List<Library>?>(null, info) { value = info.libraries() }
+  return libraries
 }
 
 /**
@@ -58,7 +60,7 @@ private fun rememberComponents(info: AppInfo): List<Component>? {
  */
 @Composable
 internal fun AboutScreen(state: AppState) {
-  val components = rememberComponents(state.appInfo)
+  val libraries = rememberLibraries(state.appInfo)
   // The lower screen describes a component only while this screen shows.
   DisposableEffect(state) {
     onDispose { if (state.focused is Focused.OnComponent) state.focused = null }
@@ -104,8 +106,8 @@ internal fun AboutScreen(state: AppState) {
           modifier = Modifier.padding(top = 8.dp).semantics { heading() },
         )
         when {
-          components == null -> Unit
-          components.isEmpty() ->
+          libraries == null -> Unit
+          libraries.isEmpty() ->
             Text("This build doesn't list its components.", color = Placeholder.mutedText)
           else ->
             FocusLazyColumn(
@@ -113,12 +115,12 @@ internal fun AboutScreen(state: AppState) {
               contentPadding = PaddingValues(vertical = 8.dp),
               verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-              items(components, key = { it.id }) { component ->
+              items(libraries, key = { it.uniqueId }) { library ->
                 ComponentRow(
-                  component,
-                  onFocus = { state.focused = Focused.OnComponent(component) },
+                  library,
+                  onFocus = { state.focused = Focused.OnComponent(library) },
                   onConfirm = {
-                    state.navigator.push(Screen.Licence(component.id, component.name))
+                    state.navigator.push(Screen.Licence(library.uniqueId, library.name))
                   },
                 )
               }
@@ -132,24 +134,31 @@ internal fun AboutScreen(state: AppState) {
 
 /** A component in About's list: its name, version and licences. */
 @Composable
-private fun ComponentRow(component: Component, onFocus: () -> Unit, onConfirm: () -> Unit) {
+private fun ComponentRow(library: Library, onFocus: () -> Unit, onConfirm: () -> Unit) {
   Column(
     Modifier.fillMaxWidth()
       .onFocusChanged { if (it.isFocused) onFocus() }
-      .focusItem("component:${component.id}", onConfirm = onConfirm)
+      .focusItem("component:${library.uniqueId}", onConfirm = onConfirm)
       .background(Placeholder.tile)
       .padding(horizontal = 20.dp, vertical = 10.dp),
   ) {
-    Text(component.name, color = Placeholder.text)
-    Text(component.summary, color = Placeholder.mutedText, fontSize = 14.sp)
+    Text(library.name, color = Placeholder.text)
+    Text(library.summary, color = Placeholder.mutedText, fontSize = 14.sp)
   }
 }
 
 /** A component's version and licences, in a line. */
-private val Component.summary: String
+private val Library.summary: String
   get() =
-    listOfNotNull(version, licences.joinToString(", ") { it.id }.ifEmpty { null })
+    listOfNotNull(
+        artifactVersion?.ifBlank { null },
+        licenses.joinToString(", ") { it.id }.ifEmpty { null },
+      )
       .joinToString(" · ")
+
+/** A licence's SPDX identifier, or its name when it has none. */
+private val License.id: String
+  get() = spdxId?.ifBlank { null } ?: name
 
 /**
  * A component's licence texts, from About. Up and down scroll a little; the shoulder buttons a page
@@ -157,7 +166,7 @@ private val Component.summary: String
  */
 @Composable
 internal fun LicenceScreen(state: AppState, screen: Screen.Licence) {
-  val component = rememberComponents(state.appInfo)?.find { it.id == screen.componentId }
+  val library = rememberLibraries(state.appInfo)?.find { it.uniqueId == screen.componentId }
   val list = rememberLazyListState()
   val scope = rememberCoroutineScope()
   val step = with(LocalDensity.current) { 120.dp.toPx() }
@@ -199,7 +208,7 @@ internal fun LicenceScreen(state: AppState, screen: Screen.Licence) {
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
       ) {
-        for ((index, licence) in component?.licences.orEmpty().withIndex()) {
+        for ((index, licence) in library?.licenses.orEmpty().withIndex()) {
           item(key = "licence:$index") {
             Text(
               licence.name,
@@ -213,7 +222,7 @@ internal fun LicenceScreen(state: AppState, screen: Screen.Licence) {
             )
           }
           // A paragraph at a time, so a long licence composes only what shows.
-          items(licence.text.trim().split(ParagraphBreak)) { paragraph ->
+          items(licence.licenseContent.orEmpty().trim().split(ParagraphBreak)) { paragraph ->
             Text(
               paragraph,
               color = Placeholder.text,
@@ -242,24 +251,28 @@ private val ParagraphBreak = Regex("""\n\s*\n""")
  */
 @Composable
 internal fun AboutSecondary(state: AppState, screen: Screen) {
-  val components = rememberComponents(state.appInfo)
-  val component =
+  val libraries = rememberLibraries(state.appInfo)
+  val library =
     when (screen) {
-      is Screen.Licence -> components?.find { it.id == screen.componentId }
-      else -> (state.focused as? Focused.OnComponent)?.component
+      is Screen.Licence -> libraries?.find { it.uniqueId == screen.componentId }
+      else -> (state.focused as? Focused.OnComponent)?.library
     } ?: return
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Text(
-      component.name,
+      library.name,
       color = Placeholder.text,
       fontSize = 24.sp,
       modifier = Modifier.semantics { heading() },
     )
-    component.version?.let { Text("Version $it", color = Placeholder.mutedText) }
-    component.description?.let { Text(it, color = Placeholder.mutedText) }
-    for (licence in component.licences) {
+    library.artifactVersion
+      ?.ifBlank { null }
+      ?.let {
+        Text("Version $it", color = Placeholder.mutedText)
+      }
+    library.description?.ifBlank { null }?.let { Text(it, color = Placeholder.mutedText) }
+    for (licence in library.licenses) {
       Text(licence.name, color = Placeholder.text, modifier = Modifier.testTag("about:licence"))
     }
-    component.website?.let { Text(it, color = Placeholder.mutedText) }
+    library.website?.ifBlank { null }?.let { Text(it, color = Placeholder.mutedText) }
   }
 }

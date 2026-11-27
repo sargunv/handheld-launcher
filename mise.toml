@@ -28,7 +28,7 @@ run = "hk fix --all"
 
 [tasks.build]
 description = "Build the Android and desktop apps and the session crate"
-run = ["./gradlew assemble", "cargo build --workspace"]
+run = "./gradlew assemble"
 
 [tasks.test]
 description = "Run the Kotlin and Rust tests"
