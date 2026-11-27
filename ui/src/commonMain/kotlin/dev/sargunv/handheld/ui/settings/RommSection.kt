@@ -125,7 +125,7 @@ internal fun LazyListScope.romm(section: RommSection) {
           try {
             state.romm.client()?.use { it.me().username } ?: "Unknown"
           } catch (_: RommException) {
-            "Couldn't ask the server"
+            "Unreachable"
           }
       }
     SettingRow(

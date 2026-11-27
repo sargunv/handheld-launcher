@@ -74,15 +74,15 @@ class LaunchDispatcher(private val context: Context) {
       context.startActivity(LaunchIntents.toIntent(command, contentUris))
       LaunchOutcome.Started(LaunchMethod.Intent)
     } catch (e: ActivityNotFoundException) {
-      LaunchOutcome.Failed("${command.packageName} can't open this: ${e.message}")
+      LaunchOutcome.Failed("Launch failed · ${command.packageName} can't open it")
     } catch (e: SecurityException) {
-      LaunchOutcome.Failed("${command.packageName} refused the launch: ${e.message}")
+      LaunchOutcome.Failed("Launch failed · ${command.packageName} refused it")
     } catch (e: FileUriExposedException) {
       // A `file://` URI, which only `am start` can hand over.
-      LaunchOutcome.Failed("${command.packageName} needs am start, which this device refused")
+      LaunchOutcome.Failed("Launch failed · ${command.packageName} needs am start")
     } catch (e: IllegalArgumentException) {
       // FileProvider serves only shared storage.
-      LaunchOutcome.Failed("Can't hand over the game's file: ${e.message}")
+      LaunchOutcome.Failed("Launch failed · ${e.message}")
     }
 
   /** Whether `am start` started [command]. */

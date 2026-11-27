@@ -110,7 +110,7 @@ class QuickMenuTest {
     onNodeWithTag("state:1").assert(expectValue(SemanticsProperties.Selected, true))
     press(listOf(Key.DirectionDown, Key.ButtonA))
     assertEquals(listOf("save 2"), session.calls)
-    onNodeWithTag("quick:message").assertTextEquals("Saved to slot 2.")
+    onNodeWithTag("quick:message").assertTextEquals("Saved · Slot 2")
     onNodeWithTag("quick:save").assertIsFocused()
     onNodeWithTag("state:2").assertTextEquals("2 · just now")
     onNodeWithTag("state:1").assertTextEquals("Empty", "1")
@@ -260,8 +260,7 @@ class QuickMenuTest {
     showMenu(FakeSession(achievements = GameAchievements.NoSet))
     onNodeWithTag("quick:achievements").assertTextEquals("Achievements", "None")
     press(List(4) { Key.DirectionDown } + Key.ButtonA)
-    onNodeWithTag("achievements:note")
-      .assertTextEquals("RetroAchievements has no achievements for this game.")
+    onNodeWithTag("achievements:note").assertTextEquals("No achievements")
     onNodeWithTag("achievements:note").assertIsFocused()
   }
 

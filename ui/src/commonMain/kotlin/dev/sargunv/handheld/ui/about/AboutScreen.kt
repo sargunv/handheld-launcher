@@ -107,8 +107,7 @@ internal fun AboutScreen(state: AppState) {
         )
         when {
           libraries == null -> Unit
-          libraries.isEmpty() ->
-            Text("This build doesn't list its components.", color = Placeholder.mutedText)
+          libraries.isEmpty() -> Text("No components listed", color = Placeholder.mutedText)
           else ->
             FocusLazyColumn(
               Modifier.weight(1f),

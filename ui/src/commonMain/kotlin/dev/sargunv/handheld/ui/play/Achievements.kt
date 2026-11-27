@@ -89,8 +89,8 @@ internal fun AchievementList(achievements: GameAchievements) {
     val note =
       when (achievements) {
         GameAchievements.Off -> "Off · Settings → RetroAchievements"
-        GameAchievements.Loading -> "Loading the game's achievements."
-        GameAchievements.NoSet -> "RetroAchievements has no achievements for this game."
+        GameAchievements.Loading -> "Loading"
+        GameAchievements.NoSet -> "No achievements"
         is GameAchievements.Failed -> achievements.reason
         is GameAchievements.Ready -> {
           val mode = if (achievements.hardcore) " · Hardcore" else ""

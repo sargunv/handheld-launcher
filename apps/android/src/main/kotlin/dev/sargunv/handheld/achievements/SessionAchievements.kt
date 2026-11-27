@@ -42,9 +42,10 @@ internal class SessionAchievementsHttp(
 /** What the player reads when the session's achievements fail. */
 internal fun AchievementFailure.message(): String =
   when (this) {
-    AchievementFailure.SignInExpired -> "Sign in to RetroAchievements again in Settings."
-    is AchievementFailure.SignIn -> "Couldn't sign in to RetroAchievements: $detail"
-    is AchievementFailure.LoadGame -> "Couldn't load the game's achievements: $detail"
+    AchievementFailure.SignInExpired ->
+      "RetroAchievements sign-in expired · Sign in again in Settings"
+    is AchievementFailure.SignIn -> "RetroAchievements sign-in failed · $detail"
+    is AchievementFailure.LoadGame -> "Achievements unavailable · $detail"
   }
 
 /** The session's achievements as the quick menu shows them. */
