@@ -33,6 +33,7 @@ import dev.sargunv.handheld.launch.PlayCompanion
 import dev.sargunv.handheld.launch.PlaySaves
 import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.ui.App
+import dev.sargunv.handheld.ui.AppPlatform
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -94,25 +95,34 @@ class MainActivity : ComponentActivity() {
     val app = handheldApp
     val settings = app.settingsFile.read()
     keepDownloadsRunning()
-    val saves = PlaySaves(app.saveSync)
+    val saves = PlaySaves(app.data.saveSync)
     val launcher =
       AndroidGameLauncher(
           activity = this,
           romm = app.data.romm,
           saves = saves,
-          builtIn = BuiltInPlayer(this, saves, app.builtInSaveFolders.saves, app.settingsFile),
+          builtIn = BuiltInPlayer(this, saves, app.data.builtInSaveFolders.saves, app.settingsFile),
           emulators = app.emulators,
           allFilesAccess = app.allFilesAccess,
           storageVolumes = { app.storageTargets().map { it.root } },
         )
         .also { player = it }
     val retroAchievements = retroAchievementsSignIn(this)
-    val apps = InstalledApps(this)
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
       AppInfo(app.versionName) {
         resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() }
       }
+    val platform =
+      AppPlatform(
+        device = device,
+        launcher = launcher,
+        apps = InstalledApps(this),
+        romHeaders = SessionRomHeaders,
+        retroAchievements = retroAchievements,
+        appInfo = appInfo,
+        gameState = app.data.builtInSaveFolders,
+      )
     val opens = openRequests.receiveAsFlow()
     val homes = homePresses.receiveAsFlow()
     setContent {
@@ -128,18 +138,11 @@ class MainActivity : ComponentActivity() {
         modifier = Modifier.exposeTestTags(),
         layout = layout,
         heldKeys = heldKeys,
-        romm = app.data.romm,
-        device = device,
-        library = app.data.library,
-        downloads = app.data.downloads,
-        games = app.data.games,
+        data = app.data,
+        platform = platform,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = app.settingsFile::write,
-        launcher = launcher,
-        retroAchievements = retroAchievements,
-        apps = apps,
-        romHeaders = SessionRomHeaders,
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(
@@ -151,8 +154,6 @@ class MainActivity : ComponentActivity() {
         },
         openRequests = opens,
         homePresses = homes,
-        appInfo = appInfo,
-        gameState = app.builtInSaveFolders,
       )
     }
   }

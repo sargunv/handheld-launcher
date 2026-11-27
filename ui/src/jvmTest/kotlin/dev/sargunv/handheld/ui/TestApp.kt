@@ -76,29 +76,38 @@ internal fun ComposeUiTest.launchApp(
     val scope = rememberCoroutineScope()
     val data = remember {
       val dataDir = Path(createTempDirectory("handheld-data").toString())
-      HandheldData(credentials, library, dataDir, { storage }, scope, engine = server)
+      HandheldData(
+        credentials,
+        library,
+        dataDir,
+        cacheDir = dataDir,
+        { storage },
+        scope,
+        engine = server,
+      )
     }
     downloads = data.downloads
     App(
       layout,
       heldKeys,
-      data.romm,
-      DeviceDescription("install-1", "Test device", "test", null),
-      data.library,
-      data.downloads,
-      data.games,
+      data,
+      remember {
+        AppPlatform(
+          DeviceDescription("install-1", "Test device", "test", null),
+          launcher,
+          apps,
+          romHeaders,
+          retroAchievements,
+          appInfo,
+          gameState,
+        )
+      },
       remember { Path(createTempDirectory("handheld-covers").toString()) },
       Modifier.trackHeldKeys(heldKeys),
       initialSettings = settings,
       saveSettings = saveSettings,
-      launcher = launcher,
-      apps = apps,
-      romHeaders = romHeaders,
       openRequests = remember { if (open != null) flowOf(open) else emptyFlow() },
       homePresses = homePresses,
-      appInfo = appInfo,
-      retroAchievements = retroAchievements,
-      gameState = gameState,
     )
   }
   return downloads

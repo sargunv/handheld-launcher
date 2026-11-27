@@ -5,7 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import dev.sargunv.handheld.data.auth.DeviceDescription
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
@@ -16,6 +16,7 @@ import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.PerGameState
+import dev.sargunv.handheld.ui.AppPlatform
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
@@ -47,31 +48,35 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** State the app's two screens share. */
+/** State the app's two screens share, over [data] and [platform]. */
 @Stable
 class AppState(
   settings: Settings,
-  /** The sign-in to the RomM server, its client and the library's sync. */
-  val romm: RommSession,
-  val library: LibraryCache,
-  val downloads: DownloadManager,
-  val games: DeviceGames,
-  val launcher: GameLauncher,
-  val apps: AppCatalog,
-  device: DeviceDescription,
-  /** Shares the state's flows while the screens collect them. */
-  scope: CoroutineScope,
-  /** The RetroAchievements account, on platforms whose games can earn achievements. */
-  val retroAchievements: RetroAchievementsState? = null,
-  /** What About says about this build. */
-  val appInfo: AppInfo = AppInfo.Unknown,
-  /** Reads what a game's file says about itself. */
-  val romHeaders: RomHeaders = RomHeaders.None,
+  data: HandheldData,
+  platform: AppPlatform,
   /**
-   * What the platform keeps per game besides the settings, such as the built-in session's saves.
+   * Shares the state's flows while the screens collect them, and runs RetroAchievements sign-ins.
    */
-  platformState: PerGameState = PerGameState.None,
+  scope: CoroutineScope,
 ) {
+  /** The sign-in to the RomM server, its client and the library's sync. */
+  val romm: RommSession = data.romm
+  val library: LibraryCache = data.library
+  val downloads: DownloadManager = data.downloads
+  val games: DeviceGames = data.games
+  val launcher: GameLauncher = platform.launcher
+  val apps: AppCatalog = platform.apps
+
+  /** The RetroAchievements account, on platforms whose games can earn achievements. */
+  val retroAchievements: RetroAchievementsState? =
+    platform.retroAchievements?.let { RetroAchievementsState(it, scope) }
+
+  /** What About says about this build. */
+  val appInfo: AppInfo = platform.appInfo
+
+  /** Reads what a game's file says about itself. */
+  val romHeaders: RomHeaders = platform.romHeaders
+
   var settings: Settings by mutableStateOf(settings)
 
   /** Everything kept per game: the settings, and what the platform keeps. */
@@ -81,7 +86,7 @@ class AppState(
         this.settings = this.settings.adopted(it)
         emptyList()
       },
-      platformState,
+      platform.gameState,
     )
 
   /** The game [play] is playing, whose state stays where it is until the game is over. */
@@ -116,7 +121,7 @@ class AppState(
   val libraryView = LibraryState(library, deviceStates, localGames) { libraryTab }
   val settingsView = SettingsView(romm, offersAchievements = retroAchievements != null)
 
-  val account = Account(romm, device)
+  val account = Account(romm, platform.device)
 
   private val homeStartRequests = Channel<Unit>(Channel.CONFLATED)
 
