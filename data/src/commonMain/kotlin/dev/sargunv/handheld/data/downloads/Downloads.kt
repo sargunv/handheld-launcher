@@ -57,7 +57,7 @@ data class Download(
   /** The size of the game on the server. */
   val sizeBytes: Long,
   val state: DownloadState = DownloadState.Queued,
-  /** Why the download failed, when it did and the error says. */
+  /** Why the download failed, when it did. */
   val error: String? = null,
   /** The root of the storage the game goes to, picked when the download first starts. */
   val storageRoot: String? = null,
@@ -95,7 +95,7 @@ private fun Download.status(progress: Map<Long, DownloadProgress>): RomStatus =
     DownloadState.Queued -> RomStatus.Queued
     DownloadState.Downloading ->
       progressIn(progress).let { RomStatus.Downloading(it.bytesDownloaded, it.totalBytes) }
-    DownloadState.Failed -> RomStatus.Failed(error.orEmpty())
+    DownloadState.Failed -> RomStatus.Failed(error)
   }
 
 /** Whether a ROM is on the device, or how far it's got. */
@@ -107,7 +107,7 @@ sealed interface RomStatus {
   data class Downloading(val bytesDownloaded: Long, val totalBytes: Long) : RomStatus
 
   /** The download failed, and waits in the queue for a retry. */
-  data class Failed(val error: String) : RomStatus
+  data class Failed(val error: String?) : RomStatus
 
   /** The ROM is at [path]: its file, or the folder that holds its files. */
   data class OnDevice(val path: String) : RomStatus

@@ -38,20 +38,20 @@ internal enum class SignInMethod {
 /** What went wrong signing in to [baseUrl]. */
 internal fun signInErrorMessage(error: Exception, baseUrl: String, method: SignInMethod): String =
   when (error) {
-    is RommException.Unreachable -> "Couldn't reach $baseUrl."
+    is RommException.Unreachable -> "Unreachable · $baseUrl"
     is RommException.Unauthorized,
-    is RommException.Forbidden -> "The server didn't accept this token."
-    is RommException.DeviceAuthExpired -> "The code expired before it was approved."
-    is RommException.DeviceAuthDenied -> "The sign-in was denied in RomM."
+    is RommException.Forbidden -> "Token refused"
+    is RommException.DeviceAuthExpired -> "Code expired"
+    is RommException.DeviceAuthDenied -> "Sign-in denied"
     is RommException.NotFound,
     is RommException.InvalidResponse ->
       when (method) {
-        SignInMethod.Code -> "$baseUrl doesn't offer sign-in with a code."
-        SignInMethod.Token -> "$baseUrl doesn't look like a RomM server."
+        SignInMethod.Code -> "No code sign-in · $baseUrl"
+        SignInMethod.Token -> "Not a RomM server · $baseUrl"
       }
-    is RommException.RateLimited -> "The server is busy. Try again in a minute."
-    is RommException.ServerError -> "The server had a problem (status ${error.status})."
-    else -> "Couldn't sign in: ${error.message}"
+    is RommException.RateLimited -> "Server busy · Try again in a minute"
+    is RommException.ServerError -> "Server error ${error.status}"
+    else -> listOfNotNull("Sign-in failed", error.message).joinToString(" · ")
   }
 
 /** The clipboard's text, or null when it holds none. */

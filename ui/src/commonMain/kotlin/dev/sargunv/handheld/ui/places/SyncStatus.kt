@@ -28,5 +28,11 @@ enum class SyncStatus {
       }
 
   /** What a list with nothing in it says: [synced] once synced, otherwise [label]. */
-  fun emptyLabel(synced: String): String = if (this == Synced) synced else label
+  fun emptyLabel(synced: String): String =
+    when (this) {
+      // The first sync starts as soon as the app opens.
+      NotStarted -> Syncing.label
+      Synced -> synced
+      else -> label
+    }
 }
