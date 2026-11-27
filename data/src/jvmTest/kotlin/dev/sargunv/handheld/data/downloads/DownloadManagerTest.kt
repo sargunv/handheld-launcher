@@ -161,6 +161,7 @@ class DownloadManagerTest {
         dev.sargunv.handheld.domain.Platform(2, "psx", "psx", "PlayStation", 1),
       ),
     )
+    library.upsertRoms(listOf(gameRom, sagaRom))
   }
 
   /** Serves a file's bytes from where the request's range starts, as RomM's file endpoint does. */
@@ -261,14 +262,20 @@ class DownloadManagerTest {
   fun downloadsAGameIntoItsPlatformFolder() = runTest {
     fillLibrary()
     val downloads = manager(backgroundScope, server())
-    assertEquals(RomStatus.NotOnDevice, downloads.status(gameRom).first())
+    val seen = Collections.synchronizedList(mutableListOf<RomStatus>())
+    backgroundScope.launch(Dispatchers.Default) { downloads.status(gameRom).collect { seen += it } }
+    waitFor { while (seen.isEmpty()) delay(10) }
+    assertEquals(listOf<RomStatus>(RomStatus.NotOnDevice), seen)
 
     assertTrue(downloads.enqueue(gameRom))
     downloads.awaitEmpty()
 
     val target = file("ROMs/gba/Game (USA).gba")
     assertContentEquals(game, target.readBytes())
-    assertEquals(RomStatus.OnDevice(target.path), downloads.status(gameRom).first())
+    waitFor { while (seen.last() !is RomStatus.OnDevice) delay(10) }
+    assertEquals(RomStatus.OnDevice(target.path), seen.last())
+    // A finished download goes straight to on the device.
+    assertFalse(RomStatus.NotOnDevice in seen.drop(1))
     assertEquals(listOf("roms/11/files/content/Game%20(USA).gba"), contentRequests())
     // A game on the device isn't queued again.
     assertFalse(downloads.enqueue(gameRom))
@@ -468,7 +475,6 @@ class DownloadManagerTest {
   @Test
   fun downloadsSkipStorageThatsOffButStillFindGamesOnIt() = runTest {
     fillLibrary()
-    library.upsertRoms(listOf(gameRom, sagaRom))
     val card = File(dir, "card").apply { mkdirs() }
     val own = StorageTarget(storage.path, "Device", "primary")
     val sd = StorageTarget(card.path, "SD card", "card")
@@ -496,7 +502,6 @@ class DownloadManagerTest {
   @Test
   fun listsTheLibrarysGamesOnTheDeviceAndInTheQueue() = runTest {
     fillLibrary()
-    library.upsertRoms(listOf(gameRom, sagaRom))
     val gba = file("ROMs/gba/Game (USA).gba").apply { parentFile.mkdirs() }
     gba.writeBytes(game)
     val downloads = manager(backgroundScope, server())

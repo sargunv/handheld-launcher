@@ -18,6 +18,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -27,12 +28,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -272,34 +271,34 @@ class DownloadManager(
       if (report) report(download, RommInstallStatus.Cancelled)
     }
 
-  /** Whether [rom] is on the device, or how far its download has got. */
-  fun status(rom: Rom): Flow<RomStatus> = flow {
-    val folder = library.platform(rom.platformId)?.fsSlug
-    emitAll(
-      combine(entries.map { list -> list.find { it.romId == rom.id } }, games.onDevice) {
-          download,
-          _ ->
-          download
-        }
-        .map { download ->
-          download?.status()
-            ?: folder?.let { games.locate(rom, it) }?.let { RomStatus.OnDevice(it.toString()) }
-            ?: RomStatus.NotOnDevice
-        }
-        .distinctUntilChanged(),
-    )
-  }
-    .flowOn(Dispatchers.IO)
+  /**
+   * Whether [rom] is on the device, or how far its download has got. A download leaves the queue
+   * once [games] shows the game in its place, and the game's place is read only after the download
+   * has left, so a finished download goes straight to on the device. [statuses] reads them in the
+   * same order.
+   */
+  @OptIn(ExperimentalCoroutinesApi::class)
+  fun status(rom: Rom): Flow<RomStatus> =
+    entries
+      .map { list -> list.find { it.romId == rom.id } }
+      .distinctUntilChanged()
+      .flatMapLatest { download ->
+        if (download != null) flowOf(download.status())
+        else games.onDevice.map { it[rom.id]?.let(RomStatus::OnDevice) ?: RomStatus.NotOnDevice }
+      }
+      .distinctUntilChanged()
 
   /**
    * The library's games that are on the device or in the queue, by ROM id. A game missing here is
    * only on the server.
    */
-  fun statuses(): Flow<Map<Long, RomStatus>> =
-    combine(games.onDevice, entries) { onDevice, queue ->
+  @OptIn(ExperimentalCoroutinesApi::class)
+  fun statuses(): Flow<Map<Long, RomStatus>> = entries.flatMapLatest { queue ->
+    games.onDevice.map { onDevice ->
       onDevice.mapValues { RomStatus.OnDevice(it.value) } +
         queue.associate { it.romId to it.status() }
     }
+  }
 
   /** The room each storage target has left. */
   suspend fun storageSpace(): List<StorageSpace> =
@@ -353,7 +352,7 @@ class DownloadManager(
     setState(download.romId) { it.copy(state = DownloadState.Downloading, error = null) }
     try {
       val outcome = withContext(Dispatchers.IO) { fetch(download) }
-      // The game shows on the device before it leaves the queue.
+      // The game shows on the device before it leaves the queue, as status() needs.
       games.rescan()
       // A request from the server may have joined the download while it ran.
       var current = download
