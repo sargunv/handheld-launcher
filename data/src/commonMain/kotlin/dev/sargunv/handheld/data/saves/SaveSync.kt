@@ -35,24 +35,12 @@ data class GameSave
 internal constructor(
   val romId: Long,
   val emulator: String,
-  internal val shape: SaveShape,
+  internal val unit: SaveUnit,
   val owner: String = emulator,
   val sharesWith: Set<String> = emptySet(),
 ) {
   internal val key: String
     get() = historyKey(romId, owner)
-}
-
-/** How an emulator keeps a game's save on this device. */
-internal sealed interface SaveShape {
-  /** One file, at the first of [candidates] that exists, most likely first. */
-  data class Files(val candidates: List<File>) : SaveShape
-
-  /** Folders or several files, which sync as one zip. */
-  data class Folders(val roots: SaveFolderRoots) : SaveShape
-
-  /** Folders on the emulator's shared PS2 memory cards, which sync as one per-game card. */
-  data class Cards(val roots: Ps2CardRoots) : SaveShape
 }
 
 /** What names the sync record and history of the ROM [romId]'s save that [owner] keeps. */
@@ -75,7 +63,7 @@ fun builtInGameSave(romId: Long, coreLibrary: String, saveRam: File): GameSave =
   GameSave(
     romId,
     BuiltInSaves.emulatorOf(coreLibrary),
-    SaveShape.Files(listOf(saveRam)),
+    FileUnit(listOf(saveRam)),
     owner = BUILT_IN_OWNER,
   )
 
@@ -185,10 +173,9 @@ class SaveSync(
   suspend fun sync(game: GameSave, emulatorMayRun: Boolean = false): SaveSyncResult =
     mutex.withLock {
       withContext(Dispatchers.IO) {
-        val unit = game.unit()
-        val local = unit.read()
+        val local = game.unit.read()
         when (val found = settle(game, local)) {
-          is SaveSyncResult.ServerNewer -> pull(game, unit, found.server, local, emulatorMayRun)
+          is SaveSyncResult.ServerNewer -> pull(game, found.server, local, emulatorMayRun)
           else -> found
         }
       }
@@ -203,7 +190,7 @@ class SaveSync(
    * @throws IOException when the save file can't be read.
    */
   suspend fun push(game: GameSave): PushResult = mutex.withLock {
-    withContext(Dispatchers.IO) { settle(game, game.unit().read()) }
+    withContext(Dispatchers.IO) { settle(game, game.unit.read()) }
   }
 
   /**
@@ -251,8 +238,7 @@ class SaveSync(
     emulatorMayRun: Boolean = false,
   ): SaveSyncResult.Resolved = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val unit = game.unit()
-      val local = unit.read() ?: throw IOException("Save missing")
+      val local = game.unit.read() ?: throw IOException("Save missing")
       val file = local.file
       when (keep) {
         SaveCopy.Device -> {
@@ -277,8 +263,8 @@ class SaveSync(
               e.message
             }
           val serverBytes = download(conflict.server)
-          val replaced = replace(game, unit, file, serverBytes, keptAs = kept)
-          recordPull(game, unit, conflict.server, serverBytes, replaced, emulatorMayRun)
+          val replaced = replace(game, file, serverBytes, keptAs = kept)
+          recordPull(game, conflict.server, serverBytes, replaced, emulatorMayRun)
           SaveSyncResult.Resolved(keep, file, conflict.server, uploadError)
         }
       }
@@ -296,35 +282,35 @@ class SaveSync(
 
   private suspend fun pull(
     game: GameSave,
-    unit: SaveUnit,
     server: RommSave,
     local: LocalCopy?,
     emulatorMayRun: Boolean,
   ): SaveSyncResult {
     // When the device has no save, the pull goes where the emulator would keep it, in a folder
     // that exists and can be written.
+    val unit = game.unit
     val target =
       local?.file ?: unit.target(server.fileName) ?: return SaveSyncResult.NoFolder(unit.folders())
     val bytes = download(server)
-    val replaced = replace(game, unit, target, bytes)
-    val written = recordPull(game, unit, server, bytes, replaced, emulatorMayRun)
+    val replaced = replace(game, target, bytes)
+    val written = recordPull(game, server, bytes, replaced, emulatorMayRun)
     return SaveSyncResult.Pulled(written?.file ?: target, server, replaced?.history)
   }
 
   /**
-   * Records [server]'s [bytes] as pulled into [unit], and returns the save there now. While the
-   * emulator may run, it can write its old save back as soon as the pull is in place, so the record
-   * keeps what the pull put there, not what's there now, and the [replaced] copy it may write back.
+   * Records [server]'s [bytes] as pulled into [game]'s save, and returns the save there now. While
+   * the emulator may run, it can write its old save back as soon as the pull is in place, so the
+   * record keeps what the pull put there, not what's there now, and the [replaced] copy it may
+   * write back.
    */
   private suspend fun recordPull(
     game: GameSave,
-    unit: SaveUnit,
     server: RommSave,
     bytes: ByteArray,
     replaced: Replaced?,
     emulatorMayRun: Boolean,
   ): LocalCopy? {
-    val written = unit.read()
+    val written = game.unit.read()
     if (emulatorMayRun) {
       record(game, contentHash(bytes), server, replaced?.hash)
     } else {
@@ -369,17 +355,16 @@ class SaveSync(
   private class Replaced(val hash: String, val history: File)
 
   /**
-   * Writes [bytes] in place of [unit]'s save, at [target]. A save already there is copied into the
+   * Writes [bytes] in place of [game]'s save, at [target]. A save already there is copied into the
    * history first, unless [keptAs] already holds it.
    */
   private fun replace(
     game: GameSave,
-    unit: SaveUnit,
     target: File,
     bytes: ByteArray,
     keptAs: File? = null,
   ): Replaced? {
-    val current = unit.read()
+    val current = game.unit.read()
     var replaced =
       when {
         current == null -> null
@@ -392,7 +377,7 @@ class SaveSync(
           )
       }
     // What the emulator wrote after the copy above is what the pull replaced, and may write back.
-    unit.write(current?.file ?: target, bytes, current?.hash) { changed ->
+    game.unit.write(current?.file ?: target, bytes, current?.hash) { changed ->
       replaced =
         Replaced(changed.hash, keepInHistory(game, SaveCopy.Device, changed.name, changed.bytes))
     }

@@ -181,8 +181,8 @@ internal class AndroidGameLauncher(
       val emulator =
         StandaloneEmulator(
           state,
-          askStillRunning = { offerClose ->
-            askStillRunning(StillRunning(request.title, name, offerClose))
+          askStillRunning = {
+            askStillRunning(StillRunning(request.title, name, canClose = closeEmulators))
           },
           close = if (closeEmulators) ({ emulators.close(packageName) }) else null,
         )

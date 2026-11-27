@@ -20,12 +20,12 @@ enum class StillRunningChoice {
 
 /**
  * The standalone emulator that keeps a game's save, as [state] says, for [beforeLaunch].
- * [askStillRunning] asks the player what to do when it may still hold the game, offering to close
- * it when there's a [close], which closes it and returns whether it's gone.
+ * [askStillRunning] asks the player what to do when it may still hold the game. [close], when
+ * there's one, closes it and returns whether it's gone.
  */
 class StandaloneEmulator(
   val state: EmulatorState,
-  val askStillRunning: suspend (canClose: Boolean) -> StillRunningChoice,
+  val askStillRunning: suspend () -> StillRunningChoice,
   val close: (suspend () -> Boolean)? = null,
 )
 
@@ -73,18 +73,16 @@ suspend fun SaveSync.beforeLaunch(
   val mayRun = state is EmulatorState.MayBeRunning
   // Shared PS2 cards hold every game's saves, so an emulator running any game holds them.
   val holds =
-    state is EmulatorState.MayBeRunning &&
-      (state.holds(game.romId) || game.shape is SaveShape.Cards)
+    state is EmulatorState.MayBeRunning && (state.holds(game.romId) || game.unit is Ps2CardUnit)
 
   // Pulls with [pull], asking first when the emulator holds the game.
   suspend fun guarded(found: SaveSyncResult, pull: suspend () -> BeforeLaunch): BeforeLaunch {
     if (!holds) return pull()
-    val close = emulator.close
-    return when (emulator.askStillRunning(close != null)) {
+    return when (emulator.askStillRunning()) {
       StillRunningChoice.QuitFirst -> BeforeLaunch.QuitFirst
       StillRunningChoice.PlayDeviceSave -> BeforeLaunch.Skipped(found)
       StillRunningChoice.CloseNow ->
-        if (close != null && close()) pull() else BeforeLaunch.CloseFailed
+        if (emulator.close?.invoke() == true) pull() else BeforeLaunch.CloseFailed
     }
   }
 

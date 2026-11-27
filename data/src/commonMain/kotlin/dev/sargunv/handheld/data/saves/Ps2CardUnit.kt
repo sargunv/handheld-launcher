@@ -26,15 +26,12 @@ import kotlinx.io.files.Path
  * one on slot 1's, and leaves every other game's saves alone. [folderCards] makes a slot 1 card the
  * launcher has to create a folder card, for an app that reads only those.
  */
-internal data class Ps2CardRoots(
+internal data class Ps2CardUnit(
   val roots: List<File>,
   val serial: String,
   val name: String,
   val folderCards: Boolean = false,
-)
-
-/** [Ps2CardRoots]'s saves, as [SaveSync] reads and writes them. */
-internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
+) : SaveUnit {
   /**
    * A card on the device as the launcher read it: a file card, or a folder card's saves of this
    * game on a scratch card. [bytes] is a file card's file as read.
@@ -98,7 +95,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     dir
       .listFiles()
       .orEmpty()
-      .filter { it.isDirectory && ps2Owner(it.name) == save.serial }
+      .filter { it.isDirectory && ps2Owner(it.name) == serial }
       .sortedWith(compareBy(CODE_POINTS) { it.name })
 
   /** The files of a folder card's save folder, by path inside it, in name order. */
@@ -121,10 +118,10 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     for (card in cards) {
       val listing = listing(card)
       listing.corrupt
-        .firstOrNull { ps2Owner(it) == save.serial }
+        .firstOrNull { ps2Owner(it) == serial }
         ?.let { throw IOException("Damaged save $it") }
       for (entry in listing.entries) {
-        if (entry.owner != save.serial || saves.any { it.first.name == entry.name }) continue
+        if (entry.owner != serial || saves.any { it.first.name == entry.name }) continue
         val lifted =
           try {
             card.card.extract(entry.firstCluster)
@@ -164,24 +161,24 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     }
     return LocalCopy(
       holding.first().file,
-      save.name,
+      name,
       bytes,
       md5(bytes),
       Instant.fromEpochMilliseconds(modified),
     )
   }
 
-  private fun root(): File? = save.roots.firstOrNull { it.isDirectory }
+  private fun root(): File? = roots.firstOrNull { it.isDirectory }
 
   override fun read(): LocalCopy? = root()?.let { collect(gather(it).cards) }
 
   // The emulator's memcards folder isn't created, since the emulator has to own it.
   override fun target(serverName: String): File? {
-    val root = save.roots.firstOrNull { it.isDirectory && it.canWrite() } ?: return null
+    val root = roots.firstOrNull { it.isDirectory && it.canWrite() } ?: return null
     return gather(root).primary
   }
 
-  override fun folders() = save.roots.map { it.path }
+  override fun folders() = roots.map { it.path }
 
   override fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit) {
     val incoming = unitSaves(bytes)
@@ -197,7 +194,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val placement = mutableMapOf<String, Card>()
     val changed = linkedSetOf<Card>()
     for (card in cards) {
-      for (entry in listing(card).entries.filter { it.owner == save.serial }) {
+      for (entry in listing(card).entries.filter { it.owner == serial }) {
         card.card.delete(entry.firstCluster)
         placement.putIfAbsent(entry.name, card)
         changed += card
@@ -207,7 +204,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       cards.firstOrNull { it.file == gathered.primary }
         ?: Card(
             gathered.primary,
-            folder = save.folderCards && !gathered.primary.isFile,
+            folder = folderCards && !gathered.primary.isFile,
             Ps2Card.format(),
             bytes = null,
           )
@@ -267,7 +264,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val folders =
       listing(card)
         .entries
-        .filter { it.owner == save.serial }
+        .filter { it.owner == serial }
         .map { entry ->
           val lifted = card.card.extract(entry.firstCluster)
           val files = Ps2FolderCard.unpack(lifted)
@@ -332,7 +329,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         throw IOException("Damaged save ${listing.corrupt.joinToString()}")
       }
       for (entry in listing.entries) {
-        if (entry.owner != save.serial || saves.any { it.name == entry.name }) continue
+        if (entry.owner != serial || saves.any { it.name == entry.name }) continue
         saves += card.extract(entry.firstCluster)
       }
     }
