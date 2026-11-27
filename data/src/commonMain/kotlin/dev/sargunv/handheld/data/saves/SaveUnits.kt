@@ -23,7 +23,7 @@ import kotlinx.io.files.Path
  * areas of [save] under the first of [roots], the emulator's save folders, that holds the game's
  * save, else the first that exists. It syncs as one zip.
  */
-data class SaveFolderRoots(val roots: List<File>, val save: FolderSave)
+internal data class SaveFolderRoots(val roots: List<File>, val save: FolderSave)
 
 /** A game's save as it is on the device: what syncs, and what it's checked by. */
 internal class LocalCopy(
