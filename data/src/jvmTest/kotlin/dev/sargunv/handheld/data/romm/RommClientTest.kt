@@ -80,8 +80,7 @@ class RommClientTest {
       val total = if (request.url.parameters["with_total"] == "true") roms.size else null
       json(Fixtures.page(roms.drop(offset).take(limit), total, limit, offset))
     }
-    val query = RomQuery(updatedAfter = Instant.parse("2025-01-01T00:00:00Z"), withFiles = true)
-    val pages = server.client.allRoms(query, pageSize = 2).toList()
+    val pages = server.client.allRoms(Instant.parse("2025-01-01T00:00:00Z"), pageSize = 2).toList()
 
     assertEquals(
       listOf(listOf(1L, 2L), listOf(3L, 4L), listOf(5L)),
@@ -113,7 +112,7 @@ class RommClientTest {
         ),
       )
     }
-    val pages = server.client.allRoms(pageSize = 2).toList()
+    val pages = server.client.allRoms(updatedAfter = null, pageSize = 2).toList()
     assertEquals(1, pages.size)
     assertEquals(2, server.requests.size)
   }

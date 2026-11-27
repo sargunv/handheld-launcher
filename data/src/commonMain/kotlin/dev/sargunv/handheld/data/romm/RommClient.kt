@@ -118,23 +118,21 @@ class RommClient(
 
   suspend fun platforms(): List<RommPlatform> = get("platforms")
 
-  /** One page of the ROMs that match [query]. */
-  suspend fun roms(
-    query: RomQuery = RomQuery(),
-    limit: Int = 50,
-    offset: Int = 0,
-  ): RommPage<RommRom> = romPage(query, limit, offset, withTotal = true)
-
   /**
-   * Every ROM that matches [query], a page at a time. Paging by offset can skip or repeat a ROM
-   * when the server's ROMs change during the walk.
+   * Every ROM with its files, or only those the server changed after [updatedAfter], a page at a
+   * time. Paging by offset can skip or repeat a ROM when the server's ROMs change during the walk.
    */
-  fun allRoms(query: RomQuery = RomQuery(), pageSize: Int = 200): Flow<RommPage<RommRom>> = flow {
-    require(pageSize in 1..MAX_PAGE_SIZE) { "pageSize must be in 1..$MAX_PAGE_SIZE" }
+  fun allRoms(updatedAfter: Instant?, pageSize: Int = 200): Flow<RommPage<RommRom>> = flow {
     var offset = 0
     var total: Int? = null
     while (true) {
-      val page = romPage(query, pageSize, offset, withTotal = total == null)
+      val page =
+        romPage(pageSize, offset, withTotal = total == null) {
+          updatedAfter?.let { append("updated_after", it.toString()) }
+          append("order_by", "id")
+          append("order_dir", "asc")
+          append("with_files", "true")
+        }
       total = total ?: page.total
       if (page.items.isEmpty()) break
       emit(page)
@@ -143,13 +141,24 @@ class RommClient(
     }
   }
 
-  private suspend fun romPage(query: RomQuery, limit: Int, offset: Int, withTotal: Boolean) =
+  /** The [limit] ROMs the user played last, most recent first, without their files. */
+  suspend fun recentlyPlayed(limit: Int): List<RommRom> =
+    romPage(limit, offset = 0, withTotal = false) {
+        append("last_played", "true")
+        append("order_by", "last_played")
+        append("order_dir", "desc")
+        append("with_files", "false")
+      }
+      .items
+
+  private suspend fun romPage(
+    limit: Int,
+    offset: Int,
+    withTotal: Boolean,
+    filters: ParametersBuilder.() -> Unit,
+  ) =
     get<RommPage<RommRom>>("roms") {
-      query.updatedAfter?.let { append("updated_after", it.toString()) }
-      query.lastPlayed?.let { append("last_played", it.toString()) }
-      append("order_by", query.orderBy.apiName)
-      append("order_dir", if (query.descending) "desc" else "asc")
-      append("with_files", query.withFiles.toString())
+      filters()
       append("with_total", withTotal.toString())
       // The indexes back the web page's virtual scroll, and cost a scan of the whole result.
       append("with_char_index", "false")
@@ -168,15 +177,13 @@ class RommClient(
 
   suspend fun smartCollections(): List<RommSmartCollection> = get("collections", "smart")
 
-  /** The firmware the server has, for one platform or for all of them. */
-  suspend fun firmware(platformId: Long? = null): List<RommFirmware> =
-    get("firmware") {
-      platformId?.let { append("platform_id", it.toString()) }
-    }
+  /** The firmware the server has for a platform. */
+  suspend fun firmware(platformId: Long): List<RommFirmware> =
+    get("firmware") { append("platform_id", platformId.toString()) }
 
-  /** The user's saves, optionally narrowed to a ROM. */
-  suspend fun saves(romId: Long? = null): List<RommSave> =
-    get("saves") { romId?.let { append("rom_id", it.toString()) } }
+  /** The user's saves of a ROM. */
+  suspend fun saves(romId: Long): List<RommSave> =
+    get("saves") { append("rom_id", romId.toString()) }
 
   /** The install requests for a device that are pending or that it has taken, oldest first. */
   suspend fun installRequests(deviceId: String): List<RommInstallRequest> =
@@ -489,29 +496,6 @@ class RommClient(
     }
     token?.let { bearerAuth(it) }
   }
-
-  companion object {
-    /** The largest page `GET /api/roms` serves. */
-    const val MAX_PAGE_SIZE = 10_000
-  }
-}
-
-/** Filters and order for listing ROMs. */
-data class RomQuery(
-  /** ROMs the server changed after this time. */
-  val updatedAfter: Instant? = null,
-  /** ROMs the signed-in user has played (true) or hasn't (false), or all ROMs when null. */
-  val lastPlayed: Boolean? = null,
-  /** Whether to include each ROM's files. */
-  val withFiles: Boolean = false,
-  val orderBy: RomOrder = RomOrder.Id,
-  val descending: Boolean = false,
-)
-
-enum class RomOrder(internal val apiName: String) {
-  Id("id"),
-  /** When the signed-in user last played the ROM. */
-  LastPlayed("last_played"),
 }
 
 /** The JSON format of RomM's API, which tolerates fields and values this client doesn't know. */
