@@ -228,8 +228,7 @@ class LocalGameTest {
     val launcher = FakeLauncher()
     openHomebrew(launcher)
     onNodeWithText("Game Boy · 8 bytes · Not on your server").assertExists()
-    onNodeWithTag("game:saves-local")
-      .assert(hasText("Saves stay on this device until the game is on your server."))
+    onNodeWithTag("game:saves-local").assert(hasText("Saves kept on this device"))
     awaitText("Opens in Test Emulator")
 
     press(Key.ButtonA)
@@ -272,7 +271,7 @@ class LocalGameTest {
     press(Key.ButtonX)
     assertFocused("menu:remove")
     press(Key.ButtonA)
-    awaitText("you can't download it again")
+    awaitText("Can't download it again")
     // Cancel has focus first.
     assertFocused("remove:cancel")
     press(Key.ButtonA)
@@ -297,7 +296,7 @@ class LocalGameTest {
       RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
     }
     // The page is the server's game's now, which has its saves on RomM.
-    awaitText("No saves on RomM yet.")
+    awaitText("No saves on RomM")
     onNodeWithTag("game:saves-local").assertDoesNotExist()
     onNodeWithText("Homebrew (World)").assertExists()
     onNodeWithTag("primary").assertIsFocused()
@@ -364,16 +363,10 @@ class LocalGameTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     // A pasted token's permissions aren't known, so its sign-in may be why.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText(
-        "RomM didn't allow the upload: Forbidden. This device's sign-in may not have " +
-          "permission to upload games.",
-      )
-      .assertExists()
+    onNodeWithText("Upload not allowed · This sign-in may not allow it").assertExists()
     assertFocused("allowUploads:cancel")
     press(Key.ButtonA)
-    awaitText(
-      "RomM didn't allow the upload: Forbidden. Your account needs permission to upload games.",
-    )
+    awaitText("Upload not allowed · Your account needs upload permission")
     assertEquals(listOf("roms/upload/start"), uploadRequests.toList())
     onNodeWithTag("primary").assertTextEquals("Play")
     onNodeWithTag("game:saves-local").assertExists()
@@ -390,7 +383,7 @@ class LocalGameTest {
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitTag("upload:confirm")
     press(listOf(Key.DirectionRight, Key.ButtonA))
-    awaitText("Your account needs permission to upload games.")
+    awaitText("Upload not allowed · Your account needs upload permission")
     onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
   }
 
@@ -404,7 +397,7 @@ class LocalGameTest {
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     // It asks before anything goes to the server.
     awaitText("Sign in again to allow uploads?")
-    onNodeWithText("This sign-in doesn't allow uploads.").assertExists()
+    onNodeWithText("Uploads not allowed by this sign-in").assertExists()
     onNodeWithTag("upload:confirm").assertDoesNotExist()
     assertFocused("allowUploads:cancel")
     press(listOf(Key.DirectionRight, Key.ButtonA))
@@ -426,7 +419,7 @@ class LocalGameTest {
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
-    awaitText("Your RomM account can't upload games.")
+    awaitText("Uploads not allowed for your RomM account")
     onNodeWithTag("allowUploads:cancel").assertDoesNotExist()
     onNodeWithTag("upload:confirm").assertDoesNotExist()
     assertEquals(emptyList(), uploadRequests.toList())

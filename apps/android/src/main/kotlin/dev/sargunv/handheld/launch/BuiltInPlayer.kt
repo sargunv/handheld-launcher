@@ -9,7 +9,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import dev.sargunv.handheld.data.cores.InstalledCores
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.builtInGameSave
-import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
 import dev.sargunv.handheld.domain.emulator.LibretroCores
@@ -31,8 +30,7 @@ import kotlinx.io.files.Path
  */
 class BuiltInPlayer(private val activity: ComponentActivity, private val playSaves: PlaySaves) {
   private val coresDir = Path(activity.filesDir.path, "cores")
-  private val saveFolders = activity.handheldApp.builtInSaveFolders
-  private val saves = saveFolders.saves
+  private val saves = activity.handheldApp.builtInSaveFolders.saves
 
   /**
    * Plays [request]'s game in [core], a libretro core's library name, or the platform's recommended
@@ -50,7 +48,7 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
     val chosen =
       core?.let(LibretroCores::byLibrary)
         ?: LibretroCores.recommendedFor(request.platform)
-        ?: return note("No libretro core runs this game's platform.")
+        ?: return note("No core for this platform")
     val coreFile =
       try {
         // The app's native libraries are built for the device's first ABI.
@@ -61,13 +59,11 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
           }
         }
       } catch (e: IOException) {
-        return note("Couldn't download the game's core: ${e.message}")
+        return note("Core download failed · ${e.message}")
       }
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)
     val rom = request.game as? GameKey.Romm
-    // The scan that matched the game's file may not have handed its saves over yet.
-    rom?.let { saveFolders.adopt(listOf(Adoption(GameKey.Local(request.romPath), it))) }
     val settings =
       withContext(Dispatchers.IO) {
         // Made before the sync, which pulls a save only into a folder that exists.
@@ -94,10 +90,10 @@ class BuiltInPlayer(private val activity: ComponentActivity, private val playSav
       )
     val result = awaitResult(SessionActivity.intent(activity, launch)).data
     result?.getStringExtra(SessionActivity.EXTRA_START_ERROR)?.let {
-      return note("Couldn't start the game: $it")
+      return note("Launch failed · $it")
     }
     val saveError = result?.getStringExtra(SessionActivity.EXTRA_SAVE_ERROR)
-    if (saveError != null) note("The game's save couldn't be written: $saveError")
+    if (saveError != null) note("Save write failed · $saveError")
     else Log.i(TAG, "Back from the game in ${chosen.library}")
     // When a write failed, the file still holds the last whole save.
     if (game != null) playSaves.afterPlay(game, note)

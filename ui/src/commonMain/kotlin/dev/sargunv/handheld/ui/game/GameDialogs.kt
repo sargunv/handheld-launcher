@@ -64,8 +64,8 @@ internal fun RemoveDialog(game: LibraryGame, onDismissRequest: () -> Unit, onRem
     onDismissRequest = onDismissRequest,
     fact =
       when (game) {
-        is Rom -> "Its saves stay here and on RomM."
-        is LocalGame -> "It isn't on your server, so you can't download it again."
+        is Rom -> "Saves stay here and on RomM"
+        is LocalGame -> "Not on your server · Can't download it again"
       },
   )
 }
@@ -92,7 +92,7 @@ internal fun StopUploadDialog(title: String, onKeep: () -> Unit, onStop: () -> U
     "Stop upload",
     onConfirm = onStop,
     onDismissRequest = onKeep,
-    fact = "RomM drops what it received so far.",
+    fact = "RomM discards the part it received",
     cancelLabel = "Keep uploading",
   )
 }
@@ -106,7 +106,7 @@ internal fun LeaveDialog(title: String, onStay: () -> Unit, onLeave: () -> Unit)
     "Leave",
     onConfirm = onLeave,
     onDismissRequest = onStay,
-    fact = "The launch stops, and a game already running won't sync its save.",
+    fact = "Stops the launch · A running game's save won't sync",
     cancelLabel = "Stay",
   )
 }

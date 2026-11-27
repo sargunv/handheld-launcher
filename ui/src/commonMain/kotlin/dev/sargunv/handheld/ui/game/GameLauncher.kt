@@ -77,7 +77,7 @@ interface GameLauncher {
       closeEmulators: Boolean,
       askStillRunning: suspend (StillRunning) -> StillRunningChoice,
       chooseSave: suspend (SaveConflict) -> SaveCopy?,
-    ): List<String> = listOf("Playing games isn't available on this device yet.")
+    ): List<String> = listOf("Can't play on this device")
 
     override suspend fun keptSaves(game: LibraryGame): List<KeptSave> = emptyList()
   }

@@ -185,7 +185,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         val options = appOptions(context.platform, context.apps)
         if (options.isEmpty()) {
           Text(
-            "No apps on this device can open games.",
+            "No apps on this device",
             color = Placeholder.mutedText,
             modifier = Modifier.weight(1f),
           )
@@ -224,7 +224,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
           )
           if ((scope as? OpenWithScope.Game)?.game is GameKey.Local) {
             Text(
-              "Kept for this file, then for its game once it's on your server.",
+              "Kept for this file · Moves to its game once on your server",
               color = Placeholder.mutedText,
             )
           }
@@ -302,7 +302,7 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
       )
     }
     Text(
-      "The most specific choice wins: game, then collection, then platform.",
+      "Game, then collection, then platform",
       color = Placeholder.mutedText,
     )
   }

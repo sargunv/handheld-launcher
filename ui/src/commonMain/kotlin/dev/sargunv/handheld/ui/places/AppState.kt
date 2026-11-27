@@ -13,6 +13,7 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
@@ -40,6 +41,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -80,11 +82,13 @@ class AppState(
       platformState,
     )
 
-  /**
-   * The game a launch from its page is playing, whose state stays where it is until the game is
-   * over.
-   */
+  /** The game [play] is playing, whose state stays where it is until the game is over. */
   var playing: GameKey? by mutableStateOf(null)
+    private set
+
+  /** What [adoptMatchedFiles] last handed over. */
+  private val adopted = MutableStateFlow(emptyList<Adoption>())
+
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
@@ -264,16 +268,36 @@ class AppState(
     }
 
   /**
+   * Runs [play], the launch of [game], once any file the latest scan matched to [game] has handed
+   * it what was kept for the file. What's kept for [game] stays where it is until [play] returns.
+   */
+  suspend fun <T> play(game: GameKey, play: suspend () -> T): T {
+    if (game is GameKey.Romm) {
+      combine(games.adoptions, adopted) { all, done -> all.none { it.rom == game && it !in done } }
+        .first { it }
+    }
+    playing = game
+    try {
+      return play()
+    } finally {
+      playing = null
+    }
+  }
+
+  /**
    * The one adopt step: each file on the device that's a ROM's hands what's kept for it as a local
    * game to the ROM, and the ROM takes the local game's place on the way back. The game [playing]
-   * holds waits until it's over. It runs until cancelled.
+   * holds waits until it's over, and a ROM about to [play] waits for this. It runs until cancelled.
    */
   suspend fun adoptMatchedFiles() {
     combine(games.adoptions, snapshotFlow { playing }) { adoptions, playing ->
         adoptions.filterNot { playing == it.local || playing == it.rom }
       }
       .distinctUntilChanged()
-      .onEach { gameState.adopt(it) }
+      .onEach {
+        gameState.adopt(it)
+        adopted.value = it
+      }
       .combine(snapshotFlow { navigator.backStack.toList() }) { adoptions, _ -> adoptions }
       .collect { adoptions ->
         val roms = adoptions.associate { it.local to it.rom }

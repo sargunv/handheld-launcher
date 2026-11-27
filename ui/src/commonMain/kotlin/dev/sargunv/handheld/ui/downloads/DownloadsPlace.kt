@@ -169,8 +169,11 @@ private fun statusText(download: Download, progress: DownloadProgress): String =
       val percent = if (total > 0) bytes * 100 / total else 0
       "${formatSize(bytes)} of ${formatSize(total)} · $percent%"
     }
-    DownloadState.Failed -> listOfNotNull("Download failed", download.error).joinToString(" · ")
+    DownloadState.Failed -> downloadFailedLabel(download.error)
   }
+
+internal fun downloadFailedLabel(error: String?): String =
+  listOfNotNull("Download failed", error).joinToString(" · ")
 
 /**
  * The room each storage target has left, read again every few seconds while [active], since

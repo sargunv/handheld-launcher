@@ -48,7 +48,7 @@ class BuiltInSaveFoldersTest {
     assertEquals("state", File(own, "uCity.state1").readText())
     assertFalse(local.exists())
     // The folders that named the file's path go too.
-    assertFalse(File(saves.localFolderOf("/storage")).exists())
+    assertFalse(File(saves.localRoot, "storage").exists())
     assertEquals(emptyList(), keptSaves(history, 7))
   }
 
