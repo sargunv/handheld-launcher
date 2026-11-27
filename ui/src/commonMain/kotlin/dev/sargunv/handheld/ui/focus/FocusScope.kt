@@ -220,15 +220,9 @@ internal fun FocusScope(
     val isActive by remember(state) { derivedStateOf { state.isActive } }
     // Restore on becoming active even if something here already has focus, because Android may
     // have handed it to the first item.
-    LaunchedEffect(isActive) {
-      if (isActive) {
-        // Lazy layouts compose their items during layout, so wait for a frame to find them.
-        withFrameNanos {}
-        state.restore()
-      }
-    }
     LaunchedEffect(isActive, state.hasFocus) {
-      if (isActive && !state.hasFocus) {
+      if (isActive && (state.restorePending || !state.hasFocus)) {
+        // Lazy layouts compose their items during layout, so wait for a frame to find them.
         withFrameNanos {}
         state.restore()
       }
