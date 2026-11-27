@@ -59,6 +59,7 @@ import dev.sargunv.handheld.ui.places.MainPrimary
 import dev.sargunv.handheld.ui.places.MainSecondary
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
+import dev.sargunv.handheld.ui.places.open
 import dev.sargunv.handheld.ui.places.signedIn
 import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
@@ -220,7 +221,7 @@ fun App(
   }
   val dialogs = remember { Dialogs() }
   CompositionLocalProvider(LocalDialogs provides dialogs) {
-    ActionInputRoot(state.inputSettings, heldKeys, modifier) {
+    ActionInputRoot(state.settings.input, heldKeys, modifier) {
       FocusRoot {
         val scopes = LocalFocusScopes.current
         LaunchedEffect(homePresses, scopes, state) {

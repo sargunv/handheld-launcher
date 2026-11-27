@@ -10,10 +10,11 @@ import dev.sargunv.handheld.ui.places.AppState
 internal fun LazyListScope.controls(state: AppState) {
   sectionHeading("Controls")
   item(key = "confirm") {
-    val confirm =
-      when (state.inputSettings.confirmButton) {
-        ConfirmButton.A -> PadButton.A
-        ConfirmButton.B -> PadButton.B
+    val input = state.settings.input
+    val (confirm, other) =
+      when (input.confirmButton) {
+        ConfirmButton.A -> PadButton.A to ConfirmButton.B
+        ConfirmButton.B -> PadButton.B to ConfirmButton.A
       }
     SettingRow(
       state.settingsView,
@@ -21,14 +22,17 @@ internal fun LazyListScope.controls(state: AppState) {
       "Confirm button",
       confirm.label,
       "Which face button confirms. The other one goes back.",
-      onConfirm = state::swapConfirmButton,
+      onConfirm = {
+        state.settings = state.settings.copy(input = input.copy(confirmButton = other))
+      },
     )
   }
   item(key = "aButton") {
-    val position =
-      when (state.inputSettings.aButtonPosition) {
-        AButtonPosition.South -> "Bottom"
-        AButtonPosition.East -> "Right"
+    val input = state.settings.input
+    val (position, other) =
+      when (input.aButtonPosition) {
+        AButtonPosition.South -> "Bottom" to AButtonPosition.East
+        AButtonPosition.East -> "Right" to AButtonPosition.South
       }
     SettingRow(
       state.settingsView,
@@ -37,7 +41,9 @@ internal fun LazyListScope.controls(state: AppState) {
       position,
       "Where this device's A button sits, so games in Built-in get the button they expect " +
         "in each place.",
-      onConfirm = state::switchAButtonPosition,
+      onConfirm = {
+        state.settings = state.settings.copy(input = input.copy(aButtonPosition = other))
+      },
     )
   }
 }

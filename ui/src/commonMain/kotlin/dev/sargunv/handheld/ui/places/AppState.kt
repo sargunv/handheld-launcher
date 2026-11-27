@@ -21,36 +21,28 @@ import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.GameLauncher
-import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.RomHeaders
-import dev.sargunv.handheld.ui.input.AButtonPosition
-import dev.sargunv.handheld.ui.input.ConfirmButton
-import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.library.DeviceState
-import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryState
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.deviceStatesOf
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /** State the app's two screens share. */
 @Stable
@@ -90,8 +82,11 @@ class AppState(
   var playing: GameKey? by mutableStateOf(null)
     private set
 
-  /** What [adoptMatchedFiles] last handed over. */
-  private val handedOver = MutableStateFlow(emptyList<Adoption>())
+  /** Held while adopting and while [play] sets [playing], so nothing adopts the game it plays. */
+  private val adoption = Mutex()
+
+  /** The adoptions still listed that [adopt] has handed over. */
+  private var handedOver = emptySet<Adoption>()
 
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
@@ -119,9 +114,6 @@ class AppState(
 
   /** The requests to start over on Home, which [MainPrimary] carries out. */
   internal val homeStarts: Flow<Unit> = homeStartRequests.receiveAsFlow()
-
-  val inputSettings: InputSettings
-    get() = settings.input
 
   /** The Library tab that shows, which stays between launches. */
   var libraryTab: LibraryTab
@@ -183,67 +175,6 @@ class AppState(
     }
 
   /**
-   * Shows [target], on top of the places, as if the player had gone there. A game or platform that
-   * the cache doesn't hold yet shows once the sync under way brings it, if it does.
-   */
-  suspend fun open(target: OpenTarget) {
-    navigator.backToStart()
-    when (target) {
-      is OpenTarget.AtPlace -> showPlace(target.place)
-      is OpenTarget.Game -> {
-        val rom = library.rom(target.romId) ?: awaitSync().let { library.rom(target.romId) }
-        if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
-      }
-      is OpenTarget.Local -> {
-        suspend fun find() = games.localGame(target.path).first { it != null }
-        // A scan before the sync brings the platforms finds no local games, so a file not found
-        // yet gets a while after it for the scan that follows.
-        val local =
-          find().takeUnless { it == LocalGameState.Gone }
-            ?: awaitSync().let {
-              withTimeoutOrNull(LOCAL_SCAN_WAIT) {
-                games.localGame(target.path).first {
-                  it is LocalGameState.Local || it is LocalGameState.Matched
-                }
-              }
-            }
-        // The file may have matched a game of the library since.
-        when (local) {
-          is LocalGameState.Local -> navigator.push(Screen.Game(local.game.key, local.game.title))
-          is LocalGameState.Matched ->
-            library.rom(local.romId)?.let { navigator.push(Screen.Game(it.id, it.title)) }
-          LocalGameState.Gone,
-          null -> Unit
-        }
-      }
-      is OpenTarget.Library -> {
-        showPlace(Place.Library)
-        libraryView.close()
-        target.tab?.let { libraryTab = it }
-      }
-      is OpenTarget.LibraryPlatform -> {
-        showPlace(Place.Library)
-        libraryView.close()
-        suspend fun find() = library.platforms().first().find { it.slug == target.slug }
-        val platform = find() ?: awaitSync().let { find() } ?: return
-        openShelf(LibraryTab.Platforms, LibraryShelf.OfPlatform(platform).key)
-      }
-      is OpenTarget.LibraryCollection -> {
-        showPlace(Place.Library)
-        libraryView.close()
-        suspend fun find() =
-          library.collections().first().find { it.kind == target.kind && it.id == target.id }
-        val collection = find() ?: awaitSync().let { find() } ?: return
-        openShelf(LibraryTab.Collections, LibraryShelf.OfCollection(collection).key)
-      }
-      is OpenTarget.Settings -> {
-        showPlace(Place.Settings)
-        target.section?.let(settingsView::jumpTo)
-      }
-    }
-  }
-
-  /**
    * The game [key] names: a ROM from the library, or a local game once the scan of the platforms'
    * folders has found it. Null when there's no such game, such as a file that's gone or now matches
    * a ROM.
@@ -260,13 +191,10 @@ class AppState(
    * it what was kept for the file. What's kept for [game] stays where it is until [launch] returns.
    */
   suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> {
-    if (game is GameKey.Romm) {
-      combine(games.adoptions, handedOver) { all, done ->
-          all.none { it.rom == game && it !in done }
-        }
-        .first { it }
+    adoption.withLock {
+      adopt(games.adoptions.first().filter { it.rom == game })
+      playing = game
     }
-    playing = game
     try {
       return launch()
     } finally {
@@ -276,61 +204,23 @@ class AppState(
 
   /**
    * The one adopt step: each file on the device that's a ROM's hands what's kept for it as a local
-   * game to the ROM, and the ROM takes the local game's place on the way back. The game [playing]
-   * holds waits until it's over, and a ROM about to [play] waits for this. It runs until cancelled.
+   * game to the ROM. The game [playing] holds waits until it's over. It runs until cancelled.
    */
   suspend fun adoptMatchedFiles() {
-    combine(games.adoptions, snapshotFlow { playing }) { adoptions, playing ->
-        adoptions.filterNot { playing == it.local || playing == it.rom }
-      }
-      .distinctUntilChanged()
-      .onEach {
-        gameState.adopt(it)
-        handedOver.value = it
-      }
-      .combine(snapshotFlow { navigator.backStack.toList() }) { adoptions, _ -> adoptions }
+    combine(games.adoptions, snapshotFlow { playing }) { adoptions, _ -> adoptions }
       .collect { adoptions ->
-        val roms = adoptions.associate { it.local to it.rom }
-        for (screen in navigator.backStack.toList()) {
-          val replacement =
-            when (screen) {
-              is Screen.Game ->
-                roms[screen.key]
-                  ?.let { library.rom(it.romId) }
-                  ?.let { Screen.Game(it.id, it.title) }
-              is Screen.OpenWith ->
-                (screen.scope as? OpenWithScope.Game)
-                  ?.let { roms[it.game] }
-                  ?.let { screen.copy(scope = OpenWithScope.Game(it)) }
-              else -> null
-            }
-          if (replacement != null) navigator.replace(screen, replacement)
+        adoption.withLock {
+          handedOver = handedOver intersect adoptions.toSet()
+          adopt(adoptions.filterNot { playing == it.local || playing == it.rom })
         }
       }
   }
 
-  private suspend fun awaitSync() {
-    romm.sync.first { it.isDone }
-  }
-
-  fun swapConfirmButton() {
-    val swapped =
-      when (inputSettings.confirmButton) {
-        ConfirmButton.A -> ConfirmButton.B
-        ConfirmButton.B -> ConfirmButton.A
-      }
-    settings = settings.copy(input = inputSettings.copy(confirmButton = swapped))
-  }
-
-  fun switchAButtonPosition() {
-    val switched =
-      when (inputSettings.aButtonPosition) {
-        AButtonPosition.South -> AButtonPosition.East
-        AButtonPosition.East -> AButtonPosition.South
-      }
-    settings = settings.copy(input = inputSettings.copy(aButtonPosition = switched))
+  /** Hands over what's kept for each of [pending] that isn't handed over yet, under [adoption]. */
+  private suspend fun adopt(pending: List<Adoption>) {
+    val new = pending - handedOver
+    if (new.isEmpty()) return
+    gameState.adopt(new)
+    handedOver += new
   }
 }
-
-/** How long opening a local game waits for the scan after a sync to find it. */
-private val LOCAL_SCAN_WAIT = 10.seconds

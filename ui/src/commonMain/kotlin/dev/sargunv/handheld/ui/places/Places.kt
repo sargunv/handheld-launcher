@@ -20,6 +20,7 @@ import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -49,6 +50,7 @@ import dev.sargunv.handheld.ui.downloads.StorageSummary
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.game.GameScreen
 import dev.sargunv.handheld.ui.game.GameSecondary
+import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.OpenWithScreen
 import dev.sargunv.handheld.ui.game.OpenWithSecondary
 import dev.sargunv.handheld.ui.home.HomePlace
@@ -59,6 +61,8 @@ import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 
 /** The top-level pages, which the main menu goes to. */
 enum class Place(val title: String) {
@@ -83,6 +87,7 @@ fun MainPrimary(state: AppState) {
       state.showPlace(Place.Home)
     }
   }
+  LaunchedEffect(state) { state.followAdoptions() }
   NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
     screen ->
     when (screen) {
@@ -122,6 +127,31 @@ fun MainSecondary(state: AppState) {
       }
     }
   }
+}
+
+/**
+ * Puts the ROM's screens in place of a local game's in the back stack once its file is the ROM's,
+ * except while the local game plays. It runs until cancelled.
+ */
+private suspend fun AppState.followAdoptions() {
+  val backStack = snapshotFlow { navigator.backStack.toList() }
+  combine(games.adoptions, snapshotFlow { playing }, backStack) { adoptions, playing, screens ->
+      val roms = adoptions.filter { it.local != playing }.associate { it.local to it.rom }
+      for (screen in screens) {
+        val replacement =
+          when (screen) {
+            is Screen.Game ->
+              roms[screen.key]?.let { library.rom(it.romId) }?.let { Screen.Game(it.id, it.title) }
+            is Screen.OpenWith ->
+              (screen.scope as? OpenWithScope.Game)
+                ?.let { roms[it.game] }
+                ?.let { screen.copy(scope = OpenWithScope.Game(it)) }
+            else -> null
+          }
+        if (replacement != null) navigator.replace(screen, replacement)
+      }
+    }
+    .collect()
 }
 
 /**
