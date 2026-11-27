@@ -99,14 +99,15 @@ class SettingsTest {
     storage: List<StorageTarget> = emptyList(),
   ): DownloadManager =
     launchApp(
-      server(refuses),
-      credentials = store,
-      library = library,
-      storage = storage,
-      saveSettings = { saved += it },
-      apps = apps,
-      open = open,
-    )
+        server(refuses),
+        credentials = store,
+        library = library,
+        storage = storage,
+        saveSettings = { saved += it },
+        apps = apps,
+        open = open,
+      )
+      .downloads
 
   /** Waits for Open with's list to take the focus, which comes a frame after its text. */
   private fun ComposeUiTest.awaitFocusedApp() {
