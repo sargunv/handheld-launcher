@@ -1,9 +1,7 @@
 package dev.sargunv.handheld.launch
 
 import androidx.activity.ComponentActivity
-import androidx.lifecycle.Lifecycle
 import co.touchlab.kermit.Logger
-import dev.sargunv.handheld.allFilesAccessSettings
 import dev.sargunv.handheld.data.firmware.FirmwareInstall
 import dev.sargunv.handheld.data.firmware.FirmwareInstaller
 import dev.sargunv.handheld.data.romm.RommException
@@ -37,14 +35,9 @@ import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
 import java.io.File
 import java.io.IOException
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * A game to play, for [BuiltInPlayer.play].
@@ -64,16 +57,17 @@ data class PlayRequest(
 /**
  * Plays games on Android. The resolver picks the app by the user's rules, and games it gives the
  * built-in session go to [BuiltInPlayer]. For a standalone emulator, the game's save syncs with
- * RomM, the emulator's firmware goes in place, and the dispatcher starts it. When the launcher is
- * back in front, the save syncs again, which sends what the game saved.
+ * RomM, the emulator's firmware goes in place, and the dispatcher starts it. [plays] takes the play
+ * from there.
  *
  * An emulator stays in memory after the player goes back to the library, and Android doesn't let
  * the launcher stop it, so each one it starts counts as running until the device shows otherwise
  * (see [Emulators]). While it may be, the launcher never pulls a save it may hold without asking:
  * after the game it only sends, and before the next launch it asks the player.
  *
- * @param allFilesAccess whether the app has all-files access, which handing an emulator a file to
- *   read needs.
+ * @param allFilesAccess whether the app has all-files access, which reading a game in shared
+ *   storage needs.
+ * @param openAllFilesAccess opens the system page that grants it.
  * @param storageVolumes the mounted shared storage volumes' roots, the device's own first.
  */
 internal class AndroidGameLauncher(
@@ -82,7 +76,9 @@ internal class AndroidGameLauncher(
   private val saves: PlaySaves,
   private val builtIn: BuiltInPlayer,
   private val emulators: Emulators,
+  private val plays: Plays,
   private val allFilesAccess: StateFlow<Boolean>,
+  private val openAllFilesAccess: () -> Unit,
   private val storageVolumes: () -> List<String>,
 ) : GameLauncher {
   private val dispatcher = LaunchDispatcher(activity)
@@ -121,6 +117,11 @@ internal class AndroidGameLauncher(
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
+    val volumes = withContext(Dispatchers.IO) { storageVolumes() }
+    if (!allFilesAccess.value && volumes.any { File(path).startsWith(it) }) {
+      openAllFilesAccess()
+      return listOf("Needs all-files access")
+    }
     val file = withContext(Dispatchers.IO) { launchFile(path) } ?: return listOf("Folder empty")
     val request = PlayRequest(file, PlatformSlug(game.platformSlug), game.title, game.key)
     // A set, since a sync that fails before the game and again after it says the same thing twice.
@@ -135,31 +136,38 @@ internal class AndroidGameLauncher(
     ) {
       is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution))
       is LaunchResolution.BuiltIn ->
-        builtIn.play(request, resolution.core, onProgress, chooseSave, ::note)
+        notes += builtIn.play(request, resolution.core, onProgress, chooseSave, ::note)
       is LaunchResolution.Resolved ->
-        playStandalone(
-          request,
-          resolution,
-          closeEmulators && emulators.canClose,
-          askStillRunning,
-          chooseSave,
-          ::note,
-        )
+        notes +=
+          playStandalone(
+            request,
+            resolution,
+            volumes,
+            closeEmulators && emulators.canClose,
+            askStillRunning,
+            chooseSave,
+            ::note,
+          )
     }
     return notes.toList()
   }
 
-  /** Plays [request]'s game in the standalone emulator [resolution] picked. */
+  /**
+   * Plays [request]'s game in the standalone emulator [resolution] picked, telling [note] what the
+   * player should know before the game and returning what they should know after it.
+   */
   private suspend fun playStandalone(
     request: PlayRequest,
     resolution: LaunchResolution.Resolved,
+    volumes: List<String>,
     closeEmulators: Boolean,
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
     note: (String) -> Unit,
-  ) {
+  ): List<String> {
     val target = resolution.target
     val packageName = target.packageName
+    val name = appName(target)
     val input =
       LaunchInput(
         request.romPath,
@@ -168,14 +176,15 @@ internal class AndroidGameLauncher(
       )
     val command =
       when (val build = target.commandFor(input)) {
-        is LaunchBuild.MissingCore -> return note("No core for this platform · ${appName(target)}")
+        is LaunchBuild.MissingCore -> {
+          note("No core for this platform · $name")
+          return emptyList()
+        }
         is LaunchBuild.Ready -> build.command
       }
-    val volumes = withContext(Dispatchers.IO) { storageVolumes() }
     val save = lookUpSave(request, target, volumes, note)
     val probe = DeviceProbe(activity, useRoot = closeEmulators)
     if (save != null) {
-      val name = appName(target)
       val state = emulators.records.state(packageName, probe)
       log.i { "$packageName: $state" }
       val emulator =
@@ -187,48 +196,28 @@ internal class AndroidGameLauncher(
           close = if (closeEmulators) ({ emulators.close(packageName) }) else null,
         )
       val synced = saves.beforeLaunch(request.title, save, chooseSave, note, emulator)
-      if (!synced) return
+      if (!synced) return emptyList()
     }
     // A game launches even when its firmware can't be placed: some emulators boot without it.
     volumes.firstOrNull()?.let { placeFirmware(target, request.platform, it, note) }
-    if (command.readGrants.isNotEmpty() && !allFilesAccess.value) {
-      activity.startActivity(activity.allFilesAccessSettings())
-      return note("Needs all-files access")
-    }
-    // Set from the companion's Quit, which brings the launcher to the front.
-    var quit = false
-    // The companion goes first, so the emulator, started second, ends up with the focus.
-    PlayCompanion.show(
-      activity,
-      PlaySession(
-        request.title,
-        sync = { syncNow(save, target) },
-        quit = if (closeEmulators) ({ quit = true }) else null,
-      ),
-    )
-    // Noted before the launch, so an emulator that starts counts as running even if the launcher
-    // stops before it hears back. A launch that fails errs the same way.
-    val before =
-      emulators.records.launched(packageName, (request.game as? GameKey.Romm)?.romId, probe)
-    try {
-      if (!dispatcher.launch(command)) {
-        // Nothing started, so the emulator still holds whatever game it held.
-        emulators.records.launchFailed(packageName, before)
-        return note("Launch failed · ${appName(target)}")
-      }
-      log.i { "Started $packageName (${resolution.rule})" }
-      awaitReturn()
-    } finally {
-      PlayCompanion.close()
-    }
-    if (quit) {
-      // The emulator may still be writing its save as it goes to the background.
-      delay(QUIT_DELAY)
-      if (!emulators.close(packageName)) {
-        note("Close failed · ${appName(target)}")
+    return plays.standalone(request.title, packageName, name, save, canQuit = closeEmulators) {
+      companion ->
+      // The companion goes first, so the emulator, started second, ends up with the focus.
+      PlayCompanion.show(activity, companion)
+      // Noted before the launch, so an emulator that starts counts as running even if the launcher
+      // stops before it hears back. A launch that fails errs the same way.
+      val before =
+        emulators.records.launched(packageName, (request.game as? GameKey.Romm)?.romId, probe)
+      dispatcher.launch(command).also { started ->
+        if (started) {
+          log.i { "Started $packageName (${resolution.rule})" }
+        } else {
+          // Nothing started, so the emulator still holds whatever game it held.
+          emulators.records.launchFailed(packageName, before)
+          note("Launch failed · $name")
+        }
       }
     }
-    if (save != null) saves.afterPlay(save, note)
   }
 
   /** [request]'s save as [target] keeps it, or null when it doesn't sync. */
@@ -253,16 +242,6 @@ internal class AndroidGameLauncher(
     return (lookup as? SaveLookup.Found)?.save
   }
 
-  /**
-   * Sends [save] to RomM while the game runs, for the companion's Sync button, and says what
-   * happened. It never pulls, since the emulator would write over a pulled save. It finishes even
-   * when the companion closes, so the sync after the game sees what it sent.
-   */
-  private suspend fun syncNow(save: GameSave?, target: LaunchTarget): String =
-    withContext(NonCancellable) {
-      if (save == null) "Save sync unsupported · ${appName(target)}" else saves.push(save)
-    }
-
   private suspend fun resolve(subject: LaunchSubject, rules: LaunchRules) =
     withContext(Dispatchers.IO) {
       LaunchResolver.resolve(subject, rules, dispatcher.installedPackages())
@@ -280,16 +259,6 @@ internal class AndroidGameLauncher(
     val suggestions = resolution.suggestions.take(2).map { it.displayName }
     return if (suggestions.isEmpty()) "No emulator"
     else "No emulator · Install ${suggestions.joinToString(" or ")}"
-  }
-
-  /**
-   * The emulator can't be watched for quitting, so the game counts as over when the launcher is
-   * back in front after leaving it.
-   */
-  private suspend fun awaitReturn() {
-    val states = activity.lifecycle.currentStateFlow
-    withTimeoutOrNull(10.seconds) { states.first { !it.isAtLeast(Lifecycle.State.RESUMED) } }
-    states.first { it.isAtLeast(Lifecycle.State.RESUMED) }
   }
 
   /**
@@ -324,10 +293,6 @@ internal class AndroidGameLauncher(
         for ((name, reason) in result.failed) note("BIOS not placed · $name: $reason")
       FirmwareInstall.NoneOnServer -> Unit
     }
-  }
-
-  private companion object {
-    val QUIT_DELAY = 1.seconds
   }
 }
 

@@ -9,12 +9,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -30,25 +27,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.StateFlow
+
+/** The companion's Sync: not pressed yet, under way, or done with the line saying how it went. */
+sealed interface CompanionSync {
+  data object Idle : CompanionSync
+
+  data object Syncing : CompanionSync
+
+  data class Done(val message: String) : CompanionSync
+}
 
 /**
  * The lower screen while a game plays in another app: touch buttons to sync the save now and to go
  * back to the library. It takes no focus, so the controller stays with the game.
  *
- * @param sync syncs the game's save and returns what happened, in plain words.
+ * @param sync how the save sync that [onSync] starts is going.
  * @param onQuit closes the emulator and goes back to the library, or null when the launcher can't.
  */
 @Composable
 fun PlayCompanionScreen(
   title: String,
-  sync: suspend () -> String,
+  sync: StateFlow<CompanionSync>,
+  onSync: () -> Unit,
   onBackToLibrary: () -> Unit,
   onQuit: (() -> Unit)? = null,
 ) {
-  val scope = rememberCoroutineScope()
-  var syncing by remember { mutableStateOf(false) }
-  var message by remember { mutableStateOf<String?>(null) }
+  val state by sync.collectAsState()
   Column(
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(32.dp),
     verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
@@ -61,23 +66,16 @@ fun PlayCompanionScreen(
       modifier = Modifier.semantics { heading() },
     )
     Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-      TouchButton("companion:sync", if (syncing) "Syncing" else "Sync") {
-        if (syncing) return@TouchButton
-        syncing = true
-        message = null
-        scope.launch {
-          try {
-            message = sync()
-          } finally {
-            syncing = false
-          }
-        }
-      }
+      TouchButton(
+        "companion:sync",
+        if (state == CompanionSync.Syncing) "Syncing" else "Sync",
+        onSync,
+      )
       TouchButton("companion:back", "Back to library", onBackToLibrary)
       onQuit?.let { TouchButton("companion:quit", "Quit", it) }
     }
     Text(
-      message.orEmpty(),
+      (state as? CompanionSync.Done)?.message.orEmpty(),
       color = Placeholder.mutedText,
       modifier = Modifier.testTag("message").semantics { liveRegion = LiveRegionMode.Polite },
     )
