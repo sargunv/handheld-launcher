@@ -3,6 +3,7 @@ package dev.sargunv.handheld.launch
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.FileUriExposedException
 import androidx.core.content.FileProvider
 import co.touchlab.kermit.Logger
@@ -14,13 +15,6 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** The outcome of [LaunchDispatcher.launch], whose log says how it started or why it failed. */
-sealed interface LaunchOutcome {
-  data object Started : LaunchOutcome
-
-  data object Failed : LaunchOutcome
-}
-
 /**
  * Starts games in other apps. A [LaunchCommand]'s files go out as content URIs from the app's
  * FileProvider, and the target gets read access to each file and to the folder it's in, for games
@@ -29,9 +23,8 @@ sealed interface LaunchOutcome {
  * command it refuses goes as an intent instead.
  */
 class LaunchDispatcher(private val context: Context) {
-  private val contentUris = ContentUris { path ->
+  private fun uriFor(path: String): Uri =
     FileProvider.getUriForFile(context, "${context.packageName}.launch", File(path))
-  }
 
   /** The installed apps a game can launch in: every app with a launcher icon. */
   fun installedPackages(): Set<String> =
@@ -43,26 +36,21 @@ class LaunchDispatcher(private val context: Context) {
   }
     .getOrNull()
 
-  suspend fun launch(command: LaunchCommand): LaunchOutcome {
-    if (command.method == LaunchMethod.Shell && startByShell(command)) {
-      log.i { "Started ${command.packageName} by am start" }
-      return LaunchOutcome.Started
-    }
-    return startActivity(command)
-  }
+  /** Whether [command] started; the log says why it didn't. */
+  suspend fun launch(command: LaunchCommand): Boolean =
+    (command.method == LaunchMethod.Shell && startByShell(command)) || startActivity(command)
 
-  private fun startActivity(command: LaunchCommand): LaunchOutcome =
+  private fun startActivity(command: LaunchCommand): Boolean =
     try {
       for (folder in command.readFolders) {
         context.grantUriPermission(
           command.packageName,
-          contentUris.forFile(folder),
+          uriFor(folder),
           Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
         )
       }
-      context.startActivity(command.toIntent(contentUris))
-      log.i { "Started ${command.packageName} by intent" }
-      LaunchOutcome.Started
+      context.startActivity(command.toIntent(::uriFor))
+      true
     } catch (e: ActivityNotFoundException) {
       failed("${command.packageName} can't open it", e)
     } catch (e: SecurityException) {
@@ -75,9 +63,9 @@ class LaunchDispatcher(private val context: Context) {
       failed("Can't share the game's file with ${command.packageName}", e)
     }
 
-  private fun failed(reason: String, cause: Exception): LaunchOutcome {
+  private fun failed(reason: String, cause: Exception): Boolean {
     log.w(cause) { "Launch failed: $reason" }
-    return LaunchOutcome.Failed
+    return false
   }
 
   /** Whether `am start` started [command]. */

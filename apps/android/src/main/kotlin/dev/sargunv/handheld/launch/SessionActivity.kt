@@ -98,6 +98,12 @@ class SessionActivity : ComponentActivity() {
   private lateinit var view: GameSessionView
   private lateinit var menu: ComposeView
   private var session: GameSession? = null
+    set(value) {
+      field = value
+      view.session = value
+      lowerView?.session = value
+    }
+
   private val launch by lazy {
     Json.decodeFromString<SessionLaunch>(intent.getStringExtra(EXTRA_LAUNCH)!!)
   }
@@ -286,8 +292,6 @@ class SessionActivity : ComponentActivity() {
   private fun stopSession(): String? {
     val stopping = session ?: return null
     session = null
-    view.session = null
-    lowerView?.session = null
     return try {
       stopping.stop()
       null
@@ -336,8 +340,6 @@ class SessionActivity : ComponentActivity() {
         lifecycleScope,
       )
     session = started
-    view.session = started
-    lowerView?.session = started
     ready.complete(started)
   }
 
