@@ -335,7 +335,7 @@ internal fun isGameFile(path: String): Boolean {
   return extension !in NotGames && !extension.matches(StateExtension)
 }
 
-private const val DELETE_FAILED = "Couldn't delete files"
+private const val DELETE_FAILED = "Delete failed"
 
 /**
  * The extensions of files that sit beside games but aren't games: saves, pictures, patches and

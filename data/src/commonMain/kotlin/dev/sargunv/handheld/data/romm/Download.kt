@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.romm
 
+import co.touchlab.kermit.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
@@ -7,6 +8,7 @@ import io.ktor.client.request.prepareRequest
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.request
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentLength
@@ -55,15 +57,11 @@ internal suspend fun HttpClient.download(
       .execute { response ->
         when (response.status) {
           HttpStatusCode.PartialContent -> {
-            val range =
-              parseContentRange(response.headers[HttpHeaders.ContentRange])
-                ?: throw RommException.InvalidResponse(
-                  "The server sent a partial file with no range",
-                )
-            if (range.first != existing) {
-              throw RommException.InvalidResponse(
-                "The server sent bytes from ${range.first}, not from $existing",
-              )
+            val contentRange = response.headers[HttpHeaders.ContentRange]
+            val range = parseContentRange(contentRange)
+            if (range?.first != existing) {
+              log.w { "${response.request.url}: asked for bytes from $existing, got $contentRange" }
+              throw RommException.InvalidResponse("Bad range from server")
             }
             response.writeTo(target, append = true, startAt = existing, range.second, onProgress)
           }
@@ -109,12 +107,15 @@ private suspend fun HttpResponse.writeTo(
     }
   }
   if (totalBytes != null && downloaded != totalBytes) {
+    log.w { "${request.url}: cut short at $downloaded of $totalBytes bytes" }
     throw IOException("Download cut short")
   }
   return DownloadResult(downloaded, if (append) startAt else 0)
 }
 
 private const val CHUNK_SIZE = 64L * 1024
+
+private val log = Logger.withTag("Download")
 
 /** The first byte and the total size in a `Content-Range: bytes first-last/total` header. */
 internal fun parseContentRange(header: String?): Pair<Long, Long?>? {

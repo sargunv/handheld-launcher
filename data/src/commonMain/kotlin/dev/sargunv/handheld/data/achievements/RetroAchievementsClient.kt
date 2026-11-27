@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.achievements
 
+import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.LenientJson
 import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.platformHttpEngine
@@ -97,7 +98,8 @@ class RetroAchievementsClient(
           }
         }
       Response(response.status.value, response.bodyAsBytes())
-    } catch (_: IOException) {
+    } catch (e: IOException) {
+      log.w(e) { "Request to RetroAchievements failed" }
       null
     }
 
@@ -120,6 +122,8 @@ class RetroAchievementsClient(
   )
 
   companion object {
+    private val log = Logger.withTag("RetroAchievementsClient")
+
     /** RetroAchievements' API, as rcheevos calls it. */
     private const val ENDPOINT = "https://retroachievements.org/dorequest.php"
 
