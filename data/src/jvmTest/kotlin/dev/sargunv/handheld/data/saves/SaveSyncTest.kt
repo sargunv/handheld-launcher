@@ -399,6 +399,25 @@ class SaveSyncTest {
   }
 
   @Test
+  fun aPullKeepsWhatTheEmulatorWroteToASaveFileAfterTheHistoryCopy() {
+    saveFile.writeBytes(v1)
+    val unit = game.unit
+    val snapshot = assertNotNull(unit.read())
+    // The emulator writes after the history copy was taken, before the swap.
+    saveFile.writeBytes(v2)
+    val kept = mutableListOf<LocalCopy>()
+    unit.write(snapshot.file, "from RomM".encodeToByteArray(), snapshot.hash) { kept += it }
+    assertEquals("from RomM", saveFile.readText())
+    assertContentEquals(v2, kept.single().bytes)
+
+    // Nothing to keep when the history already has what was replaced.
+    val now = assertNotNull(unit.read())
+    kept.clear()
+    unit.write(now.file, "again".encodeToByteArray(), now.hash) { kept += it }
+    assertTrue(kept.isEmpty())
+  }
+
+  @Test
   fun ignoresOtherEmulatorsAndSlots() = runTest {
     val server =
       FakeRomm(
