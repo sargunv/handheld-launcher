@@ -1,0 +1,223 @@
+package dev.sargunv.handheld.ui.settings
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.composeunstyled.Text
+import dev.sargunv.handheld.data.auth.UploadAccess
+import dev.sargunv.handheld.data.romm.RommException
+import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.dialog.Dialog
+import dev.sargunv.handheld.ui.places.AppState
+import dev.sargunv.handheld.ui.places.MenuButton
+import dev.sargunv.handheld.ui.places.SyncStatus
+import dev.sargunv.handheld.ui.signin.Help
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_FOR_ACCOUNT
+import dev.sargunv.handheld.ui.signin.UPLOADS_NOT_REQUESTED
+
+internal fun LazyListScope.romm(
+  state: AppState,
+  uploadAccess: UploadAccess?,
+  onSignOut: () -> Unit,
+  onAllowUploads: () -> Unit,
+  onSignInAgain: () -> Unit,
+) {
+  sectionHeading("RomM")
+  val view = state.settingsView
+  if (state.account.signedIn != true) {
+    item(key = "signedOut") {
+      SettingRow(
+        view,
+        "settings:romm:server",
+        "Server",
+        "Not signed in",
+        Help("Not signed in", "Sign in on the main screen to reach your library."),
+      )
+    }
+    return
+  }
+  item(key = "server") {
+    val server by produceState<String?>(null) { value = state.credentials.load()?.baseUrl }
+    SettingRow(
+      view,
+      "settings:romm:server",
+      "Server",
+      server ?: "",
+      Help("Server", "The RomM server this device's library comes from."),
+    )
+  }
+  item(key = "account") {
+    // Asked of the server each time, since nothing keeps it.
+    val account by
+      produceState<String?>(null, state.sync) {
+        value =
+          try {
+            state.romm.client()?.use { it.me().username } ?: "Unknown"
+          } catch (_: RommException) {
+            "Couldn't ask the server"
+          }
+      }
+    SettingRow(
+      view,
+      "settings:romm:account",
+      "Account",
+      account ?: "",
+      Help("Account", "The RomM user this device signed in as."),
+    )
+  }
+  item(key = "library") {
+    SettingRow(
+      view,
+      "settings:romm:sync",
+      "Library",
+      syncSummary(state.sync),
+      Help("Library", "How the latest sync of the library with the server went."),
+    )
+  }
+  if (state.sync == SyncStatus.Unauthorized) {
+    item(key = "refused") {
+      Text(
+        "RomM refused this device's sign-in, so the library can't sync. It may have been signed " +
+          "out on the server, or its token may have expired. Sign in again to sync.",
+        color = Placeholder.text,
+        modifier =
+          Modifier.testTag("settings:romm:refused").semantics {
+            liveRegion = LiveRegionMode.Polite
+          },
+      )
+    }
+    item(key = "signInAgain") {
+      SettingRow(
+        view,
+        "settings:romm:signInAgain",
+        "Sign in again",
+        null,
+        Help(
+          "Sign in again",
+          "Goes to the sign-in, with this server filled in. Your games and saves stay on this " +
+            "device.",
+        ),
+        onConfirm = onSignInAgain,
+      )
+    }
+  }
+  item(key = "uploads") {
+    SettingRow(
+      view,
+      "settings:romm:uploads",
+      "Uploads",
+      uploadsSummary(uploadAccess),
+      Help("Uploads", uploadsHelp(uploadAccess)),
+    )
+  }
+  // A refused sign-in offers to sign in again already.
+  if (uploadAccess == UploadAccess.NotRequested && state.sync != SyncStatus.Unauthorized) {
+    item(key = "allowUploads") {
+      SettingRow(
+        view,
+        "settings:romm:allowUploads",
+        "Allow uploads",
+        null,
+        Help(
+          "Allow uploads",
+          "Signs in again to this server, asking for permission to upload games. Your games, " +
+            "saves and settings stay on this device.",
+        ),
+        onConfirm = onAllowUploads,
+      )
+    }
+  }
+  item(key = "syncNow") {
+    val syncing = state.sync == SyncStatus.Syncing || state.sync == SyncStatus.FirstSync
+    SettingRow(
+      view,
+      "settings:romm:syncNow",
+      "Sync now",
+      null,
+      Help("Sync now", "Syncs the library with the server now, rather than at the next start."),
+      enabled = !syncing,
+      onConfirm = { if (!syncing) state.syncNow() },
+    )
+  }
+  item(key = "signOut") {
+    SettingRow(
+      view,
+      "settings:romm:signOut",
+      "Sign out",
+      null,
+      Help(
+        "Sign out",
+        "Signs this device out of the server. Your downloaded games and saves stay on this device.",
+      ),
+      onConfirm = onSignOut,
+    )
+  }
+}
+
+/** What the RomM section says about uploading games, or nothing while it's being asked. */
+internal fun uploadsSummary(access: UploadAccess?): String =
+  when (access) {
+    null -> ""
+    UploadAccess.Allowed -> "Allowed"
+    UploadAccess.NotRequested -> "Not allowed by this sign-in"
+    UploadAccess.AccountMayNot -> "Not allowed for your account"
+    UploadAccess.Unknown -> "Up to your API token"
+  }
+
+private fun uploadsHelp(access: UploadAccess?): String =
+  when (access) {
+    null -> "Whether this device may upload games that aren't on your server."
+    UploadAccess.Allowed ->
+      "This device may upload games that aren't on your server, from the game's page."
+    UploadAccess.NotRequested -> "$UPLOADS_NOT_REQUESTED Allow uploads to sign in again with it."
+    UploadAccess.AccountMayNot -> UPLOADS_NOT_FOR_ACCOUNT
+    UploadAccess.Unknown ->
+      "This device signed in with an API token, and RomM doesn't say whether it may upload " +
+        "games. If it may not, an upload says so."
+  }
+
+/** What the RomM section says about the latest sync. */
+internal fun syncSummary(sync: SyncStatus): String =
+  when (sync) {
+    SyncStatus.NotStarted -> "Not synced yet"
+    SyncStatus.FirstSync,
+    SyncStatus.Syncing -> "Syncing"
+    SyncStatus.Synced -> "Synced"
+    SyncStatus.Failed -> "Couldn't reach the server"
+    SyncStatus.Unauthorized -> "RomM refused the sign-in"
+  }
+
+/** Asks before signing out. Cancel has focus first, so one press too many signs nothing out. */
+@Composable
+internal fun SignOutDialog(onSignOut: () -> Unit, onDismissRequest: () -> Unit) {
+  Dialog(
+    onDismissRequest,
+    Modifier.widthIn(max = 640.dp),
+    initialFocus = "signOut:cancel",
+  ) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+      Text(
+        "Sign out of RomM?",
+        color = Placeholder.text,
+        modifier = Modifier.semantics { heading() },
+      )
+      Text(
+        "Your downloaded games and saves stay on this device. Saves sync again once you sign in.",
+        color = Placeholder.mutedText,
+      )
+      MenuButton("signOut:confirm", "Sign out", onConfirm = onSignOut)
+      MenuButton("signOut:cancel", "Cancel", onConfirm = onDismissRequest)
+    }
+  }
+}
