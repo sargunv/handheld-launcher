@@ -12,6 +12,7 @@ mod achievements;
 mod audio;
 mod content;
 mod core;
+mod cstr;
 mod ffi;
 mod gl;
 mod handle;

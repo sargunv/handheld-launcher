@@ -4,7 +4,7 @@
 
 mod egl;
 
-use std::ffi::{CStr, c_ulong, c_void};
+use std::ffi::{c_ulong, c_void};
 use std::ptr::{self, NonNull};
 
 use glow::HasContext;
@@ -585,11 +585,8 @@ fn choose_config(
 fn query(egl: &Egl, display: EGLDisplay, name: EGLint) -> String {
     // SAFETY: an initialized display.
     let s = unsafe { (egl.query_string)(display, name) };
-    if s.is_null() {
-        return String::new();
-    }
-    // SAFETY: EGL returns a static C string.
-    unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
+    // SAFETY: EGL returns null or a static C string.
+    unsafe { crate::cstr::string(s) }
 }
 
 fn headless_display(egl: &Egl) -> Option<EGLDisplay> {

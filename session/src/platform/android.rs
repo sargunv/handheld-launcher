@@ -3,7 +3,7 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 
-use crate::NativeWindow;
+use crate::{NativeWindow, SessionError, WindowHandle};
 
 #[link(name = "android")]
 unsafe extern "C" {
@@ -46,18 +46,20 @@ pub(crate) fn init_logging() {
 }
 
 /// One reference to an `ANativeWindow`, released when dropped.
-pub(crate) struct AndroidWindow(NonNull<c_void>);
+pub(crate) struct PlatformWindow(NonNull<c_void>);
 
-impl AndroidWindow {
-    /// Takes over the reference that `pointer` stands for, or returns `None`
-    /// for a null pointer.
-    ///
-    /// # Safety
-    ///
-    /// `pointer` is null or an `ANativeWindow` the caller holds a reference
-    /// to, which it gives up.
-    pub(crate) unsafe fn adopt(pointer: u64) -> Option<Self> {
-        NonNull::new(pointer as usize as *mut c_void).map(Self)
+// SAFETY: an `ANativeWindow` reference may be used and released from any
+// thread.
+unsafe impl Send for PlatformWindow {}
+
+impl PlatformWindow {
+    /// Takes over the reference that `handle` hands over, as
+    /// [`WindowHandle::Android`] documents.
+    pub(crate) fn adopt(handle: WindowHandle) -> Result<Self, SessionError> {
+        let WindowHandle::Android { window } = handle;
+        NonNull::new(window as usize as *mut c_void)
+            .map(Self)
+            .ok_or(SessionError::UnsupportedWindow)
     }
 
     pub(crate) fn native(&self) -> NativeWindow {
@@ -67,7 +69,7 @@ impl AndroidWindow {
     }
 }
 
-impl Drop for AndroidWindow {
+impl Drop for PlatformWindow {
     fn drop(&mut self) {
         // SAFETY: `self` holds one reference.
         unsafe { ANativeWindow_release(self.0.as_ptr()) };

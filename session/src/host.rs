@@ -12,10 +12,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::audio::{AudioPipeline, AudioSink};
+use crate::cstr::opt_string;
 use crate::ffi;
 use crate::gl::{self, Framebuffer, GlApi, GlContext};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
-use crate::options::{Options, opt_string};
+use crate::options::Options;
 use crate::session::{SessionError, VideoOutput};
 use crate::video::{self, CapturedFrame, Frame, PixelFormat};
 use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};

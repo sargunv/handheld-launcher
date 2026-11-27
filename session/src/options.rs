@@ -2,8 +2,9 @@
 //! overrides.
 
 use std::collections::HashMap;
-use std::ffi::{CStr, CString, c_char};
+use std::ffi::{CString, c_char};
 
+use crate::cstr::{opt_string, string};
 use crate::ffi;
 
 /// A setting as the core declares it.
@@ -216,22 +217,6 @@ unsafe fn option_from_parts(
             default,
         })
     }
-}
-
-/// # Safety
-///
-/// `s` is a valid C string.
-unsafe fn string(s: *const c_char) -> String {
-    // SAFETY: forwarded from the caller.
-    unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned()
-}
-
-/// # Safety
-///
-/// `s` is null or a valid C string.
-pub(crate) unsafe fn opt_string(s: *const c_char) -> Option<String> {
-    // SAFETY: forwarded from the caller.
-    (!s.is_null()).then(|| unsafe { string(s) })
 }
 
 #[cfg(test)]

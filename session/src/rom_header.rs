@@ -53,14 +53,10 @@ pub fn rom_header_fields(platform: Platform, path: String) -> Vec<HeaderField> {
         .unwrap_or_default()
 }
 
-/// The id the saves of the game for `platform` at `path` are filed under, from
-/// its header, read as [`rom_header_fields`] reads it: a PlayStation or
-/// PlayStation 2 disc's serial, such as `SLUS-20152`, a PSP game's disc id,
-/// such as `ULUS10064`, a 3DS title's program id in 16 hex digits, or a
-/// GameCube or Wii disc's game code, such as `GZLE`, or a Switch game's title
-/// id in 16 hex digits, which `keys`, the path of the emulator's `prod.keys`,
-/// opens when the game carries no ticket. `keys` matters only for Switch. Null
-/// when it has none.
+/// The id in the header of the game for `platform` at `path` that emulators
+/// file its saves under, or null when it has none. `keys` is the path of a
+/// Switch emulator's `prod.keys`, which opens a Switch game that carries no
+/// ticket.
 #[uniffi::export]
 pub fn rom_game_id(platform: Platform, path: String, keys: Option<String>) -> Option<String> {
     let switch_key = keys
