@@ -35,6 +35,11 @@ aboutLibraries { collect { configPath = sessionLicences.flatMap { it.outputDir }
 android {
   namespace = "dev.sargunv.handheld"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
+  // The NDK mise.toml pins, in a directory named for its version, strips the native libraries.
+  providers.environmentVariable("ANDROID_NDK_HOME").orNull?.let {
+    ndkPath = it
+    ndkVersion = File(it).name
+  }
 
   defaultConfig {
     applicationId = "dev.sargunv.handheld"
