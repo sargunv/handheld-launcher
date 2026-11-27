@@ -177,13 +177,11 @@ class MainActivity : ComponentActivity() {
     // The second display's home only hands the controller back, and the launcher stays as it was.
     if (intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false)) return
     setIntent(intent)
-    val home = isHomeIntent(intent.action, intent.categories)
-    // HOME keeps the layout a development launch forced, unless it carries one from such a launch.
-    if (!home || intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
+    if (intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
     when (
       val response =
         respondTo(
-          home = home,
+          home = isHomeIntent(intent.action, intent.categories),
           open = openTarget(intent),
           wasInFront = wasInFront,
           playing = player?.isPlaying == true,
