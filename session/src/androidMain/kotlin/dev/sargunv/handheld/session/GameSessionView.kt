@@ -16,8 +16,7 @@ import java.util.concurrent.Executors
  * touches while it runs, as libretro's pointer.
  *
  * The session runs only while the view's surface exists, its window is visible and [running] is
- * true, so it pauses when the app goes to the background or the screen turns off. Losing focus,
- * such as to a touch on another display, pauses it only with [pauseWhenUnfocused]. The view never
+ * true, so it pauses when the app goes to the background or the screen turns off. The view never
  * stops the session; its owner does.
  *
  * Pausing writes save memory to disk, so the view pauses and resumes sessions in order on a thread
@@ -29,7 +28,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     set(value) {
       if (field === value) return
       field?.let { old ->
-        control(old) { pause() }
+        control(old, resume = false)
         if (attached) old.detachWindow()
       }
       attached = false
@@ -50,16 +49,6 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
   /** Whether the session should run while it's visible. */
   var running: Boolean = true
-    set(value) {
-      field = value
-      update()
-    }
-
-  /**
-   * Whether the session also pauses while its window lacks focus, as when a system dialog or shade
-   * covers it or the other screen of a two-screen device is touched.
-   */
-  var pauseWhenUnfocused: Boolean = false
     set(value) {
       field = value
       update()
@@ -97,7 +86,6 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     super.onWindowFocusChanged(hasWindowFocus)
     // Controls released while another window has focus send this view no event.
     if (!hasWindowFocus) input?.releaseAll()
-    update()
   }
 
   override fun onWindowVisibilityChanged(visibility: Int) {
@@ -135,19 +123,14 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
 
   private fun update() {
     val session = session ?: return
-    val run =
-      running &&
-        attached &&
-        isAttachedToWindow &&
-        windowVisibility == VISIBLE &&
-        (hasWindowFocus() || !pauseWhenUnfocused)
+    val run = running && attached && isAttachedToWindow && windowVisibility == VISIBLE
     if (run == resumed) return
     resumed = run
     if (!run) {
       input?.releaseAll()
       session.releaseTouch()
     }
-    control(session) { if (run) resume() else pause() }
+    control(session, resume = run)
   }
 
   private companion object {
@@ -158,14 +141,14 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       Thread(it, "session-control").apply { isDaemon = true }
     }
 
-    fun control(session: GameSession, action: GameSession.() -> Unit) {
+    fun control(session: GameSession, resume: Boolean) {
       controlThread.execute {
         try {
-          session.action()
+          if (resume) session.resume() else session.pause()
         } catch (_: SessionException.Stopped) {
           // The core quit, and the session stopped as it does when told to.
         } catch (e: SessionException) {
-          Log.e(TAG, "the session failed to pause", e)
+          Log.e(TAG, "the session failed to ${if (resume) "resume" else "pause"}", e)
         } catch (_: IllegalStateException) {
           // The owner closed the session first, which wrote its save memory.
         }

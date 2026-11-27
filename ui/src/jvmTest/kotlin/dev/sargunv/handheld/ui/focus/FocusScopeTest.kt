@@ -12,9 +12,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.NavEntry
@@ -22,6 +19,7 @@ import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.input.TestActionInputRoot
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
+import dev.sargunv.handheld.ui.press
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -53,8 +51,7 @@ class FocusScopeTest {
       }
     }
     waitForIdle()
-    onRoot().performKeyInput { pressKey(Key.ButtonA) }
-    waitForIdle()
+    press(Key.ButtonA)
     assertEquals("loading", navigator.current)
 
     // Items that appear later take focus from the scope.
@@ -64,8 +61,7 @@ class FocusScopeTest {
 
     loaded = false
     waitForIdle()
-    onRoot().performKeyInput { pressKey(Key.ButtonB) }
-    waitForIdle()
+    press(Key.ButtonB)
     assertEquals("home", navigator.current)
     onNodeWithTag("open").assertIsFocused()
   }
@@ -98,8 +94,7 @@ class FocusScopeTest {
     onNodeWithTag("dialog").assertIsFocused()
 
     // Back still reaches the dialog, and closing it hands focus to the new screen.
-    onRoot().performKeyInput { pressKey(Key.ButtonB) }
-    waitForIdle()
+    press(Key.ButtonB)
     onNodeWithTag("screen").assertIsFocused()
   }
 

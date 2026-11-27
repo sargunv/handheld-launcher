@@ -48,7 +48,7 @@ pub trait VideoSink {
 
 /// The pixel formats a software-rendering core can produce.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum PixelFormat {
+pub(crate) enum PixelFormat {
     /// 16 bits per pixel: one unused bit, then five bits each of red, green
     /// and blue. libretro's default.
     #[default]
@@ -71,7 +71,7 @@ impl PixelFormat {
     }
 
     /// Bytes per pixel.
-    pub fn bytes_per_pixel(self) -> usize {
+    pub(crate) fn bytes_per_pixel(self) -> usize {
         match self {
             Self::Rgb1555 | Self::Rgb565 => 2,
             Self::Xrgb8888 => 4,
@@ -88,7 +88,7 @@ impl PixelFormat {
 /// # Panics
 ///
 /// If `src` is too short for the dimensions, or `pitch` is shorter than a row.
-pub fn convert_frame(
+pub(crate) fn convert_frame(
     format: PixelFormat,
     src: &[u8],
     width: usize,
@@ -434,8 +434,12 @@ mod tests {
             bottom.fit(400, 480, 400.0 / 480.0, 1240, 1080),
             (0, 75, 1240, 930)
         );
-        // The top screen keeps the whole width.
+        // The top screen keeps the whole width, at 5:3 on the main screen.
         assert_eq!(Region::Top.columns(400), (0, 400));
+        assert_eq!(
+            Region::Top.fit(400, 480, 400.0 / 480.0, 1920, 1080),
+            (60, 0, 1800, 1080)
+        );
     }
 
     #[test]

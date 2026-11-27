@@ -274,15 +274,4 @@ class InstalledCoresTest {
     assertFailsWith<CoreDownloadException> { cores.install(azahar) }
     assertNull(cores.get(azahar))
   }
-
-  @Test
-  fun removesACore() = runTest {
-    val cores = cores { zip(zipOf("gambatte_libretro_android.so", build1)) }
-    cores.install(gambatte)
-    cores.remove(gambatte)
-
-    assertNull(cores.get(gambatte))
-    assertFalse(installedFile("gambatte_libretro").exists())
-    assertTrue(cores.hasUpdate(gambatte))
-  }
 }

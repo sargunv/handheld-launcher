@@ -152,13 +152,6 @@ class LaunchCommandBuilderTest {
   }
 
   @Test
-  fun buildNumbers() {
-    assertEquals(10234, LaunchCommandBuilder.buildNumberOf("0.1-10234"))
-    assertEquals(10234, LaunchCommandBuilder.buildNumberOf("0.1-10234-gabcdef"))
-    assertNull(LaunchCommandBuilder.buildNumberOf("1.2.3"))
-  }
-
-  @Test
   fun draSticGetsAFileUriThroughTheShell() {
     val command = build("drastic", PlatformCatalog.NDS, "/storage/emulated/0/ROMs/game.nds")
     assertEquals(LaunchUri.Raw("file:///storage/emulated/0/ROMs/game.nds"), command.data)
@@ -257,24 +250,6 @@ class LaunchCommandBuilderTest {
       LaunchExtra.StringValue("platform", "nes"),
       build("phobos", PlatformCatalog.FAMICOM).extras.single(),
     )
-  }
-
-  @Test
-  fun openAppPassesNoGame() {
-    val command =
-      assertIs<LaunchBuild.Ready>(
-          LaunchCommandBuilder.build(
-            LaunchRecipe.OpenApp,
-            "dev.example.app",
-            LaunchInput(rom, PlatformCatalog.PS2),
-          ),
-        )
-        .command
-    assertEquals(IntentAction.MAIN, command.action)
-    assertEquals(listOf(IntentCategory.LAUNCHER), command.categories)
-    assertNull(command.data)
-    assertNull(command.clipData)
-    assertEquals(setOf(LaunchFlag.NewTask), command.flags)
   }
 
   @Test

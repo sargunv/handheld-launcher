@@ -1,12 +1,9 @@
 package dev.sargunv.handheld.data.saves
 
-import dev.sargunv.handheld.domain.saves.GameIdKind
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
-import java.util.zip.Deflater
 import javax.crypto.Cipher
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -27,156 +24,6 @@ class GameIdsTest {
   private fun ByteBuffer.ascii(at: Int, text: String) = apply {
     text.encodeToByteArray().forEachIndexed { i, b -> put(at + i, b) }
   }
-
-  // PSP
-
-  /** An ISO 9660 image whose root holds UMD_DATA.BIN with [umd]. */
-  private fun pspIso(umd: String): ByteArray = iso("UMD_DATA.BIN", umd)
-
-  /** An ISO 9660 image whose root holds one file, [file], with [content]. */
-  private fun iso(file: String, content: String): ByteArray =
-    image(20 * 2048) {
-      // The volume descriptor's root directory record: sector 18.
-      put(16 * 2048, 1).ascii(16 * 2048 + 1, "CD001")
-      putInt(16 * 2048 + 156 + 2, 18).putInt(16 * 2048 + 156 + 10, 2048)
-      // The root directory: one record for the file, at sector 19.
-      val record = 18 * 2048
-      val name = "$file;1"
-      put(record, (33 + name.length).toByte())
-      putInt(record + 2, 19).putInt(record + 10, content.length)
-      put(record + 32, name.length.toByte()).ascii(record + 33, name)
-      ascii(19 * 2048, content)
-    }
-
-  @Test
-  fun readsAPspSerialFromAnIso() {
-    val iso = file("game.iso", pspIso("ULUS-10064|0001|G|"))
-    assertEquals("ULUS10064", GameIds.read(iso, GameIdKind.Psp))
-  }
-
-  @Test
-  fun readsAPspSerialFromACso() {
-    val iso = pspIso("NPJH-50804|0001|G|")
-    val blockSize = 2048
-    val blocks = iso.toList().chunked(blockSize).map { it.toByteArray() }
-    val data = ByteArrayOutputStream()
-    val index = mutableListOf<Int>()
-    val start = 0x18 + (blocks.size + 1) * 4
-    for (block in blocks) {
-      index += start + data.size()
-      val deflater =
-        Deflater(9, true).apply {
-          setInput(block)
-          finish()
-        }
-      val out = ByteArray(blockSize * 2)
-      data.write(out, 0, deflater.deflate(out))
-      deflater.end()
-    }
-    index += start + data.size()
-    val header =
-      image(start) {
-        ascii(0, "CISO").putInt(4, 0x18).putLong(8, iso.size.toLong()).putInt(0x10, blockSize)
-        put(0x14, 1)
-        index.forEachIndexed { i, offset -> putInt(0x18 + i * 4, offset) }
-      }
-    val cso = file("game.cso", header + data.toByteArray())
-    assertEquals("NPJH50804", GameIds.read(cso, GameIdKind.Psp))
-  }
-
-  @Test
-  fun refusesAPspImageWithoutASerial() {
-    assertNull(GameIds.read(file("game.iso", pspIso("nothing here")), GameIdKind.Psp))
-    assertNull(GameIds.read(file("short.iso", ByteArray(100)), GameIdKind.Psp))
-  }
-
-  // PS2
-
-  private val systemCnf = "BOOT2 = cdrom0:\\SLUS_201.52;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n"
-
-  @Test
-  fun readsAPs2SerialFromAnIso() {
-    val iso = file("game.iso", iso("SYSTEM.CNF", systemCnf))
-    assertEquals("SLUS-20152", GameIds.read(iso, GameIdKind.Ps2))
-    assertNull(GameIds.read(file("other.iso", iso("OTHER.CNF", systemCnf)), GameIdKind.Ps2))
-  }
-
-  @Test
-  fun readsAPs2SerialFromAChdThroughTheReaderItsGiven() {
-    val disc = iso("SYSTEM.CNF", systemCnf)
-    val chd = file("game.chd", "MComprHD".encodeToByteArray() + ByteArray(120))
-    val reader = Chd { _, offset, length ->
-      disc.copyOfRange(offset.toInt(), minOf(disc.size, offset.toInt() + length))
-    }
-    assertEquals("SLUS-20152", GameIds.read(chd, GameIdKind.Ps2, chd = reader))
-    assertNull(GameIds.read(chd, GameIdKind.Ps2), "Without a reader, a CHD's id can't be read")
-  }
-
-  @Test
-  fun readsTheBootLinesRetailDiscsWrite() {
-    fun serial(cnf: String) = GameIds.bootSerial(cnf.encodeToByteArray())
-    assertEquals("SLUS-20152", serial("BOOT2 = cdrom0:\\SLUS_201.52;1"))
-    assertEquals("SLUS-00594", serial("BOOT2=cdrom0:\\slus_005.94;1"))
-    assertEquals("SLUS-00220", serial("BOOT2 = cdrom0:\\SLUS_00.220;1"))
-    assertEquals("SCUS-94102", serial("BOOT2 = cdrom0:\\SCUS-941.02;1"))
-    assertEquals("SLUS-01073", serial("BOOT2 = cdrom0:\\MARL\\SLUS_010.73;1"))
-    assertNull(serial("BOOT = cdrom:\\SLUS_005.94;1"), "A PS1 disc's BOOT line isn't BOOT2")
-    assertNull(serial("BOOT2 = cdrom0:\\MAIN.ELF;1"))
-  }
-
-  // 3DS
-
-  private fun ncch(programId: Long) =
-    image(0x200) {
-      ascii(0x100, "NCCH")
-      putLong(0x118, programId)
-    }
-
-  @Test
-  fun readsA3dsTitleIdFromEachContainer() {
-    val id = 0x0004000000033500L
-    val ncsd =
-      image(0x4000) {
-        ascii(0x100, "NCSD")
-        putInt(0x120, 0x4000 / 0x200)
-      } + ncch(id)
-    assertEquals("0004000000033500", GameIds.read(file("game.3ds", ncsd), GameIdKind.N3ds))
-    assertEquals("0004000000033500", GameIds.read(file("game.cxi", ncch(id)), GameIdKind.N3ds))
-
-    // A CIA's sections each start on a 64-byte boundary: header, certificates, ticket, TMD.
-    val cia =
-      image(0x3900) {
-        putInt(0, 0x2020).putInt(0x08, 0xA00).putInt(0x0C, 0x350).putInt(0x10, 0xB34)
-      } + ncch(id)
-    assertEquals("0004000000033500", GameIds.read(file("game.cia", cia), GameIdKind.N3ds))
-  }
-
-  @Test
-  fun readsA3dsTitleIdFromACompressedImage() {
-    val inner = ncch(0x0004000000055E00L)
-    val header =
-      image(0x20) {
-        ascii(0, "Z3DS").ascii(4, "NCCH")
-        put(8, 1)
-        putShort(0x0A, 0x20).putInt(0x0C, 0x10)
-      }
-    val z3ds = file("game.zcxi", header + ByteArray(0x10) + "compressed".encodeToByteArray())
-    var asked: Long? = null
-    val zstd = Zstd { _, offset, _ ->
-      asked = offset
-      inner
-    }
-    assertEquals("0004000000055E00", GameIds.read(z3ds, GameIdKind.N3ds, zstd = zstd))
-    assertEquals(0x30L, asked, "The payload starts after the header and the metadata")
-    assertNull(GameIds.read(z3ds, GameIdKind.N3ds), "Without zstd it can't be read")
-  }
-
-  @Test
-  fun refusesA3dsTitleThatIsntRetail() {
-    assertNull(GameIds.read(file("hb.cxi", ncch(0x0001000000000000L)), GameIdKind.N3ds))
-  }
-
-  // Switch
 
   /** A PFS0 partition holding [files]. */
   private fun pfs0(vararg files: Pair<String, ByteArray>): ByteArray {
@@ -206,18 +53,18 @@ class GameIdsTest {
   @Test
   fun readsASwitchIdFromAnNspTicket() {
     val nsp = pfs0("0100abcd12345000000000000000000a.tik" to ticket(0x0100ABCD12345000L))
-    assertEquals("0100ABCD12345000", GameIds.read(file("game.nsp", nsp), GameIdKind.Switch))
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(file("game.nsp", nsp)))
   }
 
   @Test
   fun readsAnUpdateOrAddOnAsItsGame() {
     val update = pfs0("u.tik" to ticket(0x0100ABCD12345800L))
-    assertEquals("0100ABCD12345000", GameIds.read(file("update.nsp", update), GameIdKind.Switch))
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(file("update.nsp", update)))
     val addOn = pfs0("a.tik" to ticket(0x0100152000023001L))
-    assertEquals("0100152000022000", GameIds.read(file("dlc.nsp", addOn), GameIdKind.Switch))
+    assertEquals("0100152000022000", GameIds.switchTitle(file("dlc.nsp", addOn)))
     val twoGames =
       pfs0("a.tik" to ticket(0x0100ABCD12345000L), "b.tik" to ticket(0x0100000000010000L))
-    assertNull(GameIds.read(file("two.nsp", twoGames), GameIdKind.Switch))
+    assertNull(GameIds.switchTitle(file("two.nsp", twoGames)))
   }
 
   @Test
@@ -236,8 +83,8 @@ class GameIdsTest {
       }
     val nca = ByteArray(0x200) + GameIds.xts(plain, key, sector = 1, Cipher.ENCRYPT_MODE)
     val nsp = file("game.nsp", pfs0("0123.nca" to nca))
-    assertEquals("0100ABCD12345000", GameIds.read(nsp, GameIdKind.Switch, switchKeys = keys))
-    assertNull(GameIds.read(nsp, GameIdKind.Switch), "Without keys or a ticket there's no id")
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(nsp, keys))
+    assertNull(GameIds.switchTitle(nsp), "Without keys or a ticket there's no id")
   }
 
   @Test
@@ -262,13 +109,13 @@ class GameIdsTest {
     val game = pfs0("a.nca" to nca(0x010049900F546000L, 0), "b.nca" to nca(0x010049900F546001L, 0))
     assertEquals(
       "010049900F546000",
-      GameIds.read(file("game.nsp", game), GameIdKind.Switch, switchKeys = keys),
+      GameIds.switchTitle(file("game.nsp", game), keys),
     )
     // An add-on's data with the same id belongs to the game a block below.
     val addOn = pfs0("c.nca" to nca(0x010049900F546001L, 4))
     assertEquals(
       "010049900F545000",
-      GameIds.read(file("dlc.nsp", addOn), GameIdKind.Switch, switchKeys = keys),
+      GameIds.switchTitle(file("dlc.nsp", addOn), keys),
     )
   }
 
@@ -282,7 +129,7 @@ class GameIdsTest {
         ascii(0x100, "HEAD")
         putLong(0x130, 0x200)
       } + root
-    assertEquals("0100ABCD12345000", GameIds.read(file("game.xci", xci), GameIdKind.Switch))
+    assertEquals("0100ABCD12345000", GameIds.switchTitle(file("game.xci", xci)))
   }
 
   private fun hfs0(vararg files: Pair<String, ByteArray>): ByteArray {
@@ -300,52 +147,5 @@ class GameIdsTest {
         }
       }
     return files.fold(head + names) { acc, (_, bytes) -> acc + bytes }
-  }
-
-  // GameCube and Wii
-
-  private fun discHeader(code: String, wii: Boolean) =
-    image(0x20) {
-      ascii(0, code + "01")
-      order(ByteOrder.BIG_ENDIAN)
-      if (wii) putInt(0x18, 0x5D1C9EA3) else putInt(0x1C, 0xC2339F3D.toInt())
-    }
-
-  @Test
-  fun readsADiscsGameCodeFromEachContainer() {
-    val gc = discHeader("GZLE", wii = false)
-    val wii = discHeader("RSBE", wii = true)
-    assertEquals("GZLE", GameIds.read(file("gc.iso", gc), GameIdKind.Disc))
-    assertEquals("RSBE", GameIds.read(file("wii.iso", wii), GameIdKind.Disc))
-    val rvz = image(0x58) { ascii(0, "RVZ").put(3, 1) } + wii
-    assertEquals("RSBE", GameIds.read(file("wii.rvz", rvz), GameIdKind.Disc))
-    val wbfs = image(0x200) { ascii(0, "WBFS").put(8, 9) } + wii
-    assertEquals("RSBE", GameIds.read(file("wii.wbfs", wbfs), GameIdKind.Disc))
-
-    // A GCZ's first block, compressed with zlib.
-    val block = gc + ByteArray(0x3E0)
-    val deflater =
-      Deflater().apply {
-        setInput(block)
-        finish()
-      }
-    val compressed = ByteArray(0x400).let { it.copyOf(deflater.deflate(it)) }
-    val gcz =
-      image(32 + 12) {
-        putInt(0, 0xB10BC001.toInt()).putLong(8, compressed.size.toLong())
-        putInt(24, block.size).putInt(28, 1)
-        putLong(32, 0)
-      } + compressed
-    assertEquals("GZLE", GameIds.read(file("gc.gcz", gcz), GameIdKind.Disc))
-  }
-
-  @Test
-  fun refusesADiscWithoutAConsolesMagic() {
-    assertNull(
-      GameIds.read(
-        file("junk.iso", "GZLE01".encodeToByteArray() + ByteArray(0x40)),
-        GameIdKind.Disc,
-      ),
-    )
   }
 }

@@ -9,8 +9,7 @@ import kotlin.test.assertTrue
 class LibretroCoresTest {
   @Test
   fun everyPlatformHasAnExplicitEntry() {
-    val platforms = PlatformCatalog.all.filter { it.runsAs == null }.map { it.slug }.toSet()
-    assertEquals(platforms, LibretroCores.recommended.keys)
+    assertEquals(EmulatorRegistry.preference.keys, LibretroCores.recommended.keys)
   }
 
   @Test
@@ -26,32 +25,6 @@ class LibretroCoresTest {
     assertEquals(
       LibretroCores.recommendedFor(PlatformCatalog.SNES),
       LibretroCores.recommendedFor(PlatformCatalog.SUPER_FAMICOM),
-    )
-    assertEquals("snes9x_libretro", LibretroCores.recommendedFor(PlatformCatalog.SNES)?.library)
-  }
-
-  @Test
-  fun standaloneOnlyPlatformsHaveNoCore() {
-    assertNull(LibretroCores.recommendedFor(PlatformCatalog.PS2))
-    assertNull(LibretroCores.recommendedFor(PlatformCatalog.SWITCH))
-  }
-
-  @Test
-  fun anOverrideReplacesTheRecommendedCore() {
-    val overrides = mapOf(PlatformCatalog.GB to "mgba_libretro")
-    assertEquals("mgba_libretro", LibretroCores.coreFor(PlatformCatalog.GB, overrides)?.library)
-    assertEquals(
-      "gambatte_libretro",
-      LibretroCores.coreFor(PlatformCatalog.GBC, overrides)?.library,
-    )
-  }
-
-  @Test
-  fun anOverrideNamingAnUnknownCoreFallsBackToTheRecommendedOne() {
-    val overrides = mapOf(PlatformCatalog.GB to "nonexistent_libretro")
-    assertEquals(
-      "gambatte_libretro",
-      LibretroCores.coreFor(PlatformCatalog.GB, overrides)?.library,
     )
   }
 

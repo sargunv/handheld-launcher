@@ -11,13 +11,11 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
-import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.ui.focus.FocusRoot
 import dev.sargunv.handheld.ui.input.TestActionInputRoot
+import dev.sargunv.handheld.ui.press
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Instant
@@ -45,10 +43,7 @@ class SaveConflictScreenTest {
       }
       waitForIdle()
       onNodeWithTag(conflict.newer.name).assertIsFocused()
-      for (key in keys) {
-        onRoot().performKeyInput { pressKey(key) }
-        waitForIdle()
-      }
+      press(keys)
     }
     return events
   }

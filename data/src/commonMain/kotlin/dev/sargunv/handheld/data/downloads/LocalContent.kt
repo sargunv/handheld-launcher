@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.data.downloads
 
-import dev.sargunv.handheld.data.cores.JsonFile
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
@@ -16,7 +16,6 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 
 /**
@@ -95,7 +94,9 @@ internal class ContentScanner(
   cacheFile: Path,
   private val wholeFileLimit: Long = WHOLE_FILE_LIMIT,
 ) {
-  private val file = JsonFile(cacheFile, ListSerializer(CachedContent.serializer()))
+  // A cache from an older version, or a damaged one, is read again from the files.
+  private val file =
+    JsonFile(cacheFile, ListSerializer(CachedContent.serializer()), unreadableIsMissing = true)
   private val mutex = Mutex()
   private var cache: MutableMap<String, CachedContent>? = null
   /** Whether the cache has changes the file lacks. */
@@ -119,14 +120,16 @@ internal class ContentScanner(
     // Platforms that share a folder share its files.
     for ((folderName, sharing) in platforms.groupBy { it.fsSlug }) {
       val folderRoms = sharing.flatMap { romsByPlatform[it.id].orEmpty() }
-      val names = folderRoms.mapTo(mutableSetOf(), ::romName)
+      val names = folderRoms.mapNotNullTo(mutableSetOf(), GameLayout::romName)
       val entries = targets.flatMap {
         entriesOf(Path(GameLayout.platformFolder(it.root, folderName)))
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
       // Each target's files in name order, the targets in the order they fill.
       val loose = entries.filterNot { it.name in names || skipped(it.name) }
-      val candidates = folderRoms.filter { it.files.size == 1 && romName(it) !in present }
+      val candidates = folderRoms.filter {
+        it.files.size == 1 && GameLayout.romName(it) !in present
+      }
       val sizes = candidates.mapTo(mutableSetOf()) { it.files.single().sizeBytes }
       // A set's files are read only where that's quick, or where one could be a game by its size.
       // A set with a file that's a game of the library is its files, each on its own.
@@ -255,15 +258,8 @@ internal class ContentScanner(
     return content
   }
 
-  private fun loadCache(): MutableMap<String, CachedContent> =
-    try {
-      file.read().orEmpty().associateByTo(mutableMapOf()) { it.path }
-    } catch (e: SerializationException) {
-      // A cache from an older version, or a damaged one, is read again from the files.
-      mutableMapOf()
-    } catch (e: IOException) {
-      mutableMapOf()
-    }
+  private suspend fun loadCache(): MutableMap<String, CachedContent> =
+    file.read().orEmpty().associateByTo(mutableMapOf()) { it.path }
 
   companion object {
     /**
@@ -296,7 +292,7 @@ internal fun chdHeaderSha1(header: ByteArray): String? {
   if (header.size < CHD_HEADER_SIZE) return null
   if (header.copyOfRange(0, 8).decodeToString() != "MComprHD") return null
   if (header.readInt(8) < CHD_HEADER_SIZE || header.readInt(12) != 5) return null
-  return header.copyOfRange(84, 104).toHex().takeIf { it.any { c -> c != '0' } }
+  return header.copyOfRange(84, 104).toHexString().takeIf { it.any { c -> c != '0' } }
 }
 
 private fun chdSha1(path: Path, size: Long): String? {
@@ -309,11 +305,6 @@ private const val CHD_HEADER_SIZE = 124
 
 private fun ByteArray.readInt(offset: Int): Int =
   (0 until 4).fold(0) { value, i -> (value shl 8) or (this[offset + i].toInt() and 0xff) }
-
-private fun ByteArray.toHex(): String =
-  joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
-
-private fun romName(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
 
 /**
  * The disc sets copied in loose among [files], the entries of platforms' folders: each playlist or

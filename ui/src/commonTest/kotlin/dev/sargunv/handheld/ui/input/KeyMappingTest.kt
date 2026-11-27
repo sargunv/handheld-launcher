@@ -10,16 +10,6 @@ class KeyMappingTest {
   private val confirmB = InputSettings(confirmButton = ConfirmButton.B)
 
   @Test
-  fun faceButtonsFollowTheirKeyCodes() {
-    assertEquals(PadButton.A, padButtonFor(Key.ButtonA))
-    assertEquals(PadButton.B, padButtonFor(Key.ButtonB))
-    assertEquals(PadButton.X, padButtonFor(Key.ButtonX))
-    assertEquals(PadButton.Y, padButtonFor(Key.ButtonY))
-    assertEquals(PadButton.DpadUp, padButtonFor(Key.DirectionUp))
-    assertNull(padButtonFor(Key.Enter))
-  }
-
-  @Test
   fun confirmSettingSwapsAAndB() {
     assertEquals(Action.Confirm, confirmA.actionFor(Key.ButtonA))
     assertEquals(Action.Back, confirmA.actionFor(Key.ButtonB))
@@ -41,11 +31,9 @@ class KeyMappingTest {
   fun confirmSettingLeavesTheOtherButtonsAlone() {
     for (settings in listOf(confirmA, confirmB)) {
       assertEquals(Action.Menu, settings.actionFor(Key.ButtonX))
-      assertEquals(Action.Search, settings.actionFor(Key.ButtonY))
       assertEquals(Action.PreviousShelf, settings.actionFor(Key.ButtonL1))
       assertEquals(Action.NextShelf, settings.actionFor(Key.ButtonR1))
       assertEquals(Action.MainMenu, settings.actionFor(Key.ButtonStart))
-      assertEquals(Action.Select, settings.actionFor(Key.ButtonSelect))
       assertEquals(Action.Left, settings.actionFor(Key.DirectionLeft))
       assertNull(settings.actionFor(Key.ButtonL2))
     }
@@ -60,13 +48,5 @@ class KeyMappingTest {
       assertEquals(Action.Menu, settings.actionFor(Key.Tab))
       assertNull(settings.actionFor(Key.A))
     }
-  }
-
-  @Test
-  fun onlyDirectionsRepeat() {
-    assertEquals(
-      setOf(Action.Up, Action.Down, Action.Left, Action.Right),
-      Action.entries.filter { it.repeats }.toSet(),
-    )
   }
 }

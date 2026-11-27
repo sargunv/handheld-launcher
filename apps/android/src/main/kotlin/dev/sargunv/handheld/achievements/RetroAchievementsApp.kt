@@ -3,6 +3,7 @@ package dev.sargunv.handheld.achievements
 import android.content.Context
 import dev.sargunv.handheld.data.achievements.KeystoreRetroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.session.rcheevosUserAgentClause
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import java.io.File
@@ -15,11 +16,8 @@ internal fun retroAchievementsStore(context: Context) =
  * The User-Agent RetroAchievements asks clients for: the app's name and version, then the version
  * of rcheevos the session is built with.
  */
-internal fun retroAchievementsUserAgent(context: Context): String {
-  val version =
-    context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
-  return RetroAchievementsClient.userAgent(version, rcheevosUserAgentClause())
-}
+internal fun retroAchievementsUserAgent(context: Context): String =
+  RetroAchievementsClient.userAgent(context.handheldApp.versionName, rcheevosUserAgentClause())
 
 /** A client for RetroAchievements, which names the app as RetroAchievements asks. */
 internal fun retroAchievementsClient(context: Context) =

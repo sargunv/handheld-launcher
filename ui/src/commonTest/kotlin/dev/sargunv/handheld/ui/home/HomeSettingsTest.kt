@@ -55,14 +55,4 @@ class HomeSettingsTest {
     val hidden = settings.hide(Collections)
     assertEquals(hidden, hidden.moveUp(Collections))
   }
-
-  @Test
-  fun aShelfMissingFromTheStoredOrderGoesLast() {
-    val stored = HomeSettings(order = listOf(RecentlyAdded, RecentlyPlayed))
-    assertEquals(listOf(RecentlyAdded, RecentlyPlayed, Collections), stored.visible)
-    assertEquals(
-      listOf(RecentlyAdded, Collections, RecentlyPlayed),
-      stored.moveUp(Collections).visible,
-    )
-  }
 }

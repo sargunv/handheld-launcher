@@ -44,34 +44,6 @@ import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /** The Android emulators this launcher knows, with how to launch each. */
 object EmulatorRegistry {
-  private val retroArchPlatforms =
-    setOf(
-      NES,
-      FDS,
-      SNES,
-      N64,
-      GAMECUBE,
-      WII,
-      GB,
-      GBC,
-      GBA,
-      NDS,
-      N3DS,
-      GENESIS,
-      MASTER_SYSTEM,
-      GAME_GEAR,
-      SEGA_CD,
-      SEGA_32X,
-      PSX,
-      PSP,
-      SATURN,
-      DREAMCAST,
-      TG16,
-      TG_CD,
-      POKEMON_MINI,
-      ARCADE,
-    )
-
   private val retroArch =
     LaunchRecipe(
       action = IntentAction.MAIN,
@@ -166,90 +138,66 @@ object EmulatorRegistry {
       TG16 to "tg16",
     )
 
-  private fun gitHub(repo: String) = ReleaseSource.GitHub(repo)
-
-  private fun playStore(packageName: String) =
-    "https://play.google.com/store/apps/details?id=$packageName"
-
   val all: List<KnownEmulator> =
     listOf(
       KnownEmulator(
         id = EmulatorId("retroarch"),
         displayName = "RetroArch",
         packageName = "com.retroarch",
-        platforms = retroArchPlatforms,
         recipe = retroArch,
         packagePatterns = listOf("com.retroarch*"),
-        downloadUrl = "https://www.retroarch.com/?page=platforms",
       ),
       KnownEmulator(
         id = EmulatorId("retroarch_64"),
         displayName = "RetroArch (64-bit)",
         packageName = "com.retroarch.aarch64",
-        platforms = retroArchPlatforms,
         recipe = retroArch,
-        downloadUrl = "https://www.retroarch.com/?page=platforms",
       ),
       KnownEmulator(
         id = EmulatorId("retroarch_32"),
         displayName = "RetroArch (32-bit)",
         packageName = "com.retroarch.ra32",
-        platforms = retroArchPlatforms,
         recipe = retroArch,
-        downloadUrl = "https://www.retroarch.com/?page=platforms",
       ),
       KnownEmulator(
         id = EmulatorId("mupen64plus_fz"),
         displayName = "Mupen64Plus FZ",
         packageName = "org.mupen64plusae.v3.fzurita",
-        platforms = setOf(N64),
         recipe = mupen,
         packagePatterns = listOf("org.mupen64plusae.*"),
         forkRecipe = LaunchRecipe.ViewRom,
-        downloadUrl = playStore("org.mupen64plusae.v3.fzurita"),
       ),
       KnownEmulator(
         id = EmulatorId("mupen64plus_fz_pro"),
         displayName = "M64Plus FZ Pro",
         packageName = "org.mupen64plusae.v3.fzurita.pro",
-        platforms = setOf(N64),
         recipe = mupen,
-        downloadUrl = playStore("org.mupen64plusae.v3.fzurita.pro"),
       ),
       KnownEmulator(
         id = EmulatorId("m64pro_fzx_plus"),
         displayName = "M64Pro FZX Plus+",
         packageName = "com.m64.fx.plus.emulate",
-        platforms = setOf(N64),
         recipe = mupen,
-        downloadUrl = playStore("com.m64.fx.plus.emulate"),
       ),
       KnownEmulator(
         id = EmulatorId("dolphin"),
         displayName = "Dolphin",
         packageName = "org.dolphinemu.dolphinemu",
-        platforms = setOf(GAMECUBE, WII),
         recipe = dolphin.copy(method = LaunchMethod.Shell),
         packagePatterns = listOf("org.dolphinemu.*"),
         forkRecipe = dolphin,
-        downloadUrl = playStore("org.dolphinemu.dolphinemu"),
       ),
       KnownEmulator(
         id = EmulatorId("dolphin_handheld"),
         displayName = "Dolphin (Handheld)",
         packageName = "org.dolphinemu.handheld",
-        platforms = setOf(GAMECUBE, WII),
         recipe = dolphin,
-        downloadUrl = "https://dolphin-emu.org/download/",
       ),
       KnownEmulator(
         id = EmulatorId("dolphin_cs"),
         displayName = "DolphinCS",
         packageName = "com.joeyos.dolphinemu",
-        platforms = setOf(GAMECUBE, WII),
         recipe = dolphin,
-        downloadUrl = "https://github.com/JoeysRetroHandhelds/DolphinCS/releases",
-        releases = gitHub("JoeysRetroHandhelds/DolphinCS"),
       ),
       // SapphireRhodonite's dual-screen fork ships under the same package, so it can't be told
       // apart from this one, and launches the same way.
@@ -257,17 +205,13 @@ object EmulatorRegistry {
         id = EmulatorId("cemu"),
         displayName = "Cemu",
         packageName = "info.cemu.cemu",
-        platforms = setOf(WII_U),
         recipe = LaunchRecipe(activity = "info.cemu.cemu.emulation.EmulationActivity"),
-        downloadUrl = "https://github.com/SSimco/Cemu/releases",
-        releases = gitHub("SSimco/Cemu"),
       ),
       // Discontinued. Its family pattern covers the forks that kept its package namespace.
       KnownEmulator(
         id = EmulatorId("citra"),
         displayName = "Citra",
         packageName = "org.citra.citra_emu",
-        platforms = setOf(N3DS),
         recipe =
           LaunchRecipe(
             activity = citraActivity,
@@ -275,20 +219,16 @@ object EmulatorRegistry {
           ),
         packagePatterns = listOf("org.citra.*", "org.gamerytb.citra.*"),
         forkRecipe = LaunchRecipe.ViewRom,
-        downloadUrl = "https://citra-emu.org/",
       ),
       KnownEmulator(
         id = EmulatorId("citra_mmj"),
         displayName = "Citra MMJ",
         packageName = "org.citra.emu",
-        platforms = setOf(N3DS),
         recipe =
           LaunchRecipe(
             activity = "org.citra.emu.ui.EmulationActivity",
             extras = mapOf("GamePath" to ExtraValue.RomPath),
           ),
-        downloadUrl = "https://github.com/weihuoya/citra/releases",
-        releases = gitHub("weihuoya/citra"),
       ),
       // The vanilla APK moved from io.github.lime3ds.android to org.azahar_emu.azahar, and the Play
       // Store build may keep the old package. Activities live in Citra's namespace.
@@ -296,7 +236,6 @@ object EmulatorRegistry {
         id = EmulatorId("azahar"),
         displayName = "Azahar",
         packageName = "org.azahar_emu.azahar",
-        platforms = setOf(N3DS),
         recipe =
           LaunchRecipe(
             activity = citraActivity,
@@ -311,59 +250,44 @@ object EmulatorRegistry {
             extras = mapOf("SelectedGame" to ExtraValue.RomPath),
           ),
         drawsBothScreens = true,
-        downloadUrl = "https://github.com/azahar-emu/azahar/releases",
-        releases = gitHub("azahar-emu/azahar"),
       ),
       KnownEmulator(
         id = EmulatorId("borked3ds"),
         displayName = "Borked3DS",
         packageName = "io.github.borked3ds.android",
-        platforms = setOf(N3DS),
         recipe =
           LaunchRecipe(activity = "io.github.borked3ds.android.activities.EmulationActivity"),
         packagePatterns = listOf("io.github.borked3ds.*"),
         forkRecipe = LaunchRecipe.ViewRom,
-        downloadUrl = "https://github.com/Borked3DS/Borked3DS/releases",
-        releases = gitHub("Borked3DS/Borked3DS"),
       ),
       KnownEmulator(
         id = EmulatorId("eden"),
         displayName = "Eden",
         packageName = "dev.eden.eden_emulator",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe(activity = yuzuActivity, method = LaunchMethod.Shell),
         packagePatterns = listOf("dev.eden.*", "dev.legacy.eden*", "org.eden.*"),
         forkRecipe = LaunchRecipe.ViewRom,
-        downloadUrl = "https://git.eden-emu.dev/eden-emu/eden/releases",
-        releases = ReleaseSource.Gitea("https://git.eden-emu.dev", "eden-emu/eden"),
       ),
       KnownEmulator(
         id = EmulatorId("eden_duo"),
         displayName = "Eden Duo",
         packageName = "dev.igawa6.edenduo",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe(activity = yuzuActivity, method = LaunchMethod.Shell),
-        downloadUrl = "https://github.com/igawa6/eden-duo/releases",
-        releases = gitHub("igawa6/eden-duo"),
       ),
       KnownEmulator(
         id = EmulatorId("lemon"),
         displayName = "Lemon",
         packageName = "dev.lemon.lemon_emulator",
-        platforms = setOf(SWITCH),
         recipe =
           LaunchRecipe(
             activity = "dev.lemon.lemon_emu.activities.EmulationActivity",
             method = LaunchMethod.Shell,
           ),
-        downloadUrl = "https://git.lemon-emu.org/lemon/Lemon-Project/releases",
-        releases = ReleaseSource.Gitea("https://git.lemon-emu.org", "lemon/Lemon-Project"),
       ),
       KnownEmulator(
         id = EmulatorId("citron"),
         displayName = "Citron",
         packageName = "org.citron.emu",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe(activity = "org.citron.citron_emu.activities.EmulationActivity"),
         packagePatterns = listOf("org.citron.*"),
         forkRecipe = LaunchRecipe.ViewRom,
@@ -372,7 +296,6 @@ object EmulatorRegistry {
         id = EmulatorId("sudachi"),
         displayName = "Sudachi",
         packageName = "org.sudachi.sudachi_emu",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe(activity = "org.sudachi.sudachi_emu.activities.EmulationActivity"),
         packagePatterns = listOf("org.sudachi.*"),
         forkRecipe = LaunchRecipe.ViewRom,
@@ -381,7 +304,6 @@ object EmulatorRegistry {
         id = EmulatorId("ryujinx"),
         displayName = "Ryujinx",
         packageName = "org.ryujinx.android",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe.ViewRom,
         packagePatterns = listOf("org.ryujinx.*"),
       ),
@@ -389,7 +311,6 @@ object EmulatorRegistry {
         id = EmulatorId("yuzu"),
         displayName = "Yuzu",
         packageName = "org.yuzu.yuzu_emu",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe(activity = yuzuActivity),
         packagePatterns = listOf("org.yuzu.*"),
         forkRecipe = LaunchRecipe.ViewRom,
@@ -398,7 +319,6 @@ object EmulatorRegistry {
         id = EmulatorId("strato"),
         displayName = "Strato",
         packageName = "org.stratoemu.strato",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe.ViewRom,
         packagePatterns = listOf("org.stratoemu.*"),
       ),
@@ -406,7 +326,6 @@ object EmulatorRegistry {
         id = EmulatorId("skyline"),
         displayName = "Skyline",
         packageName = "skyline.emu",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe.ViewRom,
         packagePatterns = listOf("skyline.*", "emu.skyline.*"),
       ),
@@ -414,17 +333,13 @@ object EmulatorRegistry {
         id = EmulatorId("kenjinx"),
         displayName = "Kenji-NX",
         packageName = "org.kenjinx.android",
-        platforms = setOf(SWITCH),
         recipe = LaunchRecipe.ViewRom,
         packagePatterns = listOf("org.kenjinx.*"),
-        downloadUrl = "https://git.ryujinx.app/kenji-nx/android/-/releases",
-        releases = ReleaseSource.GitLab("https://git.ryujinx.app", "kenji-nx/android"),
       ),
       KnownEmulator(
         id = EmulatorId("drastic"),
         displayName = "DraStic",
         packageName = "com.dsemu.drastic",
-        platforms = setOf(NDS),
         recipe =
           LaunchRecipe(
             activity = "com.dsemu.drastic.DraSticActivity",
@@ -435,26 +350,21 @@ object EmulatorRegistry {
             flags = setOf(LaunchFlag.ClearTask, LaunchFlag.ClearTop, LaunchFlag.NoHistory),
             method = LaunchMethod.Shell,
           ),
-        downloadUrl = playStore("com.dsemu.drastic"),
       ),
       KnownEmulator(
         id = EmulatorId("seedlessds"),
         displayName = "SeedlessDS",
         packageName = "com.seedlessds.app",
-        platforms = setOf(NDS),
         recipe =
           LaunchRecipe(
             activity = "com.seedlessds.app.LaunchGame",
             extras = mapOf("rom_path" to ExtraValue.RomPath),
           ),
-        downloadUrl = "https://github.com/SapphireRhodonite/SeedlessDS/releases",
-        releases = gitHub("SapphireRhodonite/SeedlessDS"),
       ),
       KnownEmulator(
         id = EmulatorId("melonds"),
         displayName = "melonDS",
         packageName = "me.magnum.melonds",
-        platforms = setOf(NDS),
         recipe =
           LaunchRecipe.withExtras(
             action = "me.magnum.melonds.LAUNCH_ROM",
@@ -465,9 +375,6 @@ object EmulatorRegistry {
         packagePatterns = listOf("me.magnum.melonds*", "me.magnum.melondualds*"),
         forkRecipe =
           LaunchRecipe(activity = melonDsActivity, extras = mapOf("PATH" to ExtraValue.RomPath)),
-        downloadUrl =
-          "https://github.com/rafaelvcaetano/melonDS-android/releases/tag/nightly-release",
-        releases = gitHub("rafaelvcaetano/melonDS-android"),
       ),
       // SapphireRhodonite's dual-screen fork, first MelonDualDS, now WatermelonDS, still under its
       // first package name.
@@ -475,7 +382,6 @@ object EmulatorRegistry {
         id = EmulatorId("melondualds"),
         displayName = "WatermelonDS",
         packageName = "me.magnum.melondualds",
-        platforms = setOf(NDS),
         recipe =
           LaunchRecipe.withExtras(
             action = "me.magnum.melondualds.LAUNCH_ROM",
@@ -484,22 +390,17 @@ object EmulatorRegistry {
             data = RomData.ProviderUri,
           ),
         drawsBothScreens = true,
-        downloadUrl = "https://github.com/SapphireRhodonite/WatermelonDS/releases",
-        releases = gitHub("SapphireRhodonite/WatermelonDS"),
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_ds"),
         displayName = "Pizza Boy Double Slice",
         packageName = "com.pizzaemulators.pbds",
-        platforms = setOf(NDS),
         recipe = pizzaBoy("com.pizzaemulators.pbds"),
-        downloadUrl = playStore("com.pizzaemulators.pbds"),
       ),
       KnownEmulator(
         id = EmulatorId("pokedaisy"),
         displayName = "PokeDaisy",
         packageName = "com.pokedaisy.app",
-        platforms = setOf(GB, GBC, GBA, NDS),
         recipe =
           LaunchRecipe.withExtras(
             action = IntentAction.MAIN,
@@ -507,46 +408,35 @@ object EmulatorRegistry {
             extras = mapOf("rom" to ExtraValue.RomPath),
           ),
         drawsBothScreens = true,
-        downloadUrl = "https://github.com/lidor30/pokedaisy/releases",
-        releases = gitHub("lidor30/pokedaisy"),
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_gba_pro"),
         displayName = "Pizza Boy GBA Pro",
         packageName = "it.dbtecno.pizzaboygbapro",
-        platforms = setOf(GBA),
         recipe = pizzaBoy("it.dbtecno.pizzaboygbapro"),
-        downloadUrl = playStore("it.dbtecno.pizzaboygbapro"),
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_gba"),
         displayName = "Pizza Boy GBA",
         packageName = "it.dbtecno.pizzaboygba",
-        platforms = setOf(GBA),
         recipe = pizzaBoy("it.dbtecno.pizzaboygba"),
-        downloadUrl = playStore("it.dbtecno.pizzaboygba"),
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_gb_pro"),
         displayName = "Pizza Boy GB Pro",
         packageName = "it.dbtecno.pizzaboypro",
-        platforms = setOf(GB, GBC),
         recipe = pizzaBoy("it.dbtecno.pizzaboypro"),
-        downloadUrl = playStore("it.dbtecno.pizzaboypro"),
       ),
       KnownEmulator(
         id = EmulatorId("pizza_boy_gb"),
         displayName = "Pizza Boy GB",
         packageName = "it.dbtecno.pizzaboy",
-        platforms = setOf(GB, GBC),
         recipe = pizzaBoy("it.dbtecno.pizzaboy"),
-        downloadUrl = playStore("it.dbtecno.pizzaboy"),
       ),
       KnownEmulator(
         id = EmulatorId("linkboy"),
         displayName = "LinkBoy",
         packageName = "com.pixelrespawn.linkboy",
-        platforms = setOf(GB, GBC, GBA),
         recipe =
           LaunchRecipe(
             categories = emptyList(),
@@ -554,21 +444,17 @@ object EmulatorRegistry {
             mimeType = null,
             flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask, LaunchFlag.NoHistory),
           ),
-        downloadUrl = playStore("com.pixelrespawn.linkboy"),
       ),
       KnownEmulator(
         id = EmulatorId("super_zsnes"),
         displayName = "SUPER ZSNES",
         packageName = "com.zsnes.superzsnes",
-        platforms = setOf(SNES),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = playStore("com.zsnes.superzsnes"),
       ),
       KnownEmulator(
         id = EmulatorId("duckstation"),
         displayName = "DuckStation",
         packageName = "com.github.stenzek.duckstation",
-        platforms = setOf(PSX),
         recipe =
           LaunchRecipe.withExtras(
             action = IntentAction.MAIN,
@@ -581,23 +467,18 @@ object EmulatorRegistry {
               ),
           ),
         packagePatterns = listOf("com.github.stenzek.duckstation*"),
-        downloadUrl = playStore("com.github.stenzek.duckstation"),
       ),
       KnownEmulator(
         id = EmulatorId("armsx1"),
         displayName = "ARMSX1",
         packageName = "com.nanodata.armsx",
-        platforms = setOf(PSX),
         recipe = armsx3,
-        downloadUrl = "https://github.com/ARMSX2/ARMSX1/releases",
-        releases = gitHub("ARMSX2/ARMSX1"),
       ),
       // AetherSX2, discontinued, shares this package and launches the same way.
       KnownEmulator(
         id = EmulatorId("nethersx2"),
         displayName = "NetherSX2",
         packageName = "xyz.aethersx2.android",
-        platforms = setOf(PS2),
         recipe =
           LaunchRecipe.withExtras(
             action = IntentAction.MAIN,
@@ -605,112 +486,82 @@ object EmulatorRegistry {
             extras = mapOf("bootPath" to ExtraValue.RomUriString),
           ),
         packagePatterns = listOf("xyz.aethersx2.*"),
-        downloadUrl = "https://github.com/Trixarian/NetherSX2-patch/releases",
-        releases = gitHub("Trixarian/NetherSX2-patch"),
       ),
       KnownEmulator(
         id = EmulatorId("armsx2"),
         displayName = "ARMSX2",
         packageName = "com.armsx2",
-        platforms = setOf(PS2),
         recipe = LaunchRecipe(activity = "com.armsx2.MainActivity", method = LaunchMethod.Shell),
         packagePatterns = listOf("com.armsx2.*"),
-        downloadUrl = "https://github.com/ARMSX2/ARMSX2/releases",
-        releases = gitHub("ARMSX2/ARMSX2"),
       ),
       KnownEmulator(
         id = EmulatorId("armsx2_play"),
         displayName = "ARMSX2 (Play Store)",
         packageName = "come.nanodata.armsx2",
-        platforms = setOf(PS2),
         recipe =
           LaunchRecipe(
             activity = "kr.co.iefriends.pcsx2.activities.MainActivity",
             method = LaunchMethod.Shell,
           ),
         packagePatterns = listOf("come.nanodata.armsx2.*"),
-        downloadUrl = "https://github.com/ARMSX2/ARMSX2/releases",
       ),
       // A native port of the Jak and Daxter games, which keeps their saves on a PS2 folder card.
       KnownEmulator(
         id = EmulatorId("pocketgoal"),
         displayName = "PocketGOAL",
         packageName = "dev.sargunv.pocketgoal",
-        platforms = setOf(PS2),
         recipe = LaunchRecipe.ViewRom,
-        ranked = false,
       ),
       KnownEmulator(
         id = EmulatorId("psx2"),
         displayName = "PSX2",
         packageName = "com.izzy2lost.psx2",
-        platforms = setOf(PS2),
         recipe = LaunchRecipe.ViewRom,
         packagePatterns = listOf("com.izzy2lost.*"),
-        downloadUrl = "https://github.com/izzy2lost/PSX2/releases",
-        releases = gitHub("izzy2lost/PSX2"),
       ),
       KnownEmulator(
         id = EmulatorId("pcsx2"),
         displayName = "PCSX2",
         packageName = "net.pcsx2.emulator",
-        platforms = setOf(PS2),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = "https://github.com/PCSX2/pcsx2/releases",
-        releases = gitHub("PCSX2/pcsx2"),
       ),
       KnownEmulator(
         id = EmulatorId("ppsspp"),
         displayName = "PPSSPP",
         packageName = "org.ppsspp.ppsspp",
-        platforms = setOf(PSP),
         recipe = ppsspp,
         packagePatterns = listOf("org.ppsspp.*"),
-        downloadUrl = playStore("org.ppsspp.ppsspp"),
       ),
       KnownEmulator(
         id = EmulatorId("ppsspp_gold"),
         displayName = "PPSSPP Gold",
         packageName = "org.ppsspp.ppssppgold",
-        platforms = setOf(PSP),
         recipe = ppsspp,
-        downloadUrl = playStore("org.ppsspp.ppssppgold"),
       ),
       KnownEmulator(
         id = EmulatorId("ppsspp_legacy"),
         displayName = "PPSSPP Legacy",
         packageName = "org.ppsspp.ppsspplegacy",
-        platforms = setOf(PSP),
         recipe = ppsspp,
-        downloadUrl = "https://www.ppsspp.org/docs/reference/legacy-edition/",
       ),
       KnownEmulator(
         id = EmulatorId("vita3k_zx"),
         displayName = "Vita3K ZX",
         packageName = "org.vita3k.emulator.ikhoeyZX",
-        platforms = setOf(VITA),
         recipe = vita3k,
-        downloadUrl = "https://github.com/ikhoeyZX/Vita3K-Android/releases",
-        releases = gitHub("ikhoeyZX/Vita3K-Android"),
       ),
       KnownEmulator(
         id = EmulatorId("vita3k"),
         displayName = "Vita3K",
         packageName = "org.vita3k.emulator",
-        platforms = setOf(VITA),
         recipe = vita3k,
         packagePatterns = listOf("org.vita3k.emulator*"),
-        downloadUrl = "https://github.com/Vita3K/Vita3K-Android/releases",
-        releases = gitHub("Vita3K/Vita3K-Android"),
       ),
       KnownEmulator(
         id = EmulatorId("vita3k_plus"),
         displayName = "Vita3K+",
         packageName = "org.vita3kplus.emulator",
-        platforms = setOf(VITA),
         recipe = vita3k,
-        downloadUrl = "https://github.com/nckstwrt/Vita3K-Plus/releases",
-        releases = gitHub("nckstwrt/Vita3K-Plus"),
       ),
       // Android 13 and later reject explicit-activity launches of some Redream builds:
       // https://github.com/TapiocaFox/Daijishou/issues/487
@@ -718,15 +569,12 @@ object EmulatorRegistry {
         id = EmulatorId("redream"),
         displayName = "Redream",
         packageName = "io.recompiled.redream",
-        platforms = setOf(DREAMCAST),
         recipe = LaunchRecipe(activity = "io.recompiled.redream.MainActivity"),
-        downloadUrl = playStore("io.recompiled.redream"),
       ),
       KnownEmulator(
         id = EmulatorId("flycast"),
         displayName = "Flycast",
         packageName = "com.flycast.emulator",
-        platforms = setOf(DREAMCAST, ARCADE),
         recipe =
           LaunchRecipe(
             activity = "com.flycast.emulator.MainActivity",
@@ -734,106 +582,81 @@ object EmulatorRegistry {
             data = RomData.Path,
             method = LaunchMethod.Shell,
           ),
-        downloadUrl = playStore("com.flycast.emulator"),
       ),
       KnownEmulator(
         id = EmulatorId("yabasanshiro"),
         displayName = "Yaba Sanshiro 2",
         packageName = "org.devmiyax.yabasanshioro2",
-        platforms = setOf(SATURN),
         recipe = yabaSanshiro,
-        downloadUrl = playStore("org.devmiyax.yabasanshioro2"),
       ),
       KnownEmulator(
         id = EmulatorId("yabasanshiro_pro"),
         displayName = "Yaba Sanshiro 2 Pro",
         packageName = "org.devmiyax.yabasanshioro2.pro",
-        platforms = setOf(SATURN),
         recipe = yabaSanshiro,
       ),
       KnownEmulator(
         id = EmulatorId("saturn_emu"),
         displayName = "Saturn.emu",
         packageName = "com.explusalpha.SaturnEmu",
-        platforms = setOf(SATURN),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = playStore("com.explusalpha.SaturnEmu"),
       ),
       KnownEmulator(
         id = EmulatorId("md_emu"),
         displayName = "MD.emu",
         packageName = "com.explusalpha.MdEmu",
-        platforms = setOf(GENESIS, MASTER_SYSTEM, GAME_GEAR, SEGA_CD, SEGA_32X),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = playStore("com.explusalpha.MdEmu"),
       ),
       KnownEmulator(
         id = EmulatorId("mame4droid"),
         displayName = "MAME4droid",
         packageName = "com.seleuco.mame4droid",
-        platforms = setOf(ARCADE),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = playStore("com.seleuco.mame4droid"),
       ),
       KnownEmulator(
         id = EmulatorId("fbalpha"),
         displayName = "FinalBurn Alpha",
         packageName = "com.bangkokfusion.finalburn",
-        platforms = setOf(ARCADE),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = playStore("com.bangkokfusion.finalburn"),
       ),
       KnownEmulator(
         id = EmulatorId("hakux"),
         displayName = "hakuX",
         packageName = "com.rfandango.haku_x",
-        platforms = setOf(XBOX),
         recipe = LaunchRecipe.ViewRom,
-        downloadUrl = "https://github.com/rfandango/hakuX/releases",
-        releases = gitHub("rfandango/hakuX"),
       ),
       KnownEmulator(
         id = EmulatorId("armsx3"),
         displayName = "ARMSX3",
         packageName = "com.armsx3",
-        platforms = setOf(PS3),
         recipe = armsx3,
-        downloadUrl = "https://github.com/ARMSX2/ARMSX3/releases",
-        releases = gitHub("ARMSX2/ARMSX3"),
       ),
       KnownEmulator(
         id = EmulatorId("armsx3_play"),
         displayName = "ARMSX3 (Play Store)",
         packageName = "com.armsx3.play",
-        platforms = setOf(PS3),
         recipe = armsx3,
-        downloadUrl = playStore("com.armsx3.play"),
       ),
       KnownEmulator(
         id = EmulatorId("aps3e"),
         displayName = "aPS3e",
         packageName = "aenu.aps3e",
-        platforms = setOf(PS3),
         recipe =
           LaunchRecipe.withExtras(
             action = "aenu.intent.action.APS3E",
             activity = "aenu.aps3e.EmulatorActivity",
             extras = mapOf("iso_uri" to ExtraValue.RomUriString),
           ),
-        downloadUrl = playStore("aenu.aps3e"),
       ),
       KnownEmulator(
         id = EmulatorId("phobos"),
         displayName = "Phobos",
         packageName = "com.phobos.emulator",
-        platforms = phobosPlatforms.keys,
         recipe =
           LaunchRecipe(
             activity = "com.phobos.emulator.MainActivity",
             extras = mapOf("platform" to ExtraValue.PlatformName(phobosPlatforms)),
           ),
-        downloadUrl = "https://github.com/pwnedbygary/phobos/releases",
-        releases = gitHub("pwnedbygary/phobos"),
       ),
     )
 
@@ -843,8 +666,9 @@ object EmulatorRegistry {
   private fun ids(vararg ids: String) = ids.map(::EmulatorId)
 
   /**
-   * Every known emulator for each platform, best first: the order the fallback rule tries them in
-   * when nothing names an emulator.
+   * The known emulators that run each platform, best first: the order the fallback rule tries them
+   * in when nothing names an emulator. An app that plays only some of a platform's games, such as a
+   * port of one game, is left out, so nothing picks or suggests it unless a rule names it.
    */
   val preference: Map<PlatformSlug, List<EmulatorId>> =
     mapOf(

@@ -3,7 +3,6 @@
 package dev.sargunv.handheld.domain.emulator
 
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
-import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.jvm.JvmInline
 
 /** A stable name for a [KnownEmulator], such as `duckstation`. */
@@ -19,21 +18,16 @@ value class EmulatorId(val value: String) {
  * `*` stands for any run of characters. A build matched only by pattern launches with [forkRecipe]
  * when it's set, since a fork can rename the activities [recipe] names. [drawsBothScreens] marks
  * apps that draw their own second screen: their game opens on the default display, and the app
- * takes the other one. An app that plays only some of its platform's games, such as a port of one
- * game, isn't [ranked]: nothing picks or suggests it unless a rule names it.
+ * takes the other one.
  */
 data class KnownEmulator(
   val id: EmulatorId,
   val displayName: String,
   val packageName: String,
-  val platforms: Set<PlatformSlug>,
   val recipe: LaunchRecipe,
   val packagePatterns: List<String> = emptyList(),
   val forkRecipe: LaunchRecipe? = null,
   val drawsBothScreens: Boolean = false,
-  val downloadUrl: String? = null,
-  val releases: ReleaseSource? = null,
-  val ranked: Boolean = true,
 ) {
   /** Whether [packageName] is this app: its own package, or a build its patterns match. */
   fun matches(packageName: String): Boolean =
@@ -50,13 +44,4 @@ data class KnownEmulator(
 
   private fun globToRegex(glob: String): Regex =
     Regex(glob.split('*').joinToString(".*") { Regex.escape(it) })
-}
-
-/** Where an emulator publishes its releases. */
-sealed interface ReleaseSource {
-  data class GitHub(val repo: String) : ReleaseSource
-
-  data class Gitea(val baseUrl: String, val repo: String) : ReleaseSource
-
-  data class GitLab(val baseUrl: String, val projectPath: String) : ReleaseSource
 }

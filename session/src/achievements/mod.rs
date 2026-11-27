@@ -3,9 +3,9 @@
 //! [`Achievements`] signs in with the player's token, identifies the game by
 //! hashing its content the way RetroAchievements does for its console, loads
 //! the game's achievements and checks them against the core's memory after
-//! every frame. The server calls go out through an [`HttpClient`], and their
-//! responses come back through [`Achievements::respond`], all on the session's
-//! thread, which is the only one that touches the client.
+//! every frame. The server calls go out through a [`SendAchievementsRequest`],
+//! and their responses come back through [`Achievements::respond`], all on the
+//! session's thread, which is the only one that touches the client.
 //!
 //! `vendor/rcheevos` holds the pinned library, which `build.rs` compiles, and
 //! `ffi.rs` the bindings that `mise run session:rcheevos-bindings` generates.
@@ -58,8 +58,6 @@ pub struct Achievement {
     /// How far the player has got, such as `3/10`, for an achievement that
     /// measures it, while it's locked.
     pub progress: Option<String>,
-    /// The same progress from 0 to 100, or 0 for none.
-    pub progress_percent: f32,
 }
 
 /// Where the running game's achievements stand.
@@ -72,8 +70,8 @@ pub enum AchievementStatus {
     /// RetroAchievements doesn't know the game, or has no achievements for
     /// it.
     NoSet,
-    /// Signing in or loading the game failed, for `reason`, in plain words.
-    Failed { reason: String },
+    /// Signing in or loading the game failed.
+    Failed { reason: AchievementFailure },
     /// The game's achievements, as RetroAchievements groups them: recently
     /// unlocked and nearly done first, then locked, then unlocked.
     Ready {
@@ -90,8 +88,19 @@ pub enum AchievementEvent {
     /// The player earned `achievement`. The session has sent it to the
     /// server, which may still be taking it.
     Unlocked { achievement: Achievement },
-    /// Signing in or loading the game failed, for `reason`, in plain words.
-    Failed { reason: String },
+    /// Signing in or loading the game failed.
+    Failed { reason: AchievementFailure },
+}
+
+/// Why a session's achievements stopped.
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
+pub enum AchievementFailure {
+    /// The server no longer takes the player's sign-in.
+    SignInExpired,
+    /// Signing in failed for another reason, which `detail` gives.
+    SignIn { detail: String },
+    /// Loading the game's achievements failed, for `detail`.
+    LoadGame { detail: String },
 }
 
 /// A request the session needs sent to RetroAchievements.
@@ -115,11 +124,8 @@ impl std::fmt::Debug for AchievementsRequest {
 }
 
 /// Sends the session's requests to RetroAchievements. Each request has an id,
-/// and the app hands its response to `GameSession::achievements_response`
-/// with that id once it has one.
-pub trait HttpClient {
-    fn request(&self, id: u64, request: AchievementsRequest);
-}
+/// and its response goes to `Session::achievements_response` with that id.
+pub type SendAchievementsRequest = Box<dyn Fn(u64, AchievementsRequest)>;
 
 /// The text of a client callback's error, or of its result code.
 ///
@@ -144,7 +150,7 @@ enum Load {
     Loading,
     Loaded,
     NoSet,
-    Failed(String),
+    Failed(AchievementFailure),
 }
 
 /// A request waiting for its response.
@@ -155,7 +161,7 @@ struct Pending {
 
 /// What the client's callbacks reach, through its userdata.
 struct State {
-    http: Box<dyn HttpClient>,
+    send: SendAchievementsRequest,
     pending: RefCell<HashMap<u64, Pending>>,
     next_id: Cell<u64>,
     load: RefCell<Load>,
@@ -229,10 +235,10 @@ impl Achievements {
     pub(crate) fn start(
         options: &AchievementOptions,
         content: &Path,
-        http: Box<dyn HttpClient>,
+        send: SendAchievementsRequest,
     ) -> Option<Self> {
         let state = Box::new(State {
-            http,
+            send,
             pending: RefCell::new(HashMap::new()),
             next_id: Cell::new(1),
             load: RefCell::new(Load::Loading),
@@ -352,12 +358,6 @@ impl Achievements {
             // SAFETY: as in `do_frame`.
             unsafe { ffi::rc_client_idle(self.client.as_ptr()) };
         }
-    }
-
-    /// Tells the client the core reset, so achievements start over.
-    pub(crate) fn reset(&self) {
-        // SAFETY: as in `do_frame`.
-        unsafe { ffi::rc_client_reset(self.client.as_ptr()) };
     }
 
     /// Tells the client the core's memory jumped to a state, so progress
@@ -522,7 +522,7 @@ unsafe extern "C" fn server_call(
             content_type: opt_string(request.content_type),
         }
     };
-    state.http.request(id, request);
+    (state.send)(id, request);
 }
 
 unsafe extern "C" fn signed_in(
@@ -543,13 +543,10 @@ unsafe extern "C" fn signed_in(
         return;
     };
     log::warn!("can't sign in to RetroAchievements: {detail}");
-    let reason = match result {
-        ffi::RC_INVALID_CREDENTIALS | ffi::RC_EXPIRED_TOKEN => {
-            "Sign in to RetroAchievements again from the launcher's quick menu.".to_owned()
-        }
-        _ => format!("Couldn't sign in to RetroAchievements: {detail}"),
-    };
-    state.fail(reason);
+    state.fail(match result {
+        ffi::RC_INVALID_CREDENTIALS | ffi::RC_EXPIRED_TOKEN => AchievementFailure::SignInExpired,
+        _ => AchievementFailure::SignIn { detail },
+    });
 }
 
 unsafe extern "C" fn game_loaded(
@@ -580,13 +577,13 @@ unsafe extern "C" fn game_loaded(
             if matches!(*state.load.borrow(), Load::Failed(_)) => {}
         _ => {
             log::warn!("RetroAchievements can't load the game: {detail}");
-            state.fail(format!("Couldn't load the game's achievements: {detail}"));
+            state.fail(AchievementFailure::LoadGame { detail });
         }
     }
 }
 
 impl State {
-    fn fail(&self, reason: String) {
+    fn fail(&self, reason: AchievementFailure) {
         let mut load = self.load.borrow_mut();
         if matches!(*load, Load::Failed(_)) {
             return;
@@ -665,11 +662,6 @@ unsafe fn convert(achievement: &ffi::rc_client_achievement_t) -> Achievement {
         points: achievement.points,
         unlocked,
         progress: (!unlocked && !progress.is_empty()).then_some(progress),
-        progress_percent: if unlocked {
-            0.0
-        } else {
-            achievement.measured_percent
-        },
     }
 }
 

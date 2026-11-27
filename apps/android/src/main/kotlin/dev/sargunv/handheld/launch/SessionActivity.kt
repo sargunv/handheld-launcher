@@ -32,10 +32,12 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.SessionAchievementsHttp
+import dev.sargunv.handheld.achievements.message
 import dev.sargunv.handheld.achievements.retroAchievementsClient
 import dev.sargunv.handheld.achievements.retroAchievementsStore
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.exposeTestTags
+import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.rememberSecondaryDisplay
 import dev.sargunv.handheld.secondaryDisplay
 import dev.sargunv.handheld.session.AchievementEvent
@@ -44,11 +46,9 @@ import dev.sargunv.handheld.session.GameSession
 import dev.sargunv.handheld.session.GameSessionView
 import dev.sargunv.handheld.session.LowerScreenView
 import dev.sargunv.handheld.session.SessionException
-import dev.sargunv.handheld.session.SessionInfo
 import dev.sargunv.handheld.session.SessionListener
 import dev.sargunv.handheld.session.SessionOptions
 import dev.sargunv.handheld.session.VideoMode
-import dev.sargunv.handheld.settingsFile
 import dev.sargunv.handheld.ui.dualscreen.DualScreen
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
@@ -141,10 +141,6 @@ class SessionActivity : ComponentActivity() {
 
   private val listener =
     object : SessionListener {
-      override fun infoChanged(info: SessionInfo) {
-        Log.i(TAG, "the core changed its video mode: $info")
-      }
-
       override fun coreQuit() {
         Log.i(TAG, "the core quit")
         runOnUiThread { stopAndFinish() }
@@ -155,7 +151,7 @@ class SessionActivity : ComponentActivity() {
           when (event) {
             is AchievementEvent.Unlocked ->
               unlockedToast(event.achievement.title, event.achievement.points.toInt())
-            is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason)
+            is AchievementEvent.Failed -> Toast("RetroAchievements", event.reason.message())
           }
         runOnUiThread { toasts.show(toast) }
       }
@@ -170,7 +166,7 @@ class SessionActivity : ComponentActivity() {
       hide(WindowInsetsCompat.Type.systemBars())
       systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
-    inputSettings = settingsFile(this).read().input
+    inputSettings = handheldApp.settingsFile.read().input
     twoScreens =
       stackedScreensOptions().isNotEmpty() &&
         getSystemService(DisplayManager::class.java).secondaryDisplay() != null
@@ -380,9 +376,8 @@ class SessionActivity : ComponentActivity() {
     )
   }
 
-  private fun options(achievements: AchievementOptions?): SessionOptions {
-    val intent = intent
-    return SessionOptions(
+  private fun options(achievements: AchievementOptions?) =
+    SessionOptions(
       corePath = intent.getStringExtra(EXTRA_CORE)!!,
       contentPath = intent.getStringExtra(EXTRA_CONTENT),
       // A zipped game whose core can't open zips is extracted here.
@@ -396,7 +391,6 @@ class SessionActivity : ComponentActivity() {
         intent.getFloatExtra(EXTRA_LOWER_SCREEN_WIDTH_SHARE, 0f).takeIf { twoScreens && it > 0f },
       achievements = achievements,
     )
-  }
 
   /** The core options that draw a two-screen system's screens stacked, or none for one screen. */
   private fun stackedScreensOptions(): Map<String, String> {

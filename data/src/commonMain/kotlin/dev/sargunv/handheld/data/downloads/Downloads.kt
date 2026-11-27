@@ -1,10 +1,10 @@
 package dev.sargunv.handheld.data.downloads
 
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.toDomain
-import dev.sargunv.handheld.data.cores.JsonFile
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommInstallStatus
@@ -94,11 +94,8 @@ data class Download(
   val fileIds: List<Long> = emptyList(),
   /** The server's request to install the game, when it was sent from RomM's web page. */
   val installRequestId: String? = null,
-  /**
-   * The address of the server the game is from, as signed in to when it was queued. Null in a queue
-   * from before the manager kept it, which counts as the server signed in to.
-   */
-  val server: String? = null,
+  /** The address of the server the game is from, as signed in to when it was queued. */
+  val server: String,
   /** How much has arrived, while it downloads. */
   @Transient val bytesDownloaded: Long = 0,
   /** The size of the files being downloaded, once the download knows it. */
@@ -186,7 +183,7 @@ class DownloadManager(
   private val entries =
     MutableStateFlow(
       // A download that was running when the app stopped starts again from where it got.
-      file.read().orEmpty().map {
+      file.readBlocking().orEmpty().map {
         if (it.state == DownloadState.Downloading) it.copy(state = DownloadState.Queued) else it
       },
     )
@@ -215,9 +212,9 @@ class DownloadManager(
   private val signIns = MutableStateFlow(0)
 
   /** The next queued game of [server], the one signed in to, or null when there's none. */
-  private fun nextFor(server: String?, list: List<Download>): Download? =
-    if (server == null) null
-    else list.firstOrNull { it.state == DownloadState.Queued && (it.server ?: server) == server }
+  private fun nextFor(server: String?, list: List<Download>): Download? = list.firstOrNull {
+    it.state == DownloadState.Queued && it.server == server
+  }
 
   /** Deletes the staged downloads nothing resumes, once, as the manager starts. */
   internal val sweep: Job = scope.launch { sweepStaging() }
@@ -282,7 +279,6 @@ class DownloadManager(
     val roms = of ?: library.allRoms().first { it.isNotEmpty() }
     val platforms = library.platforms().first()
     val folders = platforms.associate { it.id to it.fsSlug }
-    fun nameOf(rom: Rom) = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
     // The queue changes only under the lock, so no download starts meanwhile.
     mutex.withLock {
       val queued = entries.value
@@ -290,23 +286,20 @@ class DownloadManager(
       val kept = buildSet {
         for (download in queued) {
           download.path?.let { add("$it.part") }
-          val rom = romsById[download.romId] ?: continue
+          val name = romsById[download.romId]?.let(GameLayout::romName) ?: continue
           for (target in storage()) {
             add(
-              "${Path(GameLayout.platformFolder(target.root, download.platformFolder), nameOf(rom))}.part",
+              "${Path(GameLayout.platformFolder(target.root, download.platformFolder), name)}.part",
             )
           }
         }
       }
-      val names = roms.groupBy({ folders[it.platformId] }, ::nameOf)
+      val names = roms.groupBy({ folders[it.platformId] }, GameLayout::romName)
       withContext(Dispatchers.IO) {
         for (target in storage()) {
           for ((folder, games) in names) {
             if (folder == null) continue
-            val parts =
-              games
-                .filter { it.isNotEmpty() && it != "." && it != ".." && '/' !in it }
-                .mapTo(mutableSetOf()) { "$it.part" }
+            val parts = games.filterNotNull().mapTo(mutableSetOf()) { "$it.part" }
             val dir = Path(GameLayout.platformFolder(target.root, folder))
             val entries =
               try {
@@ -390,10 +383,7 @@ class DownloadManager(
       return null
     }
     if (SystemFileSystem.metadataOrNull(file) == null) return null
-    return roms.firstOrNull {
-      it.platformId in sharing &&
-        GameLayout.romName(it.fileName, it.files.map { f -> f.fileName }) == file.name
-    }
+    return roms.firstOrNull { it.platformId in sharing && GameLayout.romName(it) == file.name }
   }
 
   /**
@@ -442,8 +432,8 @@ class DownloadManager(
     }
 
   /**
-   * Adds [rom] to the end of the queue, unless it's in the queue or on the device already. Returns
-   * whether it was added.
+   * Adds [rom] to the end of the queue, unless it's in the queue or on the device already, or the
+   * device is signed out. Returns whether it was added.
    */
   suspend fun enqueue(rom: Rom): Boolean {
     val folder = library.platform(rom.platformId)?.fsSlug ?: return false
@@ -457,7 +447,7 @@ class DownloadManager(
     installRequestId: String?,
   ): Boolean {
     if (withContext(Dispatchers.IO) { locate(rom, platformFolder) } != null) return false
-    val server = credentials.load()?.baseUrl
+    val server = credentials.load()?.baseUrl ?: return false
     return edit { list ->
       if (list.any { it.romId == rom.id }) return@edit list
       list +
@@ -484,7 +474,7 @@ class DownloadManager(
   suspend fun signedIn(server: String?) {
     if (server != null) {
       for (download in entries.value) {
-        if ((download.server ?: server) != server) cancel(download.romId, report = false)
+        if (download.server != server) cancel(download.romId, report = false)
       }
     }
     signIns.value++
@@ -578,7 +568,7 @@ class DownloadManager(
     return buildMap {
       for (rom in roms) {
         val platformFolder = folders[rom.platformId] ?: continue
-        val name = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
+        val name = GameLayout.romName(rom) ?: continue
         val folder =
           targets
             .map { GameLayout.platformFolder(it.root, platformFolder) }
@@ -703,10 +693,7 @@ class DownloadManager(
 
   /** Where [rom] is on the device by its server name, if it's on any storage target. */
   private fun locateByName(rom: Rom, platformFolder: String): Path? {
-    val name = GameLayout.romName(rom.fileName, rom.files.map { it.fileName })
-    // A name that isn't one entry of the platform's folder never matches, so nothing outside the
-    // game's own place is taken for it, or deleted with it.
-    if (name.isEmpty() || name == "." || name == ".." || '/' in name) return null
+    val name = GameLayout.romName(rom) ?: return null
     return storage()
       .map { Path(GameLayout.platformFolder(it.root, platformFolder), name) }
       .firstOrNull { SystemFileSystem.exists(it) }
@@ -753,7 +740,9 @@ class DownloadManager(
         if (download.fileIds.isEmpty()) rom.files
         else rom.files.filter { it.id in download.fileIds }
       if (files.isEmpty()) throw DownloadException("The server has no files for this game")
-      val name = GameLayout.romName(rom.fsName, rom.files.map { it.fileName })
+      val name =
+        GameLayout.romName(rom.toDomain(client))
+          ?: throw DownloadException("The game's name on the server isn't a file name")
       val totalBytes = files.sumOf { it.fileSizeBytes }
       // The scan found the game in a file of another name meanwhile.
       if (matchedFile(download.romId) != null) return RommInstallStatus.AlreadyInstalled
@@ -873,7 +862,7 @@ class DownloadManager(
     if (after == before) return@withLock false
     // Once stored, the change shows, even when the caller is cancelled meanwhile.
     withContext(NonCancellable) {
-      withContext(Dispatchers.IO) { file.write(after) }
+      file.write(after)
       entries.value = after
     }
     true

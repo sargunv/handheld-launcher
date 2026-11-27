@@ -120,9 +120,10 @@ object SaveFolders {
     }
 
   // Only the title's save data: a title's extdata id is in its exheader, which is encrypted in a
-  // retail dump, and a guess could claim another title's.
+  // retail dump, and a guess could claim another title's. Retail titles only: system titles and
+  // homebrew keep their saves elsewhere.
   private fun threeDs(id: String): FolderSave? {
-    if (!HEX16.matches(id)) return null
+    if (!HEX16.matches(id) || !id.startsWith("0004")) return null
     val high = id.take(8).lowercase()
     val low = id.drop(8).lowercase()
     return FolderSave(

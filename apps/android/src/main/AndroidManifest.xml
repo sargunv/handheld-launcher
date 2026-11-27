@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
   xmlns:tools="http://schemas.android.com/tools">
-  <!-- RomM sign-in and sync. OkHttp declares it too, but the app shouldn't rely on that. -->
+  <!-- RomM sign-in and sync. -->
   <uses-permission android:name="android.permission.INTERNET" />
 
   <!-- Games live in shared storage, such as /storage/emulated/0/ROMs, where an app reads only its
@@ -24,10 +24,12 @@
     </intent>
   </queries>
 
+  <!-- RomM servers may be plain HTTP on a LAN or tailnet. -->
   <application
+    android:name=".HandheldApp"
     android:label="Handheld"
-    android:networkSecurityConfig="@xml/network_security"
-    android:theme="@android:style/Theme.Material.NoActionBar">
+    android:theme="@android:style/Theme.Material.NoActionBar"
+    android:usesCleartextTraffic="true">
     <!-- Compose handles configuration changes itself. Without these, connecting a gamepad
          (keyboard, navigation) or changing the screen recreates the activity, and stops a game
          running in it. -->

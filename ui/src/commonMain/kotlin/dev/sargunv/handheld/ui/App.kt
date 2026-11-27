@@ -25,10 +25,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigationevent.NavigationEventInfo
-import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
-import androidx.navigationevent.compose.NavigationBackHandler
-import androidx.navigationevent.compose.rememberNavigationEventState
 import coil3.compose.setSingletonImageLoaderFactory
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.auth.CredentialStore
@@ -61,6 +57,7 @@ import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.library.deviceStates
+import dev.sargunv.handheld.ui.navigation.BackHandler
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.HomePress
 import dev.sargunv.handheld.ui.places.MainMenu
@@ -74,11 +71,11 @@ import dev.sargunv.handheld.ui.settings.SettingsPage
 import dev.sargunv.handheld.ui.settings.SettingsSecondary
 import dev.sargunv.handheld.ui.signin.SignInPrimary
 import dev.sargunv.handheld.ui.signin.SignInSecondary
-import dev.sargunv.handheld.ui.signin.SignInState
 import io.ktor.client.engine.HttpClientEngine
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
@@ -147,6 +144,7 @@ fun App(
       apps,
       credentials,
       httpEngine,
+      device,
       retroAchievements,
       appInfo,
       romHeaders,
@@ -160,13 +158,14 @@ fun App(
         apps,
         credentials,
         httpEngine,
+        device,
         retroAchievements?.let(::RetroAchievementsState),
         appInfo,
         romHeaders,
         gameState,
       )
     }
-  LaunchedEffect(state) { state.signedIn = credentials.load() != null }
+  LaunchedEffect(state) { state.account.load() }
   LaunchedEffect(state) { state.retroAchievements?.load() }
   LaunchedEffect(state) {
     downloads.statuses().collect { statuses ->
@@ -197,34 +196,29 @@ fun App(
   LaunchedEffect(state) {
     snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }
   }
-  val signedIn = state.signedIn
-  // A new sign-in after each sign-out, starting over on the server signed out of.
-  val signIn =
-    remember(state, device, state.signOuts) {
-      SignInState(
-        state.romm,
-        device,
-        onSignedIn = { state.signedIn = true },
-        address = state.signedOutOf.orEmpty(),
-        allowUploads = state.signInAllowsUploads,
-      )
-    }
-  LaunchedEffect(signedIn, state, state.syncRequests) {
+  val account = state.account
+  val signedIn = account.signedIn
+  LaunchedEffect(signedIn, state) {
     if (signedIn != true) return@LaunchedEffect
-    state.afterSignIn()
-    state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
-    state.sync =
-      try {
-        // Reading the server's pages is work too, so it stays off the main thread.
-        withContext(Dispatchers.Default) {
-          state.romm.client()?.use { LibrarySync(it, library).sync() }
+    // The downloads a sign-out kept wait for this sign-in, and leave the queue if they're another
+    // server's games.
+    downloads.signedIn(credentials.load()?.baseUrl)
+    // A new request starts the sync over.
+    state.syncRequests.collectLatest {
+      state.sync = if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
+      state.sync =
+        try {
+          // Reading the server's pages is work too, so it stays off the main thread.
+          withContext(Dispatchers.Default) {
+            state.romm.client()?.use { LibrarySync(it, library).sync() }
+          }
+          SyncStatus.Synced
+        } catch (_: RommException.Unauthorized) {
+          SyncStatus.Unauthorized
+        } catch (_: RommException) {
+          SyncStatus.Failed
         }
-        SyncStatus.Synced
-      } catch (_: RommException.Unauthorized) {
-        SyncStatus.Unauthorized
-      } catch (_: RommException) {
-        SyncStatus.Failed
-      }
+    }
   }
   LaunchedEffect(signedIn, downloads) {
     if (signedIn != true) return@LaunchedEffect
@@ -251,15 +245,13 @@ fun App(
       false ->
         if (target is OpenTarget.Settings) {
           shownRequest = openRequest
-          state.settingsOverSignIn = true
+          account.settingsOverSignIn = true
           target.section?.let(state.settingsView::jumpTo)
         }
       null -> Unit
     }
   }
   var mainMenuOpen by rememberSaveable { mutableStateOf(false) }
-  // The sign-in's settings close once signed in, so they don't show again after a sign-out.
-  LaunchedEffect(signedIn) { if (signedIn == true) state.settingsOverSignIn = false }
   val primary: @Composable () -> Unit = {
     Box(
       Modifier.fillMaxSize().onAction { action ->
@@ -274,8 +266,8 @@ fun App(
       when (signedIn) {
         null -> Box(Modifier.fillMaxSize().background(Placeholder.background))
         false -> {
-          SignInPrimary(signIn)
-          if (state.settingsOverSignIn) SignInSettings(state)
+          SignInPrimary(account.signIn)
+          if (account.settingsOverSignIn) SignInSettings(state)
         }
         true -> MainPrimary(state)
       }
@@ -286,14 +278,14 @@ fun App(
     when (signedIn) {
       null -> Box(Modifier.fillMaxSize().background(Placeholder.secondaryBackground))
       false ->
-        if (state.settingsOverSignIn) {
+        if (account.settingsOverSignIn) {
           Box(
             Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
           ) {
             SettingsSecondary(state.settingsView)
           }
         } else {
-          SignInSecondary(signIn)
+          SignInSecondary(account.signIn)
         }
       true -> MainSecondary(state)
     }
@@ -308,7 +300,7 @@ fun App(
           when {
             scopes?.isDialogOpen == true -> dialogs.closeAll()
             signedIn == true -> state.goHome()
-            signedIn == false -> state.settingsOverSignIn = false
+            signedIn == false -> account.settingsOverSignIn = false
           }
         }
         DualScreen(layout = layout, primary = primary, secondary = secondary)
@@ -324,26 +316,12 @@ fun App(
  */
 @Composable
 private fun SignInSettings(state: AppState) {
-  val close = { state.settingsOverSignIn = false }
-  if (LocalNavigationEventDispatcherOwner.current != null) {
-    NavigationBackHandler(
-      state = rememberNavigationEventState(NavigationEventInfo.None),
-      onBackCompleted = close,
-    )
-  }
-  Box(
+  BackHandler(
+    onBack = { state.account.settingsOverSignIn = false },
     Modifier.fillMaxSize()
       .background(Placeholder.background)
       // The sign-in behind can't be tapped.
-      .pointerInput(Unit) { detectTapGestures {} }
-      .onAction { action ->
-        if (action == Action.Back) {
-          close()
-          true
-        } else {
-          false
-        }
-      },
+      .pointerInput(Unit) { detectTapGestures {} },
   ) {
     Column(Modifier.fillMaxSize()) {
       Text(

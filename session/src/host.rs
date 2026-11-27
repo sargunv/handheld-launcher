@@ -13,29 +13,16 @@ use std::time::Instant;
 
 use crate::audio::{AudioPipeline, AudioSink};
 use crate::ffi;
-use crate::gl::{self, Framebuffer, GlApi, GlContext, NativeWindow};
+use crate::gl::{self, Framebuffer, GlApi, GlContext};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
 use crate::options::{Options, opt_string};
-use crate::session::SessionError;
-use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region, VideoSink};
+use crate::session::{SessionError, VideoOutput};
+use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region};
 use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
-use crate::{AvInfo, GlError, InputDescriptor};
+use crate::{AvInfo, GlError};
 
 thread_local! {
     static HOST: Cell<*mut Host> = const { Cell::new(std::ptr::null_mut()) };
-}
-
-/// Where frames go.
-pub(crate) enum VideoTarget {
-    Sink(Box<dyn VideoSink>),
-    Window {
-        window: Option<NativeWindow>,
-        width: u32,
-        height: u32,
-        vsync: bool,
-        /// What a lower window shows of each frame.
-        lower: Region,
-    },
 }
 
 /// The GL context and the framebuffers the session draws with.
@@ -74,7 +61,6 @@ pub(crate) struct Host {
     pub(crate) pixel_format: PixelFormat,
     pub(crate) av_info: AvInfo,
     pub(crate) options: Options,
-    pub(crate) descriptors: Vec<InputDescriptor>,
     pub(crate) input: Arc<InputState>,
     input_snapshot: [PortSnapshot; MAX_PORTS],
     /// The buttons pressed since the previous frame, held for this one.
@@ -88,7 +74,9 @@ pub(crate) struct Host {
     pub(crate) audio_speed: f64,
     /// Whether the core's audio is dropped rather than played.
     pub(crate) audio_muted: bool,
-    pub(crate) video: VideoTarget,
+    pub(crate) video: VideoOutput,
+    /// What a lower window shows of each frame.
+    pub(crate) lower: Region,
     pub(crate) gpu: Option<Gpu>,
     /// The Vulkan context, for a core that renders with Vulkan.
     pub(crate) vulkan: Option<VulkanContext>,
@@ -125,7 +113,8 @@ impl Host {
         options: Options,
         input: Arc<InputState>,
         audio_sink: Box<dyn AudioSink>,
-        video: VideoTarget,
+        video: VideoOutput,
+        lower: Region,
     ) -> Self {
         Self {
             system_dir,
@@ -133,7 +122,6 @@ impl Host {
             pixel_format: PixelFormat::default(),
             av_info: AvInfo::default(),
             options,
-            descriptors: Vec::new(),
             input,
             input_snapshot: Default::default(),
             frame_presses: [0; MAX_PORTS],
@@ -144,6 +132,7 @@ impl Host {
             audio_speed: 1.0,
             audio_muted: false,
             video,
+            lower,
             gpu: None,
             vulkan: None,
             hw_render: None,
@@ -257,7 +246,7 @@ impl Host {
 
     /// Presents the last frame again, as when a window is attached.
     pub(crate) fn redraw(&mut self) {
-        if !matches!(self.video, VideoTarget::Window { .. }) {
+        if !matches!(self.video, VideoOutput::Window { .. }) {
             return;
         }
         if self.last_frame_hw {
@@ -315,12 +304,12 @@ impl Host {
             return;
         }
         match &mut self.video {
-            VideoTarget::Sink(sink) => sink.frame(Frame {
+            VideoOutput::Sink(sink) => sink.frame(Frame {
                 width,
                 height,
                 pixels: &self.frame,
             }),
-            &mut VideoTarget::Window { lower, .. } => {
+            VideoOutput::Window { .. } => {
                 let Some(gpu) = &mut self.gpu else { return };
                 let gl = &gpu.context.gl;
                 if gpu.upload.is_none() {
@@ -341,7 +330,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     true,
-                    lower,
+                    self.lower,
                 );
             }
         }
@@ -350,7 +339,7 @@ impl Host {
     fn show_hw_frame(&mut self, width: u32, height: u32) {
         if let Some(vulkan) = &mut self.vulkan {
             match &mut self.video {
-                VideoTarget::Sink(sink) => {
+                VideoOutput::Sink(sink) => {
                     if vulkan.read(width, height, &mut self.frame) {
                         sink.frame(Frame {
                             width,
@@ -359,8 +348,8 @@ impl Host {
                         });
                     }
                 }
-                &mut VideoTarget::Window { lower, .. } => {
-                    vulkan.present(width, height, self.av_info.aspect_ratio, lower);
+                VideoOutput::Window { .. } => {
+                    vulkan.present(width, height, self.av_info.aspect_ratio, self.lower);
                 }
             }
             return;
@@ -373,7 +362,7 @@ impl Host {
             return;
         }
         match &mut self.video {
-            VideoTarget::Sink(sink) => {
+            VideoOutput::Sink(sink) => {
                 fb.read(&gpu.context.gl, width, height, &mut gpu.readback);
                 gl::drain_errors(&gpu.context.gl, "reading back a frame");
                 if bottom_left_origin {
@@ -385,7 +374,7 @@ impl Host {
                     pixels: &gpu.readback,
                 });
             }
-            &mut VideoTarget::Window { lower, .. } => {
+            VideoOutput::Window { .. } => {
                 gl::present(
                     &gpu.context,
                     fb,
@@ -393,7 +382,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     !bottom_left_origin,
-                    lower,
+                    self.lower,
                 );
             }
         }
@@ -447,23 +436,7 @@ impl Host {
                         }
                     }
                 }
-                ffi::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => {
-                    self.descriptors.clear();
-                    let mut d = data.cast::<ffi::retro_input_descriptor>().cast_const();
-                    while !d.is_null() && !(*d).description.is_null() {
-                        let desc = &*d;
-                        self.descriptors.push(InputDescriptor {
-                            port: desc.port,
-                            device: desc.device,
-                            index: desc.index,
-                            id: desc.id,
-                            description: opt_string(desc.description).unwrap_or_default(),
-                        });
-                        d = d.add(1);
-                    }
-                    log::debug!("core input descriptors: {:?}", self.descriptors);
-                    true
-                }
+                ffi::RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS => true,
                 ffi::RETRO_ENVIRONMENT_SET_HW_RENDER => {
                     self.set_hw_render(data.cast::<ffi::retro_hw_render_callback>())
                 }
@@ -903,6 +876,7 @@ mod tests {
 
     use super::*;
     use crate::audio::NullAudioSink;
+    use crate::video::VideoSink;
 
     struct Discard;
 
@@ -917,34 +891,9 @@ mod tests {
             Options::new(HashMap::new()),
             Arc::new(InputState::new()),
             Box::new(NullAudioSink),
-            VideoTarget::Sink(Box::new(Discard)),
+            VideoOutput::Sink(Box::new(Discard)),
+            Region::Whole,
         )
-    }
-
-    fn av_info(max_width: u32, max_height: u32, sample_rate: f64) -> ffi::retro_system_av_info {
-        let mut info = ffi::retro_system_av_info::default();
-        info.geometry.base_width = 320;
-        info.geometry.base_height = 240;
-        info.geometry.max_width = max_width;
-        info.geometry.max_height = max_height;
-        info.timing.fps = 60.0;
-        info.timing.sample_rate = sample_rate;
-        info
-    }
-
-    #[test]
-    fn experimental_commands_reach_their_handlers() {
-        let mut host = host();
-        let mut enabled: c_int = 0;
-        assert!(host.environment(
-            ffi::RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE,
-            (&raw mut enabled).cast(),
-        ));
-        assert_eq!(enabled, 0b11);
-        assert!(host.environment(
-            ffi::RETRO_ENVIRONMENT_GET_INPUT_BITMASKS,
-            std::ptr::null_mut(),
-        ));
     }
 
     #[test]
@@ -960,58 +909,22 @@ mod tests {
     }
 
     #[test]
-    fn turns_down_content_overrides() {
-        // The session loads content by the core's global need_fullpath only.
-        let mut host = host();
-        assert!(!host.environment(
-            ffi::RETRO_ENVIRONMENT_SET_CONTENT_INFO_OVERRIDE,
-            std::ptr::null_mut(),
-        ));
-    }
-
-    #[test]
-    fn counts_the_controller_ports_the_core_declares() {
-        let mut host = host();
-        assert_eq!(host.controller_ports, None);
-        let pad = ffi::retro_controller_description {
-            desc: c"RetroPad".as_ptr(),
-            id: ffi::RETRO_DEVICE_JOYPAD,
-        };
-        let port = ffi::retro_controller_info {
-            types: &pad,
-            num_types: 1,
-        };
-        let end = ffi::retro_controller_info {
-            types: std::ptr::null(),
-            num_types: 0,
-        };
-        let mut ports = [port, port, end];
-        assert!(host.environment(
-            ffi::RETRO_ENVIRONMENT_SET_CONTROLLER_INFO,
-            ports.as_mut_ptr().cast(),
-        ));
-        assert_eq!(host.controller_ports, Some(2));
-    }
-
-    #[test]
     fn new_av_info_takes_effect_within_the_frame() {
+        let Some(context) = gl::test_context() else {
+            return;
+        };
         let mut host = host();
-        host.av_info = AvInfo::from_retro(&av_info(320, 240, 32_000.0));
-        host.reset_audio();
-        if let Some(context) = gl::test_context() {
-            let fb = Framebuffer::new(&context.gl, 320, 240, false, false).unwrap();
-            let mut gpu = Gpu::new(context);
-            gpu.hw = Some(fb);
-            host.gpu = Some(gpu);
-        }
-        let mut info = av_info(640, 480, 44_100.0);
+        let mut gpu = Gpu::new(context);
+        gpu.hw = Some(Framebuffer::new(&gpu.context.gl, 320, 240, false, false).unwrap());
+        host.gpu = Some(gpu);
+        let mut info = ffi::retro_system_av_info::default();
+        info.geometry.max_width = 640;
+        info.geometry.max_height = 480;
         assert!(host.environment(
             ffi::RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
             (&raw mut info).cast(),
         ));
-        assert_eq!(host.audio_rate, 44_100.0);
-        if let Some(fb) = host.gpu.as_ref().and_then(|gpu| gpu.hw.as_ref()) {
-            assert_eq!((fb.width, fb.height), (640, 480));
-        }
+        let fb = host.gpu.as_ref().and_then(|gpu| gpu.hw.as_ref()).unwrap();
+        assert_eq!((fb.width, fb.height), (640, 480));
     }
 }

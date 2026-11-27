@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, SaveRamLoad, Session, SessionConfig,
+    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, SaveRam, Session, SessionConfig,
     VideoOutput, VideoSink,
 };
 use winit::application::ApplicationHandler;
@@ -179,7 +179,8 @@ struct App {
     frame_period: Duration,
     frames_run: u64,
     stats: (Instant, u64),
-    save_ram: Option<PathBuf>,
+    save_ram_path: PathBuf,
+    save_ram: Option<SaveRam>,
     state: PathBuf,
     error: Option<String>,
 }
@@ -212,7 +213,8 @@ impl App {
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
         Self {
-            save_ram: Some(save_dir.join(format!("{stem}.srm"))),
+            save_ram_path: save_dir.join(format!("{stem}.srm")),
+            save_ram: None,
             state: save_dir.join(format!("{stem}.state")),
             args,
             session: None,
@@ -254,9 +256,6 @@ impl App {
                 window: Some(native_window(&window)?),
                 width: size.width,
                 height: size.height,
-                // The runner handles window events on the session's thread,
-                // and paces frames itself.
-                vsync: false,
                 lower_screen_width_share: None,
             },
             Present::Cpu => {
@@ -304,15 +303,10 @@ impl App {
         // session, which `App` drops first.
         let mut session = unsafe { Session::new(config) }.map_err(|e| error_chain(&e))?;
 
-        if let Some(path) = &self.save_ram {
-            match session.load_save_ram(path) {
-                Ok(SaveRamLoad::Nothing) => {}
-                Ok(_) => log::info!("loaded save memory from {}", path.display()),
-                // Running anyway would replace the file with fresh save
-                // memory on exit.
-                Err(e) => return Err(format!("can't load {}: {e}", path.display())),
-            }
-        }
+        // Running anyway would replace the file with fresh save memory on exit.
+        let path = &self.save_ram_path;
+        self.save_ram = SaveRam::load(path, &mut session)
+            .map_err(|e| format!("can't load {}: {e}", path.display()))?;
         let av = session.av_info();
         let info = session.system_info();
         window.set_title(&format!("{} {}", info.library_name, info.library_version));
@@ -436,12 +430,10 @@ impl ApplicationHandler for App {
     }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
-        if let (Some(session), Some(path)) = (&self.session, &self.save_ram) {
-            match session.flush_save_ram(path) {
-                Ok(true) => log::info!("saved save memory to {}", path.display()),
-                Ok(false) => {}
-                Err(e) => log::error!("can't save {}: {e}", path.display()),
-            }
+        if let (Some(session), Some(save_ram)) = (&self.session, &mut self.save_ram)
+            && let Err(e) = save_ram.flush(session)
+        {
+            log::error!("can't save {}: {e}", self.save_ram_path.display());
         }
         self.session = None;
     }

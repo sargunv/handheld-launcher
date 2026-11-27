@@ -1,6 +1,6 @@
-//! What a game's own header says about the copy on the device, for the app to
-//! show: [`rom_header_fields`] reads it with `rom-headers` and gives its
-//! fields as labels and values, so the app's screens stay generic.
+//! What a game's own header says about the copy on the device, read with
+//! `rom-headers`: [`rom_header_fields`] gives its fields as labels and values,
+//! for the app to show, and [`rom_game_id`] the id its saves are filed under.
 
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use rom_headers::{Header, Platform};
 
 /// A platform whose games carry a header the session reads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum HeaderPlatform {
+#[uniffi::remote(Enum)]
+pub enum Platform {
     Nes,
     Snes,
     N64,
@@ -34,30 +34,6 @@ pub enum HeaderPlatform {
     Xbox,
 }
 
-impl From<HeaderPlatform> for Platform {
-    fn from(p: HeaderPlatform) -> Self {
-        match p {
-            HeaderPlatform::Nes => Self::Nes,
-            HeaderPlatform::Snes => Self::Snes,
-            HeaderPlatform::N64 => Self::N64,
-            HeaderPlatform::GameBoy => Self::GameBoy,
-            HeaderPlatform::GameBoyAdvance => Self::GameBoyAdvance,
-            HeaderPlatform::NintendoDs => Self::NintendoDs,
-            HeaderPlatform::Nintendo3ds => Self::Nintendo3ds,
-            HeaderPlatform::GameCube => Self::GameCube,
-            HeaderPlatform::MasterSystem => Self::MasterSystem,
-            HeaderPlatform::MegaDrive => Self::MegaDrive,
-            HeaderPlatform::MegaCd => Self::MegaCd,
-            HeaderPlatform::Saturn => Self::Saturn,
-            HeaderPlatform::Dreamcast => Self::Dreamcast,
-            HeaderPlatform::PlayStation => Self::PlayStation,
-            HeaderPlatform::PlayStation2 => Self::PlayStation2,
-            HeaderPlatform::Psp => Self::Psp,
-            HeaderPlatform::Xbox => Self::Xbox,
-        }
-    }
-}
-
 /// One of a header's fields, in words.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct HeaderField {
@@ -70,20 +46,36 @@ pub struct HeaderField {
 /// naming one. Empty when there's no header to read. It reads only what the
 /// header needs, so it suits a background thread, not the main one.
 #[uniffi::export]
-pub fn rom_header_fields(platform: HeaderPlatform, path: String) -> Vec<HeaderField> {
+pub fn rom_header_fields(platform: Platform, path: String) -> Vec<HeaderField> {
     read(platform, Path::new(&path))
         .map(|header| describe(&header))
         .unwrap_or_default()
 }
 
-fn read(platform: HeaderPlatform, path: &Path) -> Option<Header> {
+/// The id the saves of the game for `platform` at `path` are filed under, from
+/// its header, read as [`rom_header_fields`] reads it: a PlayStation or
+/// PlayStation 2 disc's serial, such as `SLUS-20152`, a PSP game's disc id,
+/// such as `ULUS10064`, a 3DS title's program id in 16 hex digits, or a
+/// GameCube or Wii disc's game code, such as `GZLE`. Null when it has none.
+#[uniffi::export]
+pub fn rom_game_id(platform: Platform, path: String) -> Option<String> {
+    match read(platform, Path::new(&path))? {
+        Header::SystemCnf(cnf) => cnf.serial(),
+        Header::ParamSfo(sfo) => sfo.disc_id().map(str::to_owned),
+        Header::Nintendo3ds(h) => Some(format!("{:016X}", h.program_id)),
+        Header::GameCube(h) => Some(h.game_id.chars().take(4).collect()),
+        _ => None,
+    }
+}
+
+fn read(platform: Platform, path: &Path) -> Option<Header> {
     let path = data_file(path, 0)?;
     let file = BufReader::new(File::open(&path).ok()?);
     if extension(&path) == "zip" {
         let entry = ZipEntry::open(file, platform).ok()?;
-        return rom_headers::identify(platform.into(), entry).ok();
+        return rom_headers::identify(platform, entry).ok();
     }
-    rom_headers::identify(platform.into(), file).ok()
+    rom_headers::identify(platform, file).ok()
 }
 
 fn extension(path: &Path) -> String {
@@ -96,34 +88,38 @@ fn extension(path: &Path) -> String {
 /// The file that holds a game's data: the file itself, or the one a playlist
 /// names first, a cue sheet's first data track's, or a GD-ROM sheet's
 /// high-density data track's. It follows at most three, so a sheet that names
-/// itself ends.
+/// itself ends. Where domain's `DiscSets` lists every file of a set, this
+/// picks the one with the header.
 fn data_file(path: &Path, depth: u8) -> Option<PathBuf> {
     let sheet = || std::fs::read_to_string(path).ok();
     let folder = path.parent().unwrap_or(Path::new(""));
     let named = match extension(path).as_str() {
         "m3u" | "cue" | "gdi" if depth >= 3 => return None,
-        "m3u" => sheet()?
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty() && !l.starts_with('#'))?
-            .to_owned(),
+        "m3u" => lines(&sheet()?).find(|l| !l.starts_with('#'))?.to_owned(),
         "cue" => cue_data_file(&sheet()?)?,
         "gdi" => gdi_data_file(&sheet()?)?,
         _ => return Some(path.to_owned()),
     };
-    data_file(&folder.join(named), depth + 1)
+    data_file(&folder.join(named.replace('\\', "/")), depth + 1)
+}
+
+/// A sheet's lines, trimmed, without its byte order mark or blank lines.
+fn lines(sheet: &str) -> impl Iterator<Item = &str> {
+    sheet
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
 }
 
 /// The file of a cue sheet's first data track.
 fn cue_data_file(cue: &str) -> Option<String> {
     let mut file = None;
-    for line in cue.lines().map(str::trim) {
-        if let Some(rest) = line.strip_prefix("FILE ") {
-            file = Some(unquote(
-                rest.rsplit_once(' ').map_or(rest, |(name, _)| name),
-            ));
-        } else if let Some(rest) = line.strip_prefix("TRACK ")
-            && !rest.ends_with("AUDIO")
+    for line in lines(cue) {
+        if let Some(args) = cue_command(line, "FILE") {
+            file = cue_file(args);
+        } else if let Some(args) = cue_command(line, "TRACK")
+            && !args.to_ascii_uppercase().ends_with("AUDIO")
         {
             return file;
         }
@@ -131,16 +127,32 @@ fn cue_data_file(cue: &str) -> Option<String> {
     None
 }
 
+/// The arguments of a cue sheet line that runs `command`, in any case.
+fn cue_command<'a>(line: &'a str, command: &str) -> Option<&'a str> {
+    let (word, args) = line.split_once(char::is_whitespace)?;
+    word.eq_ignore_ascii_case(command).then(|| args.trim())
+}
+
+/// The file a cue sheet's `FILE "name" TYPE` line names.
+fn cue_file(args: &str) -> Option<String> {
+    let name = match args.strip_prefix('"') {
+        Some(quoted) => quoted.split_once('"').map_or(quoted, |(name, _)| name),
+        // Unquoted, the name runs to the type at the end of the line.
+        None => args
+            .rsplit_once(char::is_whitespace)
+            .map_or(args, |(name, _)| name.trim()),
+    };
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
 /// The file of a GD-ROM sheet's first data track in the high-density area,
 /// which starts at track 3, else its first data track. Each line after the
 /// count is a track: its number, start, type (4 for data), sector size, file
 /// and offset.
 fn gdi_data_file(gdi: &str) -> Option<String> {
-    let tracks: Vec<(u32, String)> = gdi
-        .lines()
+    let tracks: Vec<(u32, String)> = lines(gdi)
         .skip(1)
         .filter_map(|line| {
-            let line = line.trim();
             let (number, rest) = line.split_once(char::is_whitespace)?;
             let fields: Vec<&str> = rest.split_whitespace().collect();
             if fields.get(1) != Some(&"4") {
@@ -161,10 +173,6 @@ fn gdi_data_file(gdi: &str) -> Option<String> {
         .map(|(_, name)| name.clone())
 }
 
-fn unquote(s: &str) -> String {
-    s.trim().trim_matches('"').to_owned()
-}
-
 /// The largest file in a zip that can be a game of the platform (see
 /// [`is_game`]), read and seeked as far as 64 MiB in, which it decompresses as
 /// reads reach it. Its length is the whole file's.
@@ -179,28 +187,28 @@ struct ZipEntry<R> {
 /// Whether a file named `name` can be a game of `platform`, by its extension:
 /// what a zip's game is chosen among, so a readme, manual or picture packed
 /// beside it never is.
-fn is_game(platform: HeaderPlatform, name: &str) -> bool {
+fn is_game(platform: Platform, name: &str) -> bool {
     let extension = name
         .rsplit_once('.')
         .map_or("", |(_, e)| e)
         .to_ascii_lowercase();
     let extensions: &[&str] = match platform {
-        HeaderPlatform::Nes => &["nes", "unf", "unif"],
-        HeaderPlatform::Snes => &["sfc", "smc", "swc", "fig", "bs", "st"],
-        HeaderPlatform::N64 => &["z64", "n64", "v64"],
-        HeaderPlatform::GameBoy => &["gb", "gbc", "sgb", "cgb", "dmg"],
-        HeaderPlatform::GameBoyAdvance => &["gba", "agb", "mb"],
-        HeaderPlatform::NintendoDs => &["nds", "dsi", "ids", "srl"],
-        HeaderPlatform::Nintendo3ds => &["3ds", "cci", "zcci", "cxi", "z3ds"],
-        HeaderPlatform::GameCube => &["iso", "gcm", "rvz", "wia", "wbfs", "ciso", "gcz"],
-        HeaderPlatform::MasterSystem => &["sms", "gg", "sg"],
-        HeaderPlatform::MegaDrive => &["md", "gen", "smd", "bin", "32x", "68k", "sgd"],
-        HeaderPlatform::MegaCd | HeaderPlatform::Saturn => &["iso", "bin", "img", "chd"],
-        HeaderPlatform::Dreamcast => &["iso", "bin", "img", "chd", "cdi"],
-        HeaderPlatform::PlayStation => &["iso", "bin", "img", "chd", "pbp"],
-        HeaderPlatform::PlayStation2 => &["iso", "bin", "img", "chd", "cso", "zso"],
-        HeaderPlatform::Psp => &["iso", "cso", "chd", "pbp"],
-        HeaderPlatform::Xbox => &["iso", "xiso", "xbe", "chd"],
+        Platform::Nes => &["nes", "unf", "unif"],
+        Platform::Snes => &["sfc", "smc", "swc", "fig", "bs", "st"],
+        Platform::N64 => &["z64", "n64", "v64"],
+        Platform::GameBoy => &["gb", "gbc", "sgb", "cgb", "dmg"],
+        Platform::GameBoyAdvance => &["gba", "agb", "mb"],
+        Platform::NintendoDs => &["nds", "dsi", "ids", "srl"],
+        Platform::Nintendo3ds => &["3ds", "cci", "zcci", "cxi", "z3ds"],
+        Platform::GameCube => &["iso", "gcm", "rvz", "wia", "wbfs", "ciso", "gcz"],
+        Platform::MasterSystem => &["sms", "gg", "sg"],
+        Platform::MegaDrive => &["md", "gen", "smd", "bin", "32x", "68k", "sgd"],
+        Platform::MegaCd | Platform::Saturn => &["iso", "bin", "img", "chd"],
+        Platform::Dreamcast => &["iso", "bin", "img", "chd", "cdi"],
+        Platform::PlayStation => &["iso", "bin", "img", "chd", "pbp"],
+        Platform::PlayStation2 => &["iso", "bin", "img", "chd", "cso", "zso"],
+        Platform::Psp => &["iso", "cso", "chd", "pbp"],
+        Platform::Xbox => &["iso", "xiso", "xbe", "chd"],
     };
     extensions.contains(&extension.as_str())
 }
@@ -209,7 +217,7 @@ fn is_game(platform: HeaderPlatform, name: &str) -> bool {
 const ZIP_LIMIT: u64 = 64 << 20;
 
 impl<R: Read + Seek> ZipEntry<R> {
-    fn open(reader: R, platform: HeaderPlatform) -> zip::result::ZipResult<Self> {
+    fn open(reader: R, platform: Platform) -> zip::result::ZipResult<Self> {
         let mut zip = zip::ZipArchive::new(reader)?;
         let mut largest = None;
         for i in 0..zip.len() {
@@ -537,10 +545,7 @@ mod tests {
             ("Header checksum", "Valid"),
         ];
         let read = |path: &Path| {
-            rom_header_fields(
-                HeaderPlatform::GameBoyAdvance,
-                path.to_str().unwrap().to_owned(),
-            )
+            rom_header_fields(Platform::GameBoyAdvance, path.to_str().unwrap().to_owned())
         };
         assert_eq!(fields(&read(&rom)), want);
 
@@ -559,17 +564,42 @@ mod tests {
 
         assert!(read(&dir.path().join("missing.gba")).is_empty());
         assert!(
-            rom_header_fields(HeaderPlatform::Nes, rom.to_str().unwrap().to_owned()).is_empty(),
+            rom_header_fields(Platform::Nes, rom.to_str().unwrap().to_owned()).is_empty(),
             "Not an NES ROM"
         );
     }
 
     #[test]
+    fn reads_the_ids_saves_are_filed_under() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = |platform, name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            rom_game_id(platform, path.to_str().unwrap().to_owned())
+        };
+        let mut ncch = vec![0u8; 0x200];
+        ncch[0x100..0x104].copy_from_slice(b"NCCH");
+        ncch[0x118..0x120].copy_from_slice(&0x0004_0000_0003_3500u64.to_le_bytes());
+        assert_eq!(
+            id(Platform::Nintendo3ds, "game.cxi", &ncch).as_deref(),
+            Some("0004000000033500")
+        );
+        let mut disc = vec![0u8; 0x60];
+        disc[..6].copy_from_slice(b"GZLE01");
+        disc[0x1C..0x20].copy_from_slice(&0xC233_9F3Du32.to_be_bytes());
+        assert_eq!(
+            id(Platform::GameCube, "game.iso", &disc).as_deref(),
+            Some("GZLE")
+        );
+        assert_eq!(id(Platform::GameBoyAdvance, "game.gba", &gba()), None);
+    }
+
+    #[test]
     fn takes_only_the_platforms_files_from_a_zip() {
-        assert!(is_game(HeaderPlatform::MegaDrive, "Sonic.md"));
-        assert!(is_game(HeaderPlatform::GameBoyAdvance, "GAME.GBA"));
-        assert!(!is_game(HeaderPlatform::GameBoyAdvance, "manual.pdf"));
-        assert!(!is_game(HeaderPlatform::GameBoyAdvance, "Sonic.md"));
+        assert!(is_game(Platform::MegaDrive, "Sonic.md"));
+        assert!(is_game(Platform::GameBoyAdvance, "GAME.GBA"));
+        assert!(!is_game(Platform::GameBoyAdvance, "manual.pdf"));
+        assert!(!is_game(Platform::GameBoyAdvance, "Sonic.md"));
     }
 
     #[test]
@@ -577,26 +607,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("game.m3u"),
-            "# discs\n\nGame (Disc 1).cue\nGame (Disc 2).cue\n",
+            "\u{feff}# discs\n\nGame (Disc 1).cue\nGame (Disc 2).cue\n",
         )
         .unwrap();
+        std::fs::create_dir(dir.path().join("Disc 1")).unwrap();
         std::fs::write(
             dir.path().join("Game (Disc 1).cue"),
-            "FILE \"Game (Disc 1) (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
+            "\u{feff}FILE \"Disc 1\\Game (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n",
         )
         .unwrap();
         assert_eq!(
             data_file(&dir.path().join("game.m3u"), 0).unwrap(),
-            dir.path().join("Game (Disc 1) (Track 1).bin")
+            dir.path().join("Disc 1/Game (Track 1).bin")
         );
         assert_eq!(
             cue_data_file(
-                "FILE \"a.bin\" BINARY\n TRACK 01 AUDIO\nFILE \"b.bin\" BINARY\n TRACK 02 MODE1/2352\n"
+                "FILE \"a.bin\" BINARY\n TRACK 01 AUDIO\nfile\tb c.bin\tBINARY\n TRACK 02 MODE1/2352\n"
             )
             .as_deref(),
-            Some("b.bin")
+            Some("b c.bin")
         );
-        let gdi = "3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n3 45000 4 2352 \"track 03.bin\" 0\n";
+        let gdi = "\n3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n3\t45000\t4\t2352\t\"track 03.bin\"\t0\n";
         assert_eq!(gdi_data_file(gdi).as_deref(), Some("track 03.bin"));
 
         let looping = dir.path().join("loop.cue");

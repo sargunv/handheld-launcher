@@ -11,18 +11,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::achievements::{
-    AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory, HttpClient,
+    AchievementEvent, AchievementOptions, AchievementStatus, Achievements, CoreMemory,
+    SendAchievementsRequest,
 };
 use crate::audio::AudioSink;
 use crate::content;
 use crate::core::{Core, CoreLoadError};
 use crate::ffi;
 use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
-use crate::host::{self, Gpu, Host, VideoTarget};
+use crate::host::{self, Gpu, Host};
 use crate::input::{InputState, MAX_PORTS};
-use crate::options::{CoreOption, Options, opt_string};
-use crate::save::{back_up, write_atomically};
-use crate::video::{CapturedFrame, PixelFormat, Region, VideoSink};
+use crate::options::{Options, opt_string};
+use crate::save::write_atomically;
+use crate::video::{CapturedFrame, Region, VideoSink};
 use crate::vulkan::{VulkanContext, VulkanError};
 
 /// Where a session's frames go.
@@ -42,11 +43,6 @@ pub enum VideoOutput {
         /// The window's size in pixels.
         width: u32,
         height: u32,
-        /// Whether presenting waits for the display's next refresh. Leave it
-        /// off when the session runs on the thread that handles the window's
-        /// events: a Wayland compositor can hold the refresh back until those
-        /// events are handled.
-        vsync: bool,
         /// The bottom screen's share of the frame's width, centred, when a
         /// two-screen system's core draws it narrower than the top screen
         /// above it, so a lower window shows only those columns. `None`
@@ -79,7 +75,7 @@ pub struct SessionConfig {
     pub options: HashMap<String, String>,
     /// How the session takes part in RetroAchievements, if it does, and what
     /// sends its requests to the server.
-    pub achievements: Option<(AchievementOptions, Box<dyn HttpClient>)>,
+    pub achievements: Option<(AchievementOptions, SendAchievementsRequest)>,
 }
 
 /// What a core says about itself.
@@ -124,29 +120,6 @@ impl AvInfo {
             sample_rate: info.timing.sample_rate,
         }
     }
-}
-
-/// An input the core uses, with the name it gives it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InputDescriptor {
-    pub port: u32,
-    /// A libretro device type, such as `RETRO_DEVICE_JOYPAD`.
-    pub device: u32,
-    pub index: u32,
-    pub id: u32,
-    pub description: String,
-}
-
-/// What [`Session::load_save_ram`] did.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SaveRamLoad {
-    /// Nothing: the core has no save memory, or the file doesn't exist.
-    Nothing,
-    /// The file filled the core's save memory.
-    Loaded,
-    /// The file's size differs from the core's save memory's, so it filled
-    /// what fits, after the file was copied to `backup`.
-    Mismatched { backup: PathBuf },
 }
 
 /// Why a session failed.
@@ -246,28 +219,21 @@ impl Session {
         fs::create_dir_all(&config.save_dir)?;
         // SAFETY: the caller vouches for the core.
         let core = unsafe { Core::load(&config.core)? };
+        let lower = Region::bottom(match config.video {
+            VideoOutput::Window {
+                lower_screen_width_share,
+                ..
+            } => lower_screen_width_share,
+            VideoOutput::Sink(_) => None,
+        });
         let host = Box::new(Host::new(
             path_cstring(&config.system_dir),
             path_cstring(&config.save_dir),
             Options::new(config.options),
             config.input,
             config.audio,
-            match config.video {
-                VideoOutput::Sink(sink) => VideoTarget::Sink(sink),
-                VideoOutput::Window {
-                    window,
-                    width,
-                    height,
-                    vsync,
-                    lower_screen_width_share,
-                } => VideoTarget::Window {
-                    window,
-                    width,
-                    height,
-                    vsync,
-                    lower: Region::bottom(lower_screen_width_share),
-                },
-            },
+            config.video,
+            lower,
         ));
         let host = NonNull::from(Box::leak(host));
         // SAFETY: the host lives until the session's drop unregisters it, and
@@ -321,8 +287,8 @@ impl Session {
             .transpose()?;
         session.load_content(content.as_deref())?;
         session.game_loaded = true;
-        if let (Some((options, http)), Some(content)) = (config.achievements, content.as_deref()) {
-            session.achievements = Achievements::start(&options, content, http);
+        if let (Some((options, send)), Some(content)) = (config.achievements, content.as_deref()) {
+            session.achievements = Achievements::start(&options, content, send);
             session.set_achievement_memory();
         }
 
@@ -423,23 +389,18 @@ impl Session {
     /// state.
     fn set_up_video(&mut self) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let (target, vsync) = match &host.video {
-            VideoTarget::Window {
+        let target = match &host.video {
+            VideoOutput::Window {
                 window,
                 width,
                 height,
-                vsync,
                 ..
-            } => (
-                Target::Window(window.as_ref().map(|w| (w, *width, *height))),
-                Some(*vsync),
-            ),
-            VideoTarget::Sink(_) => (Target::Headless, None),
+            } => Target::Window(window.as_ref().map(|w| (w, *width, *height))),
+            VideoOutput::Sink(_) => Target::Headless,
         };
         let hw = host.hw_render;
         if let Some(cb) = hw.filter(|cb| cb.context_type == ffi::RETRO_HW_CONTEXT_VULKAN) {
-            let context =
-                VulkanContext::new(host.negotiation.as_ref(), target, vsync.unwrap_or(true))?;
+            let context = VulkanContext::new(host.negotiation.as_ref(), target)?;
             host.vulkan = Some(context);
             if let Some(reset) = cb.context_reset {
                 // SAFETY: the context exists, as libretro requires; no host
@@ -448,7 +409,7 @@ impl Session {
             }
             return Ok(());
         }
-        let mut context = match (hw, target) {
+        let context = match (hw, target) {
             (Some(cb), target) => {
                 let api = host::hw_api(&cb).expect("accepted in SET_HW_RENDER");
                 GlContext::new(api, target, cb.debug_context)?
@@ -458,9 +419,6 @@ impl Session {
             }
             (None, Target::Headless) => return Ok(()),
         };
-        if let Some(vsync) = vsync {
-            context.set_vsync(vsync);
-        }
         let mut gpu = Gpu::new(context);
         if let Some(cb) = hw {
             let av = host.av_info;
@@ -571,19 +529,6 @@ impl Session {
             .is_some_and(Achievements::restricts)
     }
 
-    /// Resets the core, like a console's reset button.
-    pub fn reset(&mut self) {
-        // A Vulkan core may destroy its images as it resets.
-        if let Some(vulkan) = &mut self.host_mut().vulkan {
-            vulkan.release_image();
-        }
-        // SAFETY: the game is loaded and no host reference is live.
-        unsafe { (self.core.reset)() };
-        if let Some(achievements) = &self.achievements {
-            achievements.reset();
-        }
-    }
-
     /// What the core says about itself.
     pub fn system_info(&self) -> &SystemInfo {
         &self.system_info
@@ -594,38 +539,6 @@ impl Session {
         self.host().av_info
     }
 
-    /// The pixel format the core renders software frames in.
-    pub fn pixel_format(&self) -> PixelFormat {
-        self.host().pixel_format
-    }
-
-    /// Whether the core renders with OpenGL or Vulkan.
-    pub fn is_hardware_rendered(&self) -> bool {
-        self.host().hw_render.is_some()
-    }
-
-    /// The controllers the core reads.
-    pub fn input(&self) -> &Arc<InputState> {
-        &self.host().input
-    }
-
-    /// The inputs the core uses, as it last described them.
-    pub fn input_descriptors(&self) -> &[InputDescriptor] {
-        &self.host().descriptors
-    }
-
-    /// The options the core declared, with their current values.
-    pub fn options(&self) -> Vec<CoreOption> {
-        self.host().options.list()
-    }
-
-    /// Sets a core option. The core sees the new value when it next checks.
-    /// It returns false, and changes nothing, if the core has no such option
-    /// or doesn't accept the value.
-    pub fn set_option(&mut self, key: &str, value: &str) -> bool {
-        self.host_mut().options.set(key, value)
-    }
-
     /// Whether the core asked to quit, as when a game offers an exit.
     pub fn shutdown_requested(&self) -> bool {
         self.host().shutdown_requested
@@ -634,7 +547,7 @@ impl Session {
     /// Tells the session the window it presents to changed size.
     pub fn resize_window(&mut self, width: u32, height: u32) {
         let host = self.host_mut();
-        if let VideoTarget::Window {
+        if let VideoOutput::Window {
             width: w,
             height: h,
             ..
@@ -666,7 +579,7 @@ impl Session {
         window: Option<(NativeWindow, u32, u32)>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let VideoTarget::Window {
+        let VideoOutput::Window {
             window: current,
             width,
             height,
@@ -712,7 +625,7 @@ impl Session {
         window: Option<(NativeWindow, u32, u32)>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
-        if !matches!(host.video, VideoTarget::Window { .. }) {
+        if !matches!(host.video, VideoOutput::Window { .. }) {
             return Err(SessionError::NoWindowOutput);
         }
         let window = window
@@ -764,56 +677,13 @@ impl Session {
         }
     }
 
-    fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
+    pub(crate) fn save_ram_mut(&mut self) -> Option<&mut [u8]> {
         // SAFETY: as in `save_ram`.
         unsafe {
             let size = (self.core.get_memory_size)(ffi::RETRO_MEMORY_SAVE_RAM);
             let data = (self.core.get_memory_data)(ffi::RETRO_MEMORY_SAVE_RAM);
             (size > 0 && !data.is_null())
                 .then(|| std::slice::from_raw_parts_mut(data.cast::<u8>(), size))
-        }
-    }
-
-    /// Fills the core's save memory from the file at `path`, as a frontend
-    /// does right after loading content.
-    ///
-    /// A file of a different size fills what fits, but writing save memory
-    /// back would lose the rest, so the file is copied to a backup beside it
-    /// first, and loading fails if that copy can't be made.
-    pub fn load_save_ram(&mut self, path: &Path) -> io::Result<SaveRamLoad> {
-        let Some(memory) = self.save_ram_mut() else {
-            return Ok(SaveRamLoad::Nothing);
-        };
-        let data = match fs::read(path) {
-            Ok(data) => data,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(SaveRamLoad::Nothing),
-            Err(e) => return Err(e),
-        };
-        let n = data.len().min(memory.len());
-        let loaded = if data.len() == memory.len() {
-            SaveRamLoad::Loaded
-        } else {
-            let backup = back_up(path, &data)?;
-            log::warn!(
-                "save file {} has {} bytes, but the core's save memory has {}; kept a copy at {}",
-                path.display(),
-                data.len(),
-                memory.len(),
-                backup.display()
-            );
-            SaveRamLoad::Mismatched { backup }
-        };
-        memory[..n].copy_from_slice(&data[..n]);
-        Ok(loaded)
-    }
-
-    /// Writes the core's save memory to `path`, replacing the file only once
-    /// the new contents are on disk. It returns false, and writes nothing, if
-    /// the core has no save memory.
-    pub fn flush_save_ram(&self, path: &Path) -> io::Result<bool> {
-        match self.save_ram() {
-            Some(memory) => write_atomically(path, memory).map(|()| true),
-            None => Ok(false),
         }
     }
 

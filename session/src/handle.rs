@@ -11,19 +11,20 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::achievements::{
-    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest, HttpClient,
+    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsRequest,
+    SendAchievementsRequest,
 };
 use crate::audio::{AudioSink, NullAudioSink};
 use crate::input::{Button, InputState, MAX_PORTS, Stick};
-use crate::pacing::{self, FrameStats, Vsync};
-use crate::save::SaveWriter;
-use crate::session::{AvInfo, SaveRamLoad, Session, SessionConfig, SessionError, VideoOutput};
+use crate::pacing::{self, Vsync};
+use crate::save::SaveRam;
+use crate::session::{AvInfo, Session, SessionConfig, SessionError, VideoOutput};
 use crate::video::{CapturedFrame, Frame, Region, VideoSink};
 
 /// What [`GameSession::start`] needs.
@@ -112,19 +113,21 @@ pub struct SessionInfo {
     pub base_height: u32,
     /// The intended display aspect ratio, or 0 for the frame's own.
     pub aspect_ratio: f32,
-    /// Whether the core renders with OpenGL or Vulkan.
-    pub hardware_rendered: bool,
 }
 
 impl SessionInfo {
-    fn with_av(&self, av: AvInfo) -> Self {
-        Self {
-            fps: av.fps,
-            base_width: av.base_width,
-            base_height: av.base_height,
-            aspect_ratio: av.aspect_ratio,
-            ..self.clone()
-        }
+    /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
+    /// whether they changed.
+    fn set_av(&mut self, av: AvInfo) -> bool {
+        let changed = self.fps != av.fps
+            || self.base_width != av.base_width
+            || self.base_height != av.base_height
+            || self.aspect_ratio != av.aspect_ratio;
+        self.fps = av.fps;
+        self.base_width = av.base_width;
+        self.base_height = av.base_height;
+        self.aspect_ratio = av.aspect_ratio;
+        changed
     }
 }
 
@@ -132,11 +135,6 @@ impl SessionInfo {
 /// of its own, one call at a time, so it may call the session back.
 #[uniffi::export(with_foreign)]
 pub trait SessionListener: Send + Sync {
-    /// The core changed its frame size, aspect ratio or frame rate mid-game,
-    /// as `info` now gives them. The session already presents and paces
-    /// frames to match; the app may lay out its view again.
-    fn info_changed(&self, info: SessionInfo);
-
     /// The core asked to quit, as when a game offers an exit. The session has
     /// stopped, writing save memory as it does when stopped, and unloaded the
     /// core, so the app should close it.
@@ -162,7 +160,6 @@ pub trait AchievementsHttp: Send + Sync {
 
 /// What the session thread tells the listener.
 enum Event {
-    InfoChanged(SessionInfo),
     CoreQuit,
     Achievement(AchievementEvent),
     Request(u64, AchievementsRequest),
@@ -187,9 +184,6 @@ impl Events {
             .spawn(move || {
                 for event in receiver {
                     match (event, &listener, &http) {
-                        (Event::InfoChanged(info), Some(listener), _) => {
-                            listener.info_changed(info)
-                        }
                         (Event::CoreQuit, Some(listener), _) => listener.core_quit(),
                         (Event::Achievement(event), Some(listener), _) => {
                             listener.achievement_event(event)
@@ -241,7 +235,6 @@ enum Command {
     Resume,
     FastForward(u32),
     Advance(u32, Reply<()>),
-    Reset,
     SaveState(PathBuf, Reply<()>),
     LoadState(PathBuf, Reply<()>),
     CaptureFrame(Reply<Option<CapturedFrame>>),
@@ -254,8 +247,8 @@ enum Command {
 impl GameSession {
     /// Loads the core and its content on a new thread, and returns once
     /// they're ready to run, paused. The session tells `listener` when the
-    /// core changes its video mode or quits, or something happens to the
-    /// game's achievements, and sends RetroAchievements requests to `http`.
+    /// core quits or something happens to the game's achievements, and sends
+    /// RetroAchievements requests to `http`.
     ///
     /// The core is native code that runs in this process: only start cores
     /// the user chose to trust.
@@ -368,12 +361,15 @@ impl GameSession {
             Screen::Main if self.split.load(Ordering::Relaxed) => Region::Top,
             Screen::Main => Region::Whole,
         };
-        let info = self.info();
+        let (base_width, base_height, aspect_ratio) = {
+            let info = self.info.lock().unwrap_or_else(|e| e.into_inner());
+            (info.base_width, info.base_height, info.aspect_ratio)
+        };
         let position = crate::video::pointer_position(
             region,
-            info.base_width,
-            info.base_height,
-            info.aspect_ratio,
+            base_width,
+            base_height,
+            aspect_ratio,
             width,
             height,
             x,
@@ -415,11 +411,6 @@ impl GameSession {
     /// paused. For stepping a frame at a time, and for tests.
     pub fn advance(&self, frames: u32) -> Result<(), SessionError> {
         self.request(|reply| Command::Advance(frames, reply))
-    }
-
-    /// Resets the core, like a console's reset button.
-    pub fn reset(&self) {
-        let _ = self.commands.send(Command::Reset);
     }
 
     /// Presses or releases `button` on controller `port`. Ports past the last
@@ -579,14 +570,9 @@ fn run(
             return;
         }
     };
-    let loaded = match &save_ram_path {
-        Some(path) => match session.load_save_ram(path) {
-            Ok(loaded) => {
-                if loaded != SaveRamLoad::Nothing {
-                    log::info!("loaded save memory from {}", path.display());
-                }
-                loaded
-            }
+    let save_ram = match &save_ram_path {
+        Some(path) => match SaveRam::load(path, &mut session) {
+            Ok(save_ram) => save_ram,
             Err(e) => {
                 // Running anyway would replace the file with fresh save
                 // memory the first time the game saves.
@@ -595,14 +581,7 @@ fn run(
                 return;
             }
         },
-        None => SaveRamLoad::Nothing,
-    };
-    let save_ram = match SaveRam::new(save_ram_path, &session, &loaded) {
-        Ok(save_ram) => save_ram,
-        Err(e) => {
-            let _ = started.send(Err(e.into()));
-            return;
-        }
+        None => None,
     };
     let av = session.av_info();
     let info = SessionInfo {
@@ -612,7 +591,6 @@ fn run(
         base_width: av.base_width,
         base_height: av.base_height,
         aspect_ratio: av.aspect_ratio,
-        hardware_rendered: session.is_hardware_rendered(),
     };
     session.set_audio_paused(true);
     let vsync = presents_to_window.then(vsync_clock).flatten();
@@ -621,7 +599,6 @@ fn run(
         return;
     }
     let runner = Runner {
-        reported_av: session.av_info(),
         info,
         events: events.clone(),
         session,
@@ -633,7 +610,6 @@ fn run(
         next_frame: Instant::now(),
         vsync,
         vsyncs: None,
-        stats: FrameStats::new(Instant::now()),
     };
     let quit = runner.run(&commands);
     // The session is gone, and so are its commands, so the listener may
@@ -641,16 +617,6 @@ fn run(
     drop(commands);
     if quit {
         events.send(Event::CoreQuit);
-    }
-}
-
-/// Sends the session's RetroAchievements requests to the app's
-/// [`AchievementsHttp`], through the events thread.
-struct EventsHttp(Events);
-
-impl HttpClient for EventsHttp {
-    fn request(&self, id: u64, request: AchievementsRequest) {
-        self.0.send(Event::Request(id, request));
     }
 }
 
@@ -664,8 +630,6 @@ fn start_session(
             window: None,
             width: 0,
             height: 0,
-            // The session paces frames itself.
-            vsync: false,
             lower_screen_width_share: options.lower_screen_width_share,
         },
         VideoMode::Offscreen => VideoOutput::Sink(Box::new(DiscardFrames)),
@@ -681,8 +645,10 @@ fn start_session(
         input,
         options: options.core_options,
         achievements: options.achievements.map(|achievements| {
-            let http: Box<dyn HttpClient> = Box::new(EventsHttp(events.clone()));
-            (achievements, http)
+            let events = events.clone();
+            let send: SendAchievementsRequest =
+                Box::new(move |id, request| events.send(Event::Request(id, request)));
+            (achievements, send)
         }),
     };
     // SAFETY: `GameSession::start` documents that the core runs as native
@@ -735,12 +701,12 @@ struct Runner {
     /// The info the app sees, which the session updates as the core changes
     /// its video mode.
     info: Arc<Mutex<SessionInfo>>,
-    /// The timing and geometry `info` last reported.
-    reported_av: AvInfo,
     events: Events,
     window: Option<PlatformWindow>,
     lower_window: Option<PlatformWindow>,
-    save_ram: SaveRam,
+    /// Keeps save memory's file up to date, if the core has save memory and
+    /// it has a file.
+    save_ram: Option<SaveRam>,
     paused: bool,
     /// How many frames run each time one is due: more than one to fast
     /// forward.
@@ -750,12 +716,7 @@ struct Runner {
     vsync: Option<VsyncClock>,
     /// How many vsyncs frames are paced to, or `None` for a timer.
     vsyncs: Option<u32>,
-    /// Frame timing since the session last resumed or logged it.
-    stats: FrameStats,
 }
-
-/// How often a running session logs its frame timing.
-const STATS_INTERVAL: Duration = Duration::from_secs(60);
 
 /// What the session thread does next.
 enum Next {
@@ -779,27 +740,17 @@ fn next(
     next_frame: Instant,
     idle: Option<Instant>,
 ) -> Next {
-    if paused {
-        let Some(idle) = idle else {
-            return commands.recv().map_or(Next::Exit, Next::Command);
-        };
-        return match commands.recv_timeout(idle.saturating_duration_since(Instant::now())) {
-            Ok(command) => Next::Command(command),
-            Err(RecvTimeoutError::Timeout) => Next::Idle,
-            Err(RecvTimeoutError::Disconnected) => Next::Exit,
-        };
-    }
-    let wait = next_frame.saturating_duration_since(Instant::now());
-    if wait.is_zero() {
-        return match commands.try_recv() {
-            Ok(command) => Next::Command(command),
-            Err(TryRecvError::Empty) => Next::Frame,
-            Err(TryRecvError::Disconnected) => Next::Exit,
-        };
-    }
-    match commands.recv_timeout(wait) {
+    let (deadline, due) = if paused {
+        (idle, Next::Idle)
+    } else {
+        (Some(next_frame), Next::Frame)
+    };
+    let Some(deadline) = deadline else {
+        return commands.recv().map_or(Next::Exit, Next::Command);
+    };
+    match commands.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
         Ok(command) => Next::Command(command),
-        Err(RecvTimeoutError::Timeout) => Next::Frame,
+        Err(RecvTimeoutError::Timeout) => due,
         Err(RecvTimeoutError::Disconnected) => Next::Exit,
     }
 }
@@ -828,7 +779,7 @@ impl Runner {
             for event in self.session.take_achievement_events() {
                 self.events.send(Event::Achievement(event));
             }
-            self.report_av();
+            self.update_info();
             if self.session.shutdown_requested() {
                 log::info!("the core asked to quit");
                 break true;
@@ -840,30 +791,18 @@ impl Runner {
         quit
     }
 
-    /// Tells the app about a frame size, aspect ratio or frame rate the core
+    /// Updates `info` to a frame size, aspect ratio or frame rate the core
     /// changed to.
-    fn report_av(&mut self) {
-        let av = self.session.av_info();
-        if av == self.reported_av {
-            return;
+    fn update_info(&self) {
+        let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
+        if info.set_av(self.session.av_info()) {
+            log::info!(
+                "the core changed to {}x{} at {:.2} fps",
+                info.base_width,
+                info.base_height,
+                info.fps
+            );
         }
-        self.reported_av = av;
-        let info = {
-            let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
-            let changed = info.with_av(av);
-            if changed == *info {
-                return;
-            }
-            *info = changed.clone();
-            changed
-        };
-        log::info!(
-            "the core changed to {}x{} at {:.2} fps",
-            info.base_width,
-            info.base_height,
-            info.fps
-        );
-        self.events.send(Event::InfoChanged(info));
     }
 
     fn run_frame(&mut self) {
@@ -876,11 +815,9 @@ impl Runner {
         let now = Instant::now();
         let fps = self.session.av_info().fps;
         let vsync = self.vsync();
-        self.stats.record(now, fps, vsync);
-        if self.stats.elapsed(now) >= STATS_INTERVAL {
-            self.log_stats(now);
+        if let Some(save_ram) = &mut self.save_ram {
+            save_ram.write_if_due(&self.session);
         }
-        self.save_ram.write_if_due(&self.session);
         let schedule = pacing::next_frame(self.next_frame, now, fps, vsync);
         self.next_frame = schedule.due;
         self.session.set_speed(schedule.speed);
@@ -900,13 +837,6 @@ impl Runner {
     fn vsync(&self) -> Option<Vsync> {
         self.window.as_ref()?;
         self.vsync.as_ref()?.vsync()
-    }
-
-    fn log_stats(&mut self, now: Instant) {
-        if let Some(report) = self.stats.report(now) {
-            log::info!("{report}");
-        }
-        self.stats = FrameStats::new(now);
     }
 
     fn handle(&mut self, command: Command) {
@@ -944,7 +874,7 @@ impl Runner {
             }
             Command::Pause(reply) => {
                 self.set_paused(true);
-                let _ = reply.send(self.save_ram.flush(&self.session));
+                let _ = reply.send(self.flush_save_ram());
             }
             Command::Resume => self.set_paused(false),
             Command::FastForward(speed) => {
@@ -966,11 +896,10 @@ impl Runner {
                         self.session.run_frame();
                     }
                     // So info() is current once advance() returns.
-                    self.report_av();
+                    self.update_info();
                 }
                 let _ = reply.send(Ok(()));
             }
-            Command::Reset => self.session.reset(),
             Command::SaveState(path, reply) => {
                 let _ = reply.send(self.session.save_state(&path));
             }
@@ -999,89 +928,19 @@ impl Runner {
         if let Some(vsync) = &mut self.vsync {
             vsync.set_running(!paused);
         }
-        let now = Instant::now();
-        if paused {
-            self.log_stats(now);
-        } else {
-            self.next_frame = now;
-            self.stats = FrameStats::new(now);
+        if !paused {
+            self.next_frame = Instant::now();
         }
     }
 
     fn stop(&mut self) -> Result<(), SessionError> {
         self.set_paused(true);
-        self.save_ram.flush(&self.session)
-    }
-}
-
-/// How often a running session compares save memory with its file.
-const SAVE_RAM_CHECK_INTERVAL: Duration = Duration::from_secs(2);
-
-/// Keeps save memory's file up to date: the session thread compares save
-/// memory with what it last wrote, and a writer thread writes the changes.
-struct SaveRam {
-    /// The writer, if the core has save memory and it has a file.
-    writer: Option<SaveWriter>,
-    /// Save memory as last handed to the writer.
-    written: Vec<u8>,
-    /// When a running session next compares save memory.
-    next_check: Instant,
-}
-
-impl SaveRam {
-    fn new(
-        path: Option<PathBuf>,
-        session: &Session,
-        loaded: &SaveRamLoad,
-    ) -> std::io::Result<Self> {
-        let writer = match (path, session.save_ram()) {
-            (Some(path), Some(_)) => Some(SaveWriter::new(path)?),
-            _ => None,
-        };
-        let written = match loaded {
-            // A file of another size gets rewritten at save memory's size,
-            // now that a backup holds the original.
-            SaveRamLoad::Mismatched { .. } => Vec::new(),
-            SaveRamLoad::Nothing | SaveRamLoad::Loaded => {
-                session.save_ram().map(<[u8]>::to_vec).unwrap_or_default()
-            }
-        };
-        Ok(Self {
-            writer,
-            written,
-            next_check: Instant::now() + SAVE_RAM_CHECK_INTERVAL,
-        })
+        self.flush_save_ram()
     }
 
-    /// Hands save memory to the writer if it changed since the last write,
-    /// or the last write failed.
-    fn write_if_changed(&mut self, session: &Session) {
-        let (Some(writer), Some(memory)) = (&self.writer, session.save_ram()) else {
-            return;
-        };
-        if memory != self.written.as_slice() || writer.failed() {
-            self.written.clear();
-            self.written.extend_from_slice(memory);
-            writer.write(memory.to_vec());
-        }
-    }
-
-    /// Calls [`SaveRam::write_if_changed`] every
-    /// [`SAVE_RAM_CHECK_INTERVAL`].
-    fn write_if_due(&mut self, session: &Session) {
-        let now = Instant::now();
-        if now >= self.next_check {
-            self.next_check = now + SAVE_RAM_CHECK_INTERVAL;
-            self.write_if_changed(session);
-        }
-    }
-
-    /// Writes save memory if it changed, and waits until every write so far
-    /// is on disk.
-    fn flush(&mut self, session: &Session) -> Result<(), SessionError> {
-        self.write_if_changed(session);
-        match &self.writer {
-            Some(writer) => Ok(writer.wait()?),
+    fn flush_save_ram(&mut self) -> Result<(), SessionError> {
+        match &mut self.save_ram {
+            Some(save_ram) => Ok(save_ram.flush(&self.session)?),
             None => Ok(()),
         }
     }
@@ -1118,10 +977,10 @@ mod tests {
             next(&receiver, false, later, None),
             Next::Command(Command::Resume)
         ));
-        commands.send(Command::Reset).unwrap();
+        commands.send(Command::Resume).unwrap();
         assert!(matches!(
             next(&receiver, true, Instant::now(), None),
-            Next::Command(Command::Reset)
+            Next::Command(Command::Resume)
         ));
     }
 

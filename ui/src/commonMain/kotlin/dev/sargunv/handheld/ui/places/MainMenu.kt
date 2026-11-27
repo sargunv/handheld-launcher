@@ -38,19 +38,19 @@ internal fun mainMenuPlaces(signedIn: Boolean): List<Place> =
  */
 @Composable
 internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
-  val signedIn = state.signedIn == true
+  val signedIn = state.account.signedIn == true
   val places = mainMenuPlaces(signedIn)
   // The place showing, when nothing covers it.
   val current =
     when {
-      !signedIn -> if (state.settingsOverSignIn) Place.Settings else null
+      !signedIn -> if (state.account.settingsOverSignIn) Place.Settings else null
       state.navigator.current == Screen.Places -> state.place
       else -> null
     }
   val queue by state.downloads.queue.collectAsState()
   Dialog(
     onDismissRequest,
-    Modifier.fillMaxHeight().width(320.dp).background(Placeholder.dialog).padding(24.dp),
+    Modifier.fillMaxHeight().width(320.dp),
     initialFocus = "main:${(current ?: places.first()).name}",
     alignment = Alignment.CenterStart,
   ) {
@@ -74,7 +74,7 @@ internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
         val queued = if (place == Place.Downloads) queue.size else 0
         MainMenuItem(place, queued, selected = place == current) {
           onDismissRequest()
-          if (signedIn) state.goTo(place) else state.settingsOverSignIn = true
+          if (signedIn) state.goTo(place) else state.account.settingsOverSignIn = true
         }
       }
     }

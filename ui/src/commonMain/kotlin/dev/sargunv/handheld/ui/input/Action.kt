@@ -1,6 +1,5 @@
 package dev.sargunv.handheld.ui.input
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /** What the player asked for, whatever button or key they used. Every screen speaks this. */
@@ -15,12 +14,10 @@ enum class Action {
   Back,
   /** Opens the context menu for the focused item. */
   Menu,
-  Search,
   PreviousShelf,
   NextShelf,
   /** Opens the main menu (the Start button), which goes to the top-level pages. */
-  MainMenu,
-  Select;
+  MainMenu;
 
   /** Whether holding the input repeats this action. Only movement repeats. */
   val repeats: Boolean
@@ -42,16 +39,7 @@ enum class Direction {
   Up,
   Down,
   Left,
-  Right;
-
-  val action: Action
-    get() =
-      when (this) {
-        Up -> Action.Up
-        Down -> Action.Down
-        Left -> Action.Left
-        Right -> Action.Right
-      }
+  Right,
 }
 
 /**
@@ -81,10 +69,8 @@ enum class PadButton {
 /** Which face button confirms. The other one of the pair goes back. */
 @Serializable
 enum class ConfirmButton {
-  // Stored under the positions these buttons were named for when Android's default layout was
-  // assumed, so a choice made then still holds.
-  @SerialName("South") A,
-  @SerialName("East") B,
+  A,
+  B,
 }
 
 /**
@@ -102,15 +88,15 @@ data class InputSettings(
       PadButton.A -> if (confirmButton == ConfirmButton.A) Action.Confirm else Action.Back
       PadButton.B -> if (confirmButton == ConfirmButton.B) Action.Confirm else Action.Back
       PadButton.X -> Action.Menu
-      PadButton.Y -> Action.Search
       PadButton.L1 -> Action.PreviousShelf
       PadButton.R1 -> Action.NextShelf
       PadButton.Start -> Action.MainMenu
-      PadButton.Select -> Action.Select
       PadButton.DpadUp -> Action.Up
       PadButton.DpadDown -> Action.Down
       PadButton.DpadLeft -> Action.Left
       PadButton.DpadRight -> Action.Right
+      PadButton.Y,
+      PadButton.Select,
       PadButton.L2,
       PadButton.R2,
       PadButton.ThumbLeft,

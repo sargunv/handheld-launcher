@@ -5,17 +5,15 @@
 mod common;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use common::{Harness, fixture, lock};
+use common::{Harness, fixture, lock, options};
 use handheld_session::{
-    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsHttp,
-    AchievementsHttpClient, AchievementsRequest, GameSession, SessionError, SessionInfo,
-    SessionListener, SessionOptions, VideoMode,
+    AchievementEvent, AchievementOptions, AchievementStatus, AchievementsHttp, AchievementsRequest,
+    GameSession, SessionError, SessionListener, SessionOptions,
 };
 use zip::write::SimpleFileOptions;
 
@@ -66,17 +64,7 @@ fn answer(request: &AchievementsRequest, hashes: &mut Vec<String>) -> String {
     }
 }
 
-/// A server the session reaches directly, answering on the session's thread.
-#[derive(Clone, Default)]
-struct Waiting(Rc<RefCell<Vec<(u64, AchievementsRequest)>>>);
-
-impl AchievementsHttpClient for Waiting {
-    fn request(&self, id: u64, request: AchievementsRequest) {
-        self.0.borrow_mut().push((id, request));
-    }
-}
-
-fn options(hardcore: bool) -> AchievementOptions {
+fn account(hardcore: bool) -> AchievementOptions {
     AchievementOptions {
         username: "Player".to_owned(),
         token: "ApiToken".to_owned(),
@@ -85,13 +73,34 @@ fn options(hardcore: bool) -> AchievementOptions {
     }
 }
 
+/// The requests a session sent, waiting for the test to answer them on the
+/// session's thread.
+type Waiting = Rc<RefCell<Vec<(u64, AchievementsRequest)>>>;
+
+/// Starts `content` in Gambatte, taking part in RetroAchievements.
+fn start(content: &str, hardcore: bool) -> (Harness, Waiting) {
+    let waiting = Waiting::default();
+    let sent = waiting.clone();
+    let h = Harness::start(
+        CORE,
+        Some(content),
+        &[],
+        Some((
+            account(hardcore),
+            Box::new(move |id, request| sent.borrow_mut().push((id, request))),
+        )),
+    )
+    .unwrap();
+    (h, waiting)
+}
+
 /// Runs frames, answering the session's requests, until its achievements
 /// are ready, and returns the hashes the server was asked about.
-fn load(h: &mut Harness, server: &Waiting) -> Vec<String> {
+fn load(h: &mut Harness, waiting: &Waiting) -> Vec<String> {
     let mut hashes = Vec::new();
     for _ in 0..10 {
-        let waiting: Vec<_> = server.0.borrow_mut().drain(..).collect();
-        for (id, request) in waiting {
+        let requests: Vec<_> = waiting.borrow_mut().drain(..).collect();
+        for (id, request) in requests {
             let body = answer(&request, &mut hashes);
             h.session
                 .achievements_response(id, Some(200), body.as_bytes());
@@ -104,15 +113,8 @@ fn load(h: &mut Harness, server: &Waiting) -> Vec<String> {
 #[test]
 fn identifies_the_game_and_reads_its_memory() {
     let _lock = lock();
-    let server = Waiting::default();
-    let mut h = Harness::start_config(
-        CORE,
-        Some(GAME),
-        HashMap::new(),
-        Some((options(false), Box::new(server.clone()))),
-    )
-    .unwrap();
-    assert_eq!(load(&mut h, &server), vec![GAME_HASH]);
+    let (mut h, waiting) = start(GAME, false);
+    assert_eq!(load(&mut h, &waiting), vec![GAME_HASH]);
     let AchievementStatus::Ready {
         game, achievements, ..
     } = h.session.achievement_status()
@@ -138,29 +140,15 @@ fn hashes_the_game_extracted_from_a_zip() {
     zip.write_all(&std::fs::read(fixture(GAME)).unwrap())
         .unwrap();
     zip.finish().unwrap();
-    let server = Waiting::default();
-    let mut h = Harness::start_config(
-        CORE,
-        Some(archive.to_str().unwrap()),
-        HashMap::new(),
-        Some((options(false), Box::new(server.clone()))),
-    )
-    .unwrap();
-    assert_eq!(load(&mut h, &server), vec![GAME_HASH]);
+    let (mut h, waiting) = start(archive.to_str().unwrap(), false);
+    assert_eq!(load(&mut h, &waiting), vec![GAME_HASH]);
 }
 
 #[test]
 fn hardcore_refuses_to_load_states() {
     let _lock = lock();
-    let server = Waiting::default();
-    let mut h = Harness::start_config(
-        CORE,
-        Some(GAME),
-        HashMap::new(),
-        Some((options(true), Box::new(server.clone()))),
-    )
-    .unwrap();
-    load(&mut h, &server);
+    let (mut h, waiting) = start(GAME, true);
+    load(&mut h, &waiting);
     assert!(h.session.hardcore_restricts());
     let state = h.session.serialize_state().unwrap();
     assert!(matches!(
@@ -196,7 +184,6 @@ impl AchievementsHttp for AppHttp {
 struct Quiet;
 
 impl SessionListener for Quiet {
-    fn info_changed(&self, _info: SessionInfo) {}
     fn core_quit(&self) {}
     fn achievement_event(&self, _event: AchievementEvent) {}
 }
@@ -213,16 +200,8 @@ fn the_app_sends_the_requests() {
     });
     let session = GameSession::start(
         SessionOptions {
-            core_path: fixture(CORE).to_string_lossy().into_owned(),
-            content_path: Some(fixture(GAME).to_string_lossy().into_owned()),
-            content_cache_dir: None,
-            system_dir: dir.path().join("system").to_string_lossy().into_owned(),
-            save_dir: dir.path().join("saves").to_string_lossy().into_owned(),
-            save_ram_path: None,
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: Some(options(true)),
+            achievements: Some(account(true)),
+            ..options(dir.path(), CORE, Some(GAME))
         },
         Some(Arc::new(Quiet)),
         Some(http),
@@ -259,16 +238,8 @@ fn without_an_http_client_the_session_has_no_achievements() {
     let dir = tempfile::tempdir().unwrap();
     let session = GameSession::start(
         SessionOptions {
-            core_path: fixture(CORE).to_string_lossy().into_owned(),
-            content_path: Some(fixture(GAME).to_string_lossy().into_owned()),
-            content_cache_dir: None,
-            system_dir: dir.path().join("system").to_string_lossy().into_owned(),
-            save_dir: dir.path().join("saves").to_string_lossy().into_owned(),
-            save_ram_path: None,
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: Some(options(true)),
+            achievements: Some(account(true)),
+            ..options(dir.path(), CORE, Some(GAME))
         },
         None,
         None,

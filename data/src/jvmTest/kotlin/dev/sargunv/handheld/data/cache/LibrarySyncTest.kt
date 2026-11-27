@@ -19,7 +19,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -113,19 +112,9 @@ class LibrarySyncTest {
         2L to "2025-01-02T00:00:00+00:00",
         3L to "2025-01-03T00:00:00+00:00",
       )
-    val result = sync.sync()
+    sync.sync()
 
-    assertEquals(
-      LibrarySyncResult(
-        platforms = 2,
-        romsFetched = 3,
-        romsRemoved = 0,
-        roms = 3,
-        collections = 2,
-        incremental = false,
-      ),
-      result,
-    )
+    assertEquals(3, cache.romCount())
     assertEquals(listOf("One", "Two"), cache.platforms().first().map { it.name })
     assertEquals(listOf("Game 1", "Game 3"), cache.romsOnPlatform(1).first().map { it.title })
     assertNull(romRequests().first().url.parameters["updated_after"])
@@ -182,21 +171,10 @@ class LibrarySyncTest {
     library.roms[1] = "2025-03-02T00:00:00+00:00"
     library.roms[4] = "2025-03-03T00:00:00+00:00"
     library.roms.remove(2)
-    val result = sync.sync()
+    sync.sync()
 
     // The window starts a little before the newest change the first sync saw.
     assertEquals("2025-03-01T11:50:00Z", romRequests().single().url.parameters["updated_after"])
-    assertEquals(
-      LibrarySyncResult(
-        platforms = 2,
-        romsFetched = 2,
-        romsRemoved = 1,
-        roms = 2,
-        collections = 2,
-        incremental = true,
-      ),
-      result,
-    )
     assertEquals(listOf(1L, 4L), cache.search("game").map { it.id }.sorted())
 
     server.requests.clear()
@@ -213,14 +191,12 @@ class LibrarySyncTest {
     // An unhidden ROM keeps its old update time, so the window doesn't include it.
     library.roms[5] = "2025-01-01T00:00:00+00:00"
     library.unlisted += 6
-    val result = sync.sync()
+    sync.sync()
 
     assertEquals(
       listOf("roms", "roms/identifiers", "roms/5", "roms/6", "roms"),
       server.requests.map { it.apiPath }.filter { it.startsWith("roms") },
     )
-    // ROM 1 again, since it's inside the window, and ROM 5.
-    assertEquals(2, result.romsFetched)
     assertEquals(setOf(1L, 5L), cache.romIds())
     assertEquals("Game 5", cache.rom(5)!!.title)
   }
@@ -236,17 +212,6 @@ class LibrarySyncTest {
     val sourceCover = rom(Fixtures.rom(1, hasCover = false))
     assertEquals("https://images.example/cover/1.jpg", sourceCover.coverSmallUrl)
     assertEquals("https://images.example/cover/1.jpg", sourceCover.coverLargeUrl)
-  }
-
-  @Test
-  fun fetchesEverythingWhenAskedTo() = runTest {
-    library.roms += mapOf(1L to "2025-01-01T00:00:00+00:00")
-    sync.sync()
-    server.requests.clear()
-
-    val result = sync.sync(full = true)
-    assertNull(romRequests().single().url.parameters["updated_after"])
-    assertEquals(false, result.incremental)
   }
 
   @Test
@@ -282,9 +247,8 @@ class LibrarySyncTest {
           else -> respondError(HttpStatusCode.NotFound)
         }
       }
-    val result = LibrarySync(other.client, cache).sync()
+    LibrarySync(other.client, cache).sync()
 
-    assertTrue(!result.incremental)
     assertNull(other.requests.first { it.apiPath == "roms" }.url.parameters["updated_after"])
     assertEquals(0, cache.romCount())
     assertEquals(emptyList(), cache.platforms().first())

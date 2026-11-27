@@ -138,6 +138,10 @@ mod tests {
             Some("SLUS-00220")
         );
         assert_eq!(
+            serial("cdrom0:\\SCUS-941.02;1").as_deref(),
+            Some("SCUS-94102")
+        );
+        assert_eq!(
             serial("cdrom0:\\GAME\\SLES_123.45;1").as_deref(),
             Some("SLES-12345")
         );

@@ -667,7 +667,7 @@ class DownloadManagerTest {
   @Test
   fun sweepsTheOrphansOfLaterPagesOfTheFirstSync() = runTest {
     fillLibrary()
-    val name = GameLayout.romName(sagaRom.fileName, sagaRom.files.map { it.fileName })
+    val name = GameLayout.romName(sagaRom)
     val orphan =
       file("ROMs/psx/$name.part").apply {
         parentFile.mkdirs()

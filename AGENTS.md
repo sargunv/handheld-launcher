@@ -77,10 +77,8 @@ Agents and people often share one device. Hold its lock,
 keep holds short. `mise run run:android` takes it around installing and
 launching, and waits while someone else holds it. For your own device work, run
 it under `mise run android:lock -- <command>`, which releases the lock when the
-command ends, even when it fails. It also takes the older
-`/tmp/handheld-thor.lock` that earlier agents used. The lock is a directory: a
-holder that was killed outright leaves it behind, so remove it once nobody is
-using the device.
+command ends, even when it fails. The lock is a directory: a holder that was
+killed outright leaves it behind, so remove it once nobody is using the device.
 
 ## Licences
 
@@ -89,9 +87,9 @@ builds. AboutLibraries' Gradle plugin lists the Kotlin dependencies, offline,
 and takes their licence texts from `licences/licenses/`: a dependency under a
 licence with no text there fails the build, so add its SPDX text. The Android
 app adds the Rust crates the session links, which cargo-about finds with
-`session/about.toml`, and the vendored C code in `session/licences/`, with
-licence texts from the vendored files. `licences/libraries/` holds the code
-ported from elsewhere.
+`session/about.toml`, and the vendored C code, whose entries are checked in to
+`session/licences/`, with rcheevos' text read from its LICENSE.
+`licences/libraries/` holds the code ported from elsewhere.
 
 ## Secrets
 

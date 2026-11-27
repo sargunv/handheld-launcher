@@ -1,9 +1,12 @@
 package dev.sargunv.handheld.domain.storage
 
+import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.RomFile
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.time.Instant
 
 class GameLayoutTest {
   @Test
@@ -12,12 +15,40 @@ class GameLayoutTest {
       "/storage/emulated/0/ROMs/ps2",
       GameLayout.platformFolder("/storage/emulated/0/", "ps2"),
     )
-    assertEquals("Game.chd", GameLayout.romName("Game", listOf("Game.chd")))
+  }
+
+  @Test
+  fun namesARomByItsFileOrItsFolder() {
+    assertEquals("Game.chd", GameLayout.romName(rom("Game", "Game.chd")))
     assertEquals(
       "Game",
-      GameLayout.romName("Game", listOf("Game (Disc 1).chd", "Game (Disc 2).chd")),
+      GameLayout.romName(rom("Game", "Game (Disc 1).chd", "Game (Disc 2).chd")),
     )
+    assertNull(GameLayout.romName(rom("..", "a.chd", "b.chd")))
+    assertNull(GameLayout.romName(rom("Game", "sub/Game.chd")))
   }
+
+  private fun rom(fileName: String, vararg files: String) =
+    Rom(
+      id = 1,
+      platformId = 1,
+      platformSlug = "psx",
+      title = fileName,
+      sortKey = fileName,
+      alternativeNames = emptyList(),
+      fileName = fileName,
+      sizeBytes = 0,
+      summary = null,
+      genres = emptyList(),
+      regions = emptyList(),
+      releaseDate = null,
+      coverSmallUrl = null,
+      coverLargeUrl = null,
+      hasMultipleFiles = files.size > 1,
+      files = files.mapIndexed { i, name -> RomFile(i.toLong(), name, 0, null) },
+      updatedAt = Instant.fromEpochSeconds(0),
+      createdAt = Instant.fromEpochSeconds(0),
+    )
 
   @Test
   fun listsDiscsInOrder() {
@@ -36,7 +67,7 @@ class GameLayoutTest {
     )
     assertEquals(
       listOf("Game (Disc 1).chd", "Game (Disc 2).chd"),
-      GameLayout.playlist(PlatformSlug("ps1"), listOf("Game (Disc 2).chd", "Game (Disc 1).chd")),
+      GameLayout.playlist(PlatformSlug("psx"), listOf("Game (Disc 2).chd", "Game (Disc 1).chd")),
     )
   }
 

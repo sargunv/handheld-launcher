@@ -29,12 +29,15 @@ Disc images are cooked (`.iso`), raw (`.bin`, 2352-byte sectors), CHD and CSO.
 The `chd`, `deflate` (CSO, GCZ) and `zstd` (Z3DS) features, all on by default,
 add the compressed ones.
 
-```rust
+```rust,no_run
 use rom_headers::{Header, Platform, identify};
 
-let mut file = std::fs::File::open("Super Mario World.sfc")?;
-if let Header::Snes(header) = identify(Platform::Snes, &mut file)? {
-    println!("{} ({})", header.title, header.destination);
+fn main() -> Result<(), rom_headers::Error> {
+    let mut file = std::fs::File::open("Super Mario World.sfc")?;
+    if let Header::Snes(header) = identify(Platform::Snes, &mut file)? {
+        println!("{} ({})", header.title, header.destination);
+    }
+    Ok(())
 }
 ```
 

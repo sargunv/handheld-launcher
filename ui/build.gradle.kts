@@ -29,11 +29,11 @@ kotlin {
       implementation(libs.navigationevent.compose)
       implementation(libs.coil.compose)
       implementation(libs.coil.network.ktor3)
+      implementation(libs.aboutlibraries.core)
     }
     commonTest.dependencies {
       implementation(libs.kotlin.test)
       implementation(libs.kotlinx.coroutines.test)
-      implementation(libs.kotlinx.serialization.json)
     }
     jvmTest.dependencies {
       implementation(libs.compose.ui.test)

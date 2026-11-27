@@ -140,7 +140,6 @@ struct Handles {
     /// pbuffer, or [`EGL_NO_SURFACE`] where EGL allows surfaceless contexts.
     idle_surface: EGLSurface,
     wayland_window: Option<NonNull<c_void>>,
-    vsync: bool,
 }
 
 impl GlContext {
@@ -233,7 +232,6 @@ impl GlContext {
             lower_surface: EGL_NO_SURFACE,
             idle_surface: EGL_NO_SURFACE,
             wayland_window: None,
-            vsync: true,
         };
         if !surfaceless {
             let attribs = [EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE];
@@ -252,6 +250,9 @@ impl GlContext {
             handles.window_surface = handles.create_window_surface(window, width, height)?;
         }
         handles.make_current()?;
+        if !handles.window_surface.is_null() {
+            handles.swap_without_waiting();
+        }
         // SAFETY: the context is current, and EGL resolves its functions.
         let gl = unsafe { glow::Context::from_loader_function_cstr(|name| egl.proc_address(name)) };
         let this = Self { gl, handles };
@@ -299,7 +300,7 @@ impl GlContext {
                 h.make_current()?;
                 return Err(e);
             }
-            h.apply_vsync();
+            h.swap_without_waiting();
         }
         Ok(())
     }
@@ -314,9 +315,6 @@ impl GlContext {
     /// On an error, the context has no lower window. As with
     /// [`GlContext::set_window`], the old window's surface is gone when this
     /// returns.
-    ///
-    /// Presenting to the lower window doesn't wait for its display's refresh,
-    /// so the main window alone paces the session.
     pub(crate) fn set_lower_window(
         &mut self,
         window: Option<WindowRef<'_>>,
@@ -339,15 +337,9 @@ impl GlContext {
                 return Err(e);
             }
         };
-        let result = h.make_current_on(h.lower_surface).map(|()| {
-            // SAFETY: the context is current on the lower surface.
-            if unsafe { (h.egl.swap_interval)(h.display, 0) } == EGL_FALSE {
-                log::warn!(
-                    "can't stop the lower window waiting for vsync: {}",
-                    h.egl.error()
-                );
-            }
-        });
+        let result = h
+            .make_current_on(h.lower_surface)
+            .map(|()| h.swap_without_waiting());
         if let Err(e) = result {
             h.destroy_lower_surface();
             h.make_current()?;
@@ -359,15 +351,6 @@ impl GlContext {
     /// Whether the context has a lower window.
     pub(crate) fn has_lower_window(&self) -> bool {
         !self.handles.lower_surface.is_null()
-    }
-
-    /// Sets whether swapping buffers waits for the display's next refresh,
-    /// now and for windows attached later.
-    pub(crate) fn set_vsync(&mut self, vsync: bool) {
-        self.handles.vsync = vsync;
-        if self.has_window() {
-            self.handles.apply_vsync();
-        }
     }
 
     /// Tells the surface its window's new size. Only Wayland needs it; other
@@ -491,10 +474,11 @@ impl Handles {
         }
     }
 
-    fn apply_vsync(&self) {
-        // SAFETY: the display is initialized and the context is current on
-        // the window surface.
-        if unsafe { (self.egl.swap_interval)(self.display, i32::from(self.vsync)) } == EGL_FALSE {
+    /// Stops swaps on the surface the context is current on from waiting for
+    /// the display's refresh: the session paces frames itself.
+    fn swap_without_waiting(&self) {
+        // SAFETY: the display is initialized and the context is current.
+        if unsafe { (self.egl.swap_interval)(self.display, 0) } == EGL_FALSE {
             log::warn!("can't set the swap interval: {}", self.egl.error());
         }
     }
@@ -869,8 +853,6 @@ pub(crate) fn present(
         h.swap(surface);
     };
     if context.has_lower_window() {
-        // The lower window first: it doesn't wait for vsync, so both show the
-        // frame by the main window's next refresh.
         if h.make_current_on(h.lower_surface).is_ok() {
             draw(lower, h.lower_surface);
         }

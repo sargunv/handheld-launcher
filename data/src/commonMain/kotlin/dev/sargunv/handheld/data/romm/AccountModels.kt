@@ -7,44 +7,16 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 
-/** The server's public configuration, from `GET /api/heartbeat`, which needs no sign-in. */
-@Serializable
-data class RommHeartbeat(
-  @SerialName("SYSTEM") val system: System,
-  @SerialName("FRONTEND") val frontend: Frontend = Frontend(),
-  @SerialName("OIDC") val oidc: Oidc = Oidc(),
-) {
-  @Serializable data class System(@SerialName("VERSION") val version: String)
-
-  @Serializable
-  data class Frontend(
-    @SerialName("DISABLE_USERPASS_LOGIN") val disableUserPassLogin: Boolean = false,
-  )
-
-  @Serializable
-  data class Oidc(
-    @SerialName("ENABLED") val enabled: Boolean = false,
-    @SerialName("PROVIDER") val provider: String = "",
-  )
-}
-
 /** The signed-in user, from `GET /api/users/me`. */
 @Serializable
 data class RommUser(
-  val id: Long,
   val username: String,
-  val email: String? = null,
-  /** `user` or `admin`. */
-  val role: String,
   /** The scopes the user's role grants. A token may hold fewer. */
   @SerialName("oauth_scopes") val oauthScopes: List<String> = emptyList(),
-  @SerialName("current_device_id") val currentDeviceId: String? = null,
   /** The RetroAchievements account the user linked in RomM, or empty when they haven't. */
   @SerialName("ra_username") val raUsername: String? = null,
   /** The user's RetroAchievements progress, which RomM fetches from RetroAchievements. */
   @SerialName("ra_progression") val raProgression: RommRaProgression? = null,
-  @SerialName("created_at") val createdAt: Instant,
-  @SerialName("updated_at") val updatedAt: Instant,
 )
 
 /** A user's RetroAchievements progress, game by game, as RomM last fetched it. */

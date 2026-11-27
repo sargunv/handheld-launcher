@@ -35,23 +35,12 @@ fun interface AppCatalog {
  */
 @Immutable
 sealed interface OpenWithScope {
-  val level: RuleLevel
+  data class Game(val game: GameKey) : OpenWithScope
 
-  data class Game(val game: GameKey) : OpenWithScope {
-    override val level: RuleLevel
-      get() = RuleLevel.Game(game)
-  }
-
-  data class Platform(val platform: PlatformSlug) : OpenWithScope {
-    override val level: RuleLevel
-      get() = RuleLevel.Platform(platform)
-  }
+  data class Platform(val platform: PlatformSlug) : OpenWithScope
 
   /** The games of [collection] on [platform], since an app opens one platform's games. */
-  data class Collection(val collection: CollectionId, val platform: PlatformSlug) : OpenWithScope {
-    override val level: RuleLevel
-      get() = RuleLevel.InCollection(collection, platform)
-  }
+  data class Collection(val collection: CollectionId, val platform: PlatformSlug) : OpenWithScope
 }
 
 /**
@@ -100,8 +89,8 @@ internal fun platformOpensIn(
     platformChain(platform, launch, apps.mapTo(mutableSetOf()) { it.packageName }).firstOrNull {
       it.status == RuleStatus.Wins
     }
-  val packageName = winner?.packageName ?: return null
-  return appName(packageName, winner.core, apps, platform)
+  val choice = winner?.choice ?: return null
+  return appName(choice.packageName, choice.core, apps, platform)
 }
 
 /** An app the Open with screen offers. [known] marks a known emulator for the game's platform. */
@@ -203,7 +192,7 @@ internal fun chainLines(
     level: String?,
     step: RuleStep,
     default: Boolean = false,
-    app: String = step.packageName?.let { name(it, step.core) } ?: "none",
+    app: String = step.choice?.let { name(it.packageName, it.core) } ?: "none",
   ): ChainLine {
     val note =
       when (step.status) {
@@ -254,11 +243,11 @@ internal fun chainLines(
         LaunchRule.FirstInstalled ->
           when {
             !defaultsMatter -> Unit
-            platformRule.status == RuleStatus.Unset && step.packageName == null ->
+            platformRule.status == RuleStatus.Unset && step.choice == null ->
               add(ChainLine("$platformLevel: no emulator installed"))
             platformRule.status == RuleStatus.Unset ->
               add(line(platformLevel, step, default = true))
-            step.packageName != null -> add(line("Default for $platformName", step))
+            step.choice != null -> add(line("Default for $platformName", step))
           }
       }
     }

@@ -39,8 +39,4 @@ enum class AButtonPosition {
           FacePosition.North -> PadButton.X
         }
     }
-
-  /** Where [button] sits, or null if it isn't a face button. */
-  fun positionOf(button: PadButton): FacePosition? =
-    FacePosition.entries.firstOrNull { buttonAt(it) == button }
 }

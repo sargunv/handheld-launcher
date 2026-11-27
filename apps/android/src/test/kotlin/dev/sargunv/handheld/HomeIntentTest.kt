@@ -1,32 +1,13 @@
 package dev.sargunv.handheld
 
-import android.content.Intent
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.places.Place
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 class HomeIntentTest {
-  @Test
-  fun homeIsMainWithTheHomeCategory() {
-    assertTrue(isHomeIntent(Intent.ACTION_MAIN, setOf(Intent.CATEGORY_HOME)))
-    assertTrue(
-      isHomeIntent(Intent.ACTION_MAIN, setOf(Intent.CATEGORY_HOME, Intent.CATEGORY_DEFAULT)),
-    )
-  }
-
-  @Test
-  fun theLauncherIconAndOtherIntentsAreNotHome() {
-    assertFalse(isHomeIntent(Intent.ACTION_MAIN, setOf(Intent.CATEGORY_LAUNCHER)))
-    assertFalse(isHomeIntent(Intent.ACTION_MAIN, null))
-    assertFalse(isHomeIntent(Intent.ACTION_VIEW, setOf(Intent.CATEGORY_HOME)))
-    assertFalse(isHomeIntent(null, null))
-  }
-
   @Test
   fun homeInFrontIsAPress() {
     assertEquals(

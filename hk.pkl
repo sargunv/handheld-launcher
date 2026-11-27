@@ -4,10 +4,11 @@ import "package://github.com/jdx/hk/releases/download/v2.14.0/hk@2.14.0#/Builtin
 steps {
   ["dprint"] = Builtins.dprint
   ["jactionlint"] = Builtins.jactionlint
+  ["shellcheck"] = Builtins.shellcheck
   ["cargo-clippy"] {
     glob = List("**/*.rs")
-    check = "cargo clippy --workspace --all-targets -- -D warnings"
-    fix = "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged"
+    check = "cargo clippy --workspace --all-targets --all-features -- -D warnings"
+    fix = "cargo clippy --workspace --all-targets --all-features --fix --allow-dirty --allow-staged"
   }
 }
 

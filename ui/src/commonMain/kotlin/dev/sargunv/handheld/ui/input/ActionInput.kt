@@ -51,12 +51,7 @@ class HeldKeys {
 }
 
 /** Turns key events into [Action]s. One lives at the root of each window's content. */
-class ActionDecoder internal constructor(settings: InputSettings, heldKeys: HeldKeys) {
-  var settings: InputSettings = settings
-    internal set
-
-  internal var heldKeys: HeldKeys = heldKeys
-
+internal class ActionDecoder(private val settings: InputSettings, private val heldKeys: HeldKeys) {
   /**
    * The action [event] performs, or null if it performs none: key ups, unmapped keys, and repeats
    * of actions that don't repeat.
@@ -87,9 +82,7 @@ fun ActionInputRoot(
   modifier: Modifier = Modifier,
   content: @Composable () -> Unit,
 ) {
-  val decoder = remember { ActionDecoder(settings, heldKeys) }
-  decoder.settings = settings
-  decoder.heldKeys = heldKeys
+  val decoder = remember(settings, heldKeys) { ActionDecoder(settings, heldKeys) }
   val focusManager = LocalFocusManager.current
   val windowFocused = LocalWindowInfo.current.isWindowFocused
   LaunchedEffect(heldKeys, windowFocused) { if (!windowFocused) heldKeys.releaseAll() }
@@ -100,12 +93,14 @@ fun ActionInputRoot(
   ) {
     Box(
       modifier.onKeyEvent { event ->
-        if (decoder.settings.actionFor(event.key) == null) return@onKeyEvent false
+        // A mapped key means its action and nothing else, even on its key up or a repeat, and even
+        // when nothing handled the action. Left unconsumed, the platform would act on it too: Tab
+        // traverses focus, and Android turns unhandled gamepad buttons into fallback keys such as
+        // Back.
+        val action =
+          decoder.decode(event) ?: return@onKeyEvent settings.actionFor(event.key) != null
         // At an edge this does nothing, and focus stays where it was.
-        decoder.decode(event)?.direction?.let { focusManager.moveFocus(it.focusDirection) }
-        // A mapped key means its action and nothing else, even when nothing handled the action.
-        // Left unconsumed, the platform would act on it too: Tab traverses focus, and Android
-        // turns unhandled gamepad buttons into fallback keys such as Back.
+        action.direction?.let { focusManager.moveFocus(it.focusDirection) }
         true
       },
     ) {

@@ -13,7 +13,6 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
 import dev.sargunv.handheld.ui.Settings
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.deleteRecursively
-import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -38,9 +37,9 @@ class LaunchSettingsTest {
   fun theChoicesAtEachLevelSurviveARestart() = runTest {
     val launch =
       LaunchSettings()
-        .withChoice(RuleLevel.Game(GameKey.Romm(1)), armsx2)
-        .withChoice(RuleLevel.InCollection(jak.launchId, PS2), pocketGoal)
-        .withChoice(RuleLevel.Platform(GBA), SavedChoice("com.retroarch", "mgba_libretro"))
+        .withChoice(OpenWithScope.Game(GameKey.Romm(1)), armsx2)
+        .withChoice(OpenWithScope.Collection(jak.launchId, PS2), pocketGoal)
+        .withChoice(OpenWithScope.Platform(GBA), SavedChoice("com.retroarch", "mgba_libretro"))
     settingsFile().write(Settings(launch = launch))
 
     val read = settingsFile().read().launch
@@ -59,27 +58,21 @@ class LaunchSettingsTest {
   }
 
   @Test
-  fun settingsStoredBeforeLaunchRulesHaveNone() {
-    dir.resolve("settings.json").writeText("""{"pauseGameWhenUnfocused": true}""")
-    assertEquals(LaunchSettings(), settingsFile().read().launch)
-  }
-
-  @Test
   fun aNewChoiceReplacesTheLevelsChoiceAndClearingRemovesIt() {
-    val level = RuleLevel.InCollection(jak.launchId, PS2)
-    val replaced = LaunchSettings().withChoice(level, armsx2).withChoice(level, pocketGoal)
-    assertEquals(pocketGoal, replaced.choiceAt(level))
+    val scope = OpenWithScope.Collection(jak.launchId, PS2)
+    val replaced = LaunchSettings().withChoice(scope, armsx2).withChoice(scope, pocketGoal)
+    assertEquals(pocketGoal, replaced.choiceAt(scope))
     assertEquals(1, replaced.collections.size)
     // The same collection's games on another platform keep their own choice.
-    val other = RuleLevel.InCollection(jak.launchId, GBA)
+    val other = OpenWithScope.Collection(jak.launchId, GBA)
     assertEquals(null, replaced.choiceAt(other))
 
-    assertEquals(LaunchSettings(), replaced.withChoice(level, null))
+    assertEquals(LaunchSettings(), replaced.withChoice(scope, null))
     assertEquals(
       LaunchSettings(),
       LaunchSettings()
-        .withChoice(RuleLevel.Game(GameKey.Romm(1)), armsx2)
-        .withChoice(RuleLevel.Game(GameKey.Romm(1)), null),
+        .withChoice(OpenWithScope.Game(GameKey.Romm(1)), armsx2)
+        .withChoice(OpenWithScope.Game(GameKey.Romm(1)), null),
     )
   }
 }

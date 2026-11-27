@@ -6,3 +6,6 @@ members = ["rom-headers", "session", "session/bindgen"]
 edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.100"
+
+[workspace.dependencies]
+uniffi = "0.32.2"

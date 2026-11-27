@@ -1,6 +1,6 @@
 package dev.sargunv.handheld.data.saves
 
-import dev.sargunv.handheld.data.cores.JsonFile
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommSave
@@ -25,28 +25,37 @@ const val SAVE_SLOT = "autosave"
  * A game's save on this device.
  *
  * @param emulator the emulator, as the server files the game's saves under it.
- * @param candidates where the save file can be, most likely first.
  * @param owner what keeps the save file on this device, which names the game's sync record and
  *   history. It's the emulator, unless several of the server's emulators share one file.
- * @param folders where the save is instead, when the emulator keeps it as folders or as several
- *   files: then it syncs as one zip, and [candidates] aren't used.
- * @param cards where the save is instead, when it's folders on the emulator's shared PS2 memory
- *   cards: then it syncs as one per-game card, and neither [candidates] nor [folders] is used.
  * @param sharesWith the other emulators whose saves of the game are the same as this one's, so a
  *   pull takes the newest of any of them. Pushes still go under [emulator].
  */
 data class GameSave(
   val romId: Long,
   val emulator: String,
-  val candidates: List<File>,
+  val shape: SaveShape,
   val owner: String = emulator,
-  val folders: SaveFolderRoots? = null,
-  val cards: Ps2CardRoots? = null,
   val sharesWith: Set<String> = emptySet(),
 ) {
   internal val key: String
-    get() = "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
+    get() = historyKey(romId, owner)
 }
+
+/** How an emulator keeps a game's save on this device. */
+sealed interface SaveShape {
+  /** One file, at the first of [candidates] that exists, most likely first. */
+  data class Files(val candidates: List<File>) : SaveShape
+
+  /** Folders or several files, which sync as one zip. */
+  data class Folders(val roots: SaveFolderRoots) : SaveShape
+
+  /** Folders on the emulator's shared PS2 memory cards, which sync as one per-game card. */
+  data class Cards(val roots: Ps2CardRoots) : SaveShape
+}
+
+/** What names the sync record and history of the ROM [romId]'s save that [owner] keeps. */
+private fun historyKey(romId: Long, owner: String): String =
+  "$romId-${owner.replace(Regex("[^A-Za-z0-9._-]"), "_")}"
 
 /**
  * The save memory at [saveRam] of the ROM [romId], as the built-in session keeps it when the core
@@ -59,11 +68,15 @@ data class GameSave(
  * core's save only after copying the file into the history.
  */
 fun builtInGameSave(romId: Long, coreLibrary: String, saveRam: File): GameSave =
-  GameSave(romId, BuiltInSaves.emulatorOf(coreLibrary), listOf(saveRam), owner = BUILT_IN_OWNER)
+  GameSave(
+    romId,
+    BuiltInSaves.emulatorOf(coreLibrary),
+    SaveShape.Files(listOf(saveRam)),
+    owner = BUILT_IN_OWNER,
+  )
 
 /** What names the ROM [romId]'s built-in saves in the history, whichever core made them. */
-internal fun builtInHistoryKey(romId: Long): String =
-  GameSave(romId, "", emptyList(), owner = BUILT_IN_OWNER).key
+internal fun builtInHistoryKey(romId: Long): String = historyKey(romId, BUILT_IN_OWNER)
 
 /** What keeps the built-in session's saves on this device, for [GameSave.owner]. */
 private const val BUILT_IN_OWNER = "builtin"
@@ -384,7 +397,7 @@ class SaveSync(
     bytes: ByteArray,
   ): File = keepInHistory(history, game.key, origin, name, bytes, clock.now())
 
-  private fun record(
+  private suspend fun record(
     game: GameSave,
     file: File,
     localHash: String,

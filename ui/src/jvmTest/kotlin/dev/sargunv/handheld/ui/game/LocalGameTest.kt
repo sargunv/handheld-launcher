@@ -1,7 +1,5 @@
 package dev.sargunv.handheld.ui.game
 
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.state.ToggleableState
@@ -17,8 +15,6 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
@@ -28,34 +24,27 @@ import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.romm.RommClient
-import dev.sargunv.handheld.data.saves.KeptSave
-import dev.sargunv.handheld.data.saves.SaveCopy
-import dev.sargunv.handheld.data.saves.StillRunningChoice
 import dev.sargunv.handheld.domain.GameKey
-import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
-import dev.sargunv.handheld.domain.launch.CollectionId
-import dev.sargunv.handheld.domain.launch.LaunchRules
-import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.TestDevice
-import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
-import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.trackHeldKeys
+import dev.sargunv.handheld.ui.TestServer
+import dev.sargunv.handheld.ui.assertFocused
+import dev.sargunv.handheld.ui.awaitTag
+import dev.sargunv.handheld.ui.awaitText
+import dev.sargunv.handheld.ui.fakeRomm
+import dev.sargunv.handheld.ui.json
+import dev.sargunv.handheld.ui.lastPlayed
+import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.library.LibrarySettings
 import dev.sargunv.handheld.ui.library.LibraryTab
+import dev.sargunv.handheld.ui.page
 import dev.sargunv.handheld.ui.places.OpenRequest
 import dev.sargunv.handheld.ui.places.OpenTarget
-import dev.sargunv.handheld.ui.rememberTestDownloads
-import dev.sargunv.handheld.ui.saves.SaveConflict
-import dev.sargunv.handheld.ui.saves.StillRunning
-import dev.sargunv.handheld.ui.testCoverDir
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
+import dev.sargunv.handheld.ui.platform
+import dev.sargunv.handheld.ui.press
+import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.http.headersOf
 import java.io.File
 import java.util.Collections
 import kotlin.io.path.createTempDirectory
@@ -77,8 +66,7 @@ import kotlinx.coroutines.withTimeout
 class LocalGameTest {
   private val storage = createTempDirectory("local-storage").toFile()
 
-  /** The app's downloads, once it has started. */
-  private var downloads: DownloadManager? = null
+  private lateinit var downloads: DownloadManager
 
   /** The settings the app saved, last last. */
   private val saved = mutableListOf<Settings>()
@@ -96,7 +84,7 @@ class LocalGameTest {
   @Volatile private var accountScopes: String? = null
 
   /** The device's sign-in: a pasted token by default, whose scopes RomM doesn't report. */
-  private val credentials = InMemoryCredentialStore(RommCredentials(Server, "rmm_token"))
+  private val credentials = InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token"))
 
   /** The paths below `/api/` of the requests the server had about uploads and scans. */
   private val uploadRequests = Collections.synchronizedList(mutableListOf<String>())
@@ -115,75 +103,41 @@ class LocalGameTest {
     check(storage.deleteRecursively())
   }
 
-  /** Records what it was asked to play, and plays nothing. */
-  private class FakeLauncher : GameLauncher {
-    val played = mutableListOf<Pair<LibraryGame, String>>()
-
-    override suspend fun opensIn(
-      game: LibraryGame,
-      rules: LaunchRules,
-      collections: Set<CollectionId>,
-    ) = "Opens in Test Emulator"
-
-    override suspend fun play(
-      game: LibraryGame,
-      path: String,
-      rules: LaunchRules,
-      collections: Set<CollectionId>,
-      onProgress: (String) -> Unit,
-      closeEmulators: Boolean,
-      askStillRunning: suspend (StillRunning) -> StillRunningChoice,
-      chooseSave: suspend (SaveConflict) -> SaveCopy?,
-    ): List<String> {
-      played += game to path
-      return listOf("Played")
-    }
-
-    override suspend fun keptSaves(game: LibraryGame) = emptyList<KeptSave>()
-  }
-
-  private val server = {
-    MockEngine { request ->
-      val roms = listOfNotNull(Rom1, HomebrewRom.takeIf { serverHasHomebrew })
-      val path = request.url.encodedPath.substringAfter("/api/")
-      if (path.startsWith("roms/upload") || path.startsWith("tasks")) uploadRequests += path
-      val body =
-        when (path) {
-          "roms/upload/start" ->
-            if (refuseUploads) {
-              return@MockEngine respond(
-                """{"detail": "Forbidden"}""",
-                HttpStatusCode.Forbidden,
-                headersOf(HttpHeaders.ContentType, "application/json"),
-              )
-            } else """{"upload_id": "u1"}"""
-          "roms/upload/u1" -> """{"received": 1, "total": 1}"""
-          "roms/upload/u1/complete" -> {
-            // The file is in the platform's folder on the server, which a scan adds.
-            serverHasHomebrew = true
-            "{}"
-          }
-          "tasks/scan",
-          "tasks/t1" ->
-            """{"task_key": null, "task_name": "scan", "task_id": "t1", "status": "finished",
-            "created_at": null, "enqueued_at": null}"""
-          "platforms" -> "[$GameBoy, $N64]"
-          "roms" ->
-            if (request.url.parameters["last_played"] == "true") page(emptyList()) else page(roms)
-          "roms/identifiers" -> if (serverHasHomebrew) "[1, 2]" else "[1]"
-          "collections",
-          "collections/smart" -> "[]"
-          "saves" -> "[]"
-          "users/me" ->
-            accountScopes?.let {
-              """{"id": 1, "username": "player", "role": "user", "oauth_scopes": $it,
-              "created_at": "2024-01-01T00:00:00+00:00",
-              "updated_at": "2024-01-01T00:00:00+00:00"}"""
-            } ?: return@MockEngine respondError(HttpStatusCode.NotFound)
-          else -> return@MockEngine respondError(HttpStatusCode.NotFound)
+  private val server = fakeRomm { path, request ->
+    if (path.startsWith("roms/upload") || path.startsWith("tasks")) uploadRequests += path
+    json(
+      when (path) {
+        "roms/upload/start" ->
+          if (refuseUploads) {
+            return@fakeRomm json("""{"detail": "Forbidden"}""", HttpStatusCode.Forbidden)
+          } else """{"upload_id": "u1"}"""
+        "roms/upload/u1" -> """{"received": 1, "total": 1}"""
+        "roms/upload/u1/complete" -> {
+          // The file is in the platform's folder on the server, which a scan adds.
+          serverHasHomebrew = true
+          "{}"
         }
-      respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
-    }
+        "tasks/scan",
+        "tasks/t1" ->
+          """{"task_key": null, "task_name": "scan", "task_id": "t1", "status": "finished",
+          "created_at": null, "enqueued_at": null}"""
+        "platforms" -> "[${platform()}, ${platform(2, "n64", "N64", roms = 0)}]"
+        "roms" ->
+          if (request.lastPlayed) page(emptyList())
+          else page(listOfNotNull(rom(1), HomebrewRom.takeIf { serverHasHomebrew }))
+        "roms/identifiers" -> if (serverHasHomebrew) "[1, 2]" else "[1]"
+        "collections",
+        "collections/smart" -> "[]"
+        "saves" -> "[]"
+        "users/me" ->
+          accountScopes?.let {
+            """{"id": 1, "username": "player", "role": "user", "oauth_scopes": $it,
+            "created_at": "2024-01-01T00:00:00+00:00",
+            "updated_at": "2024-01-01T00:00:00+00:00"}"""
+          } ?: return@fakeRomm respondError(HttpStatusCode.NotFound)
+        else -> return@fakeRomm respondError(HttpStatusCode.NotFound)
+      },
+    )
   }
 
   private fun ComposeUiTest.launch(
@@ -191,29 +145,17 @@ class LocalGameTest {
     settings: Settings = Settings(),
     open: OpenRequest? = null,
   ) {
-    setContent {
-      val heldKeys = remember { HeldKeys() }
-      App(
-        DualScreenLayout.Frame,
-        heldKeys,
-        credentials,
-        TestDevice,
-        library,
-        rememberTestDownloads(
-            library,
-            credentials,
-            listOf(StorageTarget(storage.path, "Test storage")),
-          )
-          .also { downloads = it },
-        remember { testCoverDir() },
-        Modifier.trackHeldKeys(heldKeys),
-        initialSettings = settings,
-        httpEngine = server,
-        launcher = launcher,
-        openRequest = open,
+    downloads =
+      launchApp(
+        server,
+        credentials = credentials,
+        library = library,
+        storage = listOf(StorageTarget(storage.path, "Test storage")),
+        settings = settings,
         saveSettings = { saved += it },
+        launcher = launcher,
+        open = open,
       )
-    }
   }
 
   /** Launches, and goes to the Library once the sync has filled it. */
@@ -229,36 +171,6 @@ class LocalGameTest {
     launch(launcher, open = OpenRequest(OpenTarget.Local(homebrew.path)))
     awaitText("Play")
     onNodeWithTag("primary").assertIsFocused()
-  }
-
-  private fun ComposeUiTest.awaitTag(tag: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.awaitText(text: String) {
-    waitUntil(timeoutMillis = 5_000) {
-      onAllNodes(hasText(text, substring = true)).fetchSemanticsNodes().isNotEmpty()
-    }
-    waitForIdle()
-  }
-
-  private fun ComposeUiTest.assertFocused(tag: String) {
-    awaitTag(tag)
-    onNodeWithTag(tag).assertIsFocused()
-  }
-
-  private fun ComposeUiTest.press(key: Key) = press(listOf(key))
-
-  private fun ComposeUiTest.press(keys: List<Key>) {
-    for (key in keys) {
-      onRoot().performKeyInput { keyDown(key) }
-      waitForIdle()
-      onRoot().performKeyInput { keyUp(key) }
-      waitForIdle()
-    }
   }
 
   private val homebrewTag = "game:local:${homebrew.path}"
@@ -322,8 +234,8 @@ class LocalGameTest {
 
     press(Key.ButtonA)
     awaitText("Played")
-    val (game, path) = launcher.played.single()
-    assertEquals(homebrew.path, path)
+    assertEquals(homebrew.path, launcher.played.single())
+    val game = launcher.games.single()
     assertEquals(GameKey.Local(homebrew.path), game.key)
     assertTrue(game is LocalGame)
     // The menu has what applies to a game on the device, and Open with for it.
@@ -382,7 +294,7 @@ class LocalGameTest {
     onNodeWithTag("game:saves-local").assertExists()
     serverHasHomebrew = true
     runBlocking {
-      RommClient("https://romm.test", "rmm_token", server()).use { LibrarySync(it, library).sync() }
+      RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
     }
     // The page is the server's game's now, which has its saves on RomM.
     awaitText("No saves on RomM yet.")
@@ -402,11 +314,11 @@ class LocalGameTest {
     awaitText("Open Homebrew with")
     serverHasHomebrew = true
     runBlocking {
-      RommClient("https://romm.test", "rmm_token", server()).use { LibrarySync(it, library).sync() }
+      RommClient(TestServer, "rmm_token", server()).use { LibrarySync(it, library).sync() }
     }
     // The file is the server's game before the choice.
     runBlocking {
-      withTimeout(5_000) { downloads!!.statuses().first { it[2] is RomStatus.OnDevice } }
+      withTimeout(5_000) { downloads.statuses().first { it[2] is RomStatus.OnDevice } }
     }
     waitForIdle()
     // Built-in is first.
@@ -472,7 +384,7 @@ class LocalGameTest {
   fun aRefusalDespitePermissionToUploadIsTheAccounts() = runComposeUiTest {
     refuseUploads = true
     runBlocking {
-      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.write")))
+      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.write")))
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
@@ -486,7 +398,7 @@ class LocalGameTest {
   fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
     accountScopes = """["roms.read", "roms.write", "tasks.run"]"""
     runBlocking {
-      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
@@ -499,7 +411,7 @@ class LocalGameTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     // The sign-in, on the same server, asking for permission to upload this time.
     assertFocused("address")
-    onNodeWithTag("address").assertContentDescriptionEquals("Server address: $Server")
+    onNodeWithTag("address").assertContentDescriptionEquals("Server address: $TestServer")
     onNodeWithTag("allowUploads")
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
     assertEquals(null, runBlocking { credentials.load() })
@@ -511,7 +423,7 @@ class LocalGameTest {
   fun anAccountThatMayNotUploadIsToldSo() = runComposeUiTest {
     accountScopes = """["roms.read"]"""
     runBlocking {
-      credentials.save(RommCredentials(Server, "rmm_token", "d1", listOf("roms.read")))
+      credentials.save(RommCredentials(TestServer, "rmm_token", "d1", listOf("roms.read")))
     }
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
@@ -522,33 +434,7 @@ class LocalGameTest {
   }
 
   private companion object {
-    const val Server = "https://romm.test"
-
-    const val GameBoy =
-      """{"id": 1, "slug": "gb", "fs_slug": "gb", "name": "Game Boy", "display_name": "Game Boy",
-      "rom_count": 1, "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    const val N64 =
-      """{"id": 2, "slug": "n64", "fs_slug": "n64", "name": "N64", "display_name": "N64",
-      "rom_count": 0, "created_at": "2024-01-01T00:00:00+00:00",
-      "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    const val Rom1 =
-      """{"id": 1, "platform_id": 1, "platform_slug": "gb", "platform_fs_slug": "gb",
-      "platform_display_name": "Game Boy", "name": "Game 1", "fs_name": "Game 1.gb",
-      "fs_name_no_tags": "Game 1", "fs_name_no_ext": "Game 1", "fs_extension": "gb",
-      "fs_size_bytes": 1024, "path_cover_small": "", "url_cover": "",
-      "created_at": "2024-01-01T00:00:00+00:00", "updated_at": "2024-01-01T00:00:00+00:00"}"""
-
-    const val HomebrewRom =
-      """{"id": 2, "platform_id": 1, "platform_slug": "gb", "platform_fs_slug": "gb",
-      "platform_display_name": "Game Boy", "name": "Homebrew (World)", "fs_name": "Homebrew.gb",
-      "fs_name_no_tags": "Homebrew", "fs_name_no_ext": "Homebrew", "fs_extension": "gb",
-      "fs_size_bytes": 8, "path_cover_small": "", "url_cover": "",
-      "created_at": "2024-01-02T00:00:00+00:00", "updated_at": "2024-01-02T00:00:00+00:00"}"""
-
-    fun page(items: List<String>) =
-      """{"items": [${items.joinToString()}], "total": ${items.size}, "limit": 200, "offset": 0}"""
+    val HomebrewRom =
+      rom(2, "Homebrew (World)", file = "Homebrew.gb", size = 8, added = "2024-01-02")
   }
 }

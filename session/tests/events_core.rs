@@ -5,15 +5,13 @@
 
 mod common;
 
-use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use common::{Harness, fixture, lock};
+use common::{Harness, lock, options};
 use handheld_session::{
-    AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionInfo, SessionListener,
-    SessionOptions, VideoMode,
+    AchievementEvent, AvInfo, Button, GameSession, SessionError, SessionListener,
 };
 
 const CORE: &str = "events_libretro.so";
@@ -32,7 +30,7 @@ fn stripes(h: &Harness) -> Vec<[u8; 4]> {
 #[test]
 fn every_port_reaches_the_core() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.run(1);
     // The core declares three ports, so the session sets a RetroPad on those.
     assert_eq!(stripes(&h), [GRAY, GRAY, GRAY, BLACK]);
@@ -52,7 +50,7 @@ fn every_port_reaches_the_core() {
 #[test]
 fn takes_a_new_video_and_audio_mode_mid_game() {
     let _lock = lock();
-    let mut h = Harness::start(CORE, None).unwrap();
+    let mut h = Harness::start(CORE, None, &[], None).unwrap();
     h.run(1);
     assert_eq!(h.session.av_info().sample_rate, 44_100.0);
 
@@ -86,42 +84,21 @@ fn takes_a_new_video_and_audio_mode_mid_game() {
     );
 }
 
-/// A listener that forwards what it hears.
-struct Forward(Mutex<Sender<Heard>>);
-
-#[derive(Debug, PartialEq)]
-enum Heard {
-    Info(SessionInfo),
-    Quit,
-}
+/// A listener that says when the core quits.
+struct Forward(Mutex<Sender<()>>);
 
 impl SessionListener for Forward {
-    fn info_changed(&self, info: SessionInfo) {
-        let _ = self.0.lock().unwrap().send(Heard::Info(info));
-    }
-
     fn core_quit(&self) {
-        let _ = self.0.lock().unwrap().send(Heard::Quit);
+        let _ = self.0.lock().unwrap().send(());
     }
 
     fn achievement_event(&self, _event: AchievementEvent) {}
 }
 
-fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
+fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<()>) {
     let (heard, receiver) = mpsc::channel();
     let session = GameSession::start(
-        SessionOptions {
-            core_path: fixture(CORE).to_string_lossy().into_owned(),
-            content_path: None,
-            content_cache_dir: None,
-            system_dir: dir.join("system").to_string_lossy().into_owned(),
-            save_dir: dir.join("saves").to_string_lossy().into_owned(),
-            save_ram_path: None,
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: None,
-        },
+        options(dir, CORE, None),
         Some(Arc::new(Forward(Mutex::new(heard)))),
         None,
     )
@@ -132,24 +109,18 @@ fn start(dir: &std::path::Path) -> (Arc<GameSession>, Receiver<Heard>) {
 const WAIT: Duration = Duration::from_secs(10);
 
 #[test]
-fn tells_the_app_about_a_new_video_mode() {
+fn info_follows_a_new_video_mode() {
     let _lock = lock();
     let dir = tempfile::tempdir().unwrap();
-    let (session, heard) = start(dir.path());
+    let (session, _) = start(dir.path());
     assert_eq!(session.info().base_width, 320);
-    session.advance(1).unwrap();
-    assert!(heard.try_recv().is_err());
-
     session.set_button(0, Button::Select, true);
     session.advance(1).unwrap();
-    assert_eq!(session.info().base_width, 384);
-    let Heard::Info(info) = heard.recv_timeout(WAIT).unwrap() else {
-        panic!("expected new info");
-    };
-    assert_eq!((info.base_width, info.base_height), (384, 216));
-    assert_eq!(info.fps, 50.0);
-    assert_eq!(info.aspect_ratio, 16.0 / 9.0);
-    assert_eq!(session.info(), info);
+    let info = session.info();
+    assert_eq!(
+        (info.base_width, info.base_height, info.aspect_ratio),
+        (384, 216, 16.0 / 9.0)
+    );
     session.stop().unwrap();
 }
 
@@ -160,7 +131,7 @@ fn tells_the_app_when_the_core_quits() {
     let (session, heard) = start(dir.path());
     session.resume();
     session.set_button(0, Button::Start, true);
-    assert_eq!(heard.recv_timeout(WAIT).unwrap(), Heard::Quit);
+    heard.recv_timeout(WAIT).unwrap();
     assert!(matches!(session.advance(1), Err(SessionError::Stopped)));
     session.stop().unwrap();
     // The core is unloaded by the time the app hears, so another may start.
@@ -171,8 +142,6 @@ fn tells_the_app_when_the_core_quits() {
 struct StopOnQuit(Mutex<Option<Arc<GameSession>>>, Mutex<Sender<()>>);
 
 impl SessionListener for StopOnQuit {
-    fn info_changed(&self, _info: SessionInfo) {}
-
     fn core_quit(&self) {
         if let Some(session) = self.0.lock().unwrap().take() {
             session.stop().unwrap();
@@ -190,18 +159,7 @@ fn the_listener_may_stop_the_session() {
     let (stopped, receiver) = mpsc::channel();
     let listener = Arc::new(StopOnQuit(Mutex::new(None), Mutex::new(stopped)));
     let session = GameSession::start(
-        SessionOptions {
-            core_path: fixture(CORE).to_string_lossy().into_owned(),
-            content_path: None,
-            content_cache_dir: None,
-            system_dir: dir.path().join("system").to_string_lossy().into_owned(),
-            save_dir: dir.path().join("saves").to_string_lossy().into_owned(),
-            save_ram_path: None,
-            core_options: HashMap::new(),
-            video: VideoMode::Offscreen,
-            lower_screen_width_share: None,
-            achievements: None,
-        },
+        options(dir.path(), CORE, None),
         Some(listener.clone()),
         None,
     )

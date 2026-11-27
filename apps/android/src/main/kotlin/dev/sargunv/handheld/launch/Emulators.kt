@@ -12,7 +12,6 @@ import dev.sargunv.handheld.data.saves.Boot
 import dev.sargunv.handheld.data.saves.EmulatorProbe
 import dev.sargunv.handheld.data.saves.EmulatorState
 import dev.sargunv.handheld.data.saves.LaunchedEmulators
-import dev.sargunv.handheld.domain.emulator.EmulatorCommand
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
@@ -23,9 +22,9 @@ import kotlinx.io.files.Path
 
 /**
  * The standalone emulators the launcher started, and what it can tell and do about them on this
- * device. One for the process, so its records have one writer.
+ * device. The app holds one, so its records have one writer.
  */
-internal class Emulators private constructor(private val context: Context) {
+internal class Emulators(private val context: Context) {
   private val launched = LaunchedEmulators(Path(context.filesDir.path, "launched-emulators.json"))
 
   /** Whether the device has a root service the launcher can close emulators with. */
@@ -66,15 +65,8 @@ internal class Emulators private constructor(private val context: Context) {
     return gone
   }
 
-  companion object {
-    private const val TAG = "Emulators"
-    @Volatile private var instance: Emulators? = null
-
-    fun of(context: Context): Emulators =
-      instance
-        ?: synchronized(this) {
-          instance ?: Emulators(context.applicationContext).also { instance = it }
-        }
+  private companion object {
+    const val TAG = "Emulators"
   }
 }
 
@@ -106,8 +98,9 @@ private class DeviceProbe(private val context: Context, private val root: RootSe
 
 /**
  * The root service AYN's devices ship, `PServerBinder`, which runs any shell command as root for
- * any app, without a permission or a prompt. The launcher sends it only the two [EmulatorCommand]s,
- * and only for emulators it started, while the player has turned on closing emulators.
+ * any app, without a permission or a prompt. The launcher sends it only [isRunningCommand] and
+ * [forceStopCommand], and only for emulators it started, while the player has turned on closing
+ * emulators.
  *
  * The binder call is ported from Argosy's `PServerExecutor`
  * (https://github.com/rommapp/argosy-launcher), GPL-3.0.
@@ -115,7 +108,7 @@ private class DeviceProbe(private val context: Context, private val root: RootSe
 private class RootService(private val binder: IBinder) {
   /** Whether [packageName]'s main process is running, or null when the service can't tell. */
   suspend fun isRunning(packageName: String): Boolean? {
-    val output = run(EmulatorCommand.isRunning(packageName)) ?: return null
+    val output = run(isRunningCommand(packageName)) ?: return null
     return when {
       // pidof prints nothing when no process has the name, which the service sends as no bytes.
       output.isEmpty() -> false
@@ -125,17 +118,16 @@ private class RootService(private val binder: IBinder) {
   }
 
   /** Stops [packageName] at once. Returns whether the service ran the command. */
-  suspend fun forceStop(packageName: String): Boolean =
-    run(EmulatorCommand.forceStop(packageName)) != null
+  suspend fun forceStop(packageName: String): Boolean = run(forceStopCommand(packageName)) != null
 
   /** Runs [command] and returns what it printed, trimmed, or null when the call failed. */
-  private suspend fun run(command: EmulatorCommand): String? =
+  private suspend fun run(command: String): String? =
     withContext(Dispatchers.IO) {
       val data = Parcel.obtain()
       val reply = Parcel.obtain()
       try {
         // No interface token: the service reads the command and its flag straight away.
-        data.writeStringArray(arrayOf(command.line, "1"))
+        data.writeStringArray(arrayOf(command, "1"))
         if (!binder.transact(0, data, reply, 0)) return@withContext null
         // A missing reply or "null" is the service failing, not a command that printed nothing.
         val output = reply.createByteArray()?.decodeToString()?.trim()
@@ -166,3 +158,20 @@ private class RootService(private val binder: IBinder) {
     }
   }
 }
+
+private val PACKAGE_NAME = Regex("[a-zA-Z0-9_.]{1,255}")
+
+/**
+ * [packageName], checked to hold only letters, digits, `_` and `.`, so nothing else reaches the
+ * root service's shell.
+ */
+private fun checked(packageName: String): String {
+  require(PACKAGE_NAME.matches(packageName)) { "Not a package name: $packageName" }
+  return packageName
+}
+
+/** Lists the process ids of [packageName]'s main process: none when it isn't running. */
+internal fun isRunningCommand(packageName: String) = "pidof ${checked(packageName)}"
+
+/** Stops [packageName] at once, without the app's own exit. */
+internal fun forceStopCommand(packageName: String) = "am force-stop ${checked(packageName)}"

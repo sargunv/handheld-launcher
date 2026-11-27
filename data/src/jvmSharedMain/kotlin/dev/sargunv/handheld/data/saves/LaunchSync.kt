@@ -64,7 +64,8 @@ suspend fun SaveSync.beforeLaunch(
   val mayRun = emulator is EmulatorState.MayBeRunning
   // Shared PS2 cards hold every game's saves, so an emulator running any game holds them.
   val holds =
-    emulator is EmulatorState.MayBeRunning && (emulator.holds(game.romId) || game.cards != null)
+    emulator is EmulatorState.MayBeRunning &&
+      (emulator.holds(game.romId) || game.shape is SaveShape.Cards)
 
   // Pulls with [pull], asking first when the emulator holds the game.
   suspend fun guarded(found: SaveSyncResult, pull: suspend () -> BeforeLaunch): BeforeLaunch {
@@ -104,14 +105,3 @@ suspend fun SaveSync.beforeLaunch(
     else -> BeforeLaunch.Synced(found)
   }
 }
-
-/**
- * Syncs [game]'s save once the player is back from the game: it sends what the game saved, and
- * never writes to the device. The emulator may still be running, or still writing its save as it
- * goes to the background, and would write over a pulled save, so a newer save on RomM waits for
- * [beforeLaunch].
- *
- * @throws RommException when the server can't be reached or refuses a call.
- * @throws IOException when the save file can't be read.
- */
-suspend fun SaveSync.afterReturn(game: GameSave): SaveSyncResult = push(game)

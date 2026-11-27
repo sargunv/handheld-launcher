@@ -88,8 +88,7 @@ internal fun AchievementList(achievements: GameAchievements) {
     )
     val note =
       when (achievements) {
-        GameAchievements.Off ->
-          "Sign in to RetroAchievements from the launcher's quick menu to earn achievements."
+        GameAchievements.Off -> "Off · Settings → RetroAchievements"
         GameAchievements.Loading -> "Loading the game's achievements."
         GameAchievements.NoSet -> "RetroAchievements has no achievements for this game."
         is GameAchievements.Failed -> achievements.reason
