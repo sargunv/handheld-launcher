@@ -21,4 +21,4 @@ ignore-build-dependencies = true
 accepted = ["GPL-3.0-or-later"]
 
 [rom-headers]
-accepted = ["GPL-3.0-or-later", "MPL-2.0"]
+accepted = ["GPL-3.0-or-later"]
