@@ -23,9 +23,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -135,7 +135,7 @@ internal fun GameGridPane(
 ) {
   val view = state.libraryView
   val grid = view.grid
-  var menuOpen by rememberSaveable { mutableStateOf(false) }
+  var menuOpen by remember { mutableStateOf(false) }
   // The menu sorts and filters, which a grid with no games at all has no use for.
   val hasMenu = !grid?.games.isNullOrEmpty()
 
@@ -181,7 +181,6 @@ internal fun GameGridPane(
           if (state.focused is Focused.OnGame) add(Hint(Action.Confirm, "Open"))
           add(Hint(Action.Back, backHint))
           if (hasMenu) add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }

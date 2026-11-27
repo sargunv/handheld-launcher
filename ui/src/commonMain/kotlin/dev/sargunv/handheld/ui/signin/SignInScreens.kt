@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -40,6 +41,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -52,6 +54,9 @@ import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.about.AboutScreen
+import dev.sargunv.handheld.ui.about.AboutSecondary
+import dev.sargunv.handheld.ui.about.LicenceScreen
 import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.focus.help
@@ -60,12 +65,16 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.navigation.NavigationHost
 import dev.sargunv.handheld.ui.navigation.Navigator
+import dev.sargunv.handheld.ui.places.AppState
+import dev.sargunv.handheld.ui.places.Place
+import dev.sargunv.handheld.ui.settings.SettingsPage
+import dev.sargunv.handheld.ui.settings.SettingsSecondary
 import io.ktor.http.URLProtocol
 import io.ktor.http.parseUrl
 import kotlinx.coroutines.launch
 import kotlinx.io.IOException
 
-/** The steps of signing in. */
+/** The steps of signing in, and the screens that need no server, over them. */
 sealed interface SignInScreen {
   /** The server's address. */
   data object Address : SignInScreen
@@ -75,6 +84,15 @@ sealed interface SignInScreen {
 
   /** A pasted client API token: the fallback. */
   data class Token(val baseUrl: String) : SignInScreen
+
+  /** Settings, with only the sections that need no server. */
+  data object Settings : SignInScreen
+
+  /** About the app, from Settings. */
+  data object About : SignInScreen
+
+  /** The licence texts of the component [componentId], from About. */
+  data class Licence(val componentId: String, val name: String) : SignInScreen
 }
 
 /**
@@ -87,7 +105,6 @@ sealed interface SignInScreen {
 class SignInState(
   internal val signIn: RommSignIn,
   internal val device: DeviceDescription,
-  internal val onSignedIn: () -> Unit,
   address: String = "",
   allowUploads: Boolean = false,
 ) {
@@ -97,32 +114,72 @@ class SignInState(
   /** Whether a sign-in with a code asks for permission to upload games to the server too. */
   internal var allowUploads: Boolean by mutableStateOf(allowUploads)
   internal val help = HelpHolder()
+
+  /** Shows Settings: over the sign-in step that shows, or back from the screens over it. */
+  fun showSettings() {
+    val settings = navigator.backStack.indexOf(SignInScreen.Settings)
+    if (settings < 0) navigator.push(SignInScreen.Settings)
+    else while (navigator.backStack.lastIndex > settings) navigator.back()
+  }
 }
 
 /** The sign-in's top screen. */
 @Composable
-fun SignInPrimary(state: SignInState) {
-  NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
-    screen ->
+fun SignInPrimary(state: AppState) {
+  val signIn = state.signIn
+  val navigator = signIn.navigator
+  NavigationHost(navigator, Modifier.fillMaxSize().background(Placeholder.background)) { screen ->
     when (screen) {
-      SignInScreen.Address -> NavEntry(screen) { AddressScreen(state) }
-      is SignInScreen.Code -> NavEntry(screen) { CodeScreen(state, screen.baseUrl) }
-      is SignInScreen.Token -> NavEntry(screen) { TokenScreen(state, screen.baseUrl) }
+      SignInScreen.Address -> NavEntry(screen) { AddressScreen(signIn) }
+      is SignInScreen.Code -> NavEntry(screen) { CodeScreen(signIn, screen.baseUrl) }
+      is SignInScreen.Token -> NavEntry(screen) { TokenScreen(signIn, screen.baseUrl) }
+      SignInScreen.Settings ->
+        NavEntry(screen) { SettingsScreen(state) { navigator.push(SignInScreen.About) } }
+      SignInScreen.About ->
+        NavEntry(screen) {
+          AboutScreen(state) { navigator.push(SignInScreen.Licence(it.uniqueId, it.name)) }
+        }
+      is SignInScreen.Licence ->
+        NavEntry(screen) { LicenceScreen(state, screen.componentId, screen.name) }
     }
   }
 }
 
-/** The sign-in's bottom screen: what the focused item does. */
+/** The sign-in's bottom screen: what the focused item does, or what Settings or About shows. */
 @Composable
-fun SignInSecondary(state: SignInState) {
+fun SignInSecondary(state: AppState) {
   Column(
     Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
-    state.help.shown?.let { help ->
-      Text(help.label, color = Placeholder.text)
-      Text(help.text, color = Placeholder.mutedText)
+    when (val screen = state.signIn.navigator.current) {
+      SignInScreen.Settings -> SettingsSecondary(state)
+      SignInScreen.About -> AboutSecondary(state)
+      is SignInScreen.Licence -> AboutSecondary(state, screen.componentId)
+      else ->
+        state.signIn.help.shown?.let { help ->
+          Text(help.label, color = Placeholder.text)
+          Text(help.text, color = Placeholder.mutedText)
+        }
     }
+  }
+}
+
+/** Settings under a header that names it, as the places show it once signed in. */
+@Composable
+private fun SettingsScreen(state: AppState, onAbout: () -> Unit) {
+  Column(Modifier.fillMaxSize()) {
+    Text(
+      Place.Settings.title,
+      color = Placeholder.text,
+      fontSize = 22.sp,
+      fontWeight = FontWeight.SemiBold,
+      modifier =
+        Modifier.padding(horizontal = 48.dp, vertical = 16.dp)
+          .testTag("place:${Place.Settings.name}")
+          .semantics { heading() },
+    )
+    Box(Modifier.fillMaxWidth().weight(1f)) { SettingsPage(state, onAbout) }
   }
 }
 
@@ -148,7 +205,7 @@ private fun AddressScreen(state: SignInState) {
       modifier = Modifier.fillMaxWidth(),
       placeholder = "romm.example.com",
       label = "Server address",
-      help = "The address you open RomM at in a browser, such as romm.example.com.",
+      help = "The address RomM opens at in a browser",
       keyboardOptions =
         KeyboardOptions(
           autoCorrectEnabled = false,
@@ -172,7 +229,7 @@ private fun AddressScreen(state: SignInState) {
       state,
       "continue",
       "Continue",
-      "Get a code, then approve it in RomM on your phone or computer.",
+      "Approve a code in RomM on another device",
     ) {
       next(SignInScreen::Code)
     }
@@ -190,7 +247,6 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
     error = null
     try {
       state.signIn.withDeviceCode(baseUrl, state.device, state.allowUploads) { code = it }
-      state.onSignedIn()
     } catch (e: RommException) {
       error = signInErrorMessage(e, baseUrl, SignInMethod.Code)
     } catch (e: IOException) {
@@ -257,7 +313,6 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
     scope.launch {
       try {
         state.signIn.withToken(baseUrl, token)
-        state.onSignedIn()
       } catch (e: RommException) {
         error = signInErrorMessage(e, baseUrl, SignInMethod.Token)
       } catch (e: IOException) {
@@ -316,8 +371,7 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
   }
 }
 
-private const val TOKEN_HELP =
-  "Sign in with a client API token that you create in RomM, instead of approving a code."
+private const val TOKEN_HELP = "Signs in with a client API token from RomM"
 
 internal const val SIGN_IN_NOT_SAVED = "Sign-in not saved"
 
@@ -345,7 +399,6 @@ private fun ScreenColumn(canGoBack: Boolean, content: @Composable () -> Unit) {
       buildList {
         add(Hint(Action.Confirm, "Choose"))
         if (canGoBack) add(Hint(Action.Back, "Back"))
-        add(Hint(Action.MainMenu, "Main menu"))
       },
     )
   }

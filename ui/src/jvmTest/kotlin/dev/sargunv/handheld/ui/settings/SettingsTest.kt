@@ -326,10 +326,15 @@ class SettingsTest {
     onNodeWithTag("main:Home").assertDoesNotExist()
     press(Key.ButtonA)
     awaitTag("settings:Controls")
-    onNodeWithTag("settings:About").assertExists()
+    onNodeWithTag("settings:RomM").assertDoesNotExist()
     onNodeWithTag("settings:Emulators").assertDoesNotExist()
+    // About opens over the sign-in too.
     press(listOf(Key.DirectionDown, Key.DirectionRight))
-    onNodeWithTag("settings:romm:server").assertTextEquals("Server", "Not signed in")
+    awaitFocused("settings:about:open")
+    press(Key.ButtonA)
+    awaitTag("about:app")
+    press(Key.ButtonB)
+    awaitFocused("settings:about:open")
     // Back returns to the sign-in where it was.
     press(Key.ButtonB)
     onNodeWithTag("settings:Controls").assertDoesNotExist()

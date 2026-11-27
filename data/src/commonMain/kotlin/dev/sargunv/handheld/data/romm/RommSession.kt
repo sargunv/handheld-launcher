@@ -12,6 +12,7 @@ import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -109,10 +110,19 @@ class RommSession(
   private val syncRequests =
     MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
+  private val uploads = MutableStateFlow<UploadAccess?>(null)
+
+  /**
+   * Whether the signed-in token may upload games to the server, or null while signed out or until
+   * the server says. Each sync asks again, since the account's permissions can change.
+   */
+  val uploadAccess: StateFlow<UploadAccess?> = uploads.asStateFlow()
+
   init {
     scope.launch {
       state.collectLatest { account ->
-        if (account is RommAccount) syncLibrary(account.client)
+        uploads.value = null
+        if (account is RommAccount) syncLibrary(account)
         else syncStatus.value = SyncStatus.NotStarted
       }
     }
@@ -123,49 +133,50 @@ class RommSession(
     syncRequests.tryEmit(Unit)
   }
 
-  /**
-   * Whether the signed-in token may upload games to the server, or null when the device isn't
-   * signed in. A device sign-in stores the scopes the server granted. When those lack uploading, or
-   * a pasted token's scopes are unknown, the account's own scopes, which the server reports, tell
-   * whether signing in again would help.
-   */
-  suspend fun uploadAccess(): UploadAccess? {
-    val account = account ?: return null
-    val scopes = account.credentials.scopes
-    if (UPLOAD_SCOPE in scopes) return UploadAccess.Allowed
-    val accountScopes =
-      try {
-        account.client.me().oauthScopes
-      } catch (e: RommException) {
-        log.w(e) { "Couldn't read the account's scopes" }
-        emptyList()
-      }
-    return when {
-      accountScopes.isNotEmpty() && UPLOAD_SCOPE !in accountScopes -> UploadAccess.AccountMayNot
-      scopes.isEmpty() -> UploadAccess.Unknown
-      else -> UploadAccess.NotRequested
-    }
-  }
-
-  private suspend fun syncLibrary(client: RommClient) {
+  private suspend fun syncLibrary(account: RommAccount) {
     // A new request starts the sync over.
     syncRequests
       .onStart { emit(Unit) }
       .collectLatest {
-        syncStatus.value =
-          if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
-        syncStatus.value =
-          try {
-            // Reading the server's pages is work too, so it stays off the main thread.
-            withContext(Dispatchers.Default) { LibrarySync(client, library).sync() }
-            SyncStatus.Synced
-          } catch (_: RommException.Unauthorized) {
-            SyncStatus.Unauthorized
-          } catch (e: RommException) {
-            log.w(e) { "Library sync failed" }
-            SyncStatus.Failed
-          }
+        coroutineScope {
+          launch { uploads.value = uploadAccess(account) }
+          syncStatus.value =
+            if (library.romCount() == 0L) SyncStatus.FirstSync else SyncStatus.Syncing
+          syncStatus.value =
+            try {
+              // Reading the server's pages is work too, so it stays off the main thread.
+              withContext(Dispatchers.Default) { LibrarySync(account.client, library).sync() }
+              SyncStatus.Synced
+            } catch (_: RommException.Unauthorized) {
+              SyncStatus.Unauthorized
+            } catch (e: RommException) {
+              log.w(e) { "Library sync failed" }
+              SyncStatus.Failed
+            }
+        }
       }
+  }
+}
+
+/**
+ * What [account]'s token may upload. A device sign-in stores the scopes the server granted. When
+ * those lack uploading, or a pasted token's scopes are unknown, the account's own scopes, which the
+ * server reports, tell whether signing in again would help.
+ */
+private suspend fun uploadAccess(account: RommAccount): UploadAccess {
+  val scopes = account.credentials.scopes
+  if (UPLOAD_SCOPE in scopes) return UploadAccess.Allowed
+  val accountScopes =
+    try {
+      account.client.me().oauthScopes
+    } catch (e: RommException) {
+      log.w(e) { "Couldn't read the account's scopes" }
+      emptyList()
+    }
+  return when {
+    accountScopes.isNotEmpty() && UPLOAD_SCOPE !in accountScopes -> UploadAccess.AccountMayNot
+    scopes.isEmpty() -> UploadAccess.Unknown
+    else -> UploadAccess.NotRequested
   }
 }
 

@@ -9,7 +9,7 @@ layout and behavior, not the visual design.
   side menu over the current screen with **Home**, **Library**, **Downloads**
   (with the number of games in the queue) and **Settings**. Choosing one goes
   there. Home is where the app opens, and B on another top-level page goes back
-  to Home.
+  to Home. Before sign-in it offers only Settings, with Controls and About.
 - **L and R switch the current page's tabs**, wherever a page has them. Inside a
   platform or collection, they step to its neighbor.
 - **The scope of a choice comes from where it was made.** Something chosen from

@@ -49,6 +49,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -71,6 +74,12 @@ class LocalGameTest {
 
   /** Whether the server refuses uploads, as for an account that may not upload games. */
   @Volatile private var refuseUploads = false
+
+  /** What an upload waits for before it starts, when there's something. */
+  @Volatile private var uploadHold: CompletableDeferred<Unit>? = null
+
+  /** The presses of the system's HOME. */
+  private val homePresses = Channel<Unit>(Channel.UNLIMITED)
 
   /** The scopes the account's role grants, or null when the server doesn't say. */
   @Volatile private var accountScopes: String? = null
@@ -100,10 +109,13 @@ class LocalGameTest {
     if (path.startsWith("roms/upload") || path.startsWith("tasks")) uploadRequests += path
     json(
       when (path) {
-        "roms/upload/start" ->
+        "roms/upload/start" -> {
+          uploadHold?.await()
           if (refuseUploads) {
             return@fakeRomm json("""{"detail": "Forbidden"}""", HttpStatusCode.Forbidden)
-          } else """{"upload_id": "u1"}"""
+          }
+          """{"upload_id": "u1"}"""
+        }
         "roms/upload/u1" -> """{"received": 1, "total": 1}"""
         "roms/upload/u1/complete" -> {
           // The file is in the platform's folder on the server, which a scan adds.
@@ -147,6 +159,7 @@ class LocalGameTest {
       saveSettings = { saved += it },
       launcher = launcher,
       open = open,
+      homePresses = homePresses.receiveAsFlow(),
     )
 
   /** Launches, and goes to the Library once the sync has filled it. */
@@ -341,6 +354,22 @@ class LocalGameTest {
       uploadRequests.toList(),
     )
     assertTrue(homebrew.exists())
+  }
+
+  @Test
+  fun homeDuringAnUploadLeavesItsScreenAlone() = runComposeUiTest {
+    val hold = CompletableDeferred<Unit>()
+    uploadHold = hold
+    openHomebrew()
+    press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
+    awaitTag("upload:confirm")
+    press(listOf(Key.DirectionRight, Key.ButtonA))
+    awaitText("Uploading")
+    homePresses.trySend(Unit)
+    waitForIdle()
+    onNodeWithTag("primary").assertTextEquals("Uploading")
+    hold.complete(Unit)
+    awaitText("Homebrew (World)")
   }
 
   @Test

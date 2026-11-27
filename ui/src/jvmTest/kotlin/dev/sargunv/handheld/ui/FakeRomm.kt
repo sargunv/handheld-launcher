@@ -12,7 +12,8 @@ import io.ktor.http.headersOf
 
 /** A RomM server, where [route] answers each request by its path below `/api/`. */
 internal fun fakeRomm(
-  route: MockRequestHandleScope.(path: String, request: HttpRequestData) -> HttpResponseData,
+  route:
+    suspend MockRequestHandleScope.(path: String, request: HttpRequestData) -> HttpResponseData,
 ): () -> HttpClientEngine = {
   MockEngine { request -> route(request.url.encodedPath.substringAfter("/api/"), request) }
 }

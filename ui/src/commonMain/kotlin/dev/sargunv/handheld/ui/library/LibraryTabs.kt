@@ -19,9 +19,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -158,7 +158,7 @@ private fun ShelfList(state: AppState, tab: LibraryTab) {
   val shelves = view.shelves(tab)
   val focused = view.shelf
   val summaries = view.summaries(tab)
-  var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
+  var menuFor by remember { mutableStateOf<String?>(null) }
   val menuShelf = shelves?.find { it.key == menuFor }
   val hasShelves = summaries.isNotEmpty()
   // A new scope each time the tab shows, so focus lands on the shelf that was open, even when L
@@ -199,7 +199,6 @@ private fun ShelfList(state: AppState, tab: LibraryTab) {
           if (hasShelves) add(Hint(Action.Confirm, "Open"))
           add(Hint(Action.Back, "Home"))
           if (hasShelves) add(Hint(Action.Menu, "Menu"))
-          add(Hint(Action.MainMenu, "Main menu"))
         },
       )
     }

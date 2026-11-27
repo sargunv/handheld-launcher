@@ -10,7 +10,9 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommSession
+import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
@@ -27,6 +29,7 @@ import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
+import dev.sargunv.handheld.ui.signin.SignInState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
@@ -85,6 +88,16 @@ class AppState(
   var playing: GameKey? by mutableStateOf(null)
     private set
 
+  /** Whether the Game screen is sending a game to the server. */
+  internal var uploading: Boolean by mutableStateOf(false)
+
+  /**
+   * Whether the Game screen is busy with a play or an upload, which leaving it would stop, so HOME,
+   * Back and the main menu wait.
+   */
+  val gameBusy: Boolean
+    get() = playing != null || uploading
+
   /** Held while adopting, so [play] waits for an adopt of its game that's under way. */
   private val adoption = Mutex()
 
@@ -100,7 +113,11 @@ class AppState(
   val libraryView = LibraryState(library, downloads.statuses(), games.localGames()) { libraryTab }
   val settingsView = SettingsView()
 
-  val account = Account(romm, platform.device)
+  private val device = platform.device
+
+  /** The sign-in that shows while the device isn't signed in. */
+  var signIn: SignInState by mutableStateOf(SignInState(romm.signIn, device))
+    private set
 
   private val homeStartRequests = Channel<Unit>(Channel.CONFLATED)
 
@@ -161,7 +178,9 @@ class AppState(
     withContext(NonCancellable) {
       // Before the credentials go, so the server hears of the canceled installs it asked for.
       if (!keepQueue) for (download in downloads.queue.value) downloads.cancel(download.romId)
-      account.signOut(allowUploads)
+      val address = romm.account?.credentials?.baseUrl.orEmpty()
+      romm.signIn.signOut()
+      signIn = SignInState(romm.signIn, device, address, allowUploads)
       navigator.backToStart()
       place = Place.Home
     }
@@ -215,3 +234,12 @@ class AppState(
     handover.update { it + (new - unfinished.toSet()) }
   }
 }
+
+/** Whether this is signed in, or null when it isn't known yet. */
+internal val RommState.signedIn: Boolean?
+  get() =
+    when (this) {
+      RommState.Unknown -> null
+      RommState.SignedOut -> false
+      is RommAccount -> true
+    }

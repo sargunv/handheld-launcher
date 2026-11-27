@@ -38,8 +38,7 @@ internal fun LazyListScope.emulators(
         "settings:closeEmulators",
         "Close emulators",
         if (on) "On" else "Off",
-        "Checks whether an emulator is still running before a game starts, and offers to " +
-          "close it, so a newer save from RomM can't be overwritten.",
+        "Offers to close a running emulator before a game starts",
       ) {
         if (on) state.settings = state.settings.copy(closeEmulators = false)
         else open(SettingsDialog.CloseEmulators)
