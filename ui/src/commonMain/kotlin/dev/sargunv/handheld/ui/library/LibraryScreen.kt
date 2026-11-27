@@ -19,14 +19,12 @@ import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.places.AppState
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
-
-/** A request to jump to the first game under [letter]. Each request is a new one. */
-class Jump(val letter: Char)
 
 /** Where a shelf's games were opened from, which Back on them returns to. */
 enum class OpenedFrom {
@@ -95,8 +93,13 @@ internal constructor(
   var filter: LibraryFilter by mutableStateOf(LibraryFilter.All)
   var sort: LibrarySort by mutableStateOf(LibrarySort.Name)
 
-  /** A jump that the shown games haven't carried out yet. */
-  var jump: Jump? by mutableStateOf(null)
+  /** Letters to jump to, which the shown games' grid carries out. */
+  internal val jumps = Channel<Char>(Channel.CONFLATED)
+
+  /** Moves focus to the first shown game under [letter]. */
+  fun jumpTo(letter: Char) {
+    jumps.trySend(letter)
+  }
 
   private var platforms: List<Platform>? by mutableStateOf(null)
   private var collections: List<Collection>? by mutableStateOf(null)

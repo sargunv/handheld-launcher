@@ -25,7 +25,9 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import kotlin.time.Clock
-import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /** One copy of a save in a conflict: when it last changed, and its size. */
@@ -113,9 +115,9 @@ internal fun ago(time: Instant, now: Instant): String {
   val elapsed = now - time
   fun count(value: Long, unit: String) = "$value $unit${if (value == 1L) "" else "s"} ago"
   return when {
-    elapsed < Duration.parse("1m") -> "just now"
-    elapsed < Duration.parse("1h") -> count(elapsed.inWholeMinutes, "minute")
-    elapsed < Duration.parse("1d") -> count(elapsed.inWholeHours, "hour")
+    elapsed < 1.minutes -> "just now"
+    elapsed < 1.hours -> count(elapsed.inWholeMinutes, "minute")
+    elapsed < 1.days -> count(elapsed.inWholeHours, "hour")
     else -> count(elapsed.inWholeDays, "day")
   }
 }

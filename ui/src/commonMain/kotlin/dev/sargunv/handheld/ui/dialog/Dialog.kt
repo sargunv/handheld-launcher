@@ -7,14 +7,10 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,7 +25,6 @@ import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.navigation.BackHandler
-import kotlinx.coroutines.flow.first
 
 /**
  * Closes every [Dialog] open below where it's provided as [LocalDialogs] at once, as the system's
@@ -37,12 +32,19 @@ import kotlinx.coroutines.flow.first
  */
 @Stable
 class Dialogs {
-  internal var closes by mutableIntStateOf(0)
-    private set
+  private val dismisses = mutableListOf<() -> Unit>()
 
   /** Asks each open dialog to close, as if the player had dismissed it. */
   fun closeAll() {
-    closes++
+    dismisses.toList().forEach { it() }
+  }
+
+  internal fun add(dismiss: () -> Unit) {
+    dismisses += dismiss
+  }
+
+  internal fun remove(dismiss: () -> Unit) {
+    dismisses -= dismiss
   }
 }
 
@@ -74,11 +76,10 @@ fun Dialog(
   val dismiss by rememberUpdatedState(onDismissRequest)
   val dialogs = LocalDialogs.current
   if (dialogs != null) {
-    // Only a request made while it's open closes it.
-    val closesAtOpen = remember(dialogs) { dialogs.closes }
-    LaunchedEffect(dialogs) {
-      snapshotFlow { dialogs.closes }.first { it != closesAtOpen }
-      dismiss()
+    DisposableEffect(dialogs) {
+      val close = { dismiss() }
+      dialogs.add(close)
+      onDispose { dialogs.remove(close) }
     }
   }
   Box(

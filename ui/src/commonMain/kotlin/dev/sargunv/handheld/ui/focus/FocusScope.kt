@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.flow.first
 
 /**
  * The focus scopes on screen, in the order they appeared. The last one is the active one: the
@@ -88,6 +90,11 @@ internal class FocusMemory(
   /** Whether no items are composed. Reading this observes it. */
   val isEmpty: Boolean
     get() = items.isEmpty()
+
+  /** Waits until the item with [key] is composed. */
+  suspend fun awaitItem(key: String) {
+    snapshotFlow { key in items }.first { it }
+  }
 
   fun register(key: String, requester: FocusRequester) {
     items[key] = requester
@@ -165,12 +172,13 @@ internal constructor(
   }
 
   /**
-   * Moves focus to the item with [key], such as the target of a jump, and remembers it as the item
-   * to restore. Returns false if that item isn't composed.
+   * Remembers the item with [key], such as the target of a jump, as the item to restore, and moves
+   * focus to it once it's composed.
    */
-  fun focus(key: String): Boolean {
+  suspend fun focus(key: String): Boolean {
     memory.select(key)
     restorePending = false
+    memory.awaitItem(key)
     return memory.focusRemembered()
   }
 }
