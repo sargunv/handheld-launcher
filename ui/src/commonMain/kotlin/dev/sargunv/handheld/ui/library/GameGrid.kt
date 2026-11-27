@@ -61,7 +61,7 @@ import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 import dev.sargunv.handheld.ui.places.Place
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.gameCount
-import kotlinx.coroutines.flow.map
+import dev.sargunv.handheld.ui.places.onDeviceCount
 
 /**
  * The games of [shelf], open from its tab. L and R step between shelves, stopping at the ends, and
@@ -78,29 +78,28 @@ internal fun ShelfGames(
   val view = state.libraryView
   val tab = state.libraryTab
   val shelfKey = shelf.key
-  // Each value carries its shelf's key, so a shelf never shows the games of the one before it.
+  // A new shelf starts unloaded, so it never shows the games of the one before it.
   val loaded by
-    remember(cache, shelf) {
-        when (shelf) {
-          is LibraryShelf.OfPlatform -> cache.romsOnPlatform(shelf.platform.id)
-          is LibraryShelf.OfCollection ->
-            cache.romsInCollection(shelf.collection.kind, shelf.collection.id)
-        }.map { shelfKey to it }
-      }
-      .collectAsState(null)
+    key(shelfKey) {
+      remember(cache, shelf) {
+          when (shelf) {
+            is LibraryShelf.OfPlatform -> cache.romsOnPlatform(shelf.platform.id)
+            is LibraryShelf.OfCollection ->
+              cache.romsInCollection(shelf.collection.kind, shelf.collection.id)
+          }
+        }
+        .collectAsState(null)
+    }
   // A platform's local games are in its grid too.
   val local = state.localGames
   val roms =
     remember(loaded, shelf, local) {
-      loaded
-        ?.takeIf { it.first == shelfKey }
-        ?.second
-        ?.let { roms ->
-          when (shelf) {
-            is LibraryShelf.OfPlatform -> roms + local.filter { it.platformId == shelf.platform.id }
-            is LibraryShelf.OfCollection -> roms
-          }
+      loaded?.let { roms ->
+        when (shelf) {
+          is LibraryShelf.OfPlatform -> roms + local.filter { it.platformId == shelf.platform.id }
+          is LibraryShelf.OfCollection -> roms
         }
+      }
     }
 
   fun moveTo(next: LibraryShelf?) {
@@ -283,7 +282,7 @@ private fun ShelfHeader(
     }
     Spacer(Modifier.weight(1f))
     if (games != null && onDevice != null) {
-      Text("${gameCount(games)}, $onDevice on this device", color = Placeholder.mutedText)
+      Text("${gameCount(games)}, ${onDeviceCount(onDevice)}", color = Placeholder.mutedText)
     }
   }
 }

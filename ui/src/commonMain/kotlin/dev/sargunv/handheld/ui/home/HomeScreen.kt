@@ -73,9 +73,8 @@ internal fun HomePlace(state: AppState) {
   val collections by remember(library) { library.collections() }.collectAsState(null)
   var menuOpen by rememberSaveable { mutableStateOf(false) }
   var gameMenuOpen by rememberSaveable { mutableStateOf(false) }
+  // The shelf with focus, or null while the game being played has it.
   var focusedShelf by rememberSaveable { mutableStateOf<HomeShelf?>(null) }
-  // Whether the game being played has focus, rather than something on a shelf.
-  var focusedContinue by remember { mutableStateOf(false) }
 
   val settings = state.settings.home
   val playedNow = played.orEmpty()
@@ -101,6 +100,7 @@ internal fun HomePlace(state: AppState) {
   // the Game screen decides once it knows.
   val continuePlays =
     continueRom != null && state.deviceStates[continueRom.id] == DeviceState.OnDevice
+  val continueFocused = hasItems && continueRom != null && focusedShelf == null
 
   fun openGame(rom: Rom) = state.navigator.push(Screen.Game(rom.id, rom.title))
   fun playGame(rom: Rom) = state.navigator.push(Screen.Game(rom.id, rom.title, play = true))
@@ -111,15 +111,9 @@ internal fun HomePlace(state: AppState) {
       OpenedFrom.Home,
     )
   fun onFocusGame(rom: Rom) {
-    focusedContinue = false
-    state.focused = Focused.OnGame(rom)
-  }
-  fun onFocusContinue(rom: Rom) {
-    focusedContinue = true
     state.focused = Focused.OnGame(rom)
   }
   fun onFocusCollection(collection: Collection) {
-    focusedContinue = false
     state.focused = Focused.OnCollection(collection)
   }
 
@@ -135,7 +129,7 @@ internal fun HomePlace(state: AppState) {
       Modifier.fillMaxSize().onAction { action ->
         when {
           action != Action.Menu -> return@onAction false
-          hasItems && focusedContinue && continueRom != null -> gameMenuOpen = true
+          continueFocused -> gameMenuOpen = true
           hasMenu -> menuOpen = true
           else -> return@onAction false
         }
@@ -176,7 +170,7 @@ internal fun HomePlace(state: AppState) {
                       deviceState = state.deviceStates[rom.id],
                       key = "continue:${rom.id}",
                       modifier = Modifier.padding(start = 48.dp).size(180.dp, 240.dp),
-                      onFocus = ::onFocusContinue,
+                      onFocus = ::onFocusGame,
                       onOpen = ::playGame,
                     )
                   }
@@ -220,9 +214,9 @@ internal fun HomePlace(state: AppState) {
         HintBar(
           buildList {
             if (hasItems) {
-              add(Hint(Action.Confirm, if (focusedContinue && continuePlays) "Play" else "Open"))
+              add(Hint(Action.Confirm, if (continueFocused && continuePlays) "Play" else "Open"))
             }
-            if (hasMenu || (hasItems && focusedContinue)) add(Hint(Action.Menu, "Menu"))
+            if (hasMenu || continueFocused) add(Hint(Action.Menu, "Menu"))
             add(Hint(Action.MainMenu, "Main menu"))
           },
         )

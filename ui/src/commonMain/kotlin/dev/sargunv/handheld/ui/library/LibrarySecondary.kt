@@ -17,19 +17,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.GameDescription
-import dev.sargunv.handheld.ui.places.gameCount
+import dev.sargunv.handheld.ui.places.ShelfDescription
 
 /**
  * Library's lower screen. On a tab of platforms or collections, the focused one. On a grid of
@@ -57,16 +55,8 @@ private fun ShelfListSecondary(state: AppState, tab: LibraryTab) {
   val summary = rememberShelfSummaries(state, shelves).find { it.shelf == shelf }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (summary != null) {
-      Text(
-        summary.shelf.title,
-        color = Placeholder.text,
-        fontSize = 24.sp,
-        modifier = Modifier.semantics { heading() },
-      )
-      Text(gameCount(summary.games), color = Placeholder.mutedText)
-      Text("${summary.onDevice} on this device", color = Placeholder.mutedText)
       val about = (summary.shelf as? LibraryShelf.OfCollection)?.collection?.description
-      if (!about.isNullOrBlank()) Text(about, color = Placeholder.mutedText)
+      ShelfDescription(summary.shelf.title, summary.games, summary.onDevice, about)
     }
   }
 }

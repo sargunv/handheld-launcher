@@ -97,21 +97,30 @@ fun MainSecondary(state: AppState) {
           state.place == Place.Settings -> SettingsSecondary(state.settingsView)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
           focused is Focused.OnCollection -> {
-            Text(
-              focused.collection.name,
-              color = Placeholder.text,
-              fontSize = 24.sp,
-              modifier = Modifier.semantics { heading() },
-            )
-            Text(gameCount(focused.collection.romCount), color = Placeholder.mutedText)
-            if (focused.collection.description.isNotBlank()) {
-              Text(focused.collection.description, color = Placeholder.mutedText)
-            }
+            val collection = focused.collection
+            ShelfDescription(collection.name, collection.romCount, null, collection.description)
           }
         }
       }
     }
   }
+}
+
+/**
+ * The lower screen's description of a shelf of games: its [title], how many [games] it holds and
+ * how many are [onDevice] when that's known, and what it's [about].
+ */
+@Composable
+internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: String?) {
+  Text(
+    title,
+    color = Placeholder.text,
+    fontSize = 24.sp,
+    modifier = Modifier.semantics { heading() },
+  )
+  Text(gameCount(games), color = Placeholder.mutedText)
+  if (onDevice != null) Text(onDeviceCount(onDevice), color = Placeholder.mutedText)
+  if (!about.isNullOrBlank()) Text(about, color = Placeholder.mutedText)
 }
 
 /** The lower screen's description of a game. */
@@ -168,6 +177,8 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
 internal const val NOT_ON_SERVER = "not on your server"
 
 internal fun gameCount(count: Int) = if (count == 1) "1 game" else "$count games"
+
+internal fun onDeviceCount(count: Int) = "$count on this device"
 
 /**
  * What accessibility services say for a game's cover: its title, and whether it's on the device,

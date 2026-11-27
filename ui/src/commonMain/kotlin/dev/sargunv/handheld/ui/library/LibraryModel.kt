@@ -9,6 +9,7 @@ import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.places.gameCount
+import dev.sargunv.handheld.ui.places.onDeviceCount
 import kotlinx.serialization.Serializable
 
 /** Library's tabs, in the order L and R step through them. */
@@ -137,7 +138,7 @@ fun List<LibraryShelf>.step(key: String?, step: Int): LibraryShelf? =
 data class ShelfSummary(val shelf: LibraryShelf, val games: Int, val onDevice: Int) {
   /** What a screen reader says for the shelf. */
   val description: String
-    get() = "${shelf.title}, ${gameCount(games)}, $onDevice on this device"
+    get() = "${shelf.title}, ${gameCount(games)}, ${onDeviceCount(onDevice)}"
 }
 
 /**
