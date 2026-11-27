@@ -14,11 +14,11 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** The outcome of [LaunchDispatcher.launch]. */
+/** The outcome of [LaunchDispatcher.launch], whose log says how it started or why it failed. */
 sealed interface LaunchOutcome {
-  data class Started(val method: LaunchMethod) : LaunchOutcome
+  data object Started : LaunchOutcome
 
-  data class Failed(val reason: String) : LaunchOutcome
+  data object Failed : LaunchOutcome
 }
 
 /**
@@ -45,7 +45,8 @@ class LaunchDispatcher(private val context: Context) {
 
   suspend fun launch(command: LaunchCommand): LaunchOutcome {
     if (command.method == LaunchMethod.Shell && startByShell(command)) {
-      return LaunchOutcome.Started(LaunchMethod.Shell)
+      log.i { "Started ${command.packageName} by am start" }
+      return LaunchOutcome.Started
     }
     return startActivity(command)
   }
@@ -60,22 +61,23 @@ class LaunchDispatcher(private val context: Context) {
         )
       }
       context.startActivity(command.toIntent(contentUris))
-      LaunchOutcome.Started(LaunchMethod.Intent)
+      log.i { "Started ${command.packageName} by intent" }
+      LaunchOutcome.Started
     } catch (e: ActivityNotFoundException) {
-      failed("Launch failed · ${command.packageName} can't open it", e)
+      failed("${command.packageName} can't open it", e)
     } catch (e: SecurityException) {
-      failed("Launch failed · ${command.packageName} refused it", e)
+      failed("${command.packageName} refused it", e)
     } catch (e: FileUriExposedException) {
       // A `file://` URI, which only `am start` can hand over.
-      failed("Launch failed · ${command.packageName} needs am start", e)
+      failed("${command.packageName} needs am start", e)
     } catch (e: IllegalArgumentException) {
       // FileProvider serves only shared storage.
-      failed("Launch failed · Can't share the game's file", e)
+      failed("Can't share the game's file with ${command.packageName}", e)
     }
 
   private fun failed(reason: String, cause: Exception): LaunchOutcome {
-    log.w(cause) { reason }
-    return LaunchOutcome.Failed(reason)
+    log.w(cause) { "Launch failed: $reason" }
+    return LaunchOutcome.Failed
   }
 
   /** Whether `am start` started [command]. */

@@ -89,15 +89,6 @@ internal class AndroidGameLauncher(
   override val canCloseEmulators: Boolean
     get() = emulators.canClose
 
-  private var plays = 0
-
-  /**
-   * Whether a play is under way, from the sync before the game to the one after it, in this app's
-   * session or another app.
-   */
-  val isPlaying: Boolean
-    get() = plays > 0
-
   override suspend fun opensIn(
     game: LibraryGame,
     rules: LaunchRules,
@@ -138,26 +129,21 @@ internal class AndroidGameLauncher(
       log.i { text }
     }
 
-    plays++
-    try {
-      when (
-        val resolution = resolve(LaunchSubject(request.game, request.platform, collections), rules)
-      ) {
-        is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution))
-        is LaunchResolution.BuiltIn ->
-          builtIn.play(request, resolution.core, onProgress, chooseSave, ::note)
-        is LaunchResolution.Resolved ->
-          playStandalone(
-            request,
-            resolution,
-            closeEmulators && emulators.canClose,
-            askStillRunning,
-            chooseSave,
-            ::note,
-          )
-      }
-    } finally {
-      plays--
+    when (
+      val resolution = resolve(LaunchSubject(request.game, request.platform, collections), rules)
+    ) {
+      is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution))
+      is LaunchResolution.BuiltIn ->
+        builtIn.play(request, resolution.core, onProgress, chooseSave, ::note)
+      is LaunchResolution.Resolved ->
+        playStandalone(
+          request,
+          resolution,
+          closeEmulators && emulators.canClose,
+          askStillRunning,
+          chooseSave,
+          ::note,
+        )
     }
     return notes.toList()
   }
@@ -224,13 +210,12 @@ internal class AndroidGameLauncher(
     val before =
       emulators.records.launched(packageName, (request.game as? GameKey.Romm)?.romId, probe)
     try {
-      when (val outcome = dispatcher.launch(command)) {
-        is LaunchOutcome.Started ->
-          log.i { "Started $packageName (${resolution.rule}) by ${outcome.method}" }
-        is LaunchOutcome.Failed -> {
+      when (dispatcher.launch(command)) {
+        LaunchOutcome.Started -> log.i { "Started $packageName (${resolution.rule})" }
+        LaunchOutcome.Failed -> {
           // Nothing started, so the emulator still holds whatever game it held.
           emulators.records.launchFailed(packageName, before)
-          return note(outcome.reason)
+          return note("Launch failed · ${appName(target)}")
         }
       }
       awaitReturn()

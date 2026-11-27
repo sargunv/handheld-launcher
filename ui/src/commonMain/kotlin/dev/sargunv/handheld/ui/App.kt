@@ -81,7 +81,8 @@ import kotlinx.io.files.Path
  * @param openRequests the screens to show, for development tools, each once signed in. Before
  *   sign-in, a Settings one shows over the sign-in.
  * @param homePresses the presses of the system's HOME while the app is in front as the home app.
- *   Each closes the open dialogs, or when there are none, starts over on Home.
+ *   Each closes the open dialogs, or when there are none, starts over on Home. A game under way
+ *   keeps its screen, since leaving it would stop the play and its sync.
  */
 @Composable
 fun App(
@@ -168,6 +169,7 @@ fun App(
         LaunchedEffect(homePresses, scopes, state) {
           homePresses.collect {
             when {
+              state.playing != null -> Unit
               scopes?.isDialogOpen == true -> dialogs.closeAll()
               data.romm.state.value.signedIn == true -> state.goHome()
               data.romm.state.value.signedIn == false -> account.settingsOverSignIn = false

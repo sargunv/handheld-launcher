@@ -60,8 +60,6 @@ class MainActivity : ComponentActivity() {
   /** The presses of HOME while the launcher was in front. */
   private val homePresses = Channel<Unit>(Channel.CONFLATED)
 
-  private var player: AndroidGameLauncher? = null
-
   private val device by lazy {
     DeviceDescription(
       identifier = installIdentifier(Path(filesDir.path, "install-id")),
@@ -77,7 +75,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     // The system keeps the home app's launcher in a home task of its own, apart from the task an
     // explicit launch starts, so one launcher could run in each. The one in the home task stays.
-    if (isHomeIntent(intent.action, intent.categories)) {
+    if (intent.isHome()) {
       // One that ran before the app became the home app closes.
       for (other in running.toList()) other.finishAndRemoveTask()
     } else if (isDefaultHome()) {
@@ -97,15 +95,14 @@ class MainActivity : ComponentActivity() {
     val saves = PlaySaves(app.data.saveSync)
     val launcher =
       AndroidGameLauncher(
-          activity = this,
-          romm = app.data.romm,
-          saves = saves,
-          builtIn = BuiltInPlayer(this, saves, app.data.builtInSaveFolders.saves, app.settingsFile),
-          emulators = app.emulators,
-          allFilesAccess = app.allFilesAccess,
-          storageVolumes = { app.storageTargets().map { it.root } },
-        )
-        .also { player = it }
+        activity = this,
+        romm = app.data.romm,
+        saves = saves,
+        builtIn = BuiltInPlayer(this, saves, app.data.builtInSaveFolders.saves, app.settingsFile),
+        emulators = app.emulators,
+        allFilesAccess = app.allFilesAccess,
+        storageVolumes = { app.storageTargets().map { it.root } },
+      )
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
       AppInfo(app.versionName) {
@@ -178,19 +175,11 @@ class MainActivity : ComponentActivity() {
     if (intent.getBooleanExtra(EXTRA_TAKE_FOCUS, false)) return
     setIntent(intent)
     if (intent.hasExtra("layout")) forcedLayout = forcedLayout(intent)
-    when (
-      val response =
-        respondTo(
-          home = isHomeIntent(intent.action, intent.categories),
-          open = openTarget(intent),
-          wasInFront = wasInFront,
-          playing = player?.isPlaying == true,
-        )
-    ) {
-      is IntentResponse.Open -> openRequests.trySend(response.target)
-      IntentResponse.PressHome -> homePresses.trySend(Unit)
-      IntentResponse.Show -> Unit
-    }
+    // HOME is a press in the app only when the launcher was in front, the way launchers start over
+    // on their first page. From another app it only brings the launcher back as it was.
+    val open = openTarget(intent)
+    if (open != null) openRequests.trySend(open)
+    else if (intent.isHome() && wasInFront) homePresses.trySend(Unit)
   }
 
   /**

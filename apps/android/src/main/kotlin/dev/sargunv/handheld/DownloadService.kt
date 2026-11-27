@@ -77,7 +77,7 @@ class DownloadService : Service() {
           PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            launcherIntent(),
             PendingIntent.FLAG_IMMUTABLE,
           ),
         )
