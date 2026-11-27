@@ -235,9 +235,7 @@ impl App {
 
         let video = match self.args.present {
             Present::Gl => VideoOutput::Window {
-                window: Some(native_window(&window)?),
-                width: size.width,
-                height: size.height,
+                window: Some((native_window(&window)?, size.width, size.height)),
                 lower: Region::bottom(None),
             },
             Present::Cpu => {

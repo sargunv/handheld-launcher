@@ -20,14 +20,15 @@ use crate::content;
 use crate::core::{Core, CoreLoadError};
 use crate::cstr::{opt_string, path_cstring};
 use crate::ffi;
-use crate::gl::{Framebuffer, GlApi, GlContext, GlError, NativeWindow, Target};
-use crate::host::{self, Gpu, Host};
+use crate::gl::{GlError, NativeWindow, Target, WindowRef};
+use crate::host::{self, Host, Output};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::Options;
 use crate::pacing;
+use crate::renderer::Renderer;
 use crate::save::write_atomically;
 use crate::video::{CapturedFrame, Region, VideoSink};
-use crate::vulkan::{VulkanContext, VulkanError};
+use crate::vulkan::VulkanError;
 
 /// Where a session's frames go.
 pub enum VideoOutput {
@@ -39,13 +40,11 @@ pub enum VideoOutput {
     /// which presents only to Android windows. [`Session::set_window`]
     /// replaces the window or detaches it, keeping the context.
     Window {
-        /// The window to start with. A session that starts without one uses
-        /// the platform's default EGL display, so only windows on that
-        /// display can be attached later, which on Android is every window.
-        window: Option<NativeWindow>,
-        /// The window's size in pixels.
-        width: u32,
-        height: u32,
+        /// The window to start with, and its size in pixels. A session that
+        /// starts without one uses the platform's default EGL display, so
+        /// only windows on that display can be attached later, which on
+        /// Android is every window.
+        window: Option<(NativeWindow, u32, u32)>,
         /// What a lower window shows of each frame.
         lower: Region,
     },
@@ -224,13 +223,17 @@ impl Session {
         fs::create_dir_all(&config.save_dir)?;
         // SAFETY: the caller vouches for the core.
         let core = unsafe { Core::load(&config.core)? };
+        let (output, window) = match config.video {
+            VideoOutput::Sink(sink) => (Output::Sink(sink), None),
+            VideoOutput::Window { window, lower } => (Output::Window { lower }, Some(window)),
+        };
         let host = Box::new(Host::new(
             path_cstring(&config.system_dir),
             path_cstring(&config.save_dir),
             Options::new(config.options),
             config.input,
             config.audio,
-            config.video,
+            output,
         ));
         let host = NonNull::from(Box::leak(host));
         // SAFETY: the host lives until the session's drop unregisters it, and
@@ -295,7 +298,10 @@ impl Session {
         log::info!("core AV info: {:?}", host.av_info);
         host.reset_audio();
 
-        session.set_up_video()?;
+        session.set_up_video(match &window {
+            None => Target::Headless,
+            Some(window) => Target::Window(window_ref(window)),
+        })?;
         // A RetroPad on every port, or on every port the core has, as it
         // may not expect calls for ports past its last.
         let ports = session.host().controller_ports.unwrap_or(MAX_PORTS);
@@ -378,58 +384,16 @@ impl Session {
         }
     }
 
-    /// Creates the GL context and framebuffer when the core renders with
-    /// OpenGL or frames go to a window, or the Vulkan context when the core
-    /// renders with Vulkan, and lets a hardware-rendered core set up its
-    /// state.
-    fn set_up_video(&mut self) -> Result<(), SessionError> {
+    /// Creates the renderer for frames drawn to `target`, and lets a
+    /// hardware-rendered core set up its state.
+    fn set_up_video(&mut self, target: Target<'_>) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let target = match &host.video {
-            VideoOutput::Window {
-                window,
-                width,
-                height,
-                ..
-            } => Target::Window(window.as_ref().map(|w| (w, *width, *height))),
-            VideoOutput::Sink(_) => Target::Headless,
-        };
         let hw = host.hw_render;
-        if let Some(cb) = hw.filter(|cb| cb.context_type == ffi::RETRO_HW_CONTEXT_VULKAN) {
-            let context = VulkanContext::new(host.negotiation.as_ref(), target)?;
-            host.vulkan = Some(context);
-            if let Some(reset) = cb.context_reset {
-                // SAFETY: the context exists, as libretro requires; no host
-                // reference is live.
-                unsafe { reset() };
-            }
-            return Ok(());
-        }
-        let context = match (hw, target) {
-            (Some(cb), target) => {
-                let api = host::hw_api(&cb).expect("accepted in SET_HW_RENDER");
-                GlContext::new(api, target, cb.debug_context)?
-            }
-            (None, target @ Target::Window(_)) => {
-                GlContext::new(GlApi::Gles { major: 3, minor: 0 }, target, false)?
-            }
-            (None, Target::Headless) => return Ok(()),
-        };
-        let mut gpu = Gpu::new(context);
-        if let Some(cb) = hw {
-            let av = host.av_info;
-            let fb = Framebuffer::new(
-                &gpu.context.gl,
-                av.max_width.max(av.base_width),
-                av.max_height.max(av.base_height),
-                cb.depth,
-                cb.stencil,
-            )?;
-            gpu.hw = Some(fb);
-        }
-        host.gpu = Some(gpu);
+        host.renderer =
+            Renderer::new(hw.as_ref(), host.negotiation.as_ref(), host.av_info, target)?;
         if let Some(reset) = hw.and_then(|cb| cb.context_reset) {
-            // SAFETY: the context is current and the framebuffer exists, as
-            // libretro requires; no host reference is live.
+            // SAFETY: the context exists, current for GL and with its
+            // framebuffer, as libretro requires; no host reference is live.
             unsafe { reset() };
         }
         Ok(())
@@ -440,8 +404,8 @@ impl Session {
     pub fn run_frame(&mut self) {
         let host = self.host_mut();
         host.begin_frame_input();
-        if let Some(vulkan) = &mut host.vulkan {
-            vulkan.begin_frame();
+        if let Some(renderer) = &mut host.renderer {
+            renderer.begin_frame();
         }
         let frame_time = host.frame_time;
         if let Some(ffi::retro_frame_time_callback {
@@ -542,19 +506,8 @@ impl Session {
     /// Tells the session the window it presents to changed size.
     pub fn resize_window(&mut self, width: u32, height: u32) {
         let host = self.host_mut();
-        if let VideoOutput::Window {
-            width: w,
-            height: h,
-            ..
-        } = &mut host.video
-        {
-            (*w, *h) = (width, height);
-            if let Some(gpu) = &host.gpu {
-                gpu.context.resize(width, height);
-            }
-            if let Some(vulkan) = &mut host.vulkan {
-                vulkan.resize(width, height);
-            }
+        if let Some(renderer) = host.window_renderer() {
+            renderer.resize(width, height);
             host.redraw();
         }
     }
@@ -574,31 +527,8 @@ impl Session {
         window: Option<(NativeWindow, u32, u32)>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
-        let VideoOutput::Window {
-            window: current,
-            width,
-            height,
-            ..
-        } = &mut host.video
-        else {
-            return Err(SessionError::NoWindowOutput);
-        };
-        *current = window.map(|(w, ..)| w);
-        if let Some((_, w, h)) = window {
-            (*width, *height) = (w, h);
-        }
-        let window = window
-            .as_ref()
-            .map(|(w, width, height)| (w, *width, *height));
-        let result: Result<(), SessionError> = match (&mut host.gpu, &mut host.vulkan) {
-            (Some(gpu), _) => gpu.context.set_window(window).map_err(Into::into),
-            (None, Some(vulkan)) => vulkan.set_window(window).map_err(Into::into),
-            (None, None) => return Ok(()),
-        };
-        if result.is_err() {
-            *current = None;
-        }
-        result?;
+        let renderer = host.window_renderer().ok_or(SessionError::NoWindowOutput)?;
+        renderer.set_window(window_ref(&window))?;
         host.redraw();
         Ok(())
     }
@@ -620,18 +550,8 @@ impl Session {
         window: Option<(NativeWindow, u32, u32)>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
-        if !matches!(host.video, VideoOutput::Window { .. }) {
-            return Err(SessionError::NoWindowOutput);
-        }
-        let window = window
-            .as_ref()
-            .map(|(w, width, height)| (w, *width, *height));
-        match (&mut host.gpu, &mut host.vulkan) {
-            (Some(gpu), _) => gpu.context.set_lower_window(window)?,
-            (None, Some(vulkan)) => vulkan.set_lower_window(window)?,
-            (None, None) if window.is_some() => return Err(SessionError::UnsupportedWindow),
-            (None, None) => return Ok(()),
-        }
+        let renderer = host.window_renderer().ok_or(SessionError::NoWindowOutput)?;
+        renderer.set_lower_window(window_ref(&window))?;
         host.redraw();
         Ok(())
     }
@@ -749,15 +669,10 @@ impl Drop for Session {
         if self.game_loaded {
             let host = self.host_mut();
             let destroy = host.hw_render.and_then(|cb| cb.context_destroy);
-            let ready = match (&host.gpu, &mut host.vulkan) {
-                (Some(gpu), _) => gpu.context.make_current().is_ok(),
-                (None, Some(vulkan)) => {
-                    // The core frees what the session's work may still use.
-                    vulkan.release_image();
-                    true
-                }
-                (None, None) => false,
-            };
+            let ready = host
+                .renderer
+                .as_mut()
+                .is_some_and(Renderer::prepare_context_destroy);
             if let (Some(destroy), true) = (destroy, ready) {
                 // SAFETY: the context is current; no host reference is live.
                 unsafe { destroy() };
@@ -772,4 +687,10 @@ impl Drop for Session {
         // reach it.
         drop(unsafe { Box::from_raw(self.host.as_ptr()) });
     }
+}
+
+fn window_ref(window: &Option<(NativeWindow, u32, u32)>) -> Option<WindowRef<'_>> {
+    window
+        .as_ref()
+        .map(|(w, width, height)| (w, *width, *height))
 }

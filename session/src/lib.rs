@@ -21,6 +21,7 @@ mod input;
 mod options;
 mod pacing;
 mod platform;
+mod renderer;
 mod rom_header;
 mod save;
 mod session;
