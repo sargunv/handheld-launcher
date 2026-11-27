@@ -87,10 +87,11 @@ class InMemoryCredentialStore(private val initial: RommCredentials? = null) : Cr
 
 /**
  * A [CredentialStore] that keeps the credentials in a JSON file at [path]. The token is stored
- * unencrypted, so anything that can read the file can use it.
+ * unencrypted, so anything that can read the file can use it. A file that doesn't decode reads as
+ * signed out.
  */
 class FileCredentialStore(path: Path) : CredentialStore() {
-  private val file = JsonFile(path, RommCredentials.serializer())
+  private val file = JsonFile(path, RommCredentials.serializer(), unreadableIsMissing = true)
 
   override suspend fun read(): RommCredentials? = file.read()
 

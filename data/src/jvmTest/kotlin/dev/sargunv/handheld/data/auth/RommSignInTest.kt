@@ -26,9 +26,11 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.files.SystemTemporaryDirectory
+import kotlinx.io.writeString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -139,6 +141,12 @@ class RommSignInTest {
       fileStore.clear()
       assertNull(fileStore.load())
       assertTrue(SystemFileSystem.exists(dir))
+
+      // Credentials that don't decode, such as ones missing a field, read as signed out.
+      SystemFileSystem.sink(path).buffered().use {
+        it.writeString("""{"baseUrl":"$TEST_SERVER","token":"rmm_secret"}""")
+      }
+      assertNull(FileCredentialStore(path).load())
     } finally {
       SystemFileSystem.delete(path, mustExist = false)
       SystemFileSystem.delete(dir, mustExist = false)
