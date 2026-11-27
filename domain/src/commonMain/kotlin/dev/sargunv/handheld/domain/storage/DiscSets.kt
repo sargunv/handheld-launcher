@@ -2,24 +2,29 @@ package dev.sargunv.handheld.domain.storage
 
 /**
  * The files of disc games: playlists (`.m3u`), a disc's descriptor (`.cue`, `.gdi`, `.ccd`, ...)
- * and disc images. Of these, playlists, cue sheets and GDIs list other files, so one copied in
- * loose with the files it lists beside it is one game, which opens it, as [GameLayout.launchFile]
- * opens a downloaded game of several files.
+ * and disc images. The sheets among them, playlists, cue sheets and GDIs, list other files, so a
+ * sheet copied in loose with the files it lists beside it is one game, which opens it, as
+ * [GameLayout.launchFile] opens a downloaded game of several files.
  */
 object DiscSets {
-  /** The largest file read as a playlist or descriptor. Real ones are a few kilobytes. */
-  const val DESCRIPTOR_LIMIT: Long = 64 * 1024
+  /** Whether a file named [fileName] is a sheet: a playlist, cue sheet or GDI. */
+  fun isSheet(fileName: String): Boolean = fileName.extension() in Sheets
 
   /**
-   * Whether a file named [fileName] lists other files of its set: a playlist, cue sheet or GDI. Not
-   * every disc's descriptor does: a `.ccd` doesn't.
+   * The text of a sheet made of [bytes]: UTF-8, else Latin-1, as cue sheets made on Windows often
+   * are. Null when it's too big to be one; real ones are a few kilobytes.
    */
-  fun isDescriptor(fileName: String): Boolean = fileName.extension() in Lists
+  fun sheetText(bytes: ByteArray): String? {
+    if (bytes.size > SHEET_LIMIT) return null
+    val text = bytes.decodeToString()
+    if ('\uFFFD' !in text) return text
+    return CharArray(bytes.size) { (bytes[it].toInt() and 0xff).toChar() }.concatToString()
+  }
 
   /**
-   * The files the playlist or descriptor named [fileName], whose content is [text], lists, as it
-   * names them: a playlist's discs, a cue sheet's `FILE`s, or a GDI's tracks, in order. Null when
-   * [fileName] isn't a playlist or descriptor.
+   * The files the sheet named [fileName], whose content is [text], lists, as it names them: a
+   * playlist's discs, a cue sheet's `FILE`s, or a GDI's tracks, in order. Null when [fileName]
+   * isn't a sheet.
    */
   fun listedFiles(fileName: String, text: String): List<String>? {
     val lines = lines(text)
@@ -34,13 +39,13 @@ object DiscSets {
   /**
    * The file that holds the header of the game at [path]: [path] itself, or the file a playlist
    * names first, a cue sheet's first data track's, or a GDI's high-density data track's. [readText]
-   * reads a playlist or descriptor, or gives null when it can't. Null when one can't be read, names
-   * no such file, or nests more than three deep, so one that names itself ends.
+   * reads a sheet, or gives null when it can't. Null when one can't be read, names no such file, or
+   * nests more than three deep, so one that names itself ends.
    */
   fun headerFile(path: String, readText: (String) -> String?): String? {
     var file = path
     repeat(3) {
-      if (!isDescriptor(file)) return file
+      if (!isSheet(file)) return file
       val lines = lines(readText(file) ?: return null)
       val named =
         when (file.extension()) {
@@ -54,13 +59,13 @@ object DiscSets {
           if (folder.isEmpty() || it.startsWith('/')) it else "$folder/$it"
         }
     }
-    return file.takeUnless { isDescriptor(it) }
+    return file.takeUnless { isSheet(it) }
   }
 
   /**
-   * Of the [names] of the entries in one folder, the ones that [listed], as a playlist or
-   * descriptor there lists them, names. A listed file in another folder names none of them. Names
-   * compare without case, as Android's shared storage and cue sheets made on Windows do.
+   * Of the [names] of the entries in one folder, the ones that [listed], as a sheet there lists
+   * them, names. A listed file in another folder names none of them. Names compare without case, as
+   * Android's shared storage and cue sheets made on Windows do.
    */
   fun siblings(listed: List<String>, names: Collection<String>): List<String> {
     val byName = names.associateBy { it.lowercase() }
@@ -149,8 +154,10 @@ object DiscSets {
     return tokens
   }
 
-  /** The files that list other files: playlists, cue sheets and GDIs. */
-  private val Lists = setOf("m3u", "cue", "gdi")
+  /** The files that list other files of a disc set. */
+  private val Sheets = setOf("m3u", "cue", "gdi")
+
+  private const val SHEET_LIMIT = 64 * 1024
 
   /** A disc's descriptor, which an emulator opens for the disc in place of its image. */
   private val Descriptors = setOf("cue", "gdi", "ccd", "mds", "toc")

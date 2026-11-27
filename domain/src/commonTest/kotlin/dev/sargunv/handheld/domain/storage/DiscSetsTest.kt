@@ -46,8 +46,8 @@ class DiscSetsTest {
       DiscSets.listedFiles("Game.m3u", m3u),
     )
     assertNull(DiscSets.listedFiles("Game.bin", "FILE \"x.bin\" BINARY"))
-    assertTrue(DiscSets.isDescriptor("Game.CUE"))
-    assertFalse(DiscSets.isDescriptor("Game.chd"))
+    assertTrue(DiscSets.isSheet("Game.CUE"))
+    assertFalse(DiscSets.isSheet("Game.chd"))
   }
 
   @Test
@@ -93,6 +93,18 @@ class DiscSetsTest {
       "\n3\n1 0 4 2352 track01.bin 0\n2 450 0 2352 track02.raw 0\n" +
         "3\t45000\t4\t2352\t\"track 03.bin\"\t0\n"
     assertEquals("track 03.bin", DiscSets.headerFile("game.gdi") { gdi })
+  }
+
+  @Test
+  fun aSheetIsUtf8ElseLatin1() {
+    val cue = "FILE \"Pokémon (Track 1).bin\" BINARY\n  TRACK 01 MODE2/2352\n"
+    // Latin-1 encodes each of these characters as the one byte of its code point.
+    val latin1 = ByteArray(cue.length) { cue[it].code.toByte() }
+    for (bytes in listOf(cue.encodeToByteArray(), latin1)) {
+      val text = DiscSets.sheetText(bytes)
+      assertEquals("dir/Pokémon (Track 1).bin", DiscSets.headerFile("dir/game.cue") { text })
+    }
+    assertNull(DiscSets.sheetText(ByteArray(1024 * 1024)))
   }
 
   @Test
