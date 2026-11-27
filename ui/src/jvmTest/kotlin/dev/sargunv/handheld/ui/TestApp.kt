@@ -20,6 +20,7 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.PerGameState
@@ -69,10 +70,15 @@ internal fun ComposeUiTest.launchApp(
   setContent {
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
+    val dataDir = remember { createTempDirectory("handheld-data").toString() }
+    val games = remember {
+      DeviceGames(library, { storage }, scope, Path(dataDir, "local-content.json"))
+    }
     downloads = remember {
       DownloadManager(
-        queueFile = Path(createTempDirectory("handheld-downloads").toString(), "downloads.json"),
+        queueFile = Path(dataDir, "downloads.json"),
         library = library,
+        games = games,
         credentials = credentials,
         storage = { storage },
         scope = scope,
@@ -86,6 +92,7 @@ internal fun ComposeUiTest.launchApp(
       DeviceDescription("install-1", "Test device", "test", null),
       library,
       downloads,
+      games,
       remember { Path(createTempDirectory("handheld-covers").toString()) },
       Modifier.trackHeldKeys(heldKeys),
       initialSettings = settings,

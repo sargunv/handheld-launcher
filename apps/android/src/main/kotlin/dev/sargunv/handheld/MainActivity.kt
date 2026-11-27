@@ -131,6 +131,7 @@ class MainActivity : ComponentActivity() {
         device = device,
         library = app.libraryCache,
         downloads = app.downloadManager,
+        games = app.deviceGames,
         coverCacheDir = Path(cacheDir.path, "covers"),
         initialSettings = settings,
         saveSettings = app.settingsFile::write,
@@ -168,7 +169,9 @@ class MainActivity : ComponentActivity() {
     // The user may be back from granting all-files access, which queued downloads wait for.
     handheldApp.allFilesAccess.value = Environment.isExternalStorageManager()
     // Games may have been copied onto the device, or deleted, while the app was away.
-    if (!showsDebugScreen && !redirected) handheldApp.downloadManager.recheck()
+    if (!showsDebugScreen && !redirected) {
+      lifecycleScope.launch { handheldApp.deviceGames.rescan() }
+    }
   }
 
   override fun onNewIntent(intent: Intent) {

@@ -10,6 +10,7 @@ import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.domain.GameKey
@@ -49,6 +50,7 @@ class AppState(
   settings: Settings,
   val library: LibraryCache,
   val downloads: DownloadManager,
+  val games: DeviceGames,
   val launcher: GameLauncher,
   val apps: AppCatalog,
   val credentials: CredentialStore,
@@ -205,14 +207,14 @@ class AppState(
         if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
       }
       is OpenTarget.Local -> {
-        suspend fun find() = downloads.localGame(target.path).first { it != null }
+        suspend fun find() = games.localGame(target.path).first { it != null }
         // A scan before the sync brings the platforms finds no local games, so a file not found
         // yet gets a while after it for the scan that follows.
         val local =
           find().takeUnless { it == LocalGameState.Gone }
             ?: awaitSync().let {
               withTimeoutOrNull(LOCAL_SCAN_WAIT) {
-                downloads.localGame(target.path).first {
+                games.localGame(target.path).first {
                   it is LocalGameState.Local || it is LocalGameState.Matched
                 }
               }
@@ -262,7 +264,7 @@ class AppState(
     when (key) {
       is GameKey.Romm -> library.rom(key.romId)
       is GameKey.Local ->
-        (downloads.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
+        (games.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
     }
 
   private suspend fun awaitSync() {

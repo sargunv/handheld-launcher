@@ -92,7 +92,7 @@ private fun rememberShownGame(state: AppState, screen: Screen.Game, playing: Boo
       when (key) {
         is GameKey.Romm -> state.library.rom(key.romId)?.let { value = ShownGame.Found(it) }
         is GameKey.Local ->
-          state.downloads.localGame(key.path).collect {
+          state.games.localGame(key.path).collect {
             when (it) {
               is LocalGameState.Local -> {
                 value = ShownGame.Found(it.game)
