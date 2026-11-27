@@ -24,10 +24,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,6 +60,8 @@ import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.describes
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.receiveAsFlow
 
 /**
  * The games of [source]'s shelf, open from its tab. L and R step between shelves, stopping at the
@@ -239,18 +241,13 @@ private fun GameGrid(state: AppState, games: GridGames) {
   val deviceStates by state.deviceStates.collectAsState()
   val grid = rememberLazyGridState()
   val scope = LocalFocusScope.current
-  val jump = view.jump
-  LaunchedEffect(jump) {
-    if (jump == null) return@LaunchedEffect
-    try {
-      val target = games.index[jump.letter] ?: return@LaunchedEffect
+  val currentGames by rememberUpdatedState(games)
+  LaunchedEffect(view, scope) {
+    view.jumps.receiveAsFlow().collectLatest { letter ->
+      val current = currentGames
+      val target = current.index[letter] ?: return@collectLatest
       grid.scrollToItem(target)
-      // The grid composes the items it scrolled to during the next layout.
-      withFrameNanos {}
-      scope?.focus(gameTag(games.shown[target]))
-    } finally {
-      // Clearing it any sooner would cancel this effect.
-      if (view.jump === jump) view.jump = null
+      scope?.focus(gameTag(current.shown[target]))
     }
   }
   FocusLazyVerticalGrid(

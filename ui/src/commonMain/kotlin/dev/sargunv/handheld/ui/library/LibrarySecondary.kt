@@ -86,7 +86,7 @@ private fun GamesSecondary(state: AppState, filters: Boolean) {
       ) {
         for (letter in letters) {
           TouchChip("touch:jump:$letter", letter.toString(), selected = false) {
-            view.jump = Jump(letter)
+            view.jumpTo(letter)
           }
         }
       }
