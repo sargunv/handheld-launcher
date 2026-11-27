@@ -8,12 +8,16 @@ import android.os.Environment
 import android.os.storage.StorageManager
 import android.provider.Settings as AndroidSettings
 import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.achievements.KeystoreRetroAchievementsStore
+import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.data.auth.KeystoreCredentialStore
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.launch.Emulators
+import dev.sargunv.handheld.session.rcheevosUserAgentClause
 import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.ui.achievements.RetroAchievementsSignIn
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +61,24 @@ class HandheldApp : Application() {
       // Read when a download starts, so it follows what Settings stored last.
       storageSettings = { settingsFile.read().storage },
     )
+  }
+
+  /** The RetroAchievements account, encrypted with a key in the Android Keystore. */
+  val retroAchievementsStore by lazy {
+    KeystoreRetroAchievementsStore(File(filesDir, "retroachievements"))
+  }
+
+  /** The User-Agent RetroAchievements asks for: the app's version, then rcheevos'. */
+  private val retroAchievementsUserAgent by lazy {
+    RetroAchievementsClient.userAgent(versionName, rcheevosUserAgentClause())
+  }
+
+  /** A new client for RetroAchievements, which its caller closes. */
+  fun retroAchievementsClient() = RetroAchievementsClient(retroAchievementsUserAgent)
+
+  /** The device's RetroAchievements sign-in. */
+  val retroAchievementsSignIn by lazy {
+    RetroAchievementsSignIn(retroAchievementsStore, ::retroAchievementsClient)
   }
 
   /** The standalone emulators the launcher started. */

@@ -24,7 +24,6 @@ import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withStarted
-import dev.sargunv.handheld.achievements.retroAchievementsSignIn
 import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.launch.AndroidGameLauncher
@@ -107,7 +106,6 @@ class MainActivity : ComponentActivity() {
           storageVolumes = { app.storageTargets().map { it.root } },
         )
         .also { player = it }
-    val retroAchievements = retroAchievementsSignIn(this)
     // About reads the list of components that the build puts in the app's resources.
     val appInfo =
       AppInfo(app.versionName) {
@@ -119,7 +117,7 @@ class MainActivity : ComponentActivity() {
         launcher = launcher,
         apps = InstalledApps(this),
         romHeaders = SessionRomHeaders,
-        retroAchievements = retroAchievements,
+        retroAchievements = app.retroAchievementsSignIn,
         appInfo = appInfo,
         gameState = app.data.builtInSaveFolders,
       )
