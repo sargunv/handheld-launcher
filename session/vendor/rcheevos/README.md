@@ -11,5 +11,6 @@ the MIT license in `LICENSE`.
 (`rc_client_raintegration*`), external client (`rc_client_external*`) and build
 files. `build.rs` compiles them, and `mise run session:rcheevos-bindings`
 regenerates `src/achievements/ffi.rs` from the headers. To update, replace both
-directories with a newer release's, regenerate the bindings, and update the
-version in `session/licences/libraries/rcheevos.json`, which About shows.
+directories with a newer release's, regenerate the bindings, update the version
+in `session/licences/libraries/rcheevos.json`, which About shows, and replace
+the text in `session/licences/licenses/rcheevos.json` with the new `LICENSE`.
