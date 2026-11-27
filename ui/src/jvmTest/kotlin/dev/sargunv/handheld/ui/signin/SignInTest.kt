@@ -33,7 +33,6 @@ import java.util.Collections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -143,13 +142,6 @@ class SignInTest {
     assertEquals("https://example.com/romm", serverUrl("https://example.com/romm"))
     assertNull(serverUrl(""))
     assertNull(serverUrl("ftp://romm.example.com"))
-  }
-
-  @Test
-  fun notesAnUnencryptedServer() {
-    assertNotNull(unencryptedNote(serverUrl("http://192.168.1.5:8080")))
-    assertNull(unencryptedNote(serverUrl("romm.example.com")))
-    assertNull(unencryptedNote(serverUrl("https://romm.example.com")))
   }
 
   @Test

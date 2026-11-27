@@ -456,8 +456,9 @@ class DownloadManager(
       // A device reports how a request ended, but cancels one through its own endpoint.
       if (status == RommInstallStatus.Cancelled) client.cancelInstallRequest(deviceId, requestId)
       else client.updateInstallRequest(deviceId, requestId, status, reason)
-    } catch (_: RommException) {
+    } catch (e: RommException) {
       // The request stays taken, and the next poll finds the game on the device or queues it.
+      log.w(e) { "Reporting install request $requestId as $status failed" }
     }
   }
 
@@ -590,7 +591,9 @@ internal fun deleteRecursively(path: Path) {
 private fun deleteIfCan(path: Path) {
   try {
     deleteRecursively(path)
-  } catch (_: IOException) {}
+  } catch (e: IOException) {
+    log.w(e) { "Deleting $path failed" }
+  }
 }
 
 /** A download that can't go on until something changes, such as freeing space. */
@@ -610,7 +613,7 @@ internal fun relativePath(files: List<RommRomFile>, file: RommRomFile): String {
   val subfolder = file.filePath.removePrefix(romFolder).trim('/')
   val path = if (subfolder.isEmpty()) file.fileName else "$subfolder/${file.fileName}"
   if (path.split('/').any { it.isEmpty() || it == "." || it == ".." }) {
-    throw DownloadException("Unsafe file name · $path")
+    throw DownloadException("Unsafe file name $path")
   }
   return path
 }

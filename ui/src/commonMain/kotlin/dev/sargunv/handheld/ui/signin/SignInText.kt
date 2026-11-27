@@ -19,24 +19,17 @@ internal fun serverUrl(input: String): String? {
   return withScheme
 }
 
-/**
- * A note for a server [url] that isn't encrypted, or null when it is. Plain HTTP is allowed, for a
- * server on a private network or a tailnet.
- */
-internal fun unencryptedNote(url: String?): String? =
-  if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
-    "Unencrypted connection"
-  } else {
-    null
-  }
-
 internal enum class SignInMethod {
   Code,
   Token,
 }
 
 /** What went wrong signing in to [baseUrl]. */
-internal fun signInErrorMessage(error: Exception, baseUrl: String, method: SignInMethod): String =
+internal fun signInErrorMessage(
+  error: RommException,
+  baseUrl: String,
+  method: SignInMethod,
+): String =
   when (error) {
     is RommException.Unreachable -> "Unreachable · $baseUrl"
     is RommException.Unauthorized,
@@ -51,7 +44,7 @@ internal fun signInErrorMessage(error: Exception, baseUrl: String, method: SignI
       }
     is RommException.RateLimited -> "Server busy · Try again in a minute"
     is RommException.ServerError -> "Server error ${error.status}"
-    else -> listOfNotNull("Sign-in failed", error.message).joinToString(" · ")
+    is RommException.ClientError -> "Sign-in failed · ${error.message}"
   }
 
 /** The clipboard's text, or null when it holds none. */

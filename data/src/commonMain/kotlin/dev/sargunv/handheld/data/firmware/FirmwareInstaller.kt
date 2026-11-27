@@ -133,9 +133,7 @@ class FirmwareInstaller(
       File(staging, "${hexDigest("SHA-256", identity.joinToString("\n").encodeToByteArray())}.part")
     download(file, staged)
     try {
-      mismatchedHash(staged, file)?.let {
-        throw IOException("Firmware hash mismatch · $it")
-      }
+      mismatchedHash(staged, file)?.let { throw IOException("$it mismatch") }
       target.parentFile.mkdirs()
       // Creating the file fails if one exists, so nothing is ever replaced.
       val output =

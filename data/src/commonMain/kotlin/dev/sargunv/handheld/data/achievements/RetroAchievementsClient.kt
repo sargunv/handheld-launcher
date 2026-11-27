@@ -71,7 +71,7 @@ class RetroAchievementsClient(
     val user = response.user
     val token = response.token
     if (!response.success || user == null || token == null) {
-      throw RetroAchievementsException(response.error ?: "Sign-in refused")
+      throw RetroAchievementsException(response.error)
     }
     return RetroAchievementsAccount(username = user, token = token)
   }
@@ -110,7 +110,7 @@ class RetroAchievementsClient(
     try {
       block()
     } catch (e: IOException) {
-      throw RetroAchievementsException("RetroAchievements unreachable · ${e.message}", e)
+      throw RetroAchievementsException("RetroAchievements unreachable", e)
     }
 
   @Serializable
@@ -136,6 +136,6 @@ class RetroAchievementsClient(
   }
 }
 
-/** A request to RetroAchievements that failed, with why in plain words as its message. */
-class RetroAchievementsException(message: String, cause: Throwable? = null) :
+/** A request to RetroAchievements that failed, with why as its message when that's known. */
+class RetroAchievementsException(message: String?, cause: Throwable? = null) :
   Exception(message, cause)

@@ -67,7 +67,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         try {
           Ps2Card.load(bytes)
         } catch (e: Ps2FormatException) {
-          throw unreadable("Unreadable memory card · ${file.name}", e)
+          throw unreadable("Unreadable memory card ${file.name}", e)
         }
       cards += Card(file, folder = false, card, bytes)
     }
@@ -86,7 +86,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
         try {
           Ps2FolderCard.pack(folder.name, files)
         } catch (e: Ps2FormatException) {
-          throw unreadable("Damaged save · ${folder.name}", e)
+          throw unreadable("Damaged save ${folder.name}", e)
         }
       card.inject(packed)
     }
@@ -122,14 +122,14 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       val listing = listing(card)
       listing.corrupt
         .firstOrNull { ps2Owner(it) == save.serial }
-        ?.let { throw IOException("Damaged save · $it") }
+        ?.let { throw IOException("Damaged save $it") }
       for (entry in listing.entries) {
         if (entry.owner != save.serial || saves.any { it.first.name == entry.name }) continue
         val lifted =
           try {
             card.card.extract(entry.firstCluster)
           } catch (e: Ps2FormatException) {
-            throw unreadable("Damaged save · ${entry.name}", e)
+            throw unreadable("Damaged save ${entry.name}", e)
           }
         saves += lifted to card
       }
@@ -141,7 +141,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     try {
       card.card.list()
     } catch (e: Ps2FormatException) {
-      throw unreadable("Unreadable memory card · ${card.file.name}", e)
+      throw unreadable("Unreadable memory card ${card.file.name}", e)
     }
 
   /** The per-game card holding [saves], as sigil builds it. */
@@ -218,7 +218,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
       try {
         card.card.inject(s)
       } catch (e: Ps2NoSpaceException) {
-        throw IOException("Memory card full · ${card.file.name}")
+        throw IOException("${card.file.name} is full")
       }
       placed.getOrPut(card) { mutableListOf() } += s
       changed += card
@@ -237,7 +237,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val now = if (card.file.isFile) card.file.readBytes() else null
     val unchanged =
       card.bytes?.let { now?.contentEquals(it) == true } ?: (now == null || holdsNothing(now))
-    if (!unchanged) throw IOException("Memory card changed · ${card.file.name}")
+    if (!unchanged) throw IOException("${card.file.name} changed while syncing")
   }
 
   /**
@@ -248,13 +248,13 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     val image = card.card.image()
     val back = Ps2Card.load(image)
     if (!placed.all { back.holds(it) }) {
-      throw IOException("Write check failed · ${card.file.name}")
+      throw IOException("Write check failed on ${card.file.name}")
     }
     return {
       checkUnchanged(card)
       writeAtomically(Path(card.file.path), image)
       if (!card.file.readBytes().contentEquals(image)) {
-        throw IOException("Write check failed · ${card.file.name}")
+        throw IOException("Write check failed on ${card.file.name}")
       }
     }
   }
@@ -272,7 +272,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
           val lifted = card.card.extract(entry.firstCluster)
           val files = Ps2FolderCard.unpack(lifted)
           if (Ps2FolderCard.pack(lifted.name, files).md5() != lifted.md5()) {
-            throw IOException("Can't unpack save · ${lifted.name}")
+            throw IOException("Can't unpack ${lifted.name}")
           }
           lifted.name to files
         }
@@ -329,7 +329,7 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
     for (card in cards) {
       val listing = card.list()
       if (listing.corrupt.isNotEmpty()) {
-        throw IOException("Damaged save · ${listing.corrupt.joinToString()}")
+        throw IOException("Damaged save ${listing.corrupt.joinToString()}")
       }
       for (entry in listing.entries) {
         if (entry.owner != save.serial || saves.any { it.name == entry.name }) continue
@@ -378,9 +378,9 @@ internal class Ps2CardUnit(private val save: Ps2CardRoots) : SaveUnit {
 
 private val log = Logger.withTag("Ps2CardUnit")
 
-private fun unreadable(label: String, cause: Ps2FormatException): IOException {
-  log.w(cause) { label }
-  return IOException(label, cause)
+private fun unreadable(message: String, cause: Ps2FormatException): IOException {
+  log.w(cause) { message }
+  return IOException(message, cause)
 }
 
 /**

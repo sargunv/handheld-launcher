@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.io.files.Path
 
 /**
- * Plays games in the built-in session. The platform's core comes from the core manager, downloaded
+ * Plays games in the built-in session. The platform's core comes from [InstalledCores], downloaded
  * the first time and updated when a newer build is out, and the game runs in [SessionActivity],
  * with its saves in a folder of its own in [saves]. The game's save memory syncs with RomM through
  * [playSaves] before the game starts and after it ends, filed under the core; its save states stay
@@ -60,7 +60,7 @@ class BuiltInPlayer(
           }
         }
       } catch (e: IOException) {
-        return note("Core download failed · ${e.message}")
+        return note(listOfNotNull("Core download failed", e.message).joinToString(" · "))
       }
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)

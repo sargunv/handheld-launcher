@@ -137,6 +137,6 @@ class DeviceAuthTest {
   fun failsOnAnUnexpectedAnswer() = runTest {
     val server = serverAnswering(HttpStatusCode.BadRequest to """{"detail":"something_else"}""")
     val error = assertFailsWith<RommException.ClientError> { server.client.awaitDeviceAuth(code) }
-    assertEquals("something_else", error.detail)
+    assertEquals("something_else", error.message)
   }
 }

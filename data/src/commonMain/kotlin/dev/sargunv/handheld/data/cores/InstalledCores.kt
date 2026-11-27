@@ -182,7 +182,7 @@ class InstalledCores(
         val asset = source.assetFor(abi, release.assets.map { it.name })
         if (asset == null) {
           log.w { "${source.repository} ${release.tag} has no build for $abi" }
-          throw CoreDownloadException("No core build · $abi")
+          throw CoreDownloadException("No build for $abi")
         }
         Build(release.assets.first { it.name == asset }.url, release.tag)
       }
@@ -237,7 +237,7 @@ class InstalledCores(
 
   private fun serverError(url: String, status: HttpStatusCode): CoreDownloadException {
     log.w { "$url: $status" }
-    return CoreDownloadException("Core server error · ${status.value}")
+    return CoreDownloadException("Server error ${status.value}")
   }
 
   private companion object {

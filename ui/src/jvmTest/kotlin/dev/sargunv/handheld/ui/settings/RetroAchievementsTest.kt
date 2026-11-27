@@ -124,7 +124,7 @@ class RetroAchievementsTest {
     signIn("player", "wrong")
     awaitText("Invalid user/password combination.")
     onNodeWithTag("settings:ra:status")
-      .assertTextEquals("Invalid user/password combination. Please try again.")
+      .assertTextEquals("Sign-in failed · Invalid user/password combination. Please try again.")
     assertNull(runBlocking { store.load() })
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")
   }

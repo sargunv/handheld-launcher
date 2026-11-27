@@ -126,7 +126,7 @@ class RommClientTest {
 
     val unauthorized = failureFor(HttpStatusCode.Unauthorized, """{"detail":"Invalid token"}""")
     assertTrue(unauthorized is RommException.Unauthorized)
-    assertEquals("Invalid token", unauthorized.detail)
+    assertEquals("Invalid token", unauthorized.message)
     assertTrue(
       failureFor(HttpStatusCode.Forbidden, """{"detail":"Forbidden"}""") is RommException.Forbidden,
     )
@@ -139,7 +139,7 @@ class RommClientTest {
       )
     assertTrue(invalid is RommException.ClientError)
     assertEquals(422, invalid.status)
-    assertEquals("Input should be a valid integer", invalid.detail)
+    assertEquals("Input should be a valid integer", invalid.message)
 
     assertTrue(
       failureFor(HttpStatusCode.TooManyRequests, """{"detail":"Slow down"}""")
@@ -149,7 +149,7 @@ class RommClientTest {
     val failed = failureFor(HttpStatusCode.BadGateway, "<html>Bad Gateway</html>")
     assertTrue(failed is RommException.ServerError)
     assertEquals(502, failed.status)
-    assertNull(failed.detail)
+    assertEquals("Server error 502", failed.message)
   }
 
   @Test
@@ -166,6 +166,13 @@ class RommClientTest {
   fun mapsAConnectionFailure() = runTest {
     assertFailsWith<RommException.Unreachable> {
       MockServer { throw IOException("Connection refused") }.client.platforms()
+    }
+  }
+
+  @Test
+  fun mapsAnAddressTheEngineRefuses() = runTest {
+    assertFailsWith<RommException.Unreachable> {
+      RommClient("https://romm..example.com", "rmm_test").use { it.platforms() }
     }
   }
 
