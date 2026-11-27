@@ -41,7 +41,7 @@ pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick};
 pub use crate::rom_header::{HeaderField, rom_game_id, rom_header_fields};
 pub use crate::save::SaveRam;
 pub use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo, VideoOutput};
-pub use crate::video::{CapturedFrame, Frame, VideoSink};
+pub use crate::video::{CapturedFrame, Frame, Region, VideoSink};
 pub use crate::vulkan::VulkanError;
 
 uniffi::setup_scaffolding!();

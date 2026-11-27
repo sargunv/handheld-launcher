@@ -17,7 +17,7 @@ use crate::gl::{self, Framebuffer, GlApi, GlContext};
 use crate::input::{self, InputState, MAX_PORTS, PortSnapshot};
 use crate::options::{Options, opt_string};
 use crate::session::{SessionError, VideoOutput};
-use crate::video::{self, CapturedFrame, Frame, PixelFormat, Region};
+use crate::video::{self, CapturedFrame, Frame, PixelFormat};
 use crate::vulkan::{self, Negotiation, VulkanContext, VulkanError};
 use crate::{AvInfo, GlError};
 
@@ -75,8 +75,6 @@ pub(crate) struct Host {
     /// Whether the core's audio is dropped rather than played.
     pub(crate) audio_muted: bool,
     pub(crate) video: VideoOutput,
-    /// What a lower window shows of each frame.
-    pub(crate) lower: Region,
     pub(crate) gpu: Option<Gpu>,
     /// The Vulkan context, for a core that renders with Vulkan.
     pub(crate) vulkan: Option<VulkanContext>,
@@ -114,7 +112,6 @@ impl Host {
         input: Arc<InputState>,
         audio_sink: Box<dyn AudioSink>,
         video: VideoOutput,
-        lower: Region,
     ) -> Self {
         Self {
             system_dir,
@@ -132,7 +129,6 @@ impl Host {
             audio_speed: 1.0,
             audio_muted: false,
             video,
-            lower,
             gpu: None,
             vulkan: None,
             hw_render: None,
@@ -309,7 +305,7 @@ impl Host {
                 height,
                 pixels: &self.frame,
             }),
-            VideoOutput::Window { .. } => {
+            VideoOutput::Window { lower, .. } => {
                 let Some(gpu) = &mut self.gpu else { return };
                 let gl = &gpu.context.gl;
                 if gpu.upload.is_none() {
@@ -330,7 +326,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     true,
-                    self.lower,
+                    *lower,
                 );
             }
         }
@@ -348,8 +344,8 @@ impl Host {
                         });
                     }
                 }
-                VideoOutput::Window { .. } => {
-                    vulkan.present(width, height, self.av_info.aspect_ratio, self.lower);
+                VideoOutput::Window { lower, .. } => {
+                    vulkan.present(width, height, self.av_info.aspect_ratio, *lower);
                 }
             }
             return;
@@ -374,7 +370,7 @@ impl Host {
                     pixels: &gpu.readback,
                 });
             }
-            VideoOutput::Window { .. } => {
+            VideoOutput::Window { lower, .. } => {
                 gl::present(
                     &gpu.context,
                     fb,
@@ -382,7 +378,7 @@ impl Host {
                     height,
                     self.av_info.aspect_ratio,
                     !bottom_left_origin,
-                    self.lower,
+                    *lower,
                 );
             }
         }
@@ -892,7 +888,6 @@ mod tests {
             Arc::new(InputState::new()),
             Box::new(NullAudioSink),
             VideoOutput::Sink(Box::new(Discard)),
-            Region::Whole,
         )
     }
 

@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, ValueEnum};
 use handheld_session::{
-    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, SaveRam, Session, SessionConfig,
-    VideoOutput, VideoSink,
+    AudioSink, Frame, InputState, NativeWindow, NullAudioSink, Region, SaveRam, Session,
+    SessionConfig, VideoOutput, VideoSink,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -256,7 +256,7 @@ impl App {
                 window: Some(native_window(&window)?),
                 width: size.width,
                 height: size.height,
-                lower_screen_width_share: None,
+                lower: Region::bottom(None),
             },
             Present::Cpu => {
                 let context =
