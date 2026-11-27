@@ -16,9 +16,8 @@ emulator.
 
 The integration tests run real cores: libretro-samples' software, GL and Vulkan
 test cores, `tests/cores/events.c`, and Gambatte with µCity, a Game Boy Color
-game under the GPL-3.0-or-later with CC BY-SA 4.0 graphics and music.
-`mise run session:fixtures` builds the cores from pinned commits and downloads
-the game into `~/.cache/handheld/session-fixtures`, or
+game. `mise run session:fixtures` builds the cores from pinned commits and
+downloads the game into `~/.cache/handheld/session-fixtures`, or
 `$HANDHELD_SESSION_FIXTURES`. `mise run test` runs it first; the tests
 themselves stay offline. Building the cores needs a C and C++ toolchain and the
 OpenGL and OpenGL ES development libraries
