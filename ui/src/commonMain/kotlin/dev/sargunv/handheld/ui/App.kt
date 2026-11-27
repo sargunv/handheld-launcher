@@ -63,8 +63,7 @@ import kotlinx.io.files.Path
  *   sign-in, a Settings one shows over the sign-in.
  * @param homePresses the presses of the system's HOME while the app is in front as the home app.
  *   Each closes the open dialogs, or when there are none, starts over on Home, or closes Settings
- *   over the sign-in. A play or an upload under way keeps its screen, since leaving it would stop
- *   it.
+ *   over the sign-in. A play under way keeps its screen.
  */
 @Composable
 fun App(

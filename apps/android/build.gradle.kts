@@ -1,5 +1,7 @@
 import dev.sargunv.handheld.gradle.SessionLicences
 import dev.sargunv.handheld.gradle.androidAbis
+import dev.sargunv.handheld.gradle.miseNdk
+import dev.sargunv.handheld.gradle.useNdk
 
 plugins {
   id("com.android.application")
@@ -35,11 +37,7 @@ aboutLibraries { collect { configPath = sessionLicences.flatMap { it.outputDir }
 android {
   namespace = "dev.sargunv.handheld"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
-  // The NDK mise.toml pins, in a directory named for its version, strips the native libraries.
-  providers.environmentVariable("ANDROID_NDK_HOME").orNull?.let {
-    ndkPath = it
-    ndkVersion = File(it).name
-  }
+  useNdk(providers.miseNdk())
 
   defaultConfig {
     applicationId = "dev.sargunv.handheld"

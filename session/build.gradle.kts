@@ -1,12 +1,13 @@
 import dev.sargunv.handheld.gradle.CargoBuild
 import dev.sargunv.handheld.gradle.UniffiBindgen
 import dev.sargunv.handheld.gradle.androidAbis
+import dev.sargunv.handheld.gradle.miseNdk
+import dev.sargunv.handheld.gradle.useNdk
 
 plugins { id("com.android.library") }
 
 val workspaceDir: Directory = rootProject.layout.projectDirectory
-// The NDK mise.toml pins, in a directory named for its version, builds and strips the library.
-val ndkHome = providers.environmentVariable("ANDROID_NDK_HOME")
+val ndkHome = providers.miseNdk()
 val rustSources =
   files(
     fileTree("src"),
@@ -45,10 +46,7 @@ val generateBindings =
 android {
   namespace = "dev.sargunv.handheld.session"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
-  ndkHome.orNull?.let {
-    ndkPath = it
-    ndkVersion = File(it).name
-  }
+  useNdk(ndkHome)
   defaultConfig { minSdk = libs.versions.android.minSdk.get().toInt() }
   // src holds the Rust crate.
   sourceSets["main"].kotlin.directories += "kotlin"
