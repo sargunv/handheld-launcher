@@ -46,13 +46,18 @@ fn plays_the_game_from_a_zip() {
         .unwrap();
     zip.finish().unwrap();
 
+    let plain = {
+        let mut h = Harness::with(CORE, |c| c.content = Some(fixture(GAME))).unwrap();
+        h.run(600);
+        common::sha256(&h.frames.last())
+    };
     let mut h = Harness::with(CORE, |c| c.content = Some(archive)).unwrap();
     let extracted = h.dirs.path().join("content/ucity.gbc");
     assert!(extracted.exists());
     h.run(600);
     assert_eq!(
         common::sha256(&h.frames.last()),
-        "c669d3a0dfff3049be5b7e6d41dd5717d0603ba2ad5e792e6c99bc80ef85394a",
+        plain,
         "the zipped game shows the same title screen"
     );
 }
