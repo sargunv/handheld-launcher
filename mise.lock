@@ -194,6 +194,40 @@ checksum_source = "mise-versions"
 url = "https://github.com/EmbarkStudios/cargo-about/releases/download/0.9.3/cargo-about-0.9.3-x86_64-pc-windows-msvc.tar.gz"
 url_api = "https://api.github.com/repos/EmbarkStudios/cargo-about/releases/assets/677833098"
 
+[[tools."github:bbqsrc/cargo-ndk"]]
+version = "4.1.2"
+backend = "github:bbqsrc/cargo-ndk"
+specifiers = ["4.1.2"]
+
+[tools."github:bbqsrc/cargo-ndk"."platforms.linux-arm64"]
+checksum = "sha256:87ff3bf1fa9dfe630b4037f3ce90b3ab9af90477b8dfc772208e466cbcaa4e57"
+checksum_source = "mise-versions"
+url = "https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-aarch64-unknown-linux-gnu-v4.1.2.tgz"
+url_api = "https://api.github.com/repos/bbqsrc/cargo-ndk/releases/assets/280972295"
+
+[tools."github:bbqsrc/cargo-ndk"."platforms.linux-x64"]
+checksum = "sha256:9451622c4567e8abb2c8005001855e32901c0b716ccdd3a173a4375fd03426e1"
+checksum_source = "mise-versions"
+url = "https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-x86_64-unknown-linux-gnu-v4.1.2.tgz"
+url_api = "https://api.github.com/repos/bbqsrc/cargo-ndk/releases/assets/280972291"
+
+[tools."github:bbqsrc/cargo-ndk"."platforms.macos-arm64"]
+checksum = "sha256:76d87f5f1bbbbe3980b979f7d1bdef00849dde11c669be243223942b296f5006"
+url = "https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-aarch64-apple-darwin-v4.1.2.tgz"
+url_api = "https://api.github.com/repos/bbqsrc/cargo-ndk/releases/assets/280972298"
+
+[tools."github:bbqsrc/cargo-ndk"."platforms.windows-arm64"]
+checksum = "sha256:85547886eb4d988c9e3b84db382dc9aeba271bd7fabc721b265abfb7038dc64a"
+checksum_source = "mise-versions"
+url = "https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-aarch64-pc-windows-msvc-v4.1.2.zip"
+url_api = "https://api.github.com/repos/bbqsrc/cargo-ndk/releases/assets/280972297"
+
+[tools."github:bbqsrc/cargo-ndk"."platforms.windows-x64"]
+checksum = "sha256:e2687c647748a8fb1c06981a4fc39376a5b5f640474db3f73de7ae247b7c55e0"
+checksum_source = "mise-versions"
+url = "https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-x86_64-pc-windows-msvc-v4.1.2.zip"
+url_api = "https://api.github.com/repos/bbqsrc/cargo-ndk/releases/assets/280972296"
+
 [[tools."github:jdx/fnox"]]
 version = "1.50.0"
 backend = "github:jdx/fnox"

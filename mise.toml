@@ -10,13 +10,18 @@ lockfile_mode = "merge"
 "aqua:jdx/jactionlint" = "2.6.0"
 "aqua:koalaman/shellcheck" = "0.11.0"
 "core:java" = "zulu-25.38.201.0"
+# The targets of buildSrc's androidAbis.
 "core:rust" = { version = "1.100.0", profile = "minimal", components = "rustfmt,clippy", targets = "aarch64-linux-android,x86_64-linux-android" }
 "github:EmbarkStudios/cargo-about" = "0.9.3"
+"github:bbqsrc/cargo-ndk" = "4.1.2"
 "github:jdx/fnox" = "1.50.0"
 
 [env]
 # The runner images set ANDROID_HOME; locally it defaults to Android Studio's path.
 ANDROID_HOME = "{% if os() == 'macos' %}{% set sdk = env.HOME ~ '/Library/Android/sdk' %}{% else %}{% set sdk = env.HOME ~ '/Android/Sdk' %}{% endif %}{{ get_env(name='ANDROID_HOME', default=sdk) }}"
+# The NDK the session builds with, which cargo-ndk finds here. Install it with
+# `sdkmanager --install "ndk;<version>"`.
+ANDROID_NDK_HOME = "{{ env.ANDROID_HOME }}/ndk/30.0.16248370"
 
 [tasks.check]
 description = "Run the formatters and linters"

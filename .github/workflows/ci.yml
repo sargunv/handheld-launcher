@@ -37,11 +37,10 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends
           libgl-dev libgles-dev libegl-mesa0 libgl1-mesa-dri libvulkan1
           mesa-vulkan-drivers
-      # The session's Android build uses the NDK that libs.versions.toml pins.
+      # The session's Android build uses the NDK that mise.toml pins.
       - run: >-
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install
-          "ndk;$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p'
-          gradle/libs.versions.toml)"
+          "ndk;${ANDROID_NDK_HOME##*/}"
       # The session's test fixtures, which fixtures.sh builds from the sources
       # fixture-sources.sh pins.
       - uses: actions/cache@v6
@@ -56,12 +55,8 @@ jobs:
           HANDHELD_REQUIRE_EGL: "1"
           HANDHELD_REQUIRE_VULKAN: "1"
       # The session's build script compiles rcheevos, so the Android check needs
-      # the NDK's compiler, as Gradle's Android build sets it.
+      # the NDK's compiler, which cargo-ndk sets, as in Gradle's build.
       - run: |
-          ndk="$ANDROID_HOME/ndk/$(sed -n 's/^android-ndk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)"
           min_sdk="$(sed -n 's/^android-minSdk = "\(.*\)"$/\1/p' gradle/libs.versions.toml)"
-          bin="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          CC_aarch64_linux_android="$bin/aarch64-linux-android$min_sdk-clang" \
-            AR_aarch64_linux_android="$bin/llvm-ar" \
-            cargo clippy -p handheld-session --target aarch64-linux-android \
-            --all-targets -- -D warnings
+          cargo ndk --target arm64-v8a --platform "$min_sdk" \
+            clippy -p handheld-session --all-targets -- -D warnings
