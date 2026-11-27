@@ -29,6 +29,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
@@ -47,7 +48,9 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.places.AppState
-import dev.sargunv.handheld.ui.signin.Help
+import dev.sargunv.handheld.ui.signin.HelpHolder
+import dev.sargunv.handheld.ui.signin.help
+import kotlinx.coroutines.channels.Channel
 
 /** The sections of Settings, in the order the page lists them. */
 enum class SettingsSection(val title: String, internal val description: String) {
@@ -79,20 +82,17 @@ class SettingsView {
   var section: SettingsSection by mutableStateOf(SettingsSection.Controls)
     internal set
 
-  /** What the lower screen says about the focused setting; null describes the section. */
-  internal var help: Help? by mutableStateOf(null)
+  /** What the lower screen says about the focused setting, in place of the section's. */
+  internal val help = HelpHolder()
 
-  /** The focused setting, when it has a menu, which the hints then offer. */
-  internal var menuKey: String? by mutableStateOf(null)
-
-  /** A section to move focus to once the page shows, for development tools. */
-  internal var pendingJump: SettingsSection? by mutableStateOf(null)
+  /** Sections to move focus to once the page shows, for development tools. */
+  internal val jumps = Channel<SettingsSection>(Channel.CONFLATED)
 
   /** Shows [section], with focus on it in the list. */
   fun jumpTo(section: SettingsSection) {
     this.section = section
-    help = null
-    pendingJump = section
+    help.shown = null
+    jumps.trySend(section)
   }
 }
 
@@ -126,12 +126,12 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
 
   FocusScope(Modifier.fillMaxSize(), initialFocus = section.key) {
     val focusScope = LocalFocusScope.current
-    LaunchedEffect(view.pendingJump) {
-      val jump = view.pendingJump ?: return@LaunchedEffect
-      // The list composes its items during layout, so wait for a frame to find them.
-      withFrameNanos {}
-      focusScope?.focus(jump.key)
-      view.pendingJump = null
+    LaunchedEffect(view, focusScope) {
+      for (jump in view.jumps) {
+        // The list composes its items during layout, so wait for a frame to find them.
+        withFrameNanos {}
+        focusScope?.focus(jump.key)
+      }
     }
     Column(Modifier.fillMaxSize()) {
       Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 48.dp)) {
@@ -149,7 +149,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
               selected = it == section,
               onFocus = {
                 view.section = it
-                view.help = null
+                view.help.shown = null
                 storageSection.refused = false
               },
               // A section without settings to focus, such as About, keeps focus in the list.
@@ -180,7 +180,7 @@ internal fun SettingsPage(state: AppState, backHint: String = "Home") {
         listOf(
             Hint(Action.Confirm, "Choose"),
             Hint(Action.Back, backHint),
-            Hint(Action.Menu, "Menu").takeIf { view.menuKey != null },
+            Hint(Action.Menu, "Menu").takeIf { view.help.shown?.hasMenu == true },
             Hint(Action.MainMenu, "Main menu"),
           )
           .filterNotNull(),
@@ -233,22 +233,20 @@ internal fun SettingRow(
   key: String,
   label: String,
   value: String?,
-  help: Help,
+  help: String,
   enabled: Boolean = true,
   onMenu: (() -> Unit)? = null,
   onConfirm: (() -> Unit)? = null,
 ) {
   Row(
     Modifier.fillMaxWidth()
-      .onFocusChanged {
-        if (it.isFocused) view.help = help
-        when {
-          it.isFocused && onMenu != null -> view.menuKey = key
-          it.isFocused || view.menuKey == key -> view.menuKey = null
-        }
-      }
+      .help(view.help, label, help, hasMenu = onMenu != null)
       .then(if (enabled) Modifier else Modifier.semantics { disabled() })
-      .focusItem(key, onConfirm = onConfirm) { action ->
+      .focusItem(
+        key,
+        onConfirm = onConfirm?.takeIf { enabled },
+        role = Role.Button.takeIf { onConfirm != null },
+      ) { action ->
         action == Action.Menu && onMenu?.invoke() != null
       }
       .background(Placeholder.tile)
@@ -274,10 +272,10 @@ internal fun LazyListScope.sectionHeading(title: String) {
 /** The lower screen on Settings: the focused setting, or the focused section. */
 @Composable
 internal fun SettingsSecondary(view: SettingsView) {
-  val help = view.help
+  val help = view.help.shown
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
-      help?.title ?: view.section.title,
+      help?.label ?: view.section.title,
       color = Placeholder.text,
       fontSize = 24.sp,
       modifier = Modifier.testTag("settings:help:title").semantics { heading() },

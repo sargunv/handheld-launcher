@@ -25,7 +25,6 @@ import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
-import dev.sargunv.handheld.ui.signin.Help
 
 @Composable
 internal fun rememberStorageSection(state: AppState): StorageSection =
@@ -76,10 +75,6 @@ internal class StorageSection(val state: AppState) {
   }
 }
 
-private fun LazyListScope.note(key: String, text: String) {
-  item(key = key) { Text(text, color = Placeholder.mutedText, modifier = Modifier.testTag(key)) }
-}
-
 /**
  * The mounted storage, in the order new games fill it, each turned on or off with Confirm and moved
  * from its menu.
@@ -100,7 +95,7 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
           "settings:storage:${target.id}",
           target.label,
           "$free · ${if (on) "On" else "Off"}",
-          Help(target.label, "$free, at ${target.root}"),
+          "$free, at ${target.root}",
           onMenu = { section.openMenu(target) },
           onConfirm = { section.toggle(target, spaces.map { it.target }) },
         )
@@ -119,11 +114,14 @@ internal fun LazyListScope.storage(section: StorageSection, spaces: List<Storage
       )
     }
   }
-  note(
-    "settings:storage:note",
-    "New games go to the first storage that's on and has room. Games on storage that's off " +
-      "still play.",
-  )
+  item(key = "note") {
+    Text(
+      "New games go to the first storage that's on and has room. Games on storage that's off " +
+        "still play.",
+      color = Placeholder.mutedText,
+      modifier = Modifier.testTag("settings:storage:note"),
+    )
+  }
 }
 
 /**

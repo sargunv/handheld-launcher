@@ -25,7 +25,6 @@ import dev.sargunv.handheld.ui.game.OpenWithScope
 import dev.sargunv.handheld.ui.game.platformOpensIn
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Screen
-import dev.sargunv.handheld.ui.signin.Help
 
 @Composable
 internal fun rememberEmulatorsSection(state: AppState): EmulatorsSection =
@@ -70,11 +69,8 @@ internal fun LazyListScope.emulators(section: EmulatorsSection) {
         "settings:closeEmulators",
         "Close emulators",
         if (on) "On" else "Off",
-        Help(
-          "Close emulators",
-          "Checks whether an emulator is still running before a game starts, and offers to " +
-            "close it, so a newer save from RomM can't be overwritten.",
-        ),
+        "Checks whether an emulator is still running before a game starts, and offers to " +
+          "close it, so a newer save from RomM can't be overwritten.",
       ) {
         if (on) state.settings = state.settings.copy(closeEmulators = false)
         else section.explainCloseEmulators = true
@@ -111,10 +107,7 @@ private fun PlatformRows(state: AppState) {
         "settings:emulators:${platform.slug}",
         platform.name,
         opensIn ?: "No app installed",
-        Help(
-          platform.name,
-          "The app its games open in, unless a game or a collection chooses another.",
-        ),
+        "The app its games open in, unless a game or a collection chooses another.",
       ) {
         state.navigator.push(Screen.OpenWith(OpenWithScope.Platform(slug), platform.name))
       }
@@ -131,8 +124,6 @@ internal fun CloseEmulatorsDialog(onTurnOn: () -> Unit, onDismissRequest: () -> 
     "Turn on",
     onConfirm = onTurnOn,
     onDismissRequest = onDismissRequest,
-    fact =
-      "Uses the device's root service. Closing skips the emulator's own exit, so unsaved " +
-        "progress can be lost.",
+    fact = "Uses root · Unsaved progress can be lost",
   )
 }
