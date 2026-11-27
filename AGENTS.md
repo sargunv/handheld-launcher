@@ -28,7 +28,8 @@ It sets the scope and the priorities. Before you build a screen, read
 `mise run <task> --help` shows a task's arguments. What the list doesn't say:
 
 - `mise run run:android`, `mise run android:open` and `mise run run:desktop`
-  take `HANDHELD_LAYOUT=frame` (or `folded`) to force a dual-screen layout.
+  take `HANDHELD_LAYOUT`: `frame` shows both screens in one window, `folded`
+  shows one screen, and the desktop app shows the frame by default.
 - `mise run android:open <target>` shows a screen straight away;
   `mise run android:open --help` lists the targets. Before sign-in, only the
   `settings` targets show. It's the launch intent's `open` extra, so
