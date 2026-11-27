@@ -23,7 +23,7 @@ use crate::achievements::{
 use crate::input::{Button, InputState, MAX_PORTS, Stick, Trigger};
 use crate::pacing::{self, Vsync};
 use crate::platform::{self, PlatformWindow, VsyncClock};
-use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo};
+use crate::session::{AvInfo, Session, SessionConfig, SessionError};
 use crate::video::{CapturedFrame, Region};
 
 /// What [`GameSession::start`] needs.
@@ -62,8 +62,7 @@ pub struct SessionOptions {
     #[uniffi(default = None)]
     pub lower_screen_width_share: Option<f32>,
     /// How the session takes part in RetroAchievements, or `None` for not at
-    /// all. Its requests go to the `http` that [`GameSession::start`] takes,
-    /// so without one, the session doesn't take part either.
+    /// all. Its requests go to [`SessionListener::achievements_request`].
     #[uniffi(default = None)]
     pub achievements: Option<AchievementOptions>,
 }
@@ -77,48 +76,6 @@ pub enum Screen {
     Lower,
 }
 
-/// What a running session's core says about itself.
-#[derive(Clone, Debug, Default, PartialEq, uniffi::Record)]
-pub struct SessionInfo {
-    pub library_name: String,
-    pub library_version: String,
-    /// Frames per second the session runs at.
-    pub fps: f64,
-    /// The usual frame size.
-    pub base_width: u32,
-    pub base_height: u32,
-    /// The intended display aspect ratio, or 0 for the frame's own.
-    pub aspect_ratio: f32,
-}
-
-impl SessionInfo {
-    fn new(system: &SystemInfo, av: AvInfo) -> Self {
-        let mut info = Self {
-            library_name: system.library_name.clone(),
-            library_version: system.library_version.clone(),
-            ..Self::default()
-        };
-        info.set_av(av);
-        info
-    }
-
-    /// Takes the frame size, aspect ratio and frame rate in `av`, and returns
-    /// whether they changed.
-    fn set_av(&mut self, av: AvInfo) -> bool {
-        let changed = (
-            self.fps,
-            self.base_width,
-            self.base_height,
-            self.aspect_ratio,
-        ) != (av.fps, av.base_width, av.base_height, av.aspect_ratio);
-        self.fps = av.fps;
-        self.base_width = av.base_width;
-        self.base_height = av.base_height;
-        self.aspect_ratio = av.aspect_ratio;
-        changed
-    }
-}
-
 /// What a session tells the app as it runs. The session calls it on a thread
 /// of its own, one call at a time, so it may call the session back.
 #[uniffi::export(with_foreign)]
@@ -130,20 +87,33 @@ pub trait SessionListener: Send + Sync {
 
     /// Something happened to the game's achievements, such as an unlock.
     fn achievement_event(&self, event: AchievementEvent);
+
+    /// Sends `request` to RetroAchievements, which the app does with its own
+    /// HTTP client. It should return at once: the app sends the request in
+    /// the background, then hands its response to `reply`.
+    ///
+    /// RetroAchievements asks clients to name themselves in the User-Agent,
+    /// as `HandheldLauncher/<version> rcheevos/<version>`, which
+    /// [`crate::rcheevos_user_agent_clause`] ends.
+    fn achievements_request(&self, request: AchievementsRequest, reply: Arc<AchievementsReply>);
 }
 
-/// Sends a session's requests to RetroAchievements, which the app does with
-/// its own HTTP client. The session calls it on a thread of its own, one call
-/// at a time, and it should return at once: the app sends the request in the
-/// background, then hands its response to
-/// [`GameSession::achievements_response`] with the request's `id`.
-///
-/// RetroAchievements asks clients to name themselves in the User-Agent, as
-/// `HandheldLauncher/<version> rcheevos/<version>`, which
-/// [`crate::rcheevos_user_agent_clause`] ends.
-#[uniffi::export(with_foreign)]
-pub trait AchievementsHttp: Send + Sync {
-    fn request(&self, id: u64, request: AchievementsRequest);
+/// Takes the response to one [`SessionListener::achievements_request`].
+#[derive(uniffi::Object)]
+pub struct AchievementsReply {
+    id: u64,
+    commands: Sender<Command>,
+}
+
+#[uniffi::export]
+impl AchievementsReply {
+    /// Hands the session the response: its HTTP `status` and `body`, or a
+    /// `status` of `None` when the server couldn't be reached.
+    pub fn respond(&self, status: Option<u16>, body: Vec<u8>) {
+        let _ = self
+            .commands
+            .send(Command::AchievementsResponse(self.id, status, body));
+    }
 }
 
 /// What the session thread tells the listener.
@@ -153,41 +123,35 @@ enum Event {
     Request(u64, AchievementsRequest),
 }
 
-/// Sends events to the listener, if the app gave one, on a thread of their
-/// own, so a listener that calls the session back can't block it.
+/// Sends events to the listener on a thread of their own, so a listener that
+/// calls the session back can't block it.
 #[derive(Clone)]
-struct Events(Option<Sender<Event>>);
+struct Events(Sender<Event>);
 
 impl Events {
-    fn new(
-        listener: Option<Arc<dyn SessionListener>>,
-        http: Option<Arc<dyn AchievementsHttp>>,
-    ) -> std::io::Result<Self> {
-        if listener.is_none() && http.is_none() {
-            return Ok(Self(None));
-        }
+    /// Starts the listener's thread, whose replies go to `commands`.
+    fn new(listener: Arc<dyn SessionListener>, commands: Sender<Command>) -> std::io::Result<Self> {
         let (events, receiver) = mpsc::channel();
         std::thread::Builder::new()
             .name("session-events".into())
             .spawn(move || {
                 for event in receiver {
-                    match (event, &listener, &http) {
-                        (Event::CoreQuit, Some(listener), _) => listener.core_quit(),
-                        (Event::Achievement(event), Some(listener), _) => {
-                            listener.achievement_event(event)
+                    match event {
+                        Event::CoreQuit => listener.core_quit(),
+                        Event::Achievement(event) => listener.achievement_event(event),
+                        Event::Request(id, request) => {
+                            let commands = commands.clone();
+                            let reply = Arc::new(AchievementsReply { id, commands });
+                            listener.achievements_request(request, reply);
                         }
-                        (Event::Request(id, request), _, Some(http)) => http.request(id, request),
-                        _ => {}
                     }
                 }
             })?;
-        Ok(Self(Some(events)))
+        Ok(Self(events))
     }
 
     fn send(&self, event: Event) {
-        if let Some(events) = &self.0 {
-            let _ = events.send(event);
-        }
+        let _ = self.0.send(event);
     }
 }
 
@@ -202,7 +166,8 @@ impl Events {
 pub struct GameSession {
     commands: Sender<Command>,
     input: Arc<InputState>,
-    info: Arc<Mutex<SessionInfo>>,
+    /// The core's video mode, for [`GameSession::touch`].
+    av: Arc<Mutex<AvInfo>>,
     /// Whether a lower window is attached, so the main window shows only the
     /// frame's top half.
     split: AtomicBool,
@@ -235,23 +200,19 @@ impl GameSession {
     /// Loads the core and its content on a new thread, and returns once
     /// they're ready to run, paused. The session tells `listener` when the
     /// core quits or something happens to the game's achievements, and sends
-    /// RetroAchievements requests to `http`.
+    /// it RetroAchievements requests.
     ///
     /// The core is native code that runs in this process: only start cores
     /// the user chose to trust.
-    #[uniffi::constructor(default(listener = None, http = None))]
+    #[uniffi::constructor]
     pub fn start(
-        mut options: SessionOptions,
-        listener: Option<Arc<dyn SessionListener>>,
-        http: Option<Arc<dyn AchievementsHttp>>,
+        options: SessionOptions,
+        listener: Arc<dyn SessionListener>,
     ) -> Result<Arc<Self>, SessionError> {
         platform::init_logging();
-        if http.is_none() {
-            options.achievements = None;
-        }
         let input = Arc::new(InputState::new());
-        let events = Events::new(listener, http)?;
         let (commands, receiver) = mpsc::channel();
+        let events = Events::new(listener, commands.clone())?;
         let (started, start_result) = mpsc::channel();
         let thread_input = input.clone();
         let lower = Region::bottom(options.lower_screen_width_share);
@@ -259,10 +220,10 @@ impl GameSession {
             .name("session".into())
             .spawn(move || run(options, lower, thread_input, events, receiver, started))?;
         match start_result.recv() {
-            Ok(Ok(info)) => Ok(Arc::new(Self {
+            Ok(Ok(av)) => Ok(Arc::new(Self {
                 commands,
                 input,
-                info,
+                av,
                 split: AtomicBool::new(false),
                 lower,
                 thread: Mutex::new(Some(thread)),
@@ -276,12 +237,6 @@ impl GameSession {
                 Err(SessionError::Stopped)
             }
         }
-    }
-
-    /// What the core says about itself: as it started, with the frame size,
-    /// aspect ratio and frame rate it changed to since.
-    pub fn info(&self) -> SessionInfo {
-        self.info.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Presents to `window`, an `ANativeWindow` pointer, from now on, instead
@@ -346,15 +301,12 @@ impl GameSession {
             Screen::Main if self.split.load(Ordering::Relaxed) => Region::Top,
             Screen::Main => Region::Whole,
         };
-        let (base_width, base_height, aspect_ratio) = {
-            let info = self.info.lock().unwrap_or_else(|e| e.into_inner());
-            (info.base_width, info.base_height, info.aspect_ratio)
-        };
+        let av = *self.av.lock().unwrap_or_else(|e| e.into_inner());
         let position = crate::video::pointer_position(
             region,
-            base_width,
-            base_height,
-            aspect_ratio,
+            av.base_width,
+            av.base_height,
+            av.aspect_ratio,
             width,
             height,
             x,
@@ -441,15 +393,6 @@ impl GameSession {
         self.request(Command::AchievementStatus)
     }
 
-    /// Hands the session the response to the RetroAchievements request `id`:
-    /// its HTTP `status` and `body`, or a `status` of `None` when the server
-    /// couldn't be reached.
-    pub fn achievements_response(&self, id: u64, status: Option<u16>, body: Vec<u8>) {
-        let _ = self
-            .commands
-            .send(Command::AchievementsResponse(id, status, body));
-    }
-
     /// Writes save memory to its file, unloads the core and ends the
     /// session's thread. Stopping a stopped session does nothing.
     pub fn stop(&self) -> Result<(), SessionError> {
@@ -496,7 +439,7 @@ fn run(
     input: Arc<InputState>,
     events: Events,
     commands: Receiver<Command>,
-    started: Sender<Result<Arc<Mutex<SessionInfo>>, SessionError>>,
+    started: Sender<Result<Arc<Mutex<AvInfo>>, SessionError>>,
 ) {
     let mut session = match start_session(options, lower, input, &events) {
         Ok(session) => session,
@@ -505,14 +448,13 @@ fn run(
             return;
         }
     };
-    let info = SessionInfo::new(session.system_info(), session.av_info());
     session.set_audio_paused(true);
-    let info = Arc::new(Mutex::new(info));
-    if started.send(Ok(info.clone())).is_err() {
+    let av = Arc::new(Mutex::new(session.av_info()));
+    if started.send(Ok(av.clone())).is_err() {
         return;
     }
     let runner = Runner {
-        info,
+        av,
         events: events.clone(),
         session,
         window: None,
@@ -564,9 +506,9 @@ fn start_session(
 /// The session thread's state.
 struct Runner {
     session: Session,
-    /// The info the app sees, which the session updates as the core changes
-    /// its video mode.
-    info: Arc<Mutex<SessionInfo>>,
+    /// The core's video mode, which the session updates as the core changes
+    /// it.
+    av: Arc<Mutex<AvInfo>>,
     events: Events,
     window: Option<PlatformWindow>,
     lower_window: Option<PlatformWindow>,
@@ -642,7 +584,7 @@ impl Runner {
             for event in self.session.take_achievement_events() {
                 self.events.send(Event::Achievement(event));
             }
-            self.update_info();
+            self.update_av();
             if self.session.shutdown_requested() {
                 log::info!("the core asked to quit");
                 break true;
@@ -650,16 +592,17 @@ impl Runner {
         }
     }
 
-    /// Updates `info` to a frame size, aspect ratio or frame rate the core
-    /// changed to.
-    fn update_info(&self) {
-        let mut info = self.info.lock().unwrap_or_else(|e| e.into_inner());
-        if info.set_av(self.session.av_info()) {
+    /// Updates `av` to a video mode the core changed to.
+    fn update_av(&self) {
+        let av = self.session.av_info();
+        let mut shared = self.av.lock().unwrap_or_else(|e| e.into_inner());
+        if *shared != av {
+            *shared = av;
             log::info!(
                 "the core changed to {}x{} at {:.2} fps",
-                info.base_width,
-                info.base_height,
-                info.fps
+                av.base_width,
+                av.base_height,
+                av.fps
             );
         }
     }
