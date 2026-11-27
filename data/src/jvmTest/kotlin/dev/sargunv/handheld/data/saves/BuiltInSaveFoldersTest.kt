@@ -91,11 +91,11 @@ class BuiltInSaveFoldersTest {
     File(local, "uCity.srm").apply { parentFile.mkdirs() }.writeText("local save")
     File(own, "uCity.srm").apply { parentFile.mkdirs() }.writeText("rom save")
 
-    folders.adopt(listOf(adoption))
+    assertEquals(listOf(adoption), folders.adopt(listOf(adoption)))
     assertEquals("local save", File(local, "uCity.srm").readText())
 
     signedIn = true
-    folders.adopt(listOf(adoption))
+    assertEquals(emptyList(), folders.adopt(listOf(adoption)))
     assertFalse(local.exists())
     assertEquals(1, keptSaves(history, 7).size)
   }

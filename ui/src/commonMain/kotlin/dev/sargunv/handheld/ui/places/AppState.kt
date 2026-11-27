@@ -77,7 +77,10 @@ class AppState(
   /** Everything kept per game: the settings, and what the platform keeps. */
   private val gameState: PerGameState =
     PerGameState.of(
-      PerGameState { this.settings = this.settings.adopted(it) },
+      PerGameState {
+        this.settings = this.settings.adopted(it)
+        emptyList()
+      },
       platformState,
     )
 
@@ -225,7 +228,7 @@ class AppState(
   private suspend fun adopt(pending: List<Adoption>) {
     val new = pending - handover.value
     if (new.isEmpty()) return
-    gameState.adopt(new)
-    handover.update { it + new }
+    val unfinished = gameState.adopt(new)
+    handover.update { it + (new - unfinished.toSet()) }
   }
 }

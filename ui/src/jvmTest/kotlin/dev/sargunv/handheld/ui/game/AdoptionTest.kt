@@ -30,6 +30,7 @@ import io.ktor.http.HttpStatusCode
 import java.io.File
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -99,7 +100,11 @@ class AdoptionTest {
         settings = Settings(launch = LaunchSettings(games = mapOf(local to choice))),
         saveSettings = { saved += it },
         launcher = launcher,
-        gameState = PerGameState { adopted += it },
+        gameState =
+          PerGameState {
+            adopted += it
+            emptyList()
+          },
         open = OpenTarget.Local(homebrew.path),
       )
     awaitText("Play")
@@ -158,6 +163,7 @@ class AdoptionTest {
           for (adoption in adoptions) {
             saves.remove(adoption.local)?.let { saves[adoption.rom] = it }
           }
+          emptyList()
         },
       open = OpenTarget.Game(rom.romId),
     )
@@ -165,6 +171,35 @@ class AdoptionTest {
     press(Key.ButtonA)
     waitForIdle()
     letAdopt.complete(Unit)
+    awaitText("Played")
+    assertEquals("local save", runBlocking { playedWith.await() })
+  }
+
+  @Test
+  fun anAdoptionThatCouldntFinishIsTriedAgainWhenTheRomPlays() = runComposeUiTest {
+    serverHasHomebrew = true
+    val saves = ConcurrentHashMap(mapOf<GameKey, String>(local to "local save"))
+    // The first try fails, as when the save folder can't move.
+    val tries = AtomicInteger()
+    val playedWith = CompletableDeferred<String?>()
+    launchApp(
+      server,
+      library = library,
+      storage = listOf(StorageTarget(storage.path, "Test storage")),
+      launcher = FakeLauncher(onPlay = { playedWith.complete(saves[rom]) }),
+      gameState =
+        PerGameState { adoptions ->
+          if (adoptions.isNotEmpty() && tries.getAndIncrement() == 0) return@PerGameState adoptions
+          for (adoption in adoptions) {
+            saves.remove(adoption.local)?.let { saves[adoption.rom] = it }
+          }
+          emptyList()
+        },
+      open = OpenTarget.Game(rom.romId),
+    )
+    awaitText("Play")
+    waitUntil(timeoutMillis = 5_000) { tries.get() > 0 }
+    press(Key.ButtonA)
     awaitText("Played")
     assertEquals("local save", runBlocking { playedWith.await() })
   }

@@ -23,20 +23,22 @@ class BuiltInSaveFolders(
   private val clock: Clock = Clock.System,
   private val history: suspend () -> File?,
 ) : PerGameState {
-  override suspend fun adopt(adoptions: List<Adoption>) =
+  override suspend fun adopt(adoptions: List<Adoption>): List<Adoption> =
     withContext(Dispatchers.IO) {
-      for (adoption in adoptions) {
+      // What's left of one that fails stays in the local folder for the next adopt.
+      adoptions.filterNot {
         try {
-          adopt(adoption)
-        } catch (e: IOException) {
-          // What's left stays in the local folder, which the next adoption tries again.
+          adopt(it)
+        } catch (_: IOException) {
+          false
         }
       }
     }
 
-  private suspend fun adopt(adoption: Adoption) {
+  /** Hands [adoption]'s saves to its ROM. Returns false when they wait for a history. */
+  private suspend fun adopt(adoption: Adoption): Boolean {
     val local = File(saves.folderOf(adoption.local))
-    if (!local.isDirectory) return
+    if (!local.isDirectory) return true
     val own = File(saves.folderOf(adoption.rom))
     val files = filesIn(local)
     if (files.isNotEmpty() && (!own.exists() || own.isDirectory && filesIn(own).isEmpty())) {
@@ -46,7 +48,7 @@ class BuiltInSaveFolders(
       // Both are in the app's files, so the move is one step, or nothing moves.
       if (!local.renameTo(own)) throw IOException("Couldn't move $local to $own")
     } else {
-      val history = history() ?: return
+      val history = history() ?: return false
       val now = clock.now()
       for (file in files) {
         // The history is one folder, so a file in a subfolder is named for its path.
@@ -64,6 +66,7 @@ class BuiltInSaveFolders(
       local.deleteRecursively()
     }
     pruneEmpty(local.parentFile)
+    return true
   }
 
   /** Deletes [folder] and the folders above it, up to the local games' own, while they're empty. */
