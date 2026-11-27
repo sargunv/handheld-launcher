@@ -158,7 +158,7 @@ struct App {
     cpu: Option<CpuPresenter>,
     window: Option<Rc<Window>>,
     input: Arc<InputState>,
-    gamepads: input::Gamepads,
+    controls: input::Controls,
     next_frame: Instant,
     frame_period: Duration,
     frames_run: u64,
@@ -203,7 +203,7 @@ impl App {
             cpu: None,
             window: None,
             input: Arc::new(InputState::new()),
-            gamepads: input::Gamepads::new(),
+            controls: input::Controls::new(),
             next_frame: Instant::now(),
             frame_period: Duration::from_secs_f64(1.0 / 60.0),
             frames_run: 0,
@@ -299,7 +299,7 @@ impl App {
         let Some(session) = &mut self.session else {
             return;
         };
-        self.gamepads.update(self.input.port(0));
+        self.controls.update(self.input.port(0));
         session.run_frame();
         // The core may change its frame rate mid-game.
         self.frame_period = session.av_info().frame_period();
@@ -331,11 +331,7 @@ impl App {
                 Ok(()) => log::info!("loaded the state from {}", self.state.display()),
                 Err(e) => log::warn!("can't load the state: {}", error_chain(&e)),
             },
-            _ => {
-                if let Some(button) = input::key_button(key) {
-                    self.input.port(0).set_button(button, pressed);
-                }
-            }
+            _ => self.controls.key(self.input.port(0), key, pressed),
         }
     }
 }
