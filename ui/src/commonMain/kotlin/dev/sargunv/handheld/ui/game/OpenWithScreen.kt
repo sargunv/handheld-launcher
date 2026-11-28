@@ -75,48 +75,29 @@ private class OpenWithContext(
 
 @Composable
 private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): OpenWithContext? {
+  val library = state.data.library
   val context by
     produceState<OpenWithContext?>(null, scope) {
-      value =
+      val (platform, collections) =
         when (scope) {
           is OpenWithScope.Game -> {
             val game = state.data.game(scope.game) ?: return@produceState
-            OpenWithContext(
-              scope,
-              game.platformSlug,
-              state.data.library.platform(game.platformId)?.name ?: game.platformSlug.value,
-              // A local game is in no collection.
-              (game as? Rom)?.let { state.data.library.collectionsOf(it.id) }.orEmpty(),
-              state.platform.apps.apps(),
-            )
+            // A local game is in no collection.
+            game.platformSlug to (game as? Rom)?.let { library.collectionsOf(it.id) }.orEmpty()
           }
-          is OpenWithScope.Platform ->
-            OpenWithContext(
-              scope,
-              scope.platform,
-              platformName(state, scope.platform),
-              emptyList(),
-              state.platform.apps.apps(),
-            )
+          is OpenWithScope.Platform -> scope.platform to emptyList()
           is OpenWithScope.Collection -> {
             val collection =
-              state.data.library.collections().first().find { it.launchId == scope.collection }
+              library.collections().first().find { it.launchId == scope.collection }
                 ?: return@produceState
-            OpenWithContext(
-              scope,
-              scope.platform,
-              platformName(state, scope.platform),
-              listOf(collection),
-              state.platform.apps.apps(),
-            )
+            scope.platform to listOf(collection)
           }
         }
+      val name = library.platforms().first().find { it.slug == platform }?.name ?: platform.value
+      value = OpenWithContext(scope, platform, name, collections, state.platform.apps.apps())
     }
   return context
 }
-
-private suspend fun platformName(state: AppState, platform: PlatformSlug): String =
-  state.data.library.platforms().first().find { it.slug == platform }?.name ?: platform.value
 
 /**
  * Picks the app games open in, for what the screen was opened from: one game from its menu, a
