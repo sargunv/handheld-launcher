@@ -45,8 +45,8 @@ enum class RuleStatus {
 /**
  * One level of the rules for a game. [choice] is its app, or null when it names none. For
  * [LaunchRule.FirstInstalled], it's the best installed known emulator for the game's platform, and
- * for [LaunchRule.BuiltInDefault], [LaunchChoice.BuiltIn]. [isDefault] marks the platform's
- * default, which opens its games when no choice applies.
+ * for [LaunchRule.BuiltInDefault], the built-in session. [isDefault] marks the platform's default,
+ * which opens its games when no choice applies.
  */
 data class RuleStep(
   val rule: LaunchRule,
@@ -104,15 +104,17 @@ data class RuleChain(val platform: PlatformSlug, val steps: List<RuleStep>) {
     val winner = winner ?: return null
     val choice = checkNotNull(winner.choice)
     val core = LibretroCores.resolve(choice.core, platform)
-    if (choice.isBuiltIn) {
+    return when (choice) {
       // The built-in session wins only on a platform with a recommended core.
-      return LaunchResolution.BuiltIn(checkNotNull(core), winner.rule)
+      is LaunchChoice.BuiltIn -> LaunchResolution.BuiltIn(checkNotNull(core), winner.rule)
+      is LaunchChoice.App -> {
+        val emulator = EmulatorRegistry.forPackage(choice.packageName)
+        val recipe = emulator?.recipeFor(choice.packageName) ?: LaunchRecipe.ViewRom
+        val target =
+          LaunchTarget(choice.packageName, recipe, emulator, core.takeIf { recipe.loadsCore })
+        LaunchResolution.Standalone(target, winner.rule)
+      }
     }
-    val emulator = EmulatorRegistry.forPackage(choice.packageName)
-    val recipe = emulator?.recipeFor(choice.packageName) ?: LaunchRecipe.ViewRom
-    val target =
-      LaunchTarget(choice.packageName, recipe, emulator, core.takeIf { recipe.loadsCore })
-    return LaunchResolution.Standalone(target, winner.rule)
   }
 
   companion object {
@@ -133,10 +135,10 @@ data class RuleChain(val platform: PlatformSlug, val steps: List<RuleStep>) {
     ): RuleChain {
       val platform = subject.platform
       val runsBuiltIn = LibretroCores.recommendedFor(platform) != null
-      val emulator = firstInstalled(platform, installedPackages)?.let(::LaunchChoice)
+      val emulator = firstInstalled(platform, installedPackages)?.let { LaunchChoice.App(it) }
       val default =
         if (runsBuiltIn && (emulator == null || !LibretroCores.prefersStandalone(platform))) {
-          LaunchRule.BuiltInDefault to LaunchChoice.BuiltIn
+          LaunchRule.BuiltInDefault to LaunchChoice.BuiltIn()
         } else {
           LaunchRule.FirstInstalled to emulator
         }
@@ -155,7 +157,7 @@ data class RuleChain(val platform: PlatformSlug, val steps: List<RuleStep>) {
           add(LaunchRule.CollectionOverride(subject.collections.singleOrNull()) to null)
         }
         rules.platformDefaults[platform]?.let { add(LaunchRule.PlatformDefault to it) }
-        if (!runsBuiltIn) add(LaunchRule.BuiltInDefault to LaunchChoice.BuiltIn)
+        if (!runsBuiltIn) add(LaunchRule.BuiltInDefault to LaunchChoice.BuiltIn())
         add(default)
       }
       var decided = false
@@ -163,11 +165,11 @@ data class RuleChain(val platform: PlatformSlug, val steps: List<RuleStep>) {
         val status =
           when {
             choice == null -> RuleStatus.Unset
-            choice.isBuiltIn && !runsBuiltIn -> RuleStatus.NoCore
+            choice is LaunchChoice.BuiltIn && !runsBuiltIn -> RuleStatus.NoCore
             decided -> RuleStatus.Outranked
-            choice.isBuiltIn || choice.packageName in installedPackages ->
-              RuleStatus.Wins.also { decided = true }
-            else -> RuleStatus.NotInstalled
+            choice is LaunchChoice.App && choice.packageName !in installedPackages ->
+              RuleStatus.NotInstalled
+            else -> RuleStatus.Wins.also { decided = true }
           }
         RuleStep(rule, status, choice, isDefault = rule == default.first)
       }

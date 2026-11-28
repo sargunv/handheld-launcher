@@ -35,8 +35,8 @@ class OpenWithModelTest {
       RuleChain.explain(subject, rules, installed.mapTo(mutableSetOf()) { it.packageName }).steps,
       listOf(jak),
       platformName,
-    ) { packageName, core ->
-      appName(packageName, core, installed, subject.platform)
+    ) {
+      appName(it, installed, subject.platform)
     }
 
   @Test
@@ -48,8 +48,12 @@ class OpenWithModelTest {
     // The built-in session runs the Game Boy Advance, and so does RetroArch, with its known core.
     assertEquals(
       listOf(
-        AppOption(LaunchChoice.BuiltIn, "Built-in · mGBA", known = true),
-        AppOption(LaunchChoice("com.retroarch", "mgba_libretro"), "RetroArch · mGBA", known = true),
+        AppOption(LaunchChoice.BuiltIn(), "Built-in · mGBA", known = true),
+        AppOption(
+          LaunchChoice.App("com.retroarch", "mgba_libretro"),
+          "RetroArch · mGBA",
+          known = true,
+        ),
       ),
       appOptions(GBA, apps).take(2),
     )
@@ -60,7 +64,7 @@ class OpenWithModelTest {
     val rules =
       LaunchRules(
         collectionRules =
-          listOf(CollectionRule(jak.launchId, PS2, LaunchChoice("dev.sargunv.pocketgoal"))),
+          listOf(CollectionRule(jak.launchId, PS2, LaunchChoice.App("dev.sargunv.pocketgoal"))),
       )
     assertEquals(
       listOf(
@@ -77,8 +81,8 @@ class OpenWithModelTest {
   fun explainsAChoiceSkippedBecauseItsAppIsMissing() {
     val rules =
       LaunchRules(
-        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("dev.sargunv.pocketgoal")),
-        platformDefaults = mapOf(PS2 to LaunchChoice("com.armsx2")),
+        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.App("dev.sargunv.pocketgoal")),
+        platformDefaults = mapOf(PS2 to LaunchChoice.App("com.armsx2")),
       )
     val withoutPocketGoal = apps.filter { it.packageName != "dev.sargunv.pocketgoal" }
     assertEquals(
@@ -95,7 +99,7 @@ class OpenWithModelTest {
 
   @Test
   fun fallsBackToThePlatformsDefaultWhenThePlatformsChoiceIsMissing() {
-    val rules = LaunchRules(platformDefaults = mapOf(PS2 to LaunchChoice("com.example.gone")))
+    val rules = LaunchRules(platformDefaults = mapOf(PS2 to LaunchChoice.App("com.example.gone")))
     assertEquals(
       listOf(
         ChainLine("Game: none"),
@@ -111,7 +115,7 @@ class OpenWithModelTest {
       lines(LaunchRules(), emptyList()).last(),
     )
     // A choice of the built-in session, where no core runs the platform, is skipped too.
-    val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.BuiltIn))
+    val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.BuiltIn()))
     assertEquals(
       ChainLine("Game: Built-in · no core for PS2, skipped"),
       lines(builtIn).first(),
@@ -130,7 +134,7 @@ class OpenWithModelTest {
       lines(LaunchRules(), subject = gaia, platformName = "GBA"),
     )
     val retroArch =
-      LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice("com.retroarch")))
+      LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice.App("com.retroarch")))
     assertEquals(
       listOf(
         ChainLine("Game: RetroArch · opens here", wins = true),
@@ -139,7 +143,7 @@ class OpenWithModelTest {
       ),
       lines(retroArch, subject = gaia, platformName = "GBA"),
     )
-    val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice.BuiltIn))
+    val builtIn = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice.BuiltIn()))
     assertEquals(
       ChainLine("Game: Built-in · mGBA · opens here", wins = true),
       lines(builtIn, subject = gaia, platformName = "GBA").first(),

@@ -324,7 +324,9 @@ class GameTest {
     awaitText("Played")
     assertEquals(
       listOf(
-        LaunchRules(gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice("com.example.notes"))),
+        LaunchRules(
+          gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.App("com.example.notes")),
+        ),
       ),
       launcher.rules,
     )

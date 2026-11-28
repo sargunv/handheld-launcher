@@ -69,7 +69,7 @@ private class OpenWithContext(
   /** The app that wins under [rules], by name, or null when none can open the games. */
   fun opensIn(rules: LaunchRules): String? = opensIn(chain(rules), apps)
 
-  fun name(packageName: String, core: String?) = appName(packageName, core, apps, platform)
+  fun name(choice: LaunchChoice) = appName(choice, apps, platform)
 }
 
 @Composable
@@ -147,7 +147,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       Spacer(Modifier.weight(1f))
     } else {
       val current = launch.choiceAt(scope)
-      val default = context.chain(launch).steps.firstOrNull { it.isDefault }?.choice?.packageName
+      val default = context.chain(launch).steps.firstOrNull { it.isDefault }?.choice?.withoutCore()
       fun choose(choice: LaunchChoice?) {
         state.settings = state.settings.copy(launch = launch.withChoice(scope, choice))
         state.navigator.back()
@@ -173,7 +173,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
               val notes =
                 listOfNotNull(
                   "${context.platformName} default"
-                    .takeIf { option.known && option.choice.packageName == default },
+                    .takeIf { option.known && option.choice.withoutCore() == default },
                   "current".takeIf { option.choice == current },
                 )
               OptionRow(
@@ -192,7 +192,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
             modifier = Modifier.padding(top = 8.dp).semantics { heading() },
           )
           Text(
-            current?.let { context.name(it.packageName, it.core) } ?: "Nothing chosen",
+            current?.let(context::name) ?: "Nothing chosen",
             color = Placeholder.text,
             modifier = Modifier.testTag("openWith:current"),
           )
@@ -273,3 +273,10 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
     )
   }
 }
+
+/** The app [this] picks, whichever core it loads. */
+private fun LaunchChoice.withoutCore(): LaunchChoice =
+  when (this) {
+    is LaunchChoice.App -> copy(core = null)
+    is LaunchChoice.BuiltIn -> copy(core = null)
+  }

@@ -57,17 +57,17 @@ class RuleChainTest {
     val installed = setOf(armsx2, pocketGoal, "xyz.aethersx2.android")
     val byCollection =
       LaunchRules(
-        collectionRules = listOf(CollectionRule(jak, PS2, LaunchChoice(pocketGoal))),
-        platformDefaults = mapOf(PS2 to LaunchChoice(armsx2)),
+        collectionRules = listOf(CollectionRule(jak, PS2, LaunchChoice.App(pocketGoal))),
+        platformDefaults = mapOf(PS2 to LaunchChoice.App(armsx2)),
       )
     val byGame =
       LaunchRules(
         gameOverrides =
           mapOf(
-            GameKey.Romm(1) to LaunchChoice(pocketGoal),
-            GameKey.Romm(2) to LaunchChoice(pocketGoal),
+            GameKey.Romm(1) to LaunchChoice.App(pocketGoal),
+            GameKey.Romm(2) to LaunchChoice.App(pocketGoal),
           ),
-        platformDefaults = mapOf(PS2 to LaunchChoice(armsx2)),
+        platformDefaults = mapOf(PS2 to LaunchChoice.App(armsx2)),
       )
 
     for (game in listOf(jak1, jak2)) {
@@ -96,13 +96,13 @@ class RuleChainTest {
   @Test
   fun theCollectionRuleWinsOverThePlatformsDefaultEmulator() {
     val rules =
-      LaunchRules(collectionRules = listOf(CollectionRule(jak, PS2, LaunchChoice(pocketGoal))))
+      LaunchRules(collectionRules = listOf(CollectionRule(jak, PS2, LaunchChoice.App(pocketGoal))))
     assertEquals(
       listOf(
         RuleStep(GameOverride, Unset),
-        RuleStep(CollectionOverride(jak), Wins, LaunchChoice(pocketGoal)),
-        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
-        RuleStep(FirstInstalled, Outranked, LaunchChoice(armsx2), isDefault = true),
+        RuleStep(CollectionOverride(jak), Wins, LaunchChoice.App(pocketGoal)),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn()),
+        RuleStep(FirstInstalled, Outranked, LaunchChoice.App(armsx2), isDefault = true),
       ),
       steps(jak1, rules, setOf(armsx2, pocketGoal)),
     )
@@ -112,16 +112,16 @@ class RuleChainTest {
   fun aRuleWhoseAppIsMissingIsSkipped() {
     val rules =
       LaunchRules(
-        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice(pocketGoal)),
-        platformDefaults = mapOf(PS2 to LaunchChoice(armsx2)),
+        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.App(pocketGoal)),
+        platformDefaults = mapOf(PS2 to LaunchChoice.App(armsx2)),
       )
     assertEquals(
       listOf(
-        RuleStep(GameOverride, NotInstalled, LaunchChoice(pocketGoal)),
+        RuleStep(GameOverride, NotInstalled, LaunchChoice.App(pocketGoal)),
         RuleStep(CollectionOverride(null), Unset),
-        RuleStep(PlatformDefault, Wins, LaunchChoice(armsx2)),
-        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
-        RuleStep(FirstInstalled, Outranked, LaunchChoice(armsx2), isDefault = true),
+        RuleStep(PlatformDefault, Wins, LaunchChoice.App(armsx2)),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn()),
+        RuleStep(FirstInstalled, Outranked, LaunchChoice.App(armsx2), isDefault = true),
       ),
       steps(jak1, rules, setOf(armsx2)),
     )
@@ -134,18 +134,18 @@ class RuleChainTest {
       LaunchRules(
         collectionRules =
           listOf(
-            CollectionRule(favorites, PS2, LaunchChoice(armsx2)),
-            CollectionRule(jak, PS2, LaunchChoice(pocketGoal)),
-            CollectionRule(jak, GBA, LaunchChoice("com.retroarch", core = "mgba_libretro")),
+            CollectionRule(favorites, PS2, LaunchChoice.App(armsx2)),
+            CollectionRule(jak, PS2, LaunchChoice.App(pocketGoal)),
+            CollectionRule(jak, GBA, LaunchChoice.App("com.retroarch", core = "mgba_libretro")),
           ),
       )
     assertEquals(
       listOf(
         RuleStep(GameOverride, Unset),
-        RuleStep(CollectionOverride(favorites), Wins, LaunchChoice(armsx2)),
-        RuleStep(CollectionOverride(jak), Outranked, LaunchChoice(pocketGoal)),
-        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
-        RuleStep(FirstInstalled, Outranked, LaunchChoice(armsx2), isDefault = true),
+        RuleStep(CollectionOverride(favorites), Wins, LaunchChoice.App(armsx2)),
+        RuleStep(CollectionOverride(jak), Outranked, LaunchChoice.App(pocketGoal)),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn()),
+        RuleStep(FirstInstalled, Outranked, LaunchChoice.App(armsx2), isDefault = true),
       ),
       steps(jak1, rules, setOf(armsx2, pocketGoal)),
     )
@@ -155,13 +155,13 @@ class RuleChainTest {
   fun aPlatformsGamesHaveOnlyThePlatformsLevels() {
     val rules =
       LaunchRules(
-        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice(pocketGoal)),
-        collectionRules = listOf(CollectionRule(jak, PS2, LaunchChoice(pocketGoal))),
+        gameOverrides = mapOf(GameKey.Romm(1) to LaunchChoice.App(pocketGoal)),
+        collectionRules = listOf(CollectionRule(jak, PS2, LaunchChoice.App(pocketGoal))),
       )
     assertEquals(
       listOf(
-        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
-        RuleStep(FirstInstalled, Wins, LaunchChoice(armsx2), isDefault = true),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn()),
+        RuleStep(FirstInstalled, Wins, LaunchChoice.App(armsx2), isDefault = true),
       ),
       steps(LaunchSubject(game = null, platform = PS2), rules, setOf(armsx2)),
     )
@@ -171,7 +171,7 @@ class RuleChainTest {
   fun withNoRulesTheBestInstalledEmulatorWins() {
     val installed = setOf("net.pcsx2.emulator", "com.izzy2lost.psx2", armsx2)
     assertEquals(
-      RuleStep(FirstInstalled, Wins, LaunchChoice(armsx2), isDefault = true),
+      RuleStep(FirstInstalled, Wins, LaunchChoice.App(armsx2), isDefault = true),
       steps(jak1, LaunchRules(), installed).last(),
     )
     assertEquals(
@@ -193,7 +193,8 @@ class RuleChainTest {
   @Test
   fun aPatternNeverClaimsAnotherKnownEmulatorsPackage() {
     val game = LaunchSubject(game = GameKey.Romm(1), platform = SNES)
-    val rules = LaunchRules(platformDefaults = mapOf(SNES to LaunchChoice("com.retroarch.aarch64")))
+    val rules =
+      LaunchRules(platformDefaults = mapOf(SNES to LaunchChoice.App("com.retroarch.aarch64")))
     val target = standalone(game, rules, setOf("com.retroarch.aarch64")).target
     assertEquals(EmulatorId("retroarch_64"), target.emulator?.id)
     // Without a core of its own, it runs the platform's.
@@ -207,7 +208,7 @@ class RuleChainTest {
     val zelda = LaunchSubject(game = GameKey.Romm(5), platform = SWITCH)
     assertNull(resolve(zelda, LaunchRules(), setOf(genshin)))
 
-    val rules = LaunchRules(platformDefaults = mapOf(SWITCH to LaunchChoice(genshin)))
+    val rules = LaunchRules(platformDefaults = mapOf(SWITCH to LaunchChoice.App(genshin)))
     val target = standalone(zelda, rules, setOf(genshin)).target
     assertEquals(genshin, target.packageName)
     assertNull(target.emulator)
@@ -215,7 +216,8 @@ class RuleChainTest {
 
   @Test
   fun choosingAKnownEmulatorUsesItsRecipe() {
-    val rules = LaunchRules(platformDefaults = mapOf(PS2 to LaunchChoice("xyz.aethersx2.android")))
+    val rules =
+      LaunchRules(platformDefaults = mapOf(PS2 to LaunchChoice.App("xyz.aethersx2.android")))
     val target = standalone(ratchet, rules, setOf(armsx2, "xyz.aethersx2.android")).target
     val nether = assertNotNull(EmulatorRegistry[EmulatorId("nethersx2")])
     assertEquals(nether, target.emulator)
@@ -231,7 +233,7 @@ class RuleChainTest {
       listOf(
         RuleStep(GameOverride, Unset),
         RuleStep(CollectionOverride(null), Unset),
-        RuleStep(BuiltInDefault, Wins, LaunchChoice.BuiltIn, isDefault = true),
+        RuleStep(BuiltInDefault, Wins, LaunchChoice.BuiltIn(), isDefault = true),
       ),
       steps(gaia, LaunchRules(), installed),
     )
@@ -240,9 +242,10 @@ class RuleChainTest {
       resolve(gaia, LaunchRules(), installed),
     )
     // A choice of app outranks it.
-    val rules = LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice("com.retroarch")))
+    val rules =
+      LaunchRules(gameOverrides = mapOf(GameKey.Romm(2) to LaunchChoice.App("com.retroarch")))
     assertEquals(
-      RuleStep(BuiltInDefault, Outranked, LaunchChoice.BuiltIn, isDefault = true),
+      RuleStep(BuiltInDefault, Outranked, LaunchChoice.BuiltIn(), isDefault = true),
       steps(gaia, rules, installed).last(),
     )
   }
@@ -251,11 +254,16 @@ class RuleChainTest {
   fun anInstalledEmulatorIsTheDefaultWhereItPlaysBetter() {
     val game = LaunchSubject(game = GameKey.Romm(3), platform = GAMECUBE)
     assertEquals(
-      RuleStep(FirstInstalled, Wins, LaunchChoice("org.dolphinemu.dolphinemu"), isDefault = true),
+      RuleStep(
+        FirstInstalled,
+        Wins,
+        LaunchChoice.App("org.dolphinemu.dolphinemu"),
+        isDefault = true,
+      ),
       steps(game, LaunchRules(), setOf("org.dolphinemu.dolphinemu")).last(),
     )
     assertEquals(
-      RuleStep(BuiltInDefault, Wins, LaunchChoice.BuiltIn, isDefault = true),
+      RuleStep(BuiltInDefault, Wins, LaunchChoice.BuiltIn(), isDefault = true),
       steps(game, LaunchRules(), emptySet()).last(),
     )
   }
@@ -266,8 +274,8 @@ class RuleChainTest {
       LaunchRules(
         gameOverrides =
           mapOf(
-            GameKey.Romm(1) to LaunchChoice.BuiltIn,
-            GameKey.Romm(2) to LaunchChoice.BuiltIn.copy(core = "mgba_libretro"),
+            GameKey.Romm(1) to LaunchChoice.BuiltIn(),
+            GameKey.Romm(2) to LaunchChoice.BuiltIn("mgba_libretro"),
           ),
       )
     val pokemon = LaunchSubject(game = GameKey.Romm(2), platform = GB)
@@ -277,10 +285,10 @@ class RuleChainTest {
     )
     assertEquals(
       listOf(
-        RuleStep(GameOverride, NoCore, LaunchChoice.BuiltIn),
+        RuleStep(GameOverride, NoCore, LaunchChoice.BuiltIn()),
         RuleStep(CollectionOverride(null), Unset),
-        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn),
-        RuleStep(FirstInstalled, Wins, LaunchChoice(armsx2), isDefault = true),
+        RuleStep(BuiltInDefault, NoCore, LaunchChoice.BuiltIn()),
+        RuleStep(FirstInstalled, Wins, LaunchChoice.App(armsx2), isDefault = true),
       ),
       steps(jak1.copy(collections = emptySet()), rules, setOf(armsx2)),
     )
@@ -290,7 +298,9 @@ class RuleChainTest {
   fun aCollectionRuleAppliesToItsPlatformsGamesOnly() {
     val zelda = CollectionId("regular:3")
     val rules =
-      LaunchRules(collectionRules = listOf(CollectionRule(zelda, SNES, LaunchChoice("app.snes"))))
+      LaunchRules(
+        collectionRules = listOf(CollectionRule(zelda, SNES, LaunchChoice.App("app.snes"))),
+      )
     val installed = setOf("app.snes", "com.retroarch")
     val snesGame = LaunchSubject(GameKey.Romm(1), SNES, setOf(zelda))
     val psxGame = LaunchSubject(GameKey.Romm(2), PSX, setOf(zelda))
@@ -302,14 +312,15 @@ class RuleChainTest {
   fun unknownPlatformsStillTakeOverrides() {
     val virtualBoy = PlatformSlug("virtualboy")
     val game = LaunchSubject(game = GameKey.Romm(1), platform = virtualBoy)
-    val rules = LaunchRules(platformDefaults = mapOf(virtualBoy to LaunchChoice("com.retroarch")))
+    val rules =
+      LaunchRules(platformDefaults = mapOf(virtualBoy to LaunchChoice.App("com.retroarch")))
     assertEquals(PlatformDefault, resolve(game, rules, setOf("com.retroarch"))?.rule)
     assertNull(resolve(game, LaunchRules(), setOf("com.retroarch")))
   }
 
   @Test
   fun aKnownCoreLoadsByItsAndroidLibraryName() {
-    val choice = LaunchChoice("com.retroarch", core = "mupen64plus_next_libretro")
+    val choice = LaunchChoice.App("com.retroarch", core = "mupen64plus_next_libretro")
     val rules = LaunchRules(platformDefaults = mapOf(N64 to choice))
     val game = LaunchSubject(game = GameKey.Romm(1), platform = N64)
     val target = standalone(game, rules, setOf("com.retroarch")).target
@@ -328,8 +339,8 @@ class RuleChainTest {
     val path = "/storage/emulated/0/ROMs/ps2/Jak X.chd"
     val rules =
       LaunchRules(
-        gameOverrides = mapOf(GameKey.Local(path) to LaunchChoice(pocketGoal)),
-        platformDefaults = mapOf(PS2 to LaunchChoice(armsx2)),
+        gameOverrides = mapOf(GameKey.Local(path) to LaunchChoice.App(pocketGoal)),
+        platformDefaults = mapOf(PS2 to LaunchChoice.App(armsx2)),
       )
     val installed = setOf(armsx2, pocketGoal)
     val local = LaunchSubject(GameKey.Local(path), PS2)
@@ -346,7 +357,7 @@ class RuleChainTest {
     val rom = GameKey.Romm(42)
     val adoptions = listOf(Adoption(local, rom))
     fun rules(vararg games: Pair<GameKey, String>) =
-      LaunchRules(gameOverrides = games.associate { (key, app) -> key to LaunchChoice(app) })
+      LaunchRules(gameOverrides = games.associate { (key, app) -> key to LaunchChoice.App(app) })
     assertEquals(rules(rom to pocketGoal), rules(local to pocketGoal).adopted(adoptions))
     assertEquals(rules(rom to armsx2), rules(local to pocketGoal, rom to armsx2).adopted(adoptions))
     val other = rules(GameKey.Romm(7) to armsx2)

@@ -19,8 +19,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.files.Path
 
 class LaunchRulesTest {
-  private val pocketGoal = LaunchChoice("dev.sargunv.pocketgoal")
-  private val armsx2 = LaunchChoice("com.armsx2")
+  private val pocketGoal = LaunchChoice.App("dev.sargunv.pocketgoal")
+  private val armsx2 = LaunchChoice.App("com.armsx2")
   private val jak = Collection(CollectionKind.Regular, 7, "Jak and Daxter", "", 3, false)
 
   private val dir = createTempDirectory("launch-rules")
@@ -36,7 +36,7 @@ class LaunchRulesTest {
         .withChoice(OpenWithScope.Game(GameKey.Romm(42)), armsx2)
         .withChoice(OpenWithScope.Game(GameKey.Local("/storage/ROMs/ps2/Jak.iso")), pocketGoal)
         .withChoice(OpenWithScope.Collection(jak.launchId, PS2), pocketGoal)
-        .withChoice(OpenWithScope.Platform(GBA), LaunchChoice("com.retroarch", "mgba_libretro"))
+        .withChoice(OpenWithScope.Platform(GBA), LaunchChoice.App("com.retroarch", "mgba_libretro"))
     fun file() =
       SettingsFile(Path(dir.resolve("settings.json").toString()), Settings.serializer(), Settings())
     file().write(Settings(launch = rules))

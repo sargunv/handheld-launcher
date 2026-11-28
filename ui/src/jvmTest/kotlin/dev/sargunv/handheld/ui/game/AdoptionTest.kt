@@ -51,7 +51,7 @@ class AdoptionTest {
   private val library = LibraryCache.open(path = null)
   private val local = GameKey.Local(homebrew.path)
   private val rom = GameKey.Romm(2)
-  private val choice = LaunchChoice("com.example.emulator")
+  private val choice = LaunchChoice.App("com.example.emulator")
 
   @Volatile private var serverHasHomebrew = false
 

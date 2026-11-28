@@ -344,7 +344,7 @@ class SettingsTest {
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Notes")
     assertEquals(
-      mapOf(GB to LaunchChoice("com.example.notes")),
+      mapOf(GB to LaunchChoice.App("com.example.notes")),
       saved.last().launch.platformDefaults,
     )
     assertEquals(emptyMap(), saved.last().launch.gameOverrides)
