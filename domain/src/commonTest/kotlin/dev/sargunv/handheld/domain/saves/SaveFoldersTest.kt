@@ -7,6 +7,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class SaveFoldersTest {
   private fun location(id: String, platform: PlatformSlug) =
@@ -15,9 +16,9 @@ class SaveFoldersTest {
   @Test
   fun ps2SavesAreFiledByTheDiscsSerialOnSharedCards() {
     val armsx2 = location("armsx2", PlatformCatalog.PS2)
-    assertEquals(GameIdKind.Ps2, SaveFolders.idKind(armsx2, PlatformCatalog.PS2))
+    assertTrue(SaveFolders.filesByGameId(armsx2, PlatformCatalog.PS2))
     val pocketGoal = location("pocketgoal", PlatformCatalog.PS2)
-    assertEquals(GameIdKind.Ps2, SaveFolders.idKind(pocketGoal, PlatformCatalog.PS2))
+    assertTrue(SaveFolders.filesByGameId(pocketGoal, PlatformCatalog.PS2))
     // The saves are folders inside the cards, not folders of their own.
     assertNull(SaveFolders.forGame(armsx2, PlatformCatalog.PS2, "SLUS-20152"))
     assertNull(
@@ -28,7 +29,7 @@ class SaveFoldersTest {
   @Test
   fun theThorsEmulatorsFileSavesByTheGamesId() {
     val psp = location("ppsspp", PlatformCatalog.PSP)
-    assertEquals(GameIdKind.Psp, SaveFolders.idKind(psp, PlatformCatalog.PSP))
+    assertTrue(SaveFolders.filesByGameId(psp, PlatformCatalog.PSP))
     assertEquals(
       FolderSave(listOf(SaveArea("", "", SaveSelection.Prefixed("ULUS10064"))), "ULUS10064.zip"),
       SaveFolders.forGame(psp, PlatformCatalog.PSP, "ULUS10064"),

@@ -25,7 +25,7 @@ sealed interface GameKey {
   data class Local(val path: String) : GameKey
 }
 
-private object GameKeySerializer : KSerializer<GameKey> {
+internal object GameKeySerializer : KSerializer<GameKey> {
   private const val ROMM = "romm:"
   private const val LOCAL = "local:"
 

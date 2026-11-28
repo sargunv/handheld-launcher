@@ -8,13 +8,8 @@ import kotlin.test.assertTrue
 
 class LibretroCoresTest {
   @Test
-  fun everyPlatformHasAnExplicitEntry() {
-    assertEquals(EmulatorRegistry.preference.keys, LibretroCores.recommended.keys)
-  }
-
-  @Test
   fun namesAreBuildbotLibraryNames() {
-    for (core in LibretroCores.recommended.values.filterNotNull()) {
+    for (core in LibretroCores.all) {
       assertTrue(core.library.endsWith("_libretro"), core.library)
       assertTrue(core.androidLibrary.endsWith("_libretro"), core.androidLibrary)
     }

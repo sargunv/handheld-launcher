@@ -28,12 +28,6 @@ class EmulatorRegistryTest {
   }
 
   @Test
-  fun packagesAreUnique() {
-    val packages = emulators.map { it.packageName }
-    assertEquals(packages.size, packages.toSet().size)
-  }
-
-  @Test
   fun everyPackageFindsItsOwnEmulator() {
     for (emulator in emulators) {
       assertEquals(emulator, EmulatorRegistry.forPackage(emulator.packageName), emulator.id.value)

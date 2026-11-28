@@ -48,7 +48,7 @@ data class SaveArea(val folder: String, val zipPrefix: String, val selection: Sa
 data class FolderSave(val areas: List<SaveArea>, val name: String)
 
 /** What kind of id a game's save is filed under, which the launcher reads from the game's file. */
-enum class GameIdKind {
+private enum class GameIdKind {
   /** A PSP disc's serial, such as `ULUS10064`. */
   Psp,
 
@@ -63,7 +63,7 @@ enum class GameIdKind {
 
   /**
    * A PS2 disc's serial as its save folders carry it, such as `SLUS-20152`. Its saves are folders
-   * on shared memory cards, not folders [SaveFolders.forGame] names.
+   * on shared memory cards, not folders of their own.
    */
   Ps2,
 }
@@ -81,11 +81,14 @@ object SaveFolders {
   private const val CTR_IDS = "00000000000000000000000000000000/00000000000000000000000000000000"
 
   /**
-   * The id [location]'s saves of [platform]'s games are filed under, or null when the launcher
-   * doesn't sync that layout by the game's id: it keeps one file per game, every game's saves share
-   * a memory card the launcher can't read, or the launcher can't read the id yet.
+   * Whether [location] files [platform]'s saves under the game's id, which the launcher reads from
+   * the game's file. False when it keeps one file per game, every game's saves share a memory card
+   * the launcher can't read, or the launcher can't read the id yet.
    */
-  fun idKind(location: SaveLocation, platform: PlatformSlug): GameIdKind? {
+  fun filesByGameId(location: SaveLocation, platform: PlatformSlug): Boolean =
+    idKind(location, platform) != null
+
+  private fun idKind(location: SaveLocation, platform: PlatformSlug): GameIdKind? {
     if (location.requiresRoot || !location.syncable) return null
     val target = platform.emulatedAs
     return when (location.layout) {
@@ -100,8 +103,9 @@ object SaveFolders {
   }
 
   /**
-   * The folders that hold the save of the game [id] where [location] keeps it, an id of the kind
-   * [idKind] names. Null when [idKind] is null or [GameIdKind.Ps2], or [id] isn't one.
+   * The folders that hold the save of the game [id] where [location] keeps it. Null when it doesn't
+   * file saves by the game's id ([filesByGameId]), keeps them on PS2 memory cards, or [id] isn't an
+   * id of the kind it files them under.
    */
   fun forGame(location: SaveLocation, platform: PlatformSlug, id: String): FolderSave? =
     when (idKind(location, platform)) {

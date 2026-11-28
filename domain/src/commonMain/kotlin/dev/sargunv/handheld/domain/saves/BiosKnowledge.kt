@@ -30,20 +30,16 @@ data class BiosLocation(
   val platforms: Set<PlatformSlug>?,
   val renames: Map<String, String> = emptyMap(),
 ) {
-  /** The name [fileName] must have here, ignoring case when matching. */
-  fun targetName(fileName: String): String =
-    renames.entries.firstOrNull { it.key.equals(fileName, ignoreCase = true) }?.value ?: fileName
-
   /**
-   * The name the firmware file [fileName], whose hash is [md5], takes here. A flat system folder
-   * holds firmware for libretro cores, which look it up by the names in
-   * [BiosKnowledge.libretroNames].
+   * The name the firmware file [fileName], whose hash is [md5], takes here: its rename, matched
+   * without case, or in a flat system folder for libretro cores, which look firmware up by exact
+   * name, the name in [BiosKnowledge.libretroNames].
    */
   fun targetName(fileName: String, md5: String?): String =
     if (platforms == null) {
       md5?.let { BiosKnowledge.libretroNames[it.lowercase()] } ?: fileName
     } else {
-      targetName(fileName)
+      renames.entries.firstOrNull { it.key.equals(fileName, ignoreCase = true) }?.value ?: fileName
     }
 
   /** [paths] with [storage] and [packageName], the emulator's installed build, filled in. */

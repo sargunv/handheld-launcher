@@ -51,7 +51,7 @@ fun gameSaveFor(
   SaveFiles.candidates(location, romPath, roots)?.let { paths ->
     return SaveLookup.Found(GameSave(romId, emulator.id.value, FileUnit(paths.map(::File))))
   }
-  if (SaveFolders.idKind(location, platform) == null) return SaveLookup.NotSupported
+  if (!SaveFolders.filesByGameId(location, platform)) return SaveLookup.NotSupported
   val file = headerFile(romPath) ?: return SaveLookup.NoGameId
   val keys = SaveFiles.folders(location.keys, roots).firstOrNull { File(it).isFile }
   val id = gameId(file, keys) ?: return SaveLookup.NoGameId

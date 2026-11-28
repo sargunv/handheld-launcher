@@ -44,8 +44,6 @@ object SavePaths {
 
   /** RetroArch's folder for the game's core, its `LibretroCore.retroArchFolder`. */
   const val CORE = "{core}"
-
-  val all: Set<String> = setOf(STORAGE, ANY_STORAGE, PACKAGE, CORE)
 }
 
 /** Where each known emulator keeps saves. */
