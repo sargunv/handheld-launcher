@@ -14,7 +14,7 @@ class LaunchedEmulatorsTest {
   private val root = Files.createTempDirectory("launched-emulators-test").toFile()
   private val path = File(root, "launched.json")
 
-  @AfterTest fun deleteRoot() = check(root.deleteRecursively())
+  @AfterTest fun cleanUp() = check(root.deleteRecursively())
 
   private class FakeProbe : EmulatorProbe {
     var boot = Boot(count = 3, bootedAt = 1_000_000, sinceBoot = 60_000)

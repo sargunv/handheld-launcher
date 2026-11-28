@@ -26,7 +26,7 @@ import kotlinx.serialization.json.Json
 class LibrarySyncTest {
   private val cache = LibraryCache.open(path = null, queryContext = EmptyCoroutineContext)
 
-  @AfterTest fun close() = cache.close()
+  @AfterTest fun cleanUp() = cache.close()
 
   /** A fake library: ROM ids to when they changed. */
   private class Library {

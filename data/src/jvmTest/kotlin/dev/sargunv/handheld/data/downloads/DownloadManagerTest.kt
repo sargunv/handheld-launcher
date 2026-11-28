@@ -641,7 +641,7 @@ class DownloadManagerTest {
     fillLibrary()
     // The PlayStation game is on the device already.
     File(storage, "ROMs/psx/Saga (USA)").mkdirs()
-    val updates = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    val updates = MutableStateFlow(emptyList<Pair<String, String>>())
     fun request(id: String, romId: Long, status: String) =
       """{"id": "$id", "user_id": 1, "device_id": "dev-1", "rom_id": $romId, "file_ids": [],
         "status": "$status", "reason": null, "created_at": "2025-01-01T00:00:00Z",
@@ -656,7 +656,7 @@ class DownloadManagerTest {
             json("[${request("req-1", 1, "taken")}, ${request("req-2", 2, "taken")}]")
           path.startsWith("devices/dev-1/installs/") && request.method == HttpMethod.Put -> {
             val id = path.substringAfterLast('/')
-            updates += id to (request.body as TextContent).text
+            updates.update { it + (id to (request.body as TextContent).text) }
             json(request(id, if (id == "req-1") 1 else 2, "done"))
           }
           else -> null
@@ -666,12 +666,12 @@ class DownloadManagerTest {
     manager(realTime(), engine, deviceId = "dev-1")
 
     // The download reports to the server once it's out of the queue.
-    waitFor { while (updates.size < 2) delay(10) }
+    waitFor { updates.first { it.size >= 2 } }
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
     assertEquals(
       setOf("req-2" to """{"status":"already_installed"}""", "req-1" to """{"status":"done"}"""),
-      updates.toSet(),
+      updates.value.toSet(),
     )
     assertEquals(1, requests.count { it.apiPath.endsWith("claim") })
   }
@@ -716,7 +716,7 @@ class DownloadManagerTest {
   @Test
   fun aGameSentAgainAfterItFailedDownloadsAgain() = runTest {
     fillLibrary()
-    val updates = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    val updates = MutableStateFlow(emptyList<Pair<String, String>>())
     var sent = "req-1"
     var fits = false
     fun request(id: String) =
@@ -730,7 +730,7 @@ class DownloadManagerTest {
           path == "devices/dev-1/installs" -> json("[${request(sent)}]")
           path.startsWith("devices/dev-1/installs/") && request.method == HttpMethod.Put -> {
             val id = path.substringAfterLast('/')
-            updates += id to (request.body as TextContent).text
+            updates.update { it + (id to (request.body as TextContent).text) }
             json(request(id))
           }
           else -> null
@@ -745,10 +745,13 @@ class DownloadManagerTest {
     sent = "req-2"
     fits = true
     romm.value = account(engine, deviceId = "dev-1")
-    waitFor { while (updates.none { it.first == "req-2" }) delay(10) }
+    waitFor { updates.first { list -> list.any { it.first == "req-2" } } }
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
-    assertEquals(listOf("req-2" to """{"status":"done"}"""), updates.filter { it.first == "req-2" })
+    assertEquals(
+      listOf("req-2" to """{"status":"done"}"""),
+      updates.value.filter { it.first == "req-2" },
+    )
   }
 
   @Test

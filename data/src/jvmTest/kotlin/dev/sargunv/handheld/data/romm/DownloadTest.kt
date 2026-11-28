@@ -19,7 +19,7 @@ class DownloadTest {
   private val content = Random(42).nextBytes(200_000)
   private val target = File.createTempFile("download-test", ".bin").apply { delete() }
 
-  @AfterTest fun deleteTarget() = check(!target.exists() || target.delete())
+  @AfterTest fun cleanUp() = check(!target.exists() || target.delete())
 
   private fun writeTarget(bytes: ByteArray) = target.writeBytes(bytes)
 

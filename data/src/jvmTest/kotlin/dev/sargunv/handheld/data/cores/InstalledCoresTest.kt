@@ -36,7 +36,7 @@ class InstalledCoresTest {
   private val azahar = LibretroCores.byLibrary("azahar_libretro")!!
   private val requests = mutableListOf<HttpRequestData>()
 
-  @AfterTest fun deleteDir() = check(dir.deleteRecursively())
+  @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 
   private fun cores(
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,

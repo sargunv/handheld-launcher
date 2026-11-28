@@ -28,10 +28,7 @@ class LocalContentTest {
   private val targets = listOf(StorageTarget(storage.path, "Test storage"))
   private val platforms = listOf(Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 2))
 
-  @AfterTest
-  fun cleanUp() {
-    dir.deleteRecursively()
-  }
+  @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 
   private val game = Random(1).nextBytes(50_000)
   private val other = Random(2).nextBytes(40_000)

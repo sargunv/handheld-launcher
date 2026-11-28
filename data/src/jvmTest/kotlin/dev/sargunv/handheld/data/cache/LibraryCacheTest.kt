@@ -20,7 +20,7 @@ import kotlinx.coroutines.test.runTest
 class LibraryCacheTest {
   private val cache = LibraryCache.open(path = null, queryContext = EmptyCoroutineContext)
 
-  @AfterTest fun close() = cache.close()
+  @AfterTest fun cleanUp() = cache.close()
 
   private fun rom(
     id: Long,

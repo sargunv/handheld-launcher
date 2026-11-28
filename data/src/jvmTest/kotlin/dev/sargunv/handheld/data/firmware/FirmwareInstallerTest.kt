@@ -32,7 +32,7 @@ class FirmwareInstallerTest {
   private val staging = File(root, "staging")
   private val folder = File(root, "bios")
 
-  @AfterTest fun deleteRoot() = check(root.deleteRecursively())
+  @AfterTest fun cleanUp() = check(root.deleteRecursively())
 
   private val bios = "PlayStation BIOS".encodeToByteArray()
   private val dcBoot = "Dreamcast boot ROM".encodeToByteArray()

@@ -39,7 +39,7 @@ class SaveSyncTest {
   private val saveFile = File(saves, "Pokemon Black.sav")
   private val game = GameSave(7, "melonds", FileUnit(listOf(saveFile)))
 
-  @AfterTest fun deleteRoot() = check(root.deleteRecursively())
+  @AfterTest fun cleanUp() = check(root.deleteRecursively())
 
   private var now = Instant.parse("2025-03-01T00:00:00Z")
   private val clock =

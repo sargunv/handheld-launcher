@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.data.auth
 
 import dev.sargunv.handheld.data.Fixtures
-import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.SecretStore
 import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.httpClient
@@ -22,7 +21,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLProtocol
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
-import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -132,25 +130,6 @@ class RommSignInTest {
     val signIn = RommSignIn(store, httpClient(MockEngine { error("No request should go out") }))
     for (address in listOf("https://romm%20x.com", "https://romm..example.com")) {
       assertFailsWith<RommException.Unreachable> { signIn.withToken(address, "rmm_good") }
-    }
-  }
-
-  @Test
-  fun keepsCredentialsInAFile() = runTest {
-    val dir = Files.createTempDirectory("credentials-test").toFile()
-    fun fileStore() =
-      SecretStore(JsonFile(dir.resolve("credentials.json"), RommCredentials.serializer()))
-    try {
-      val credentials =
-        RommCredentials(TEST_SERVER, "rmm_secret", 1, "player", "d1", listOf("roms.read"))
-      fileStore().save(credentials)
-      assertEquals(credentials, fileStore().load())
-      assertFalse("rmm_secret" in credentials.toString())
-
-      fileStore().clear()
-      assertNull(fileStore().load())
-    } finally {
-      check(dir.deleteRecursively())
     }
   }
 

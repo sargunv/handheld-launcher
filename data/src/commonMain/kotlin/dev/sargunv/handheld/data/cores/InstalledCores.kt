@@ -54,7 +54,7 @@ class CoreDownloadException(message: String, cause: Throwable? = null) : IOExcep
  * core only once the download is complete and unzipped, so a failed install or update leaves the
  * previous core in place.
  */
-class InstalledCores(dir: File, val abi: String, private val http: HttpClient) {
+class InstalledCores(dir: File, private val abi: String, private val http: HttpClient) {
   private val abiDir = File(dir, abi)
   private val records =
     JsonFile(
@@ -66,12 +66,9 @@ class InstalledCores(dir: File, val abi: String, private val http: HttpClient) {
   /** The file [core] is installed at, which exists only while it's installed. */
   fun fileOf(core: LibretroCore) = File(abiDir, "${core.library}.so")
 
-  /** The installed cores, by library name. */
-  suspend fun all(): Map<String, InstalledCore> =
-    withContext(Dispatchers.IO) { records.read().orEmpty() }
-
   /** The installed build of [core], or null when it isn't installed. */
-  suspend fun get(core: LibretroCore): InstalledCore? = all()[core.library]
+  suspend fun get(core: LibretroCore): InstalledCore? =
+    withContext(Dispatchers.IO) { records.read()?.get(core.library) }
 
   /**
    * Downloads the latest build of [core] and installs it, replacing any installed build.

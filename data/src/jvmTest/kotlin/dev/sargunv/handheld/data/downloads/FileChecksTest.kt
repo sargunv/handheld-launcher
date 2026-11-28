@@ -13,10 +13,7 @@ import kotlin.test.assertNull
 class FileChecksTest {
   private val dir = createTempDirectory("file-checks-test").toFile()
 
-  @AfterTest
-  fun cleanUp() {
-    dir.deleteRecursively()
-  }
+  @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 
   private fun md5(vararg parts: ByteArray) =
     MessageDigest.getInstance("MD5")
