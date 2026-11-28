@@ -3,7 +3,6 @@ package dev.sargunv.handheld.ui.play
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,30 +18,28 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.touchOnly
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
@@ -294,7 +291,7 @@ fun QuickMenu(state: QuickMenuState, modifier: Modifier = Modifier) {
         state.message?.let {
           Text(
             it,
-            color = Placeholder.mutedText,
+            color = Palette.mutedText,
             modifier =
               Modifier.testTag("quick:message").semantics {
                 liveRegion = LiveRegionMode.Polite
@@ -325,7 +322,7 @@ private fun MainList(state: QuickMenuState) {
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       "Paused",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 22.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -364,7 +361,7 @@ private fun SlotList(state: QuickMenuState, action: SlotAction) {
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       if (action == SlotAction.Save) "Save state" else "Load state",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 22.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -396,12 +393,12 @@ private fun MenuItem(
     modifier
       .focusItem(key, onConfirm = onConfirm, role = Role.Button)
       .fillMaxWidth()
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 20.dp, vertical = 12.dp),
     horizontalArrangement = Arrangement.SpaceBetween,
   ) {
-    Text(label, color = if (onConfirm != null) Placeholder.text else Placeholder.mutedText)
-    if (value != null) Text(value, color = Placeholder.mutedText)
+    Text(label, color = if (onConfirm != null) Palette.text else Palette.mutedText)
+    if (value != null) Text(value, color = Palette.mutedText)
   }
 }
 
@@ -414,12 +411,12 @@ private fun MenuItem(
 fun StateSlotsPanel(state: QuickMenuState, modifier: Modifier = Modifier) {
   val now = Clock.System.now()
   Column(
-    modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(32.dp),
+    modifier.fillMaxSize().background(Palette.secondaryBackground).padding(32.dp),
     verticalArrangement = Arrangement.spacedBy(24.dp),
   ) {
     Text(
       "Save states",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -451,28 +448,18 @@ private fun SlotTile(
   onTap: (() -> Unit)?,
   modifier: Modifier = Modifier,
 ) {
-  val currentOnTap by rememberUpdatedState(onTap)
   Column(
     modifier
       .testTag("state:${slot.number}")
-      .semantics(mergeDescendants = true) {
-        selected = marked
-        if (onTap != null) {
-          role = Role.Button
-          onClick {
-            currentOnTap?.invoke()
-            true
-          }
-        }
-      }
-      .pointerInput(Unit) { detectTapGestures { currentOnTap?.invoke() } }
-      .then(if (marked) Modifier.border(3.dp, Placeholder.text) else Modifier)
-      .background(Placeholder.tile)
+      .semantics(mergeDescendants = true) { selected = marked }
+      .then(onTap?.let { Modifier.touchOnly(onTap = it) } ?: Modifier)
+      .then(if (marked) Modifier.border(3.dp, Palette.text) else Modifier)
+      .background(Palette.tile)
       .padding(8.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Box(
-      Modifier.fillMaxWidth().aspectRatio(4f / 3f).background(Placeholder.background),
+      Modifier.fillMaxWidth().aspectRatio(4f / 3f).background(Palette.background),
       contentAlignment = Alignment.Center,
     ) {
       val thumbnail = slot.thumbnail
@@ -484,11 +471,11 @@ private fun SlotTile(
           modifier = Modifier.fillMaxSize(),
         )
       } else if (slot.isEmpty) {
-        Text("Empty", color = Placeholder.mutedText)
+        Text("Empty", color = Palette.mutedText)
       }
     }
     val saved = slot.savedAt?.let { " · ${ago(it, now)}" }.orEmpty()
-    Text("${slot.number}$saved", color = Placeholder.text, fontSize = 16.sp)
+    Text("${slot.number}$saved", color = Palette.text, fontSize = 16.sp)
   }
 }
 

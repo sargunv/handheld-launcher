@@ -28,7 +28,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.focusItem
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -82,7 +82,7 @@ internal fun AchievementList(achievements: GameAchievements) {
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       "Achievements",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 22.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -100,7 +100,7 @@ internal fun AchievementList(achievements: GameAchievements) {
       }
     Text(
       note,
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier =
         Modifier.testTag("achievements:note").semantics { liveRegion = LiveRegionMode.Polite },
     )
@@ -126,19 +126,19 @@ private fun AchievementRow(item: AchievementItem) {
   Row(
     Modifier.focusItem("achievement:${item.id}", stateDescription = state)
       .fillMaxWidth()
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 20.dp, vertical = 10.dp),
     horizontalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-      Text(item.title, color = if (item.unlocked) Placeholder.text else Placeholder.mutedText)
+      Text(item.title, color = if (item.unlocked) Palette.text else Palette.mutedText)
       Text(
         "${item.description} · ${points(item.points)}",
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
         fontSize = 14.sp,
       )
     }
-    Text(state, color = if (item.unlocked) Placeholder.text else Placeholder.mutedText)
+    Text(state, color = if (item.unlocked) Palette.text else Palette.mutedText)
   }
 }
 
@@ -185,12 +185,12 @@ fun ToastHost(state: ToastState, modifier: Modifier = Modifier) {
       Modifier.widthIn(max = 560.dp)
         .testTag("toast")
         .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
-        .background(Placeholder.dialog)
+        .background(Palette.dialog)
         .padding(horizontal = 20.dp, vertical = 12.dp),
       verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-      Text(toast.title, color = Placeholder.text)
-      toast.detail?.let { Text(it, color = Placeholder.mutedText, fontSize = 14.sp) }
+      Text(toast.title, color = Palette.text)
+      toast.detail?.let { Text(it, color = Palette.mutedText, fontSize = 14.sp) }
     }
   }
 }

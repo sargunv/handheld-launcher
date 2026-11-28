@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui.focus
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -10,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.RectangleShape
@@ -26,7 +28,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.FocusRingVisibility
 import com.composeunstyled.focusRing
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.onAction
 
@@ -94,7 +96,7 @@ fun Modifier.focusItem(
     .focusRing(
       interactionSource = interactions,
       width = 3.dp,
-      color = Placeholder.text,
+      color = Palette.text,
       shape = shape,
       offset = 3.dp,
       visibility = FocusRingVisibility.Focused,
@@ -128,3 +130,13 @@ fun Modifier.focusItem(
       else Modifier,
     )
 }
+
+/**
+ * Makes this element a [role] that a tap or a screen reader's activation calls [onTap] on. It never
+ * takes focus, so the controller's focus stays where it is, as on the lower screen.
+ */
+internal fun Modifier.touchOnly(role: Role = Role.Button, onTap: () -> Unit): Modifier =
+  focusProperties {
+    canFocus = false
+  }
+  .clickable(interactionSource = null, indication = null, role = role, onClick = onTap)

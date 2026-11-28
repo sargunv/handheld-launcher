@@ -19,7 +19,7 @@ import coil3.PlatformContext
 import coil3.compose.AsyncImage
 import coil3.disk.DiskCache
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import java.io.File
 import okio.Path.Companion.toPath
 
@@ -39,14 +39,14 @@ internal fun Cover(
 ) {
   var loaded by remember(url) { mutableStateOf(false) }
   Box(
-    modifier.background(Placeholder.tile).clearAndSetSemantics {
+    modifier.background(Palette.tile).clearAndSetSemantics {
       description?.let { contentDescription = it }
     },
   ) {
     if (!loaded) {
       Text(
         title,
-        color = Placeholder.text,
+        color = Palette.text,
         modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
       )
     }

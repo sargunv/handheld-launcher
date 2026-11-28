@@ -241,7 +241,7 @@ class HomeTest {
     // The primary action has focus first.
     awaitTag("primary")
     assertFocused("primary")
-    onNode(hasTestTag("primary") and hasText("Download (1.0 KB)")).assertExists()
+    onNode(hasTestTag("primary") and hasText("Download (1 KiB)")).assertExists()
     press(Key.ButtonB)
     assertFocused("continue:2")
   }

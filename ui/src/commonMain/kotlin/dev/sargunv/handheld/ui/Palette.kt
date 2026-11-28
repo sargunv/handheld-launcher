@@ -2,8 +2,8 @@ package dev.sargunv.handheld.ui
 
 import androidx.compose.ui.graphics.Color
 
-/** Neutral stand-in colors until the design system exists. */
-internal object Placeholder {
+/** The colors the app draws with. */
+internal object Palette {
   val background = Color(0xFF2B2A28)
   val secondaryBackground = Color(0xFF242321)
   val tile = Color(0xFF55534F)

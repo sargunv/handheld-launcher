@@ -34,7 +34,7 @@ import dev.sargunv.handheld.data.settings.HomeShelf
 import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
@@ -147,7 +147,7 @@ internal fun HomePlace(state: AppState) {
           if (message != null) {
             Text(
               message,
-              color = Placeholder.mutedText,
+              color = Palette.mutedText,
               modifier = Modifier.align(Alignment.Center),
             )
           } else {
@@ -245,7 +245,7 @@ private fun ShelfColumn(
   Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       title,
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier = Modifier.padding(start = 48.dp).semantics { heading() },
     )
     content()
@@ -333,14 +333,14 @@ private fun CollectionShelf(
               description = "${collection.name}, ${gameCount(collection.romCount)}",
             )
             .size(200.dp, 100.dp)
-            .background(Placeholder.tile)
+            .background(Palette.tile)
             .padding(12.dp),
           verticalArrangement = Arrangement.Bottom,
         ) {
           // The tile's description says all of this once.
           Column(Modifier.clearAndSetSemantics {}) {
-            Text(collection.name, color = Placeholder.text)
-            Text(gameCount(collection.romCount), color = Placeholder.mutedText)
+            Text(collection.name, color = Palette.text)
+            Text(gameCount(collection.romCount), color = Palette.mutedText)
           }
         }
       }
@@ -362,7 +362,7 @@ private fun GameMenu(
 ) {
   Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(rom.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(rom.title, color = Palette.text, modifier = Modifier.semantics { heading() })
       MenuButton("menu:game", "Go to game page") {
         onDismissRequest()
         state.navigator.push(Screen.Game(rom.id, rom.title))
@@ -399,7 +399,7 @@ private fun ShelfMenu(
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(
         shelf?.title ?: "Home",
-        color = Placeholder.text,
+        color = Palette.text,
         modifier = Modifier.semantics { heading() },
       )
       if (shelf != null) {

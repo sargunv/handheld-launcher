@@ -36,7 +36,7 @@ import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.downloads.downloadFailedLabel
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -183,7 +183,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
               screen.title,
-              color = Placeholder.text,
+              color = Palette.text,
               fontSize = 28.sp,
               modifier = Modifier.semantics { heading() },
             )
@@ -191,7 +191,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             if (shown == ShownGame.Gone) {
               Text(
                 "File no longer on this device",
-                color = Placeholder.mutedText,
+                color = Palette.mutedText,
                 modifier = Modifier.testTag("note"),
               )
             }
@@ -214,7 +214,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               val announce = status is RomStatus.Failed || index >= lines.size
               Text(
                 line,
-                color = Placeholder.mutedText,
+                color = Palette.mutedText,
                 modifier =
                   Modifier.testTag("note").semantics {
                     if (announce) liveRegion = LiveRegionMode.Polite
@@ -224,7 +224,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             (current as? Rom)?.summary?.let {
               Text(
                 it,
-                color = Placeholder.mutedText,
+                color = Palette.mutedText,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
               )
@@ -324,10 +324,10 @@ private fun GameFacts(state: AppState, game: LibraryGame) {
         listOf(
           platform,
           formatSize(game.sizeBytes),
-          NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
+          NOT_ON_SERVER,
         )
     }
-  Text(facts.joinToString(" · "), color = Placeholder.mutedText)
+  Text(facts.joinToString(" · "), color = Palette.mutedText)
 }
 
 /** The collections [game] is in, as launch rules name them. A local game is in none. */

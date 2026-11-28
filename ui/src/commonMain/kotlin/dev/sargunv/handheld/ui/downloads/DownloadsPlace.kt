@@ -33,7 +33,7 @@ import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageSpace
 import dev.sargunv.handheld.data.downloads.formatSize
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -75,7 +75,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
         if (queue.isEmpty()) {
           Text(
             "Queue empty",
-            color = Placeholder.mutedText,
+            color = Palette.mutedText,
             modifier = Modifier.align(Alignment.Center),
           )
         } else {
@@ -111,7 +111,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
           Text(
             menuDownload.title,
-            color = Placeholder.text,
+            color = Palette.text,
             modifier = Modifier.semantics { heading() },
           )
           if (menuDownload.failed) {
@@ -142,19 +142,17 @@ private fun DownloadRow(
     modifier
       .focusItem(key, onConfirm = onOpen)
       .fillMaxWidth()
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text(download.title, color = Placeholder.text)
-    Text(statusText(download, status), color = Placeholder.mutedText, fontSize = 14.sp)
+    Text(download.title, color = Palette.text)
+    Text(statusText(download, status), color = Palette.mutedText, fontSize = 14.sp)
     val fraction = (status as? RomStatus.Downloading)?.progress
     if (fraction != null) {
-      Box(Modifier.fillMaxWidth().height(4.dp).background(Placeholder.dialog)) {
+      Box(Modifier.fillMaxWidth().height(4.dp).background(Palette.dialog)) {
         Box(
-          Modifier.fillMaxHeight()
-            .fillMaxWidth(fraction.coerceIn(0f, 1f))
-            .background(Placeholder.text),
+          Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(Palette.text),
         )
       }
     }
@@ -197,7 +195,7 @@ internal fun StorageSummary(downloads: DownloadManager) {
   Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Text(
       "Storage",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -206,10 +204,10 @@ internal fun StorageSummary(downloads: DownloadManager) {
         Modifier.semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        Text(space.target.label, color = Placeholder.text)
+        Text(space.target.label, color = Palette.text)
         Text(
           "${formatSize(space.freeBytes)} free · ${space.target.root}",
-          color = Placeholder.mutedText,
+          color = Palette.mutedText,
         )
       }
     }

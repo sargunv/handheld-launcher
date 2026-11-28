@@ -17,7 +17,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.FocusScopes
 import dev.sargunv.handheld.ui.input.Action
@@ -57,7 +57,7 @@ fun Dialog(
       FocusScope(
         modifier =
           modifier
-            .background(Placeholder.dialog)
+            .background(Palette.dialog)
             .padding(24.dp)
             // A screen reader's dismiss gesture closes it, like a tap outside.
             .semantics {

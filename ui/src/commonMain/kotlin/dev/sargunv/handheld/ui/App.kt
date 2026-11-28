@@ -102,7 +102,7 @@ fun App(
       },
     ) {
       when (signedIn) {
-        null -> Box(Modifier.fillMaxSize().background(Placeholder.background))
+        null -> Box(Modifier.fillMaxSize().background(Palette.background))
         false -> SignInPrimary(state)
         true -> MainPrimary(state)
       }
@@ -111,7 +111,7 @@ fun App(
   }
   val secondary: @Composable () -> Unit = {
     when (signedIn) {
-      null -> Box(Modifier.fillMaxSize().background(Placeholder.secondaryBackground))
+      null -> Box(Modifier.fillMaxSize().background(Palette.secondaryBackground))
       false -> SignInSecondary(state)
       true -> MainSecondary(state)
     }

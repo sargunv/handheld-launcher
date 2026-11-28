@@ -9,7 +9,7 @@ import androidx.compose.ui.semantics.semantics
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.domain.Platform
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.game.InstalledApp
 import dev.sargunv.handheld.ui.game.OpenWithScope
@@ -50,13 +50,13 @@ internal fun LazyListScope.emulators(
   item(key = "platforms") {
     Text(
       "Each platform's games open in",
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier = Modifier.semantics { heading() },
     )
   }
   if (platforms == null || apps == null) return
   if (platforms.isEmpty()) {
-    item(key = "noPlatforms") { Text("No platforms", color = Placeholder.mutedText) }
+    item(key = "noPlatforms") { Text("No platforms", color = Palette.mutedText) }
   }
   items(platforms, key = { it.slug.value }) { platform ->
     val scope = OpenWithScope.Platform(platform.slug)

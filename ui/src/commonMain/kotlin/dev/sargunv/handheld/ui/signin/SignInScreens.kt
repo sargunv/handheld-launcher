@@ -41,7 +41,7 @@ import dev.sargunv.handheld.data.auth.DeviceDescription
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommException
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.about.AboutScreen
 import dev.sargunv.handheld.ui.about.AboutSecondary
 import dev.sargunv.handheld.ui.about.LicenceScreen
@@ -124,7 +124,7 @@ class SignInState(
 fun SignInPrimary(state: AppState) {
   val signIn = state.signIn
   val navigator = signIn.navigator
-  NavigationHost(navigator, Modifier.fillMaxSize().background(Placeholder.background)) { screen ->
+  NavigationHost(navigator, Modifier.fillMaxSize().background(Palette.background)) { screen ->
     when (screen) {
       SignInScreen.Address -> NavEntry(screen) { AddressScreen(signIn) }
       is SignInScreen.Code -> NavEntry(screen) { CodeScreen(signIn, screen.baseUrl) }
@@ -145,7 +145,7 @@ fun SignInPrimary(state: AppState) {
 @Composable
 fun SignInSecondary(state: AppState) {
   Column(
-    Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
+    Modifier.fillMaxSize().background(Palette.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     when (val screen = state.signIn.navigator.current) {
@@ -154,8 +154,8 @@ fun SignInSecondary(state: AppState) {
       is SignInScreen.Licence -> AboutSecondary(state, screen.componentId)
       else ->
         state.signIn.help.shown?.let { help ->
-          Text(help.label, color = Placeholder.text)
-          Text(help.text, color = Placeholder.mutedText)
+          Text(help.label, color = Palette.text)
+          Text(help.text, color = Palette.mutedText)
         }
     }
   }
@@ -181,7 +181,7 @@ private fun AddressScreen(state: SignInState) {
   ScreenColumn(canGoBack = false) {
     Text(
       "Sign in to RomM",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 28.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -202,7 +202,7 @@ private fun AddressScreen(state: SignInState) {
       onSubmit = { next(SignInScreen::Code) },
     )
     UnencryptedNote(serverUrl(state.address.text.toString()))
-    error?.let { Text(it, color = Placeholder.text, modifier = Modifier.announced()) }
+    error?.let { Text(it, color = Palette.text, modifier = Modifier.announced()) }
     SignInToggle(
       state,
       "allowUploads",
@@ -244,29 +244,28 @@ private fun CodeScreen(state: SignInState, baseUrl: String) {
   ScreenColumn(canGoBack = true) {
     Text(
       "Approve this device",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 28.sp,
       modifier = Modifier.semantics { heading() },
     )
     val shown = code
     when {
-      error != null ->
-        Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
-      shown == null -> Text("Getting a code", color = Placeholder.mutedText)
+      error != null -> Text(error.orEmpty(), color = Palette.text, modifier = Modifier.announced())
+      shown == null -> Text("Getting a code", color = Palette.mutedText)
       else -> {
-        Text("Open", color = Placeholder.mutedText)
-        Text(shown.verificationUrl, color = Placeholder.text)
-        Text("Code", color = Placeholder.mutedText)
+        Text("Open", color = Palette.mutedText)
+        Text(shown.verificationUrl, color = Palette.text)
+        Text("Code", color = Palette.mutedText)
         Text(
           shown.userCode,
-          color = Placeholder.text,
+          color = Palette.text,
           fontSize = 48.sp,
           letterSpacing = 6.sp,
           // Spelled out, a character at a time, the way it's typed.
           modifier =
             Modifier.semantics { contentDescription = shown.userCode.toList().joinToString(" ") },
         )
-        Text("Waiting for approval", color = Placeholder.mutedText)
+        Text("Waiting for approval", color = Palette.mutedText)
       }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -313,11 +312,11 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
   ScreenColumn(canGoBack = true) {
     Text(
       "Sign in with an API token",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 28.sp,
       modifier = Modifier.semantics { heading() },
     )
-    Text("Client API token from RomM", color = Placeholder.mutedText)
+    Text("Client API token from RomM", color = Palette.mutedText)
     UnencryptedNote(baseUrl)
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
       TextEntry(
@@ -350,9 +349,8 @@ private fun TokenScreen(state: SignInState, baseUrl: String) {
       }
     }
     when {
-      checking -> Text("Checking token", color = Placeholder.mutedText)
-      error != null ->
-        Text(error.orEmpty(), color = Placeholder.text, modifier = Modifier.announced())
+      checking -> Text("Checking token", color = Palette.mutedText)
+      error != null -> Text(error.orEmpty(), color = Palette.text, modifier = Modifier.announced())
     }
     SignInButton(state, "sign-in", "Sign in", onConfirm = ::submit)
   }
@@ -369,7 +367,7 @@ internal const val SIGN_IN_NOT_SAVED = "Sign-in not saved"
 @Composable
 private fun UnencryptedNote(url: String?) {
   if (url != null && parseUrl(url)?.protocol == URLProtocol.HTTP) {
-    Text("Unencrypted connection", color = Placeholder.mutedText)
+    Text("Unencrypted connection", color = Palette.mutedText)
   }
 }
 
@@ -402,10 +400,10 @@ private fun SignInButton(
   Box(
     Modifier.help(state.help, key, label, help)
       .focusItem(key, onConfirm = onConfirm)
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
   ) {
-    Text(label, color = Placeholder.text)
+    Text(label, color = Palette.text)
   }
 }
 
@@ -423,12 +421,12 @@ private fun SignInToggle(
     Modifier.help(state.help, key, label, help)
       .semantics { toggleableState = ToggleableState(checked) }
       .focusItem(key, onConfirm = onToggle, role = Role.Switch)
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
     horizontalArrangement = Arrangement.spacedBy(24.dp),
   ) {
-    Text(label, color = Placeholder.text)
-    Text(if (checked) "On" else "Off", color = Placeholder.mutedText)
+    Text(label, color = Palette.text)
+    Text(if (checked) "On" else "Off", color = Palette.mutedText)
   }
 }
 

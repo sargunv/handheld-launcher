@@ -16,8 +16,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.data.saves.SaveCopy
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
@@ -58,7 +59,7 @@ fun SaveConflictScreen(
 ) {
   FocusScope(
     modifier =
-      modifier.fillMaxSize().background(Placeholder.background).onAction { action ->
+      modifier.fillMaxSize().background(Palette.background).onAction { action ->
         if (action == Action.Back) {
           onCancel()
           true
@@ -75,13 +76,13 @@ fun SaveConflictScreen(
       ) {
         Text(
           "Choose a save · ${conflict.gameName}",
-          color = Placeholder.text,
+          color = Palette.text,
           fontSize = 28.sp,
           modifier = Modifier.semantics { heading() },
         )
         Text(
           "Changed on both since the last sync · The other copy goes to save history",
-          color = Placeholder.mutedText,
+          color = Palette.mutedText,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
           for (copy in listOf(SaveCopy.Device, SaveCopy.Server)) {
@@ -89,18 +90,18 @@ fun SaveConflictScreen(
             Column(
               Modifier.width(280.dp)
                 .focusItem(copy.name, onConfirm = { onChoose(copy) })
-                .background(Placeholder.tile)
+                .background(Palette.tile)
                 .padding(24.dp),
               verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
               Text(
                 if (copy == SaveCopy.Device) "This device" else "RomM",
-                color = Placeholder.text,
+                color = Palette.text,
                 fontSize = 22.sp,
               )
-              Text("Saved ${ago(version.changedAt, now)}", color = Placeholder.text)
-              Text(size(version.sizeBytes), color = Placeholder.mutedText)
-              if (copy == conflict.newer) Text("Newer", color = Placeholder.mutedText)
+              Text("Saved ${ago(version.changedAt, now)}", color = Palette.text)
+              Text(formatSize(version.sizeBytes), color = Palette.mutedText)
+              if (copy == conflict.newer) Text("Newer", color = Palette.mutedText)
             }
           }
         }
@@ -122,11 +123,3 @@ internal fun ago(time: Instant, now: Instant): String {
     else -> count(elapsed.inWholeDays, "day")
   }
 }
-
-/** A file size in words, such as "8 KB". */
-internal fun size(bytes: Long): String =
-  when {
-    bytes < 1024 -> "$bytes bytes"
-    bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-    else -> "${bytes / (1024 * 1024)} MB"
-  }

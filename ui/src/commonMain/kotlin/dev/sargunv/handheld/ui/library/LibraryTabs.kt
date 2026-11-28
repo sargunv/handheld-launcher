@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.ui.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,18 +19,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -39,16 +34,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.settings.LibraryTab
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.FocusLazyVerticalGrid
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
+import dev.sargunv.handheld.ui.focus.touchOnly
 import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.LocalInputSettings
-import dev.sargunv.handheld.ui.input.PadButton
-import dev.sargunv.handheld.ui.input.actionFor
+import dev.sargunv.handheld.ui.input.buttonFor
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState
@@ -108,34 +103,26 @@ private fun TabRow(current: LibraryTab, onSelect: (LibraryTab) -> Unit) {
   ) {
     Text(
       buttonLabel(Action.PreviousShelf),
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       fontSize = 14.sp,
       modifier = Modifier.clearAndSetSemantics {},
     )
     for (tab in LibraryTab.entries) {
       val selected = tab == current
-      val currentOnSelect by rememberUpdatedState(onSelect)
       Text(
         tab.title,
-        color = if (selected) Placeholder.text else Placeholder.mutedText,
+        color = if (selected) Palette.text else Palette.mutedText,
         fontSize = 18.sp,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         modifier =
           Modifier.testTag("library:tab:${tab.name}")
-            .semantics {
-              role = Role.Tab
-              this.selected = selected
-              onClick {
-                currentOnSelect(tab)
-                true
-              }
-            }
-            .pointerInput(tab) { detectTapGestures { currentOnSelect(tab) } },
+            .semantics { this.selected = selected }
+            .touchOnly(Role.Tab) { onSelect(tab) },
       )
     }
     Text(
       buttonLabel(Action.NextShelf),
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       fontSize = 14.sp,
       modifier = Modifier.clearAndSetSemantics {},
     )
@@ -145,8 +132,7 @@ private fun TabRow(current: LibraryTab, onSelect: (LibraryTab) -> Unit) {
 /** The label of the button that performs [action] under the player's input settings. */
 @Composable
 internal fun buttonLabel(action: Action): String {
-  val settings = LocalInputSettings.current
-  return PadButton.entries.firstOrNull { settings.actionFor(it) == action }?.label.orEmpty()
+  return LocalInputSettings.current.buttonFor(action)?.label.orEmpty()
 }
 
 /**
@@ -183,7 +169,7 @@ private fun ShelfList(state: AppState, tab: LibraryTab) {
             sync.emptyLabel(
               if (tab == LibraryTab.Collections) "No collections" else "No platforms",
             ),
-            color = Placeholder.mutedText,
+            color = Palette.mutedText,
             modifier = Modifier.align(Alignment.Center),
           )
         }
@@ -241,17 +227,17 @@ private fun ShelfTiles(
             description = summary.description,
           )
           .height(112.dp)
-          .background(Placeholder.tile)
+          .background(Palette.tile)
           .padding(16.dp),
       ) {
         Column(
           Modifier.align(Alignment.BottomStart),
           verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-          Text(summary.shelf.title, color = Placeholder.text, fontSize = 18.sp)
-          Text(gameCount(summary.games), color = Placeholder.mutedText, fontSize = 14.sp)
+          Text(summary.shelf.title, color = Palette.text, fontSize = 18.sp)
+          Text(gameCount(summary.games), color = Palette.mutedText, fontSize = 14.sp)
           if (summary.onDevice > 0) {
-            Text(onDeviceCount(summary.onDevice), color = Placeholder.mutedText, fontSize = 14.sp)
+            Text(onDeviceCount(summary.onDevice), color = Palette.mutedText, fontSize = 14.sp)
           }
         }
       }

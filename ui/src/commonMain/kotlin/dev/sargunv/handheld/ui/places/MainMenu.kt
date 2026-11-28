@@ -21,7 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
@@ -64,7 +64,7 @@ internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
     ) {
       Text(
         "Menu",
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
         modifier = Modifier.padding(bottom = 8.dp).semantics { heading() },
       )
       for (place in places) {
@@ -88,17 +88,17 @@ private fun MainMenuItem(place: Place, queued: Int, selected: Boolean, onConfirm
         onConfirm = onConfirm,
         description = if (queued > 0) "${place.title}, $queued in the queue" else null,
       )
-      .background(if (selected) Placeholder.tile else Placeholder.dialog)
+      .background(if (selected) Palette.tile else Palette.dialog)
       .padding(horizontal = 20.dp, vertical = 12.dp),
     verticalAlignment = Alignment.CenterVertically,
   ) {
     Text(
       place.title,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 18.sp,
       fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
     )
     Spacer(Modifier.weight(1f))
-    if (queued > 0) Text("$queued", color = Placeholder.mutedText)
+    if (queued > 0) Text("$queued", color = Palette.mutedText)
   }
 }

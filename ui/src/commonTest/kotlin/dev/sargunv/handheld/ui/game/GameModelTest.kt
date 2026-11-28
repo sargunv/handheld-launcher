@@ -33,7 +33,7 @@ class GameModelTest {
   fun thePrimaryActionFollowsTheGamesState() {
     assertNull(primaryAction(rom, null, playing = false))
     assertEquals(
-      "Download (4.2 MB)",
+      "Download (4 MiB)",
       primaryAction(rom, RomStatus.NotOnDevice, playing = false)?.label,
     )
     assertEquals(

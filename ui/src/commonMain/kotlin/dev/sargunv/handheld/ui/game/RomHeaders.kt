@@ -1,7 +1,7 @@
 package dev.sargunv.handheld.ui.game
 
+import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.domain.Rom
-import kotlin.math.roundToLong
 
 /** One field of a game's own header, such as its serial, as the header stores it. */
 data class RomHeaderField(val key: Key, val value: Value) {
@@ -77,7 +77,7 @@ internal fun RomHeaderField.text(): String {
       is RomHeaderField.Value.Text -> value.text
       is RomHeaderField.Value.Names -> value.names.joinToString(", ")
       is RomHeaderField.Value.Number -> value.number.toString()
-      is RomHeaderField.Value.Size -> binarySize(value.bytes)
+      is RomHeaderField.Value.Size -> formatSize(value.bytes)
       is RomHeaderField.Value.Flag ->
         when {
           key == RomHeaderField.Key.HEADER_CHECKSUM -> if (value.set) "Valid" else "Doesn't match"
@@ -90,20 +90,6 @@ internal fun RomHeaderField.text(): String {
         "${value.year}-${value.month.toString().padStart(2, '0')}-${value.day.toString().padStart(2, '0')}"
     }
   return "${key.label} $value"
-}
-
-/** A size in bytes, KiB, MiB or GiB. */
-private fun binarySize(bytes: Long): String {
-  val units = listOf("bytes", "KiB", "MiB", "GiB")
-  var size = bytes.toDouble()
-  var unit = 0
-  while (size >= 1024 && unit < units.lastIndex) {
-    size /= 1024
-    unit++
-  }
-  val tenths = (size * 10).roundToLong()
-  val number = if (tenths % 10 == 0L) "${tenths / 10}" else "${tenths / 10.0}"
-  return "$number ${units[unit]}"
 }
 
 /**

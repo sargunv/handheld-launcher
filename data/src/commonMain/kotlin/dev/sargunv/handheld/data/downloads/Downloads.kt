@@ -629,16 +629,16 @@ private fun commonFolder(files: List<RommRomFile>): String =
     .reduce { common, path -> common.zip(path).takeWhile { (a, b) -> a == b }.map { it.first } }
     .joinToString("/")
 
-/** A size in bytes as people read it, such as `1.4 GB`. */
+/** A size as the player reads it, in binary units, such as `1.4 GiB` or `32 KiB`. */
 fun formatSize(bytes: Long): String {
-  val units = listOf("bytes", "KB", "MB", "GB", "TB")
+  val units = listOf("bytes", "KiB", "MiB", "GiB", "TiB")
   var value = bytes.toDouble()
   var unit = 0
-  while (value >= 1000 && unit < units.lastIndex) {
-    value /= 1000
+  while (value >= 1024 && unit < units.lastIndex) {
+    value /= 1024
     unit++
   }
-  if (unit == 0) return "$bytes bytes"
   val tenths = (value * 10).roundToLong()
-  return "${tenths / 10}.${tenths % 10} ${units[unit]}"
+  val number = if (tenths % 10 == 0L) "${tenths / 10}" else "${tenths / 10}.${tenths % 10}"
+  return "$number ${units[unit]}"
 }

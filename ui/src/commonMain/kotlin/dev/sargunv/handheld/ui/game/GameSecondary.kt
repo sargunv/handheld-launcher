@@ -26,6 +26,7 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RommAchievementProgress
 import dev.sargunv.handheld.data.achievements.achievementProgress
 import dev.sargunv.handheld.data.downloads.RomStatus
+import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommSave
@@ -34,13 +35,12 @@ import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.saves.ago
-import dev.sargunv.handheld.ui.saves.size
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -96,20 +96,20 @@ private fun LocalSecondary(state: AppState, game: LocalGame) {
   val opensIn = rememberOpensIn(state, game)
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
-      NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
-      color = Placeholder.text,
+      NOT_ON_SERVER,
+      color = Palette.text,
       fontSize = 20.sp,
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.testTag("game:not-on-server").semantics { heading() },
     )
     Text(
       "Saves kept on this device",
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier = Modifier.testTag("game:saves-local"),
     )
-    Text(game.path, color = Placeholder.mutedText, fontSize = 14.sp)
+    Text(game.path, color = Palette.mutedText, fontSize = 14.sp)
     Spacer(Modifier.weight(1f))
-    opensIn?.let { Text(it, color = Placeholder.mutedText) }
+    opensIn?.let { Text(it, color = Palette.mutedText) }
   }
 }
 
@@ -147,7 +147,7 @@ private fun RomSecondary(state: AppState, current: Rom) {
     achievements?.let {
       Text(
         achievementSummary(it),
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
         modifier = Modifier.testTag("game:achievements"),
       )
     }
@@ -157,24 +157,24 @@ private fun RomSecondary(state: AppState, current: Rom) {
     ) {
       Text(
         "Saves",
-        color = Placeholder.text,
+        color = Palette.text,
         fontSize = 20.sp,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.semantics { heading() },
       )
       when (val shown = history) {
-        SaveHistoryState.Loading -> Text("Loading saves from RomM", color = Placeholder.mutedText)
-        is SaveHistoryState.Failed -> Text(shown.reason, color = Placeholder.mutedText)
+        SaveHistoryState.Loading -> Text("Loading saves from RomM", color = Palette.mutedText)
+        is SaveHistoryState.Failed -> Text(shown.reason, color = Palette.mutedText)
         is SaveHistoryState.Loaded ->
           if (shown.saves.isEmpty()) {
-            Text("No saves on RomM", color = Placeholder.mutedText)
+            Text("No saves on RomM", color = Palette.mutedText)
           } else {
             for (save in shown.saves) {
               val details =
                 listOfNotNull(
                   save.emulator.takeIf { save.device != null },
                   ago(save.changedAt, now),
-                  size(save.sizeBytes),
+                  formatSize(save.sizeBytes),
                 )
               SaveRow(save.device ?: save.emulator ?: "Unknown device", details)
             }
@@ -184,13 +184,13 @@ private fun RomSecondary(state: AppState, current: Rom) {
         Spacer(Modifier.size(8.dp))
         Text(
           "Kept on this device",
-          color = Placeholder.text,
+          color = Palette.text,
           fontWeight = FontWeight.SemiBold,
           modifier = Modifier.semantics { heading() },
         )
         for (save in kept) {
           val from = if (save.copy == SaveCopy.Device) "This device's copy" else "RomM's copy"
-          SaveRow(from, listOf(save.emulator, ago(save.keptAt, now), size(save.sizeBytes)))
+          SaveRow(from, listOf(save.emulator, ago(save.keptAt, now), formatSize(save.sizeBytes)))
         }
       }
       if (header.isNotEmpty()) {
@@ -198,7 +198,7 @@ private fun RomSecondary(state: AppState, current: Rom) {
         ThisCopy(header)
       }
     }
-    opensIn?.let { Text(it, color = Placeholder.mutedText) }
+    opensIn?.let { Text(it, color = Palette.mutedText) }
   }
 }
 
@@ -211,11 +211,11 @@ private fun ThisCopy(header: List<RomHeaderField>) {
   ) {
     Text(
       "This copy",
-      color = Placeholder.text,
+      color = Palette.text,
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.semantics { heading() },
     )
-    Text(header.joinToString(" · ") { it.text() }, color = Placeholder.mutedText)
+    Text(header.joinToString(" · ") { it.text() }, color = Palette.mutedText)
   }
 }
 
@@ -225,8 +225,8 @@ private fun SaveRow(source: String, details: List<String>) {
     Modifier.semantics(mergeDescendants = true) {},
     horizontalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text(source, color = Placeholder.text)
-    Text(details.joinToString(" · "), color = Placeholder.mutedText)
+    Text(source, color = Palette.text)
+    Text(details.joinToString(" · "), color = Palette.mutedText)
   }
 }
 

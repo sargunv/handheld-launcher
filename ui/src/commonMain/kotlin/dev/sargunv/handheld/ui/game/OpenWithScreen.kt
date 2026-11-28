@@ -30,7 +30,7 @@ import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.platform.PlatformSlug
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.input.Action
@@ -137,7 +137,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         is OpenWithScope.Collection ->
           context?.let { "Open ${it.subject} with" } ?: "Open ${screen.title} games with"
       },
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 28.sp,
       modifier =
         Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 16.dp).semantics {
@@ -161,7 +161,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         if (options.isEmpty()) {
           Text(
             "No app can open these games",
-            color = Placeholder.mutedText,
+            color = Palette.mutedText,
             modifier = Modifier.weight(1f),
           )
         } else {
@@ -189,24 +189,24 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
         Column(Modifier.width(360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           Text(
             "Chosen for ${context.subject}",
-            color = Placeholder.mutedText,
+            color = Palette.mutedText,
             modifier = Modifier.padding(top = 8.dp).semantics { heading() },
           )
           Text(
             current?.let(context::name) ?: "Nothing chosen",
-            color = Placeholder.text,
+            color = Palette.text,
             modifier = Modifier.testTag("openWith:current"),
           )
           if ((scope as? OpenWithScope.Game)?.game is GameKey.Local) {
             Text(
               "Kept for this file · Moves to its game once on your server",
-              color = Placeholder.mutedText,
+              color = Palette.mutedText,
             )
           }
           if (current != null) {
             Text(
               "If cleared: ${context.opensIn(launch.withChoice(scope, null)) ?: "no app"}",
-              color = Placeholder.mutedText,
+              color = Palette.mutedText,
             )
             MenuButton("clear", "Clear this choice") { choose(null) }
           }
@@ -228,11 +228,11 @@ private fun OptionRow(
   Column(
     Modifier.fillMaxWidth()
       .focusItem(key, onConfirm = onConfirm)
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 20.dp, vertical = 10.dp),
   ) {
-    Text(label, color = Placeholder.text)
-    note?.let { Text(it, color = Placeholder.mutedText, fontSize = 14.sp) }
+    Text(label, color = Palette.text)
+    note?.let { Text(it, color = Palette.mutedText, fontSize = 14.sp) }
   }
 }
 
@@ -254,7 +254,7 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
         context.forGame -> "Why it opens in $opensIn"
         else -> "Why $subject open in $opensIn"
       },
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 20.sp,
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.semantics { heading() },
@@ -263,14 +263,14 @@ internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
     lines.forEachIndexed { index, line ->
       Text(
         (if (index > 0) "→ " else "") + line.text,
-        color = if (line.wins) Placeholder.text else Placeholder.mutedText,
+        color = if (line.wins) Palette.text else Palette.mutedText,
         fontWeight = if (line.wins) FontWeight.SemiBold else FontWeight.Normal,
         modifier = Modifier.testTag("chain"),
       )
     }
     Text(
       "Game, then collection, then platform",
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
     )
   }
 }

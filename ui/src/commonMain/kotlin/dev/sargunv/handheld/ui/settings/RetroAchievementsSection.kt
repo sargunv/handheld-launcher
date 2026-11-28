@@ -14,7 +14,7 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn.Attempt
 import dev.sargunv.handheld.data.settings.AchievementSettings
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.widgets.TextEntry
 
@@ -116,7 +116,7 @@ internal fun LazyListScope.retroAchievements(
     item(key = "status") {
       Text(
         status,
-        color = Placeholder.text,
+        color = Palette.text,
         modifier =
           Modifier.testTag("settings:ra:status").semantics { liveRegion = LiveRegionMode.Polite },
       )

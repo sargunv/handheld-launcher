@@ -73,3 +73,7 @@ fun InputSettings.actionFor(button: PadButton): Action? =
     PadButton.DpadRight -> Action.Right
     PadButton.Y -> null
   }
+
+/** The button that performs [action], or null when none does. */
+fun InputSettings.buttonFor(action: Action): PadButton? =
+  PadButton.entries.firstOrNull { actionFor(it) == action }

@@ -73,7 +73,7 @@ class SaveConflictScreenTest {
     }
     onNodeWithTag(SaveCopy.Server.name)
       .assert(expectValue(SemanticsProperties.Role, Role.Button))
-      .assertTextEquals("RomM", "Saved 1 hour ago", "512 KB", "Newer")
+      .assertTextEquals("RomM", "Saved 1 hour ago", "512 KiB", "Newer")
     onNodeWithText("Choose a save · ${conflict.gameName}").assert(isHeading())
     // The hints say what choosing and Back do.
     onNodeWithTag("hint:Confirm").assertTextEquals("A", "Play")
@@ -87,12 +87,10 @@ class SaveConflictScreenTest {
   }
 
   @Test
-  fun describesTimesAndSizes() {
+  fun describesTimes() {
     assertEquals("just now", ago(now, now))
     assertEquals("1 minute ago", ago(Instant.parse("2025-03-01T11:59:00Z"), now))
     assertEquals("3 hours ago", ago(Instant.parse("2025-03-01T09:00:00Z"), now))
     assertEquals("2 days ago", ago(Instant.parse("2025-02-27T12:00:00Z"), now))
-    assertEquals("512 KB", size(512 * 1024))
-    assertEquals("12 bytes", size(12))
   }
 }

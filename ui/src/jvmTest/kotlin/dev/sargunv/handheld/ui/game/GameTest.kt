@@ -293,7 +293,7 @@ class GameTest {
     assertTrue(gameFile.exists())
 
     press(listOf(Key.ButtonX, Key.ButtonA, Key.DirectionRight, Key.ButtonA))
-    awaitText("Download (1.0 KB)")
+    awaitText("Download (1 KiB)")
     assertFalse(gameFile.exists())
     onNodeWithTag("primary").assertIsFocused()
   }
@@ -348,7 +348,7 @@ class GameTest {
     val kept = KeptSave("/kept", Clock.System.now() - 3.hours, SaveCopy.Device, "mgba", 2048)
     openGame(FakeLauncher(keptSaves = listOf(kept)))
     awaitText("Steam Deck")
-    onNodeWithText("mgba · 1 day ago · 8 KB", substring = true).assertExists()
+    onNodeWithText("mgba · 1 day ago · 8 KiB", substring = true).assertExists()
     onNodeWithText("This device's copy").assertExists()
     onNodeWithText("Opens in Built-in · Gambatte").assertExists()
     onNodeWithTag("game:header").assertDoesNotExist()

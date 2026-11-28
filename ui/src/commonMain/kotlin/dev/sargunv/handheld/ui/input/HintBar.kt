@@ -15,7 +15,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 
 /** A button hint: what the button for [action] does on this screen. */
 @Immutable data class Hint(val action: Action, val label: String)
@@ -36,7 +36,7 @@ fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier, mainMenu: Boolean 
     verticalAlignment = Alignment.CenterVertically,
   ) {
     for (hint in if (mainMenu) hints + MainMenuHint else hints) {
-      val button = PadButton.entries.firstOrNull { settings.actionFor(it) == hint.action }
+      val button = settings.buttonFor(hint.action)
       // The button and what it does make one element for accessibility services.
       Row(
         Modifier.semantics(mergeDescendants = true) {}.testTag("hint:${hint.action.name}"),
@@ -46,14 +46,14 @@ fun HintBar(hints: List<Hint>, modifier: Modifier = Modifier, mainMenu: Boolean 
         if (button != null) {
           Text(
             button.label,
-            color = Placeholder.text,
+            color = Palette.text,
             fontSize = 12.sp,
             modifier =
-              Modifier.border(1.dp, Placeholder.mutedText, RoundedCornerShape(50))
+              Modifier.border(1.dp, Palette.mutedText, RoundedCornerShape(50))
                 .padding(horizontal = 8.dp, vertical = 2.dp),
           )
         }
-        Text(hint.label, color = Placeholder.mutedText, fontSize = 14.sp)
+        Text(hint.label, color = Palette.mutedText, fontSize = 14.sp)
       }
     }
   }

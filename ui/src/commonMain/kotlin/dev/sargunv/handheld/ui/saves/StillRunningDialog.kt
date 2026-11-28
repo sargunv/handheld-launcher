@@ -11,7 +11,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.saves.StillRunningChoice
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.MenuButton
 
@@ -37,12 +37,12 @@ fun StillRunningDialog(prompt: StillRunning, onChoose: (StillRunningChoice) -> U
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(
         "${prompt.emulatorName} may still be running",
-        color = Placeholder.text,
+        color = Palette.text,
         modifier = Modifier.semantics { heading() },
       )
       Text(
         "May overwrite RomM's newer save of ${prompt.gameName}",
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
       )
       MenuButton("stillRunning:quitFirst", "Quit from ${prompt.emulatorName} first") {
         onChoose(StillRunningChoice.QuitFirst)

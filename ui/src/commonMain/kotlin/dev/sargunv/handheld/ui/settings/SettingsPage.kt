@@ -41,7 +41,7 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.domain.Platform
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.downloads.rememberStorageSpaces
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -292,7 +292,7 @@ private fun SectionRow(
 ) {
   Text(
     section.title,
-    color = Placeholder.text,
+    color = Palette.text,
     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
     modifier =
       Modifier.fillMaxWidth()
@@ -303,7 +303,7 @@ private fun SectionRow(
         .focusItem(section.key, onConfirm = onFocus) { action ->
           action == Action.Right && onRight()
         }
-        .background(if (selected) Placeholder.tile else Placeholder.background)
+        .background(if (selected) Palette.tile else Palette.background)
         .padding(horizontal = 20.dp, vertical = 12.dp),
   )
 }
@@ -338,12 +338,12 @@ internal fun SettingRow(
       ) { action ->
         action == Action.Menu && onMenu?.invoke() != null
       }
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
     horizontalArrangement = Arrangement.spacedBy(24.dp),
   ) {
-    Text(label, color = Placeholder.text, modifier = Modifier.weight(1f))
-    value?.let { Text(it, color = Placeholder.mutedText) }
+    Text(label, color = Palette.text, modifier = Modifier.weight(1f))
+    value?.let { Text(it, color = Palette.mutedText) }
   }
 }
 
@@ -351,7 +351,7 @@ internal fun LazyListScope.sectionHeading(title: String) {
   item(key = "heading") {
     Text(
       title,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 22.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -368,10 +368,10 @@ internal fun SettingsSecondary(state: AppState) {
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       help?.label ?: section.title,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       modifier = Modifier.testTag("settings:help:title").semantics { heading() },
     )
-    Text(help?.text ?: section.description, color = Placeholder.mutedText)
+    Text(help?.text ?: section.description, color = Palette.mutedText)
   }
 }
