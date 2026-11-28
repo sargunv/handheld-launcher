@@ -88,9 +88,9 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     scope.launch {
       try {
         val collections = collectionsOf(state.data, game)
-        val settings = state.data.settings.settings.value
         notes =
           state.data.adopter.play(game.key) {
+            val settings = state.data.settings.settings.value
             state.platform.launcher.play(
               game,
               path,
