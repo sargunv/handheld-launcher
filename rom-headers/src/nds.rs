@@ -8,6 +8,9 @@ use crate::bytes::{array_at, ascii, le16};
 use crate::code::{char_code, numeric_code};
 use crate::{Error, Result};
 
+/// The CRC-16 the DS uses.
+const CRC16: crc::Crc<u16> = crc::Crc::<u16>::new(&crc::CRC_16_MODBUS);
+
 numeric_code! {
     /// The unit code at $012: which systems the game runs on.
     UnitCode(u8) {
@@ -113,22 +116,7 @@ pub fn read<R: Read + Seek + ?Sized>(reader: &mut R) -> Result<Header> {
         region: Region(h[0x1D]),
         version: h[0x1E],
         header_crc,
-        header_crc_valid: crc16(&h[..0x15E]) == header_crc,
-    })
-}
-
-/// The CRC-16 the DS uses: reflected $8005, starting at $FFFF.
-fn crc16(data: &[u8]) -> u16 {
-    data.iter().fold(0xFFFF, |mut crc, &b| {
-        crc ^= u16::from(b);
-        for _ in 0..8 {
-            crc = if crc & 1 != 0 {
-                (crc >> 1) ^ 0xA001
-            } else {
-                crc >> 1
-            };
-        }
-        crc
+        header_crc_valid: CRC16.checksum(&h[..0x15E]) == header_crc,
     })
 }
 
@@ -145,7 +133,7 @@ mod tests {
         rom[0x0C..0x12].copy_from_slice(b"AWRE01");
         rom[0x14] = 0x09;
         rom[0x1E] = 0x01;
-        let crc = crc16(&rom[..0x15E]);
+        let crc = CRC16.checksum(&rom[..0x15E]);
         rom[0x15E..0x160].copy_from_slice(&crc.to_le_bytes());
         let h = read(&mut Cursor::new(&rom)).unwrap();
         assert_eq!(h.title, "ADVANCEWARS2");
@@ -157,11 +145,5 @@ mod tests {
         assert_eq!(h.capacity, Some(64 * 1024 * 1024));
         assert_eq!(h.version, 1);
         assert!(h.header_crc_valid);
-    }
-
-    #[test]
-    fn computes_the_crc() {
-        // CRC-16/MODBUS's check value.
-        assert_eq!(crc16(b"123456789"), 0x4B37);
     }
 }

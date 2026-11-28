@@ -3,7 +3,6 @@
 
 use crate::ffi;
 use crate::gl::{self, Framebuffer, GlApi, GlContext, SizedWindow, Target};
-use crate::host::hw_api;
 use crate::session::{AvInfo, SessionError};
 use crate::video::{self, Frame, Region, Screen};
 use crate::vulkan::{Negotiation, VulkanContext};
@@ -67,7 +66,7 @@ impl Renderer {
         }
         let context = match (hw, target) {
             (Some(cb), target) => {
-                let api = hw_api(cb).expect("accepted in SET_HW_RENDER");
+                let api = GlApi::requested(cb).expect("accepted in SET_HW_RENDER");
                 GlContext::new(api, target, cb.debug_context)?
             }
             (None, target @ Target::Window(_)) => {

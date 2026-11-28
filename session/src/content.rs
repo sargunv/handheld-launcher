@@ -150,32 +150,21 @@ mod tests {
     }
 
     #[test]
-    fn passes_a_zip_the_core_opens() {
+    fn passes_what_extracting_wouldnt_help() {
         assert!(passes("/roms/sf2.zip", &core(&["zip", "7z"])));
         assert!(passes("/roms/sf2.zip", &core(&["ZIP"])));
-    }
-
-    #[test]
-    fn passes_a_zip_when_the_core_blocks_extraction() {
-        let info = SystemInfo {
+        let blocks = SystemInfo {
             block_extract: true,
             ..core(&["bin"])
         };
-        assert!(passes("/roms/game.zip", &info));
-    }
-
-    #[test]
-    fn passes_files_that_arent_archives() {
+        assert!(passes("/roms/game.zip", &blocks));
+        // A core that lists no extensions says nothing of what to extract.
+        assert!(passes("/roms/game.zip", &core(&[])));
         let mesen = core(&["nes"]);
         assert!(passes("/roms/Tetris.nes", &mesen));
         assert!(passes("/roms/Tetris", &mesen));
         // The core rejects it, but extracting won't help.
         assert!(passes("/roms/Tetris.7z", &mesen));
-    }
-
-    #[test]
-    fn passes_a_zip_when_the_core_lists_no_extensions() {
-        assert!(passes("/roms/game.zip", &core(&[])));
     }
 
     /// The name of the file a core of `extensions` loads from a zip of
@@ -192,13 +181,9 @@ mod tests {
     }
 
     #[test]
-    fn chooses_the_file_the_core_opens() {
+    fn chooses_the_largest_file_the_core_opens() {
         let files: &[(&str, &[u8])] = &[("readme.txt", &[0; 90]), ("Tetris (USA).NES", &[0; 40])];
         assert_eq!(chosen(&["nes"], files).as_deref(), Some("Tetris (USA).NES"));
-    }
-
-    #[test]
-    fn chooses_the_largest_file_the_core_opens() {
         let files: &[(&str, &[u8])] = &[
             ("Sonic (Proto).md", &[0; 20]),
             ("Sonic.txt", &[0; 90]),
@@ -209,10 +194,6 @@ mod tests {
             chosen(&["md", "gen", "bin"], files).as_deref(),
             Some("Sonic (USA).md")
         );
-    }
-
-    #[test]
-    fn chooses_nothing_when_the_core_opens_no_file() {
         let files: &[(&str, &[u8])] = &[("readme.txt", &[0; 10]), ("../Tetris.nes", &[0; 20])];
         assert_eq!(chosen(&["nes"], files), None);
     }
@@ -265,34 +246,21 @@ mod tests {
     }
 
     #[test]
-    fn passes_the_zip_without_a_cache() {
+    fn fails_on_a_zip_without_the_game_or_a_broken_one() {
         let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("Game.zip");
-        write_zip(&archive, &[("Game.nes", b"game")]);
-        assert_eq!(prepare(&archive, &core(&["nes"]), None).unwrap(), archive);
-    }
-
-    #[test]
-    fn fails_on_a_zip_without_the_game() {
-        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
         let archive = dir.path().join("Game.zip");
         write_zip(&archive, &[("readme.txt", b"no game here")]);
-        let cache = dir.path().join("cache");
         assert!(matches!(
             prepare(&archive, &core(&["nes"]), Some(&cache)),
             Err(SessionError::NoContentInArchive)
         ));
-    }
-
-    #[test]
-    fn fails_on_a_broken_zip() {
-        let dir = tempfile::tempdir().unwrap();
-        let archive = dir.path().join("Game.zip");
         fs::write(&archive, b"not a zip").unwrap();
-        let cache = dir.path().join("cache");
         assert!(matches!(
             prepare(&archive, &core(&["nes"]), Some(&cache)),
             Err(SessionError::Archive(_))
         ));
+        // Without a cache, the zip goes to the core as it is.
+        assert_eq!(prepare(&archive, &core(&["nes"]), None).unwrap(), archive);
     }
 }

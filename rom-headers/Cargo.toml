@@ -20,6 +20,7 @@ zstd = ["dep:ruzstd"]
 switch = ["dep:aes", "dep:xts-mode"]
 
 [dependencies]
+crc = "3.4.0"
 encoding_rs = "0.8.35"
 
 aes = { version = "0.9.4", optional = true }

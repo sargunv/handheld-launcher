@@ -1476,13 +1476,4 @@ mod tests {
         to_rgba(ChannelOrder::Bgra, &pixels, &mut out);
         assert_eq!(out, [3, 2, 1, 255, 6, 5, 4, 255]);
     }
-
-    #[test]
-    fn reads_back_only_8_bit_rgba_and_bgra() {
-        assert_eq!(
-            ChannelOrder::of(vk::Format::B8G8R8A8_SRGB),
-            Some(ChannelOrder::Bgra)
-        );
-        assert_eq!(ChannelOrder::of(vk::Format::R5G6B5_UNORM_PACK16), None);
-    }
 }

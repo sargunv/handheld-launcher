@@ -14,6 +14,7 @@ use khronos_egl as egl;
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use wayland_sys::egl::{WaylandEgl, wayland_egl_option, wl_egl_window};
 
+use crate::ffi;
 use crate::video::{Region, Screen};
 
 /// EGL 1.4, which is as far as some Linux GPU drivers go.
@@ -74,6 +75,26 @@ pub(crate) enum GlApi {
     Gl { core: Option<(u32, u32)> },
     /// OpenGL ES of at least this version.
     Gles { major: u32, minor: u32 },
+}
+
+impl GlApi {
+    /// The API a hardware render request asks for, if the session serves it.
+    pub(crate) fn requested(cb: &ffi::retro_hw_render_callback) -> Option<Self> {
+        match cb.context_type {
+            ffi::RETRO_HW_CONTEXT_OPENGL => Some(Self::Gl { core: None }),
+            // Core profiles start at 3.2.
+            ffi::RETRO_HW_CONTEXT_OPENGL_CORE => Some(Self::Gl {
+                core: Some((cb.version_major, cb.version_minor).max((3, 2))),
+            }),
+            ffi::RETRO_HW_CONTEXT_OPENGLES2 => Some(Self::Gles { major: 2, minor: 0 }),
+            ffi::RETRO_HW_CONTEXT_OPENGLES3 => Some(Self::Gles { major: 3, minor: 0 }),
+            ffi::RETRO_HW_CONTEXT_OPENGLES_VERSION => Some(Self::Gles {
+                major: cb.version_major,
+                minor: cb.version_minor,
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// What a [`GlContext`] or [`crate::vulkan::VulkanContext`] draws to.
