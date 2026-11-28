@@ -167,11 +167,8 @@ pub struct GameSession {
 type Reply<T> = Sender<Result<T, SessionError>>;
 
 enum Command {
-    AttachWindow(PlatformWindow, u32, u32, Reply<()>),
+    SetWindow(Screen, Option<(PlatformWindow, u32, u32)>, Reply<()>),
     ResizeWindow(Screen, u32, u32),
-    DetachWindow(Reply<()>),
-    AttachLowerWindow(PlatformWindow, u32, u32, Reply<()>),
-    DetachLowerWindow(Reply<()>),
     Pause(Reply<()>),
     Resume,
     FastForward(u32),
@@ -227,15 +224,33 @@ impl GameSession {
         }
     }
 
-    /// Presents to `window`, an `ANativeWindow` pointer, from now on, instead
-    /// of any window before it, and shows the last frame on it at once. The
-    /// session takes over one reference to the window, such as
+    /// Presents to `window`, an `ANativeWindow` pointer, on `screen` from now
+    /// on, instead of any window before it, and shows the last frame on it at
+    /// once. While a lower window is attached, the main window shows the top
+    /// half of each frame and the lower window the bottom half, as for a
+    /// two-screen system whose core draws its screens stacked, top above
+    /// bottom, with no gap. Of the bottom half, the lower window shows the
+    /// share of the width that [`SessionOptions::lower_screen_width_share`]
+    /// gives.
+    ///
+    /// The session takes over one reference to the window, such as
     /// `ANativeWindow_fromSurface` returns, and releases it when the window is
     /// detached or replaced, or attaching fails.
-    pub fn attach_window(&self, window: u64, width: u32, height: u32) -> Result<(), SessionError> {
+    pub fn attach_window(
+        &self,
+        screen: Screen,
+        window: u64,
+        width: u32,
+        height: u32,
+    ) -> Result<(), SessionError> {
         // Take ownership first, so the window is released on every path.
         let window = PlatformWindow::adopt(window)?;
-        self.request(|reply| Command::AttachWindow(window, width, height, reply))
+        let result =
+            self.request(|reply| Command::SetWindow(screen, Some((window, width, height)), reply));
+        if screen == Screen::Lower {
+            self.split.store(result.is_ok(), Ordering::Relaxed);
+        }
+        result
     }
 
     /// Tells the session the new size in pixels of `screen`'s window.
@@ -245,43 +260,16 @@ impl GameSession {
             .send(Command::ResizeWindow(screen, width, height));
     }
 
-    /// Stops presenting to the attached window. When this returns, the
-    /// session no longer uses it, so the platform may destroy it.
-    pub fn detach_window(&self) {
-        match self.request(Command::DetachWindow) {
-            Ok(()) | Err(SessionError::Stopped) => {}
-            Err(e) => log::warn!("can't detach the window: {e}"),
+    /// Stops presenting to `screen`'s window, and with no lower window, shows
+    /// the whole frame on the main window again. When this returns, the
+    /// session no longer uses the window, so the platform may destroy it.
+    pub fn detach_window(&self, screen: Screen) {
+        if screen == Screen::Lower {
+            self.split.store(false, Ordering::Relaxed);
         }
-    }
-
-    /// Presents the bottom half of each frame to `window` from now on, and
-    /// the top half to the main window, as for a two-screen system whose core
-    /// draws its screens stacked, top above bottom, with no gap. Of the bottom
-    /// half, it shows the share of the width that
-    /// [`SessionOptions::lower_screen_width_share`] gives. It replaces
-    /// any lower window before it and shows the last frame on it at once. It
-    /// takes over the window's reference as [`GameSession::attach_window`]
-    /// does.
-    pub fn attach_lower_window(
-        &self,
-        window: u64,
-        width: u32,
-        height: u32,
-    ) -> Result<(), SessionError> {
-        let window = PlatformWindow::adopt(window)?;
-        let result = self.request(|reply| Command::AttachLowerWindow(window, width, height, reply));
-        self.split.store(result.is_ok(), Ordering::Relaxed);
-        result
-    }
-
-    /// Stops presenting to the lower window, and shows the whole frame on the
-    /// main window again. When this returns, the session no longer uses it,
-    /// so the platform may destroy it.
-    pub fn detach_lower_window(&self) {
-        self.split.store(false, Ordering::Relaxed);
-        match self.request(Command::DetachLowerWindow) {
+        match self.request(|reply| Command::SetWindow(screen, None, reply)) {
             Ok(()) | Err(SessionError::Stopped) => {}
-            Err(e) => log::warn!("can't detach the lower window: {e}"),
+            Err(e) => log::warn!("can't detach the {screen:?} window: {e}"),
         }
     }
 
@@ -453,8 +441,7 @@ fn run(
         av,
         events: events.clone(),
         session,
-        window: None,
-        lower_window: None,
+        windows: [None, None],
         paused: true,
         speed: 1,
         next_frame: Instant::now(),
@@ -506,8 +493,8 @@ struct Runner {
     /// it.
     av: Arc<Mutex<AvInfo>>,
     events: Events,
-    window: Option<PlatformWindow>,
-    lower_window: Option<PlatformWindow>,
+    /// Each [`Screen`]'s window, kept alive while the session presents to it.
+    windows: [Option<PlatformWindow>; 2],
     paused: bool,
     /// How many frames run each time one is due: more than one to fast
     /// forward.
@@ -630,44 +617,26 @@ impl Runner {
 
     /// The display's vsync, while the session presents to it.
     fn vsync(&self) -> Option<Vsync> {
-        self.window.as_ref()?;
+        self.windows[Screen::Main as usize].as_ref()?;
         self.vsync.as_ref()?.vsync()
     }
 
     fn handle(&mut self, command: Command) {
         match command {
-            Command::AttachWindow(window, width, height, reply) => {
-                let native = window.native();
-                // SAFETY: `self.window` keeps the window alive until it's
+            Command::SetWindow(screen, window, reply) => {
+                let native = window
+                    .as_ref()
+                    .map(|(w, width, height)| (w.native(), *width, *height));
+                // SAFETY: `self.windows` keeps the window alive until it's
                 // detached or replaced, which happens after the session lets
                 // go of it.
-                let result = unsafe { self.session.set_window(Some((native, width, height))) };
+                let result = unsafe { self.session.set_window(screen, native) };
                 // The old window, if any, is unused now.
-                self.window = result.is_ok().then_some(window);
+                self.windows[screen as usize] = window.filter(|_| result.is_ok()).map(|(w, ..)| w);
                 let _ = reply.send(result);
             }
             Command::ResizeWindow(screen, width, height) => {
                 self.session.resize_window(screen, width, height);
-            }
-            Command::DetachWindow(reply) => {
-                // SAFETY: detaching needs no window.
-                let result = unsafe { self.session.set_window(None) };
-                self.window = None;
-                let _ = reply.send(result);
-            }
-            Command::AttachLowerWindow(window, width, height, reply) => {
-                let native = window.native();
-                // SAFETY: as for the main window.
-                let result =
-                    unsafe { self.session.set_lower_window(Some((native, width, height))) };
-                self.lower_window = result.is_ok().then_some(window);
-                let _ = reply.send(result);
-            }
-            Command::DetachLowerWindow(reply) => {
-                // SAFETY: detaching needs no window.
-                let result = unsafe { self.session.set_lower_window(None) };
-                self.lower_window = None;
-                let _ = reply.send(result);
             }
             Command::Pause(reply) => {
                 self.set_paused(true);

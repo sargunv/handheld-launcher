@@ -603,7 +603,7 @@ impl Host {
                 );
                 return false;
             }
-            if let Err(e) = gl::egl::instance() {
+            if let Err(e) = gl::egl() {
                 log::warn!("core asked for hardware rendering, but {e}");
                 self.hw_refused = Some(GlError::Unavailable(e).into());
                 return false;
@@ -730,7 +730,7 @@ unsafe extern "C" fn get_proc_address(sym: *const c_char) -> ffi::retro_proc_add
     if sym.is_null() {
         return None;
     }
-    let egl = gl::egl::instance().ok()?;
+    let egl = gl::egl().ok()?;
     // SAFETY: the core passes a C string.
     let name = unsafe { CStr::from_ptr(sym) }.to_str().ok()?;
     let f = egl.get_proc_address(name)?;
