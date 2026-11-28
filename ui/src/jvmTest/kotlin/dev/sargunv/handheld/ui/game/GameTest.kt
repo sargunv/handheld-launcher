@@ -34,7 +34,6 @@ import dev.sargunv.handheld.ui.saves.SaveVersion
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
-import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,13 +42,16 @@ import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
 import kotlinx.coroutines.CompletableDeferred
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class GameTest {
-  private val storage = createTempDirectory("game-storage").toFile()
+  private val temp = TemporaryFolder().apply { create() }
+
+  private val storage = temp.newFolder()
   private val gameFile = File(storage, "ROMs/gb/Game 1.gb")
 
-  @AfterTest fun cleanUp() = check(storage.deleteRecursively())
+  @AfterTest fun cleanUp() = temp.delete()
 
   /** A server with one game, Game 1 on the Game Boy, and one save of it from another device. */
   private val server = fakeRomm { path, _ ->
@@ -88,6 +90,7 @@ class GameTest {
     gameFile.parentFile.mkdirs()
     gameFile.writeText("game")
     launchApp(
+      temp,
       server,
       credentials = Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player", "thor")),
       storage = listOf(StorageTarget(storage.path, "Test storage")),

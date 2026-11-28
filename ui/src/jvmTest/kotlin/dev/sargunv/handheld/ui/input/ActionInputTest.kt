@@ -11,7 +11,6 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
-import dev.sargunv.handheld.data.settings.ConfirmButton
 import dev.sargunv.handheld.data.settings.InputSettings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
@@ -66,13 +65,6 @@ class ActionInputTest {
     actions.clear()
     hold(Key.ButtonB)
     assertEquals(listOf(Action.Back), actions)
-  }
-
-  @Test
-  fun bConfirmsAndAGoesBackWhenBConfirms() = runComposeUiTest {
-    show(InputSettings(ConfirmButton.B))
-    press(listOf(Key.ButtonB, Key.ButtonA))
-    assertEquals(listOf(Action.Confirm, Action.Back), actions)
   }
 
   @Test

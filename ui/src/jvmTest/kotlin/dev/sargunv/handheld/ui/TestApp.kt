@@ -35,23 +35,24 @@ import dev.sargunv.handheld.ui.places.OpenTarget
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
-import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import org.junit.rules.TemporaryFolder
 
 /** The server the tests sign in to. */
 internal const val TestServer = "https://romm.test"
 
 /**
  * Shows the app, signed in to [TestServer] unless [credentials] says otherwise, with [settings],
- * and with covers and the download queue in new, empty directories. It shows [open] once signed in,
- * and takes each of [homePresses] as a press of HOME.
+ * and with its data and covers in new folders of [temp]. It shows [open] once signed in, and takes
+ * each of [homePresses] as a press of HOME.
  *
  * @return the app's data, whose RomM client talks to [server], and whose settings change as the app
  *   changes them.
  */
 internal fun ComposeUiTest.launchApp(
+  temp: TemporaryFolder,
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
   credentials: Vault<RommCredentials> =
     Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player")),
@@ -72,7 +73,7 @@ internal fun ComposeUiTest.launchApp(
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
     data = remember {
-      val dataDir = createTempDirectory("handheld-data").toFile()
+      val dataDir = temp.newFolder()
       HandheldData(
           credentials = credentials,
           library = library,
@@ -102,7 +103,7 @@ internal fun ComposeUiTest.launchApp(
           appInfo,
         )
       },
-      remember { createTempDirectory("handheld-covers").toFile() },
+      remember { temp.newFolder() },
       Modifier.trackHeldKeys(heldKeys),
       openRequests = remember { if (open != null) flowOf(open) else emptyFlow() },
       homePresses = homePresses,

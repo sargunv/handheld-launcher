@@ -43,13 +43,13 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
 import java.util.Collections
-import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
+import org.junit.rules.TemporaryFolder
 
 /**
  * Local games: files in a platform's folder that match none of the server's games. The server has
@@ -58,7 +58,9 @@ import kotlinx.coroutines.CompletableDeferred
  */
 @OptIn(ExperimentalTestApi::class)
 class LocalGameTest {
-  private val storage = createTempDirectory("local-storage").toFile()
+  private val temp = TemporaryFolder().apply { create() }
+
+  private val storage = temp.newFolder()
 
   private val homebrew = File(storage, "ROMs/gb/Homebrew.gb")
   private val demo = File(storage, "ROMs/n64/Demo.z64")
@@ -93,7 +95,7 @@ class LocalGameTest {
   @AfterTest
   fun cleanUp() {
     library.close()
-    check(storage.deleteRecursively())
+    temp.delete()
   }
 
   private val server = fakeRomm { path, request ->
@@ -142,6 +144,7 @@ class LocalGameTest {
     open: OpenTarget? = null,
   ): HandheldData =
     launchApp(
+      temp,
       server,
       credentials = credentials,
       library = library,

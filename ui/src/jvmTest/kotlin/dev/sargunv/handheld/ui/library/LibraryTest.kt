@@ -37,12 +37,17 @@ import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
-import kotlin.io.path.createTempDirectory
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class LibraryTest {
+  private val temp = TemporaryFolder().apply { create() }
+
+  @AfterTest fun cleanUp() = temp.delete()
+
   /**
    * A server with two platforms of games and an empty third. On the Game Boy: Alpha, Bravo and
    * Zulu, with Zulu added first and Bravo last. On the NES: Contra and Metroid. With [collections],
@@ -87,6 +92,7 @@ class LibraryTest {
   ): HandheldData {
     val data =
       launchApp(
+        temp,
         server(collections),
         storage = listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
         settings = settings,
@@ -232,7 +238,7 @@ class LibraryTest {
 
   @Test
   fun onDeviceHoldsOnlyTheGamesOnTheDevice() = runComposeUiTest {
-    val storage = createTempDirectory("library-storage").toFile()
+    val storage = temp.newFolder()
     File(storage, "ROMs/p1").mkdirs()
     File(storage, "ROMs/p1/Zulu.bin").writeText("game")
     openLibrary(Settings(library = LibrarySettings(tab = LibraryTab.OnDevice)), storage = storage)
@@ -329,7 +335,7 @@ class LibraryTest {
   @Test
   fun coversShowWhichGamesAreOnTheDeviceAndTheLowerScreenFilters() = runComposeUiTest {
     // Zulu is in its platform's folder.
-    val storage = createTempDirectory("library-storage").toFile()
+    val storage = temp.newFolder()
     File(storage, "ROMs/p1").mkdirs()
     File(storage, "ROMs/p1/Zulu.bin").writeText("game")
     openLibrary(storage = storage)

@@ -48,7 +48,6 @@ import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
-import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,15 +55,18 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.runBlocking
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class HomeTest {
+  private val temp = TemporaryFolder().apply { create() }
+
   /** The presses of the system's HOME, which [pressHome] makes. */
   private val homePresses = Channel<Unit>(Channel.UNLIMITED)
 
-  private val storage = createTempDirectory("home-storage").toFile()
+  private val storage = temp.newFolder()
 
-  @AfterTest fun cleanUp() = check(storage.deleteRecursively())
+  @AfterTest fun cleanUp() = temp.delete()
 
   /**
    * A server with three games on one platform. The user played game 2 last and game 1 before it,
@@ -94,6 +96,7 @@ class HomeTest {
     launcher: GameLauncher = GameLauncher.Unsupported,
   ) =
     launchApp(
+      temp,
       server(fail, played),
       storage = storage,
       settings = settings,

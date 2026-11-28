@@ -20,11 +20,17 @@ import dev.sargunv.handheld.ui.press
 import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
+import kotlin.test.AfterTest
 import kotlin.test.Test
+import org.junit.rules.TemporaryFolder
 
 /** A screen the launch intent's `open` extra names shows as if the player had gone there. */
 @OptIn(ExperimentalTestApi::class)
 class OpenRequestTest {
+  private val temp = TemporaryFolder().apply { create() }
+
+  @AfterTest fun cleanUp() = temp.delete()
+
   /** A server with two games on one platform, of which the player played game 1 last. */
   private val server = fakeRomm { path, request ->
     json(
@@ -43,7 +49,7 @@ class OpenRequestTest {
 
   @Test
   fun aGameOpensOverHome() = runComposeUiTest {
-    launchApp(server, open = OpenTarget.Game(2))
+    launchApp(temp, server, open = OpenTarget.Game(2))
     awaitTag("primary")
     onNodeWithText("Game 2").assert(isHeading())
     press(Key.ButtonB)
@@ -52,7 +58,7 @@ class OpenRequestTest {
 
   @Test
   fun aPlatformOpensItsShelfOverThePlatforms() = runComposeUiTest {
-    launchApp(server, open = OpenTarget.LibraryPlatform(PlatformCatalog.GB))
+    launchApp(temp, server, open = OpenTarget.LibraryPlatform(PlatformCatalog.GB))
     awaitTag("shelf:platform:1")
     onNodeWithTag("place:Library").assertExists()
     press(Key.ButtonB)

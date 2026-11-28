@@ -17,10 +17,16 @@ import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.press
+import kotlin.test.AfterTest
 import kotlin.test.Test
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class AboutTest {
+  private val temp = TemporaryFolder().apply { create() }
+
+  @AfterTest fun cleanUp() = temp.delete()
+
   /** Two components, the second with a licence longer than the screen. */
   private val components =
     """
@@ -45,7 +51,7 @@ class AboutTest {
   @Test
   fun opensFromSettingsAndShowsEachComponentsLicence() = runComposeUiTest {
     // The server is out of reach, so the places show nothing to focus.
-    launchApp(appInfo = AppInfo("1.2.3") { components })
+    launchApp(temp, appInfo = AppInfo("1.2.3") { components })
     waitUntil(timeoutMillis = 5_000) {
       onAllNodes(hasText("Offline")).fetchSemanticsNodes().isNotEmpty()
     }

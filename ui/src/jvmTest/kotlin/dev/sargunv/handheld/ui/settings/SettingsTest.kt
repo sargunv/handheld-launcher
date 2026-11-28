@@ -48,9 +48,7 @@ import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
-import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,9 +57,18 @@ import kotlin.test.assertNull
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.runBlocking
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class SettingsTest {
+  private val temp = TemporaryFolder().apply { create() }
+
+  @AfterTest
+  fun cleanUp() {
+    library.close()
+    temp.delete()
+  }
+
   private val credentials = Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player"))
   private val library = LibraryCache.open(path = null)
   private lateinit var data: HandheldData
@@ -122,6 +129,7 @@ class SettingsTest {
   ): DownloadManager {
     data =
       launchApp(
+        temp,
         server(refuses),
         credentials = store,
         library = library,
@@ -385,8 +393,8 @@ class SettingsTest {
 
   @Test
   fun storageTurnsOnAndOffAndMovesFromItsMenu() = runComposeUiTest {
-    val own = StorageTarget(tempDir(), "Device", "primary")
-    val card = StorageTarget(tempDir(), "SD card", "card")
+    val own = StorageTarget(temp.newFolder().path, "Device", "primary")
+    val card = StorageTarget(temp.newFolder().path, "SD card", "card")
     launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own, card))
     awaitFocused("settings:Storage")
     awaitTag("settings:storage:card")
@@ -421,7 +429,7 @@ class SettingsTest {
 
   @Test
   fun theRefusalNoteGoesWhenFocusLeavesTheSection() = runComposeUiTest {
-    val own = StorageTarget(tempDir(), "Device", "primary")
+    val own = StorageTarget(temp.newFolder().path, "Device", "primary")
     launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))
     awaitFocused("settings:Storage")
     awaitTag("settings:storage:primary")
@@ -435,7 +443,7 @@ class SettingsTest {
 
   @Test
   fun theOnlyStorageCantBeTurnedOffOrMoved() = runComposeUiTest {
-    val own = StorageTarget(tempDir(), "Device", "primary")
+    val own = StorageTarget(temp.newFolder().path, "Device", "primary")
     launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))
     awaitFocused("settings:Storage")
     awaitTag("settings:storage:primary")
@@ -461,14 +469,6 @@ class SettingsTest {
     onNodeWithTag("settings:confirm").assertTextEquals("Confirm button", "A")
     assertEquals(ConfirmButton.A, saved.input.confirmButton)
   }
-
-  private val tempDirs = mutableListOf<File>()
-
-  /** A new, empty directory, deleted after the test. */
-  private fun tempDir() =
-    createTempDirectory("handheld-storage").toFile().also { tempDirs += it }.path
-
-  @AfterTest fun cleanUp() = tempDirs.forEach { it.deleteRecursively() }
 
   private companion object {
     const val SentGame =

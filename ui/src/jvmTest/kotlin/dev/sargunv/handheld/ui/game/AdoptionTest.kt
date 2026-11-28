@@ -26,13 +26,13 @@ import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
-import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.junit.rules.TemporaryFolder
 
 /**
  * What the app keeps for a local game goes to the server's game once the file is that game's: the
@@ -40,7 +40,9 @@ import kotlinx.coroutines.runBlocking
  */
 @OptIn(ExperimentalTestApi::class)
 class AdoptionTest {
-  private val storage = createTempDirectory("adoption-storage").toFile()
+  private val temp = TemporaryFolder().apply { create() }
+
+  private val storage = temp.newFolder()
   private val homebrew = File(storage, "ROMs/gb/Homebrew.gb")
   private val library = LibraryCache.open(path = null)
   private val local = GameKey.Local(homebrew.path)
@@ -63,7 +65,7 @@ class AdoptionTest {
   @AfterTest
   fun cleanUp() {
     library.close()
-    check(storage.deleteRecursively())
+    temp.delete()
   }
 
   private val server = fakeRomm { path, request ->
@@ -86,6 +88,7 @@ class AdoptionTest {
   private fun ComposeUiTest.openHomebrew(launcher: GameLauncher = FakeLauncher()) {
     data =
       launchApp(
+        temp,
         server,
         library = library,
         storage = listOf(StorageTarget(storage.path, "Test storage")),

@@ -39,15 +39,22 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class RetroAchievementsTest {
+  private val temp = TemporaryFolder().apply { create() }
+
   private val vault = Vault.InMemory<RetroAchievementsAccount>()
 
   /** The app's scope, which the RetroAchievements sign-in runs in. */
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-  @AfterTest fun cleanUp() = scope.cancel()
+  @AfterTest
+  fun cleanUp() {
+    scope.cancel()
+    temp.delete()
+  }
 
   /**
    * Opens the RetroAchievements section, whose server [accepts] the password or refuses it once
@@ -80,6 +87,7 @@ class RetroAchievementsTest {
       )
     val data =
       launchApp(
+        temp,
         retroAchievements = RetroAchievementsSignIn(SecretStore(accounts), client, scope),
         open = OpenTarget.Settings(SettingsSection.RetroAchievements),
       )
