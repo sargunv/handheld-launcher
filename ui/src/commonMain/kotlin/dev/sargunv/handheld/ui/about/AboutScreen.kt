@@ -54,7 +54,7 @@ private fun rememberLibraries(info: AppInfo): List<Library>? {
  */
 @Composable
 internal fun AboutScreen(state: AppState, onLicence: (Library) -> Unit) {
-  val libraries = rememberLibraries(state.appInfo)
+  val libraries = rememberLibraries(state.platform.appInfo)
   Column(Modifier.fillMaxSize()) {
     Text(
       "About",
@@ -79,7 +79,7 @@ internal fun AboutScreen(state: AppState, onLicence: (Library) -> Unit) {
           fontSize = 24.sp,
           modifier = Modifier.semantics { heading() },
         )
-        Text("Version ${state.appInfo.version}", color = Placeholder.mutedText)
+        Text("Version ${state.platform.appInfo.version}", color = Placeholder.mutedText)
         Text("Licence · GPL-3.0-or-later", color = Placeholder.mutedText)
         Text("No warranty", color = Placeholder.mutedText)
         Text(
@@ -152,7 +152,7 @@ private val License.id: String
  */
 @Composable
 internal fun LicenceScreen(state: AppState, componentId: String, name: String) {
-  val library = rememberLibraries(state.appInfo)?.find { it.uniqueId == componentId }
+  val library = rememberLibraries(state.platform.appInfo)?.find { it.uniqueId == componentId }
   val list = rememberLazyListState()
   val scope = rememberCoroutineScope()
   val step = with(LocalDensity.current) { 120.dp.toPx() }
@@ -232,7 +232,7 @@ private val ParagraphBreak = Regex("""\n\s*\n""")
  */
 @Composable
 internal fun AboutSecondary(state: AppState, licenceOf: String? = null) {
-  val libraries = rememberLibraries(state.appInfo)
+  val libraries = rememberLibraries(state.platform.appInfo)
   val library =
     when (licenceOf) {
       null -> (state.focused as? Focused.OnComponent)?.library

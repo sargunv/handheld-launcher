@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
@@ -23,6 +24,7 @@ import dev.sargunv.handheld.ui.places.Screen
  */
 internal fun LazyListScope.emulators(
   state: AppState,
+  settings: Settings,
   platforms: List<Platform>?,
   apps: List<InstalledApp>?,
   open: (SettingsDialog) -> Unit,
@@ -30,9 +32,9 @@ internal fun LazyListScope.emulators(
   sectionHeading("Emulators")
   val view = state.settingsView
   // Only on devices with a root service the launcher can close emulators with.
-  if (state.launcher.canCloseEmulators) {
+  if (state.platform.launcher.canCloseEmulators) {
     item(key = "closeEmulators") {
-      val on = state.settings.closeEmulators
+      val on = settings.closeEmulators
       SettingRow(
         view,
         "settings:closeEmulators",
@@ -40,7 +42,7 @@ internal fun LazyListScope.emulators(
         if (on) "On" else "Off",
         "Offers to close a running emulator before a game starts",
       ) {
-        if (on) state.updateSettings { it.copy(closeEmulators = false) }
+        if (on) state.data.settings.update { it.copy(closeEmulators = false) }
         else open(SettingsDialog.CloseEmulators)
       }
     }
@@ -62,7 +64,7 @@ internal fun LazyListScope.emulators(
       view,
       "settings:emulators:${platform.slug}",
       platform.name,
-      opensIn(chainFor(scope, platform.slug, emptySet(), state.settings.launch, apps), apps)
+      opensIn(chainFor(scope, platform.slug, emptySet(), settings.launch, apps), apps)
         ?: "No app installed",
       "The app its games open in, unless a game or a collection chooses another",
     ) {

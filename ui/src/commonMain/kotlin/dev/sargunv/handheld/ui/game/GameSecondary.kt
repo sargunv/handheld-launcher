@@ -59,7 +59,7 @@ private sealed interface SaveHistoryState {
  */
 @Composable
 internal fun GameSecondary(state: AppState, screen: Screen.Game) {
-  val game by produceState<LibraryGame?>(null, screen.key) { value = state.game(screen.key) }
+  val game by produceState<LibraryGame?>(null, screen.key) { value = state.data.game(screen.key) }
   when (val current = game) {
     is Rom -> RomSecondary(state, current)
     is LocalGame -> LocalSecondary(state, current)
@@ -70,15 +70,15 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
 /** Where [game] opens under the launch rules, in words. */
 @Composable
 private fun rememberOpensIn(state: AppState, game: LibraryGame): String? {
-  val rules = state.settings.launch
+  val rules = state.data.settings.settings.collectAsState().value.launch
   val opensIn by
     produceState<String?>(null, game, rules) {
-      val apps = state.apps.apps()
+      val apps = state.platform.apps.apps()
       val chain =
         chainFor(
           OpenWithScope.Game(game.key),
           game.platformSlug,
-          collectionsOf(state, game),
+          collectionsOf(state.data, game),
           rules,
           apps,
         )
@@ -120,27 +120,27 @@ private fun LocalSecondary(state: AppState, game: LocalGame) {
 @Composable
 private fun RomSecondary(state: AppState, current: Rom) {
   // A play may sync the game's saves, so they load again as it starts and once it's over.
-  val playing = current.key in state.unfinished.collectAsState().value
+  val playing = current.key in state.data.adopter.unfinished.collectAsState().value
   val history by
     produceState<SaveHistoryState>(SaveHistoryState.Loading, current, playing) {
-      val account = state.romm.account ?: return@produceState
+      val account = state.data.romm.account ?: return@produceState
       value = loadSaveHistory(account, current.id)
     }
   val kept by
     produceState(emptyList<KeptSave>(), current, playing) {
-      value = state.launcher.keptSaves(current)
+      value = state.platform.launcher.keptSaves(current)
     }
   val opensIn = rememberOpensIn(state, current)
   val achievements by
     produceState<RommAchievementProgress?>(null, current) {
       value = loadAchievementProgress(state, current.id)
     }
-  val status by remember(current) { state.downloads.status(current) }.collectAsState(null)
+  val status by remember(current) { state.data.downloads.status(current) }.collectAsState(null)
   val path = (status as? RomStatus.OnDevice)?.path
   // A header that can't be read shows nothing.
   val header by
     produceState(emptyList<RomHeaderField>(), current, path) {
-      value = path?.let { state.romHeaders.read(current, it) }.orEmpty()
+      value = path?.let { state.platform.romHeaders.read(current, it) }.orEmpty()
     }
   val now = remember(history) { Clock.System.now() }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -246,7 +246,7 @@ private suspend fun loadAchievementProgress(
   romId: Long,
 ): RommAchievementProgress? =
   try {
-    state.romm.account?.client?.achievementProgress(romId)
+    state.data.romm.account?.client?.achievementProgress(romId)
   } catch (e: RommException) {
     log.w(e) { "Reading the achievement progress of ROM $romId failed" }
     null

@@ -14,7 +14,7 @@ import dev.sargunv.handheld.ui.signin.SIGN_IN_NOT_SAVED
 
 /** Settings' view of the RetroAchievements account, whose sign-ins [signIn] runs. */
 @Stable
-class RetroAchievementsState(val signIn: RetroAchievementsSignIn) {
+class RetroAchievementsState(private val signIn: RetroAchievementsSignIn) {
   /** Whether the last submit lacked a username or a password. */
   private var incomplete by mutableStateOf(false)
 

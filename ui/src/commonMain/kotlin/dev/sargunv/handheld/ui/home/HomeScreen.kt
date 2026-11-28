@@ -70,20 +70,20 @@ private const val SHELF_SIZE = 20
  */
 @Composable
 internal fun HomePlace(state: AppState) {
-  val library = state.library
-  val sync by state.romm.sync.collectAsState()
+  val library = state.data.library
+  val sync by state.data.romm.sync.collectAsState()
   // The first is the game being played, and the rest make the shelf of recent games.
   val played by remember(library) { library.recentlyPlayed(SHELF_SIZE) }.collectAsState(null)
   val added by remember(library) { library.recentlyAdded(SHELF_SIZE) }.collectAsState(null)
   val collections by remember(library) { library.collections() }.collectAsState(null)
   val statuses by
-    remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
+    remember(state.data.downloads) { state.data.downloads.statuses() }.collectAsState(emptyMap())
   var menuOpen by remember { mutableStateOf(false) }
   var gameMenuOpen by remember { mutableStateOf(false) }
   // The shelf with focus, or null while the game being played has it.
   var focusedShelf by rememberSaveable { mutableStateOf<HomeShelf?>(null) }
 
-  val settings = state.settings.home
+  val settings = state.data.settings.settings.collectAsState().value.home
   val playedNow = played.orEmpty()
   val addedNow = added.orEmpty()
   val collectionsNow = collections.orEmpty()
@@ -217,7 +217,9 @@ internal fun HomePlace(state: AppState) {
           state = state,
           rom = continueRom,
           settings = settings,
-          onShowShelf = { shelf -> state.updateSettings { it.copy(home = it.home.show(shelf)) } },
+          onShowShelf = { shelf ->
+            state.data.settings.update { it.copy(home = it.home.show(shelf)) }
+          },
           onDismissRequest = { gameMenuOpen = false },
         )
       }
@@ -226,7 +228,7 @@ internal fun HomePlace(state: AppState) {
           settings = settings,
           shelf = menuShelf,
           shown = shown,
-          onChange = { home -> state.updateSettings { it.copy(home = home) } },
+          onChange = { home -> state.data.settings.update { it.copy(home = home) } },
           onDismissRequest = { menuOpen = false },
         )
       }

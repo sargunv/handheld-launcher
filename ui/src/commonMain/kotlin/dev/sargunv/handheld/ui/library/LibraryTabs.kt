@@ -62,10 +62,10 @@ import dev.sargunv.handheld.ui.places.onDeviceCount
  */
 @Composable
 internal fun LibraryTabs(state: AppState, source: GridSource?, gridStates: SaveableStateHolder) {
-  val tab = state.libraryTab
-  val sync by state.romm.sync.collectAsState()
+  val tab = state.libraryView.tab
+  val sync by state.data.romm.sync.collectAsState()
   fun switchTo(next: LibraryTab?) {
-    if (next != null) state.libraryTab = next
+    if (next != null) state.libraryView.tab = next
   }
   Column(
     Modifier.fillMaxSize().onAction { action ->
@@ -156,7 +156,7 @@ internal fun buttonLabel(action: Action): String {
 @Composable
 private fun ShelfList(state: AppState, tab: LibraryTab) {
   val view = state.libraryView
-  val sync by state.romm.sync.collectAsState()
+  val sync by state.data.romm.sync.collectAsState()
   val shelves = view.shelves(tab)
   val focused = view.shelf
   val summaries = view.summaries(tab)

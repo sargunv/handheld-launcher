@@ -4,6 +4,7 @@ import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DeviceGames
 import dev.sargunv.handheld.data.downloads.DownloadManager
+import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.downloads.UploadManager
 import dev.sargunv.handheld.data.romm.RommAccount
@@ -12,6 +13,8 @@ import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.data.saves.BuiltInSaveFolders
 import dev.sargunv.handheld.data.saves.SaveSync
 import dev.sargunv.handheld.data.settings.SettingsStore
+import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.PerGameState
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
 import io.ktor.client.engine.HttpClientEngine
@@ -85,6 +88,18 @@ class HandheldData(
     if (!keepQueue && account != null) downloads.dropQueue(account)
     scope.launch { romm.signIn.signOut() }
   }
+
+  /**
+   * The game [key] names: a ROM from the library, or a local game once the scan of the platforms'
+   * folders has found it. Null when there's no such game, such as a file that's gone or now matches
+   * a ROM.
+   */
+  suspend fun game(key: GameKey): LibraryGame? =
+    when (key) {
+      is GameKey.Romm -> library.rom(key.romId)
+      is GameKey.Local ->
+        (games.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
+    }
 
   /**
    * The signed-in account's save sync, or null while signed out. There's one for each account, so

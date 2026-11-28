@@ -45,7 +45,7 @@ internal fun LibrarySecondary(state: AppState) {
 @Composable
 private fun ShelfListSecondary(state: AppState) {
   val view = state.libraryView
-  val summary = view.summaries(state.libraryTab).find { it.shelf == view.shelf }
+  val summary = view.summaries(state.libraryView.tab).find { it.shelf == view.shelf }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (summary != null) {
       val about = (summary.shelf as? LibraryShelf.OfCollection)?.collection?.description

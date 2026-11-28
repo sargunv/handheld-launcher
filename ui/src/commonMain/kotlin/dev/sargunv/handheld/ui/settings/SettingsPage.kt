@@ -131,11 +131,12 @@ class SettingsView {
 @Composable
 internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
   val view = state.settingsView
-  val romm by state.romm.state.collectAsState()
-  val sync by state.romm.sync.collectAsState()
-  val uploadAccess by state.romm.uploadAccess.collectAsState()
-  val raAccount = state.retroAchievements?.signIn?.account?.collectAsState()?.value
-  val raAttempt = state.retroAchievements?.signIn?.attempt?.collectAsState()?.value
+  val romm by state.data.romm.state.collectAsState()
+  val sync by state.data.romm.sync.collectAsState()
+  val uploadAccess by state.data.romm.uploadAccess.collectAsState()
+  val settings by state.data.settings.settings.collectAsState()
+  val raAccount = state.platform.retroAchievements?.account?.collectAsState()?.value
+  val raAttempt = state.platform.retroAchievements?.attempt?.collectAsState()?.value
   val signedIn = romm.signedIn == true
   val sections = settingsSections(signedIn, state.retroAchievements != null)
   val section = view.shown(sections)
@@ -143,15 +144,16 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
   val open = { it: SettingsDialog -> dialog = it }
   val close = { dialog = null }
   val storageSpaces by
-    rememberStorageSpaces(state.downloads, active = section == SettingsSection.Storage)
+    rememberStorageSpaces(state.data.downloads, active = section == SettingsSection.Storage)
   val mounted = storageSpaces.map { it.target }
   val platforms by
-    produceState<List<Platform>?>(null, state.library, section) {
-      if (section == SettingsSection.Emulators) state.library.platforms().collect { value = it }
+    produceState<List<Platform>?>(null, state.data.library, section) {
+      if (section == SettingsSection.Emulators)
+        state.data.library.platforms().collect { value = it }
     }
   val apps by
-    produceState<List<InstalledApp>?>(null, state.apps, section) {
-      if (section == SettingsSection.Emulators) value = state.apps.apps()
+    produceState<List<InstalledApp>?>(null, state.platform.apps, section) {
+      if (section == SettingsSection.Emulators) value = state.platform.apps.apps()
     }
   var storageRefused by remember(section) { mutableStateOf(false) }
   val toggleStorage = { target: StorageTarget ->
@@ -195,17 +197,18 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
             walls = VerticalWalls,
           ) {
             when (section) {
-              SettingsSection.Controls -> controls(state)
+              SettingsSection.Controls -> controls(state, settings.input)
               SettingsSection.RomM ->
                 (romm as? RommAccount)?.let { account ->
                   romm(state, account, sync, uploadAccess, open) {
                     state.signOut(keepQueue = true)
                   }
                 }
-              SettingsSection.RetroAchievements -> retroAchievements(state, raAccount, raAttempt)
-              SettingsSection.Emulators -> emulators(state, platforms, apps, open)
+              SettingsSection.RetroAchievements ->
+                retroAchievements(state, settings.achievements, raAccount, raAttempt)
+              SettingsSection.Emulators -> emulators(state, settings, platforms, apps, open)
               SettingsSection.Storage ->
-                storage(state, storageSpaces, storageRefused, toggleStorage, open)
+                storage(state, settings.storage, storageSpaces, storageRefused, toggleStorage, open)
               SettingsSection.About -> about(state, onAbout)
             }
           }
@@ -242,7 +245,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
       SettingsDialog.CloseEmulators ->
         CloseEmulatorsDialog(
           onTurnOn = {
-            state.updateSettings { it.copy(closeEmulators = true) }
+            state.data.settings.update { it.copy(closeEmulators = true) }
             close()
           },
           onDismissRequest = close,
@@ -253,9 +256,9 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
           ?.let { target ->
             StorageMenu(
               target,
-              state.settings.storage,
+              settings.storage,
               mounted,
-              onMove = { moved -> state.updateSettings { it.copy(storage = moved) } },
+              onMove = { moved -> state.data.settings.update { it.copy(storage = moved) } },
               onToggle = { toggleStorage(target) },
               onDismissRequest = close,
             )
@@ -360,7 +363,7 @@ internal fun LazyListScope.sectionHeading(title: String) {
 internal fun SettingsSecondary(state: AppState) {
   val view = state.settingsView
   val help = view.help.shown
-  val signedIn = state.romm.state.collectAsState().value.signedIn == true
+  val signedIn = state.data.romm.state.collectAsState().value.signedIn == true
   val section = view.shown(settingsSections(signedIn, state.retroAchievements != null))
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(

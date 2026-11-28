@@ -13,18 +13,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn.Attempt
+import dev.sargunv.handheld.data.settings.AchievementSettings
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.widgets.TextEntry
 
 internal fun LazyListScope.retroAchievements(
   state: AppState,
+  settings: AchievementSettings,
   signedIn: RetroAchievementsAccount?,
   attempt: Attempt?,
 ) {
   val account = state.retroAchievements ?: return
   val view = state.settingsView
-  val settings = state.settings.achievements
   sectionHeading("RetroAchievements")
   if (signedIn != null) {
     item(key = "account") {
@@ -44,7 +45,7 @@ internal fun LazyListScope.retroAchievements(
         if (settings.hardcore) "On" else "Off",
         "In hardcore, games with achievements can't load states or fast forward",
         onConfirm = {
-          state.updateSettings {
+          state.data.settings.update {
             it.copy(achievements = it.achievements.copy(hardcore = !it.achievements.hardcore))
           }
         },
@@ -57,7 +58,7 @@ internal fun LazyListScope.retroAchievements(
         "Sign out",
         null,
         "Signs this device out of RetroAchievements",
-        onConfirm = account.signIn::signOut,
+        onConfirm = { state.platform.retroAchievements?.signOut() },
       )
     }
     return

@@ -73,8 +73,8 @@ fun App(
   homePresses: Flow<Unit> = emptyFlow(),
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
-  val settings = data.settings.settings.collectAsState()
-  val state = remember(data, platform) { AppState(data, platform, settings) }
+  val settings by data.settings.settings.collectAsState()
+  val state = remember(data, platform) { AppState(data, platform) }
   val signedIn = data.romm.state.collectAsState().value.signedIn
   LaunchedEffect(openRequests, state) {
     openRequests.collectLatest { target ->
@@ -116,13 +116,13 @@ fun App(
       true -> MainSecondary(state)
     }
   }
-  ActionInputRoot(state.settings.input, heldKeys, modifier) {
+  ActionInputRoot(settings.input, heldKeys, modifier) {
     FocusRoot {
       val scopes = LocalFocusScopes.current
       LaunchedEffect(homePresses, scopes, state) {
         homePresses.collect {
           when {
-            state.launcher.playing.value != null -> Unit
+            platform.launcher.playing.value != null -> Unit
             scopes?.isDialogOpen == true -> scopes.closeDialogs()
             data.romm.state.value.signedIn == true -> state.goHome()
             data.romm.state.value.signedIn == false -> state.signIn.closeSettings()

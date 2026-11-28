@@ -74,7 +74,7 @@ internal fun ShelfGames(
   gridStates: SaveableStateHolder,
 ) {
   val view = state.libraryView
-  val tab = state.libraryTab
+  val tab = state.libraryView.tab
   val shelves = view.shelves(tab).orEmpty()
   val shelf = source.shelf
   val shelfKey = shelf.key

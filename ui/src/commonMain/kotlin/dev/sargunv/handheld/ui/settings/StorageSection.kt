@@ -28,13 +28,13 @@ import dev.sargunv.handheld.ui.places.MenuButton
  */
 internal fun LazyListScope.storage(
   state: AppState,
+  settings: StorageSettings,
   spaces: List<StorageSpace>,
   refused: Boolean,
   onToggle: (StorageTarget) -> Unit,
   open: (SettingsDialog) -> Unit,
 ) {
   sectionHeading("Storage")
-  val settings = state.settings.storage
   val byId = spaces.associateBy { it.target.id }
   val view = state.settingsView
   items(settings.arrange(spaces.map { it.target }), key = { it.id }) { target ->
@@ -78,7 +78,7 @@ internal fun LazyListScope.storage(
  */
 internal fun AppState.toggleStorage(target: StorageTarget, mounted: List<StorageTarget>): Boolean {
   var changed = false
-  updateSettings { settings ->
+  data.settings.update { settings ->
     val storage = settings.storage
     val next =
       if (storage.isOn(target)) storage.turnOff(target, mounted) else storage.turnOn(target)

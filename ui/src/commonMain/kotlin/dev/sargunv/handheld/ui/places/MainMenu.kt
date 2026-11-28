@@ -35,7 +35,7 @@ import dev.sargunv.handheld.ui.signin.SignInScreen
  */
 @Composable
 internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
-  val signedIn = state.romm.state.collectAsState().value.signedIn == true
+  val signedIn = state.data.romm.state.collectAsState().value.signedIn == true
   val places = if (signedIn) Place.entries else listOf(Place.Settings)
   // The place showing, when nothing covers it.
   val current =
@@ -44,7 +44,7 @@ internal fun MainMenu(state: AppState, onDismissRequest: () -> Unit) {
       state.navigator.current == Screen.Places -> state.place
       else -> null
     }
-  val queue by state.downloads.queue.collectAsState()
+  val queue by state.data.downloads.queue.collectAsState()
   Dialog(
     onDismissRequest,
     Modifier.fillMaxHeight().width(320.dp),

@@ -121,7 +121,7 @@ fun MainSecondary(state: AppState) {
       Screen.Places -> {
         val focused = state.focused
         when {
-          state.place == Place.Downloads -> StorageSummary(state.downloads)
+          state.place == Place.Downloads -> StorageSummary(state.data.downloads)
           state.place == Place.Library -> LibrarySecondary(state)
           state.place == Place.Settings -> SettingsSecondary(state)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
@@ -141,13 +141,15 @@ fun MainSecondary(state: AppState) {
  */
 private suspend fun AppState.followAdoptions() {
   val backStack = snapshotFlow { navigator.backStack.toList() }
-  combine(handedOver, backStack) { handedOver, screens ->
+  combine(data.adopter.handedOver, backStack) { handedOver, screens ->
       val roms = handedOver.associate { it.local to it.rom }
       for (screen in screens) {
         val replacement =
           when (screen) {
             is Screen.Game ->
-              roms[screen.key]?.let { library.rom(it.romId) }?.let { Screen.Game(it.id, it.title) }
+              roms[screen.key]
+                ?.let { data.library.rom(it.romId) }
+                ?.let { Screen.Game(it.id, it.title) }
             is Screen.OpenWith ->
               (screen.scope as? OpenWithScope.Game)
                 ?.let { roms[it.game] }
@@ -180,10 +182,10 @@ internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: 
 /** The lower screen's description of a game. */
 @Composable
 internal fun GameDescription(state: AppState, game: LibraryGame) {
-  val library = state.library
+  val library = state.data.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
   val statuses by
-    remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
+    remember(state.data.downloads) { state.data.downloads.statuses() }.collectAsState(emptyMap())
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
       (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
@@ -269,14 +271,14 @@ private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: 
     enabled = state.place != Place.Home,
   ) {
     Column(Modifier.fillMaxSize()) {
-      PlaceHeader(state.place, state.romm.sync.collectAsState().value)
+      PlaceHeader(state.place, state.data.romm.sync.collectAsState().value)
       Box(Modifier.fillMaxWidth().weight(1f)) {
         places.SaveableStateProvider(if (state.place == Place.Home) homeKey else state.place.name) {
           when (state.place) {
             Place.Home -> HomePlace(state)
             Place.Library -> LibraryPlace(state)
             Place.Downloads ->
-              DownloadsPlace(state.downloads) {
+              DownloadsPlace(state.data.downloads) {
                 state.navigator.push(Screen.Game(it.romId, it.title))
               }
             Place.Settings -> SettingsPage(state) { state.navigator.push(Screen.About) }

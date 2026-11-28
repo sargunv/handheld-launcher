@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
@@ -79,14 +80,14 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
       value =
         when (scope) {
           is OpenWithScope.Game -> {
-            val game = state.game(scope.game) ?: return@produceState
+            val game = state.data.game(scope.game) ?: return@produceState
             OpenWithContext(
               scope,
               game.platformSlug,
-              state.library.platform(game.platformId)?.name ?: game.platformSlug.value,
+              state.data.library.platform(game.platformId)?.name ?: game.platformSlug.value,
               // A local game is in no collection.
-              (game as? Rom)?.let { state.library.collectionsOf(it.id) }.orEmpty(),
-              state.apps.apps(),
+              (game as? Rom)?.let { state.data.library.collectionsOf(it.id) }.orEmpty(),
+              state.platform.apps.apps(),
             )
           }
           is OpenWithScope.Platform ->
@@ -95,18 +96,18 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
               scope.platform,
               platformName(state, scope.platform),
               emptyList(),
-              state.apps.apps(),
+              state.platform.apps.apps(),
             )
           is OpenWithScope.Collection -> {
             val collection =
-              state.library.collections().first().find { it.launchId == scope.collection }
+              state.data.library.collections().first().find { it.launchId == scope.collection }
                 ?: return@produceState
             OpenWithContext(
               scope,
               scope.platform,
               platformName(state, scope.platform),
               listOf(collection),
-              state.apps.apps(),
+              state.platform.apps.apps(),
             )
           }
         }
@@ -115,7 +116,7 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
 }
 
 private suspend fun platformName(state: AppState, platform: PlatformSlug): String =
-  state.library.platforms().first().find { it.slug == platform }?.name ?: platform.value
+  state.data.library.platforms().first().find { it.slug == platform }?.name ?: platform.value
 
 /**
  * Picks the app games open in, for what the screen was opened from: one game from its menu, a
@@ -127,7 +128,7 @@ private suspend fun platformName(state: AppState, platform: PlatformSlug): Strin
 internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
   val scope = screen.scope
   val context = rememberOpenWithContext(state, scope)
-  val launch = state.settings.launch
+  val launch = state.data.settings.settings.collectAsState().value.launch
   Column(Modifier.fillMaxSize()) {
     Text(
       when (scope) {
@@ -149,7 +150,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       val current = launch.choiceAt(scope)
       val default = context.chain(launch).steps.firstOrNull { it.isDefault }?.choice?.withoutCore()
       fun choose(choice: LaunchChoice?) {
-        state.updateSettings { it.copy(launch = it.launch.withChoice(scope, choice)) }
+        state.data.settings.update { it.copy(launch = it.launch.withChoice(scope, choice)) }
         state.navigator.back()
       }
       Row(
@@ -242,7 +243,7 @@ private fun OptionRow(
 @Composable
 internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
   val context = rememberOpenWithContext(state, screen.scope) ?: return
-  val launch = state.settings.launch
+  val launch = state.data.settings.settings.collectAsState().value.launch
   val steps = context.chain(launch).steps
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     val opensIn = context.opensIn(launch)

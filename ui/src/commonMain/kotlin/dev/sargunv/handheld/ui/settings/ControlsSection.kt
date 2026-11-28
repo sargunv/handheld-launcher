@@ -3,14 +3,14 @@ package dev.sargunv.handheld.ui.settings
 import androidx.compose.foundation.lazy.LazyListScope
 import dev.sargunv.handheld.data.settings.AButtonPosition
 import dev.sargunv.handheld.data.settings.ConfirmButton
+import dev.sargunv.handheld.data.settings.InputSettings
 import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.places.AppState
 
-internal fun LazyListScope.controls(state: AppState) {
+internal fun LazyListScope.controls(state: AppState, input: InputSettings) {
   sectionHeading("Controls")
   item(key = "confirm") {
-    val input = state.settings.input
     val (confirm, other) =
       when (input.confirmButton) {
         ConfirmButton.A -> PadButton.A to ConfirmButton.B
@@ -23,12 +23,11 @@ internal fun LazyListScope.controls(state: AppState) {
       confirm.label,
       "The other face button goes back",
       onConfirm = {
-        state.updateSettings { it.copy(input = it.input.copy(confirmButton = other)) }
+        state.data.settings.update { it.copy(input = it.input.copy(confirmButton = other)) }
       },
     )
   }
   item(key = "aButton") {
-    val input = state.settings.input
     val (position, other) =
       when (input.aButtonPosition) {
         AButtonPosition.South -> "Bottom" to AButtonPosition.East
@@ -41,7 +40,7 @@ internal fun LazyListScope.controls(state: AppState) {
       position,
       "Where the A button sits on this device",
       onConfirm = {
-        state.updateSettings { it.copy(input = it.input.copy(aButtonPosition = other)) }
+        state.data.settings.update { it.copy(input = it.input.copy(aButtonPosition = other)) }
       },
     )
   }
