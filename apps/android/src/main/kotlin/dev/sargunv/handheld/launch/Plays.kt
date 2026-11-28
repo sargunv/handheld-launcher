@@ -37,6 +37,8 @@ sealed interface SessionEnd {
  * @param closeEmulator closes the standalone emulator with the package name it's given, on the
  *   companion's Quit, and returns whether it's gone.
  * @param launcherInFront whether the launcher is what the first display shows.
+ * @param unfinished the games whose play isn't over: its launch, game or after-game half is under
+ *   way. This keeps it up to date.
  * @param keepAlive starts the service that keeps the process running while a play is pending.
  */
 internal class Plays(
@@ -44,6 +46,7 @@ internal class Plays(
   private val saves: PlaySaves,
   private val closeEmulator: suspend (packageName: String) -> Boolean,
   private val launcherInFront: StateFlow<Boolean>,
+  val unfinished: MutableStateFlow<Set<GameKey>>,
   private val keepAlive: () -> Unit,
 ) {
   private val lock = Any()
@@ -53,11 +56,6 @@ internal class Plays(
 
   /** Under [lock]: the plays in their after-game half, oldest first. */
   private var afterGame = emptyList<Play>()
-
-  private val unfinishedGames = MutableStateFlow(emptySet<GameKey>())
-
-  /** The games whose play isn't over: its launch, game or after-game half is under way. */
-  val unfinished: StateFlow<Set<GameKey>> = unfinishedGames.asStateFlow()
 
   private val currentGame = MutableStateFlow<GameKey?>(null)
 
@@ -115,7 +113,7 @@ internal class Plays(
   /** Shows what's under [lock] in the flows. */
   private fun publish() {
     val all = afterGame + listOfNotNull(current)
-    unfinishedGames.value = all.mapTo(LinkedHashSet()) { it.game }
+    unfinished.value = all.mapTo(LinkedHashSet()) { it.game }
     titles.value = all.map { it.title }
     currentGame.value = current?.game
   }

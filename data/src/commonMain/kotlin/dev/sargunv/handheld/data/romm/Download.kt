@@ -1,46 +1,36 @@
 package dev.sargunv.handheld.data.romm
 
 import co.touchlab.kermit.Logger
+import dev.sargunv.handheld.data.writeTo
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareRequest
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
-import io.ktor.client.statement.bodyAsText
 import io.ktor.client.statement.request
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentLength
-import io.ktor.utils.io.readRemaining
-import kotlinx.io.IOException
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-
-/** How far a download has come. */
-internal data class DownloadProgress(
-  /** The bytes the target holds, counting any it held before the download resumed. */
-  val bytesDownloaded: Long,
-  /** The size of the whole file, when the server said. */
-  val totalBytes: Long?,
-)
+import java.io.File
+import java.io.IOException
 
 /**
  * Downloads the response to [request] into [target], asking for only the bytes past what [target]
  * already holds. A server that ignores the range sends the whole file, which replaces [target]'s
- * contents.
+ * contents. [onProgress] hears the bytes [target] holds, and the whole file's size when the server
+ * said.
  *
  * When the connection breaks, [target] keeps what arrived, and the next call resumes from there.
  *
  * @return the bytes [target] already held, which this download kept and didn't fetch again.
  */
 internal suspend fun HttpClient.download(
-  target: Path,
-  onProgress: (DownloadProgress) -> Unit,
+  target: File,
+  onProgress: (bytes: Long, total: Long?) -> Unit,
   request: HttpRequestBuilder.() -> Unit,
 ): Long {
-  val existing = SystemFileSystem.metadataOrNull(target)?.size ?: 0L
+  val existing = target.length()
   val result = network {
     prepareRequest {
       request()
@@ -57,10 +47,9 @@ internal suspend fun HttpClient.download(
               log.w { "${response.request.url}: asked for bytes from $existing, got $contentRange" }
               throw RommException.InvalidResponse("Bad range from server")
             }
-            response.writeTo(target, append = true, startAt = existing, range.second, onProgress)
+            response.writeTo(target, startAt = existing, range.second, onProgress)
           }
-          HttpStatusCode.OK ->
-            response.writeTo(target, false, 0, response.contentLength(), onProgress)
+          HttpStatusCode.OK -> response.writeTo(target, 0, response.contentLength(), onProgress)
           HttpStatusCode.RequestedRangeNotSatisfiable -> {
             // The range starts at or past the end: the target is complete, or it's longer than the
             // file is now.
@@ -68,46 +57,34 @@ internal suspend fun HttpClient.download(
             when {
               total == existing -> existing
               existing > 0 -> null
-              else -> throw errorFor(response, response.bodyAsText())
+              else -> throw errorFor(response)
             }
           }
-          else -> throw errorFor(response, response.bodyAsText())
+          else -> throw errorFor(response)
         }
       }
   }
   if (result != null) return result
-  SystemFileSystem.delete(target, mustExist = false)
+  target.delete()
   return download(target, onProgress, request)
 }
 
+/** Writes the body to [target] after its first [startAt] bytes, and returns [startAt]. */
 private suspend fun HttpResponse.writeTo(
-  target: Path,
-  append: Boolean,
+  target: File,
   startAt: Long,
   totalBytes: Long?,
-  onProgress: (DownloadProgress) -> Unit,
+  onProgress: (Long, Long?) -> Unit,
 ): Long {
-  val channel = bodyAsChannel()
-  var downloaded = startAt
-  onProgress(DownloadProgress(downloaded, totalBytes))
-  SystemFileSystem.sink(target, append).buffered().use { sink ->
-    while (!channel.isClosedForRead) {
-      val chunk = channel.readRemaining(CHUNK_SIZE)
-      val count = chunk.transferTo(sink)
-      if (count > 0) {
-        downloaded += count
-        onProgress(DownloadProgress(downloaded, totalBytes))
-      }
-    }
-  }
-  if (totalBytes != null && downloaded != totalBytes) {
-    log.w { "${request.url}: cut short at $downloaded of $totalBytes bytes" }
+  onProgress(startAt, totalBytes)
+  val written =
+    bodyAsChannel().writeTo(target, append = startAt > 0) { onProgress(startAt + it, totalBytes) }
+  if (totalBytes != null && startAt + written != totalBytes) {
+    log.w { "${request.url}: cut short at ${startAt + written} of $totalBytes bytes" }
     throw IOException("Download cut short")
   }
-  return if (append) startAt else 0
+  return startAt
 }
-
-private const val CHUNK_SIZE = 64L * 1024
 
 private val log = Logger.withTag("Download")
 

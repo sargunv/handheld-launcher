@@ -134,6 +134,8 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
   val romm by state.romm.state.collectAsState()
   val sync by state.romm.sync.collectAsState()
   val uploadAccess by state.romm.uploadAccess.collectAsState()
+  val raAccount = state.retroAchievements?.signIn?.account?.collectAsState()?.value
+  val raAttempt = state.retroAchievements?.signIn?.attempt?.collectAsState()?.value
   val signedIn = romm.signedIn == true
   val sections = settingsSections(signedIn, state.retroAchievements != null)
   val section = view.shown(sections)
@@ -200,7 +202,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
                     state.signOut(keepQueue = true)
                   }
                 }
-              SettingsSection.RetroAchievements -> retroAchievements(state)
+              SettingsSection.RetroAchievements -> retroAchievements(state, raAccount, raAttempt)
               SettingsSection.Emulators -> emulators(state, platforms, apps, open)
               SettingsSection.Storage ->
                 storage(state, storageSpaces, storageRefused, toggleStorage, open)
@@ -240,7 +242,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
       SettingsDialog.CloseEmulators ->
         CloseEmulatorsDialog(
           onTurnOn = {
-            state.settings = state.settings.copy(closeEmulators = true)
+            state.updateSettings { it.copy(closeEmulators = true) }
             close()
           },
           onDismissRequest = close,
@@ -253,7 +255,7 @@ internal fun SettingsPage(state: AppState, onAbout: () -> Unit) {
               target,
               state.settings.storage,
               mounted,
-              onMove = { state.settings = state.settings.copy(storage = it) },
+              onMove = { moved -> state.updateSettings { it.copy(storage = moved) } },
               onToggle = { toggleStorage(target) },
               onDismissRequest = close,
             )

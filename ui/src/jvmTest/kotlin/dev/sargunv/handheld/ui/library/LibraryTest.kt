@@ -17,8 +17,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.data.settings.LibrarySettings
+import dev.sargunv.handheld.data.settings.LibraryTab
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.awaitTag
 import dev.sargunv.handheld.ui.awaitText
@@ -79,19 +82,19 @@ class LibraryTest {
   /** Launches and goes to the Library once the sync has filled it. */
   private fun ComposeUiTest.openLibrary(
     settings: Settings = Settings(),
-    saveSettings: suspend (Settings) -> Unit = {},
     storage: File? = null,
     collections: Boolean = true,
-  ) {
-    launchApp(
-      server(collections),
-      storage = listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
-      settings = settings,
-      saveSettings = saveSettings,
-    )
+  ): HandheldData {
+    val data =
+      launchApp(
+        server(collections),
+        storage = listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
+        settings = settings,
+      )
     awaitTag("shelf:RecentlyAdded")
     press(listOf(Key.ButtonStart, Key.DirectionDown, Key.ButtonA))
     awaitTag("place:Library")
+    return data
   }
 
   /** Launches and opens the Game Boy's games. */
@@ -192,8 +195,7 @@ class LibraryTest {
 
   @Test
   fun opensOnPlatformsAndShoulderButtonsSwitchTabsStoppingAtTheEnds() = runComposeUiTest {
-    val saved = mutableListOf<Settings>()
-    openLibrary(saveSettings = { saved += it })
+    val data = openLibrary()
     onNodeWithTag("library:tab:Platforms").assertIsSelected()
     assertFocused("library:platform:1")
     press(Key.ButtonL1)
@@ -212,7 +214,7 @@ class LibraryTest {
     press(Key.ButtonR1)
     onNodeWithTag("library:tab:AllGames").assertIsSelected()
     assertFocused("game:4")
-    assertEquals(LibraryTab.AllGames, saved.last().library.tab)
+    assertEquals(LibraryTab.AllGames, data.settings.settings.value.library.tab)
     // Coming back to a tab focuses what it had focused.
     press(listOf(Key.ButtonL1, Key.ButtonL1))
     assertFocused("library:platform:1")

@@ -1,8 +1,12 @@
 package dev.sargunv.handheld.data.saves
 
 import dev.sargunv.handheld.data.JsonFile
+import java.io.File
 import kotlin.math.abs
-import kotlinx.io.files.Path
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -71,14 +75,15 @@ sealed interface EmulatorState {
 
 /**
  * The emulators the launcher started that may still be running, one record per app, kept in the
- * file at [path].
+ * file [file].
  *
  * Android doesn't let an app stop another or see its processes, so an emulator counts as running
  * from the moment the launcher starts it until the device shows it isn't: the app is stopped, the
  * device restarted, or [EmulatorProbe.isRunning] says so.
  */
-class LaunchedEmulators(path: Path) {
-  private val file = JsonFile(path, MapSerializer(String.serializer(), Launch.serializer()))
+class LaunchedEmulators(file: File) {
+  private val records = JsonFile(file, MapSerializer(String.serializer(), Launch.serializer()))
+  private val mutex = Mutex()
 
   @Serializable internal data class Launch(val romId: Long?, val boot: Boot)
 
@@ -114,7 +119,9 @@ class LaunchedEmulators(path: Path) {
    * out of date is dropped, unless a launch replaced it meanwhile.
    */
   suspend fun state(packageName: String, probe: EmulatorProbe): EmulatorState {
-    val launch = file.read()?.get(packageName) ?: return EmulatorState.NotRunning("not launched")
+    val launch =
+      withContext(Dispatchers.IO) { records.read() }?.get(packageName)
+        ?: return EmulatorState.NotRunning("not launched")
     val stopped =
       when {
         probe.boot().isAfter(launch.boot) -> "the device restarted"
@@ -131,7 +138,8 @@ class LaunchedEmulators(path: Path) {
     return EmulatorState.NotRunning(stopped)
   }
 
-  private suspend fun edit(change: (Map<String, Launch>) -> Map<String, Launch>) = file.update {
-    change(it.orEmpty())
+  /** Replaces the records with what [change] makes of them, and returns the ones it replaced. */
+  private suspend fun edit(change: (Map<String, Launch>) -> Map<String, Launch>) = mutex.withLock {
+    withContext(Dispatchers.IO) { records.read().also { records.write(change(it.orEmpty())) } }
   }
 }

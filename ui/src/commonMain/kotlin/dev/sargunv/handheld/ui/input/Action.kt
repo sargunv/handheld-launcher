@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.ui.input
 
-import kotlinx.serialization.Serializable
+import dev.sargunv.handheld.data.settings.ConfirmButton
+import dev.sargunv.handheld.data.settings.InputSettings
 
 /** What the player asked for, whatever button or key they used. Every screen speaks this. */
 enum class Action {
@@ -57,32 +58,18 @@ enum class PadButton {
   DpadRight,
 }
 
-/** Which face button confirms. The other one of the pair goes back. */
-@Serializable
-enum class ConfirmButton {
-  A,
-  B,
-}
-
-/** The player's input preferences. */
-@Serializable
-data class InputSettings(
-  val confirmButton: ConfirmButton = ConfirmButton.A,
-  val aButtonPosition: AButtonPosition = AButtonPosition.South,
-) {
-  /** The action [button] performs, or null if it does nothing. */
-  fun actionFor(button: PadButton): Action? =
-    when (button) {
-      PadButton.A -> if (confirmButton == ConfirmButton.A) Action.Confirm else Action.Back
-      PadButton.B -> if (confirmButton == ConfirmButton.B) Action.Confirm else Action.Back
-      PadButton.X -> Action.Menu
-      PadButton.L1 -> Action.PreviousShelf
-      PadButton.R1 -> Action.NextShelf
-      PadButton.Start -> Action.MainMenu
-      PadButton.DpadUp -> Action.Up
-      PadButton.DpadDown -> Action.Down
-      PadButton.DpadLeft -> Action.Left
-      PadButton.DpadRight -> Action.Right
-      PadButton.Y -> null
-    }
-}
+/** The action [button] performs, or null if it does nothing. */
+fun InputSettings.actionFor(button: PadButton): Action? =
+  when (button) {
+    PadButton.A -> if (confirmButton == ConfirmButton.A) Action.Confirm else Action.Back
+    PadButton.B -> if (confirmButton == ConfirmButton.B) Action.Confirm else Action.Back
+    PadButton.X -> Action.Menu
+    PadButton.L1 -> Action.PreviousShelf
+    PadButton.R1 -> Action.NextShelf
+    PadButton.Start -> Action.MainMenu
+    PadButton.DpadUp -> Action.Up
+    PadButton.DpadDown -> Action.Down
+    PadButton.DpadLeft -> Action.Left
+    PadButton.DpadRight -> Action.Right
+    PadButton.Y -> null
+  }

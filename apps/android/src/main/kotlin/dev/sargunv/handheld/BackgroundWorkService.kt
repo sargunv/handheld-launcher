@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import co.touchlab.kermit.Logger
-import dev.sargunv.handheld.data.downloads.DownloadState
 import dev.sargunv.handheld.data.downloads.UploadPhase
 import dev.sargunv.handheld.data.downloads.formatSize
 import kotlinx.coroutines.CoroutineScope
@@ -44,12 +43,12 @@ class BackgroundWorkService : Service() {
     @OptIn(FlowPreview::class)
     scope.launch {
       // The system limits how often an app updates a notification.
-      merge(downloads.queue, downloads.progress, uploads.upload, plays.pending, plays.sends)
+      merge(downloads.queue, downloads.active, uploads.upload, plays.pending, plays.sends)
         .sample(1000)
         .collect {
           // Read now rather than from the sample, so work that started since keeps the service.
           if (
-            downloads.queue.value.none { it.isActive } &&
+            downloads.queue.value.all { it.failed } &&
               uploads.upload.value?.isRunning != true &&
               plays.pending.value.isEmpty()
           ) {
@@ -76,7 +75,8 @@ class BackgroundWorkService : Service() {
 
   private fun notification(): Notification {
     val queue = downloads.queue.value
-    val current = queue.firstOrNull { it.state == DownloadState.Downloading }
+    val active = downloads.active.value
+    val current = queue.find { it.romId == active?.romId }
     val upload = uploads.upload.value?.takeIf { it.isRunning }
     val play = plays.pending.value.lastOrNull()
     val builder =
@@ -91,9 +91,9 @@ class BackgroundWorkService : Service() {
           ),
         )
     when {
-      current != null -> {
-        val (bytes, total) = current.progressIn(downloads.progress.value)
-        val waiting = queue.count { it.isActive }
+      active != null && current != null -> {
+        val (bytes, total) = active.progress
+        val waiting = queue.count { !it.failed }
         builder
           .setSmallIcon(android.R.drawable.stat_sys_download)
           .setContentTitle(current.title)

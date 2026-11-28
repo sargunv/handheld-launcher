@@ -11,20 +11,20 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.saves.Boot
 import dev.sargunv.handheld.data.saves.EmulatorProbe
 import dev.sargunv.handheld.data.saves.LaunchedEmulators
+import java.io.File
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.io.files.Path
 
 /**
  * The standalone emulators the launcher started, and what it can tell and do about them on this
  * device. The app holds one, so its records have one writer.
  */
 internal class Emulators(context: Context) {
-  val records = LaunchedEmulators(Path(context.filesDir.path, "launched-emulators.json"))
+  val records = LaunchedEmulators(File(context.filesDir, "launched-emulators.json"))
 
   /** Whether the device has a root service the launcher can close emulators with. */
   val canClose: Boolean

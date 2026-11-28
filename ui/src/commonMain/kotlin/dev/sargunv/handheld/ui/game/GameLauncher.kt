@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.ui.game
 
+import dev.sargunv.handheld.data.Adopter
 import dev.sargunv.handheld.data.saves.KeptSave
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.StillRunningChoice
@@ -27,20 +28,14 @@ interface GameLauncher {
     get() = NothingPlaying
 
   /**
-   * The games whose play isn't over: its launch or game is under way, or what follows the game,
-   * such as sending its save.
-   */
-  val unfinished: StateFlow<Set<GameKey>>
-    get() = NothingUnfinished
-
-  /**
    * Plays [game], whose file or folder is at [path], in the app [rules] pick for it, and returns
    * once the player is back from the game, with what they should know about how it went, in plain
    * words. [collections] are the collections [game] is in. A ROM's save syncs with RomM; a local
    * game's stays on the device, since RomM files saves by ROM.
    *
-   * [game] is in [playing] and [unfinished] from before this first suspends. While another game's
-   * launch or game is under way, or [game]'s last play isn't over, it doesn't play, and says so.
+   * [game] is in [playing], and in [Adopter.unfinished] until its play is over, from before this
+   * first suspends. While another game's launch or game is under way, or [game]'s last play isn't
+   * over, it doesn't play, and says so.
    *
    * @param onProgress hears what the launch is doing before the game starts, such as downloading
    *   the game's core, in a few words.
@@ -83,6 +78,3 @@ interface GameLauncher {
 }
 
 private val NothingPlaying: StateFlow<GameKey?> = MutableStateFlow(null).asStateFlow()
-
-private val NothingUnfinished: StateFlow<Set<GameKey>> =
-  MutableStateFlow(emptySet<GameKey>()).asStateFlow()

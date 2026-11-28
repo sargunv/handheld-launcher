@@ -29,6 +29,9 @@ import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.SyncStatus
+import dev.sargunv.handheld.data.settings.HomeSettings
+import dev.sargunv.handheld.data.settings.HomeShelf
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.Placeholder
@@ -43,7 +46,6 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.collectionShelfKey
 import dev.sargunv.handheld.ui.library.statusOf
@@ -215,7 +217,7 @@ internal fun HomePlace(state: AppState) {
           state = state,
           rom = continueRom,
           settings = settings,
-          onShowShelf = { state.settings = state.settings.copy(home = settings.show(it)) },
+          onShowShelf = { shelf -> state.updateSettings { it.copy(home = it.home.show(shelf)) } },
           onDismissRequest = { gameMenuOpen = false },
         )
       }
@@ -224,7 +226,7 @@ internal fun HomePlace(state: AppState) {
           settings = settings,
           shelf = menuShelf,
           shown = shown,
-          onChange = { state.settings = state.settings.copy(home = it) },
+          onChange = { home -> state.updateSettings { it.copy(home = home) } },
           onDismissRequest = { menuOpen = false },
         )
       }

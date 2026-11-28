@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.waitFor
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.Platform
@@ -21,12 +22,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.io.files.Path
 
 class DeviceGamesTest {
   private val dir = createTempDirectory("device-games-test").toFile()
@@ -91,14 +88,10 @@ class DeviceGamesTest {
       library = library,
       storage = { listOf(StorageTarget(storage.path, "Test storage")) },
       scope = scope,
-      contentCacheFile = Path(File(dir, "local-content.json").path),
+      contentCacheFile = File(dir, "local-content.json"),
     )
 
   private fun file(path: String) = File(storage, path)
-
-  /** Runs [block] with a timeout in real time, since the scans run on real threads. */
-  private suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
-    withContext(Dispatchers.Default.limitedParallelism(1)) { withTimeout(10_000, block) }
 
   @Test
   fun findsAGameCopiedUnderAnotherName() = runTest {

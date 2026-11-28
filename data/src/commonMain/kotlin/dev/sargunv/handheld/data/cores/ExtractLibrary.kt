@@ -5,7 +5,6 @@ import java.io.EOFException
 import java.io.File
 import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
-import kotlinx.io.files.Path
 
 /**
  * Extracts the core's library, the zip's one `.so` file, from [zip] into [target], checking each
@@ -13,14 +12,14 @@ import kotlinx.io.files.Path
  *
  * @throws CoreDownloadException when the zip is broken or holds no library.
  */
-internal fun extractLibrary(zip: Path, target: Path) {
+internal fun extractLibrary(zip: File, target: File) {
   try {
-    ZipInputStream(File(zip.toString()).inputStream().buffered()).use { input ->
+    ZipInputStream(zip.inputStream().buffered()).use { input ->
       while (true) {
         val entry = input.nextEntry ?: throw CoreDownloadException("No core in download")
         if (entry.isDirectory || !entry.name.endsWith(".so")) continue
         // Reading the entry to its end checks it against its CRC.
-        File(target.toString()).outputStream().use { input.copyTo(it) }
+        target.outputStream().use { input.copyTo(it) }
         return
       }
     }

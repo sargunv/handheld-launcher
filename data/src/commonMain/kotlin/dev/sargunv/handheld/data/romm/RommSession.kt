@@ -1,14 +1,15 @@
 package dev.sargunv.handheld.data.romm
 
 import co.touchlab.kermit.Logger
-import dev.sargunv.handheld.data.auth.CredentialStore
+import dev.sargunv.handheld.data.SecretStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.auth.RommSignIn
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.cache.LibrarySync
-import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.HttpClient
 import io.ktor.http.encodeURLParameter
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
@@ -22,7 +23,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.io.files.Path
 
 /** Whether the device is signed in to a RomM server: [Unknown], [SignedOut] or a [RommAccount]. */
 sealed interface RommState {
@@ -37,16 +37,16 @@ sealed interface RommState {
  * which everything signed in shares and nothing closes.
  */
 class RommAccount
-internal constructor(val credentials: RommCredentials, val client: RommClient, saveRoot: Path) :
+internal constructor(val credentials: RommCredentials, val client: RommClient, saveRoot: File) :
   RommState {
   private val root =
-    Path(saveRoot, credentials.baseUrl.encodeURLParameter(), credentials.userId.toString())
+    File(saveRoot, "${credentials.baseUrl.encodeURLParameter()}/${credentials.userId}")
 
   /** Where save sync keeps its record of each save it synced for this account. */
-  val saveRecords: Path = Path(root, "records")
+  val saveRecords = File(root, "records")
 
   /** Where save sync keeps the copies of this account's saves that it replaced. */
-  val saveHistory: Path = Path(root, "history")
+  val saveHistory = File(root, "history")
 }
 
 /** How the library's latest sync with the server went. */
@@ -72,27 +72,26 @@ enum class SyncStatus {
  * stops the sync.
  *
  * @param saveRoot where save sync keeps each account's records and history, apart from the others'.
- * @param engine makes the HTTP engine for each sign-in's client.
  */
 class RommSession(
-  credentials: CredentialStore,
+  credentials: SecretStore<RommCredentials>,
   private val library: LibraryCache,
-  saveRoot: Path,
+  saveRoot: File,
   scope: CoroutineScope,
-  engine: () -> HttpClientEngine,
+  http: HttpClient,
 ) {
   /** Signs in to a server, and out of it. */
-  val signIn = RommSignIn(credentials, engine)
+  val signIn = RommSignIn(credentials, http)
 
   /**
-   * Whether the device is signed in, and with what. Each sign-in opens a client that's never
-   * closed, so a download begun with it finishes after a sign-out.
+   * Whether the device is signed in, and with what. A download begun with a sign-in's client
+   * finishes after a sign-out.
    */
   val state: StateFlow<RommState> =
-    credentials.credentials
+    credentials.value
       .map {
         if (it == null) RommState.SignedOut
-        else RommAccount(it, RommClient(it.baseUrl, it.token, engine()), saveRoot)
+        else RommAccount(it, RommClient(it.baseUrl, it.token, http), saveRoot)
       }
       .stateIn(scope, SharingStarted.Eagerly, RommState.Unknown)
 

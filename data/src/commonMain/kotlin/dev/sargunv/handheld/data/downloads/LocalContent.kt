@@ -7,15 +7,12 @@ import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
 import dev.sargunv.handheld.domain.storage.DiscSets
 import dev.sargunv.handheld.domain.storage.GameLayout
+import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.io.IOException
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.readByteArray
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
@@ -88,10 +85,10 @@ private data class CachedContent(
  * its size and modified time, so a scan reads each file once.
  */
 internal class ContentScanner(
-  cacheFile: Path,
+  cacheFile: File,
   private val wholeFileLimit: Long = WHOLE_FILE_LIMIT,
 ) {
-  private val file = JsonFile(cacheFile, ListSerializer(CachedContent.serializer()))
+  private val cacheStore = JsonFile(cacheFile, ListSerializer(CachedContent.serializer()))
   private val mutex = Mutex()
   private var cache: MutableMap<String, CachedContent>? = null
   /** Whether the cache has changes the file lacks. */
@@ -118,7 +115,7 @@ internal class ContentScanner(
       val folderRoms = sharing.flatMap { romsByPlatform[it.id].orEmpty() }
       val names = folderRoms.mapNotNullTo(mutableSetOf(), GameLayout::romName)
       val entries = targets.flatMap {
-        entriesOf(Path(GameLayout.platformFolder(it.root, folderName)))
+        entriesOf(File(GameLayout.platformFolder(it.root, folderName)))
       }
       val present = entries.mapTo(mutableSetOf()) { it.name }
       // Each target's files in name order, the targets in the order they fill.
@@ -130,10 +127,10 @@ internal class ContentScanner(
       // A set's files are read only where that's quick, or where one could be a game by its size.
       // A set with a file that's a game of the library is its files, each on its own.
       val allSets = discSets(loose)
-      val games = mutableSetOf<Path>()
+      val games = mutableSetOf<File>()
       for (part in allSets.values.flatten()) {
         // What it read stays in the cache.
-        seen += part.toString()
+        seen += part.path
         val content = quickContentOf(part, sizes, cache)
         if (content != null && candidates.any { content.matches(it.files.single()) }) games += part
       }
@@ -142,41 +139,30 @@ internal class ContentScanner(
       val files = loose.filterNot { it in listed }
       for (path in files) {
         currentCoroutineContext().ensureActive()
-        val metadata = SystemFileSystem.metadataOrNull(path)
-        if (metadata == null || !metadata.isRegularFile) continue
+        if (!path.isFile) continue
+        val size = path.length()
         val content =
           try {
-            contentOf(path, metadata.size, sizes, cache)
+            contentOf(path, size, sizes, cache)
           } catch (e: IOException) {
             // A file the app can't read, which a later scan tries again.
             null
           }
-        seen += path.toString()
+        seen += path.path
         val found = content?.let { c -> candidates.filter { c.matches(it.files.single()) } }
         if (found.isNullOrEmpty()) {
           val others =
-            sets[path].orEmpty().mapNotNull { part ->
-              SystemFileSystem.metadataOrNull(part)
-                ?.takeIf { it.isRegularFile }
-                ?.let { LocalPart(part.toString(), it.size) }
-            }
-          unmatched +=
-            LocalFile(
-              path.toString(),
-              sharing.first().id,
-              metadata.size,
-              lastModified(path),
-              others,
-            )
+            sets[path].orEmpty().filter { it.isFile }.map { LocalPart(it.path, it.length()) }
+          unmatched += LocalFile(path.path, sharing.first().id, size, path.lastModified(), others)
         } else {
-          for (rom in found) matched.getOrPut(rom.id) { path.toString() }
+          for (rom in found) matched.getOrPut(rom.id) { path.path }
         }
       }
     }
     // What a scan no longer sees, such as a deleted file, leaves the cache.
     if (cache.keys.retainAll(seen) || dirty) {
       try {
-        file.write(cache.values.toList())
+        cacheStore.write(cache.values.toList())
         dirty = false
       } catch (e: IOException) {
         log.w(e) { "Couldn't write the content cache" }
@@ -186,16 +172,15 @@ internal class ContentScanner(
   }
 
   /**
-   * Whether the file at [path] still has the content of [rom]'s one file, read from the file
-   * itself: a removal trusts it, and the cache can't tell a same-size, same-time replacement apart.
+   * Whether [file] still has the content of [rom]'s one file, read from the file itself: a removal
+   * trusts it, and the cache can't tell a same-size, same-time replacement apart.
    */
-  suspend fun stillMatches(path: Path, rom: Rom): Boolean = mutex.withLock {
+  suspend fun stillMatches(file: File, rom: Rom): Boolean = mutex.withLock {
     val romFile = rom.files.singleOrNull() ?: return false
-    val metadata = SystemFileSystem.metadataOrNull(path)
-    if (metadata == null || !metadata.isRegularFile) return false
+    if (!file.isFile) return false
     val cache = cache ?: loadCache().also { cache = it }
     try {
-      contentOf(path, metadata.size, setOf(romFile.sizeBytes), cache, fresh = true)
+      contentOf(file, file.length(), setOf(romFile.sizeBytes), cache, fresh = true)
         ?.matches(romFile) == true
     } catch (e: IOException) {
       false
@@ -203,59 +188,58 @@ internal class ContentScanner(
   }
 
   /**
-   * What the file at [path] holds, as far as it's quick to read: a zip's directory, a CHD's header,
-   * or another file of one of the [sizes]. Null when it can't be read so.
+   * What [file] holds, as far as it's quick to read: a zip's directory, a CHD's header, or another
+   * file of one of the [sizes]. Null when it can't be read so.
    */
   private fun quickContentOf(
-    path: Path,
+    file: File,
     sizes: Set<Long>,
     cache: MutableMap<String, CachedContent>,
   ): FileContent? {
-    val metadata = SystemFileSystem.metadataOrNull(path)
-    if (metadata == null || !metadata.isRegularFile) return null
+    if (!file.isFile) return null
     return try {
-      contentOf(path, metadata.size, sizes, cache, quick = true)
+      contentOf(file, file.length(), sizes, cache, quick = true)
     } catch (e: IOException) {
       null
     }
   }
 
   /**
-   * What the file at [path] holds, from the cache while it's unchanged, or null if it can't be a
-   * game: a file bigger than [wholeFileLimit], or with [quick] any file, is read whole only when
-   * it's one of the [sizes]. With [fresh], it reads the file even if the cache has it.
+   * What [file] holds, from the cache while it's unchanged, or null if it can't be a game: a file
+   * bigger than [wholeFileLimit], or with [quick] any file, is read whole only when it's one of the
+   * [sizes]. With [fresh], it reads the file even if the cache has it.
    */
   private fun contentOf(
-    path: Path,
+    file: File,
     size: Long,
     sizes: Set<Long>,
     cache: MutableMap<String, CachedContent>,
     fresh: Boolean = false,
     quick: Boolean = false,
   ): FileContent? {
-    val modified = lastModified(path)
-    cache[path.toString()]
+    val modified = file.lastModified()
+    cache[file.path]
       ?.takeIf { !fresh && it.sizeBytes == size && it.modified == modified }
       ?.let {
         return it.content
       }
     val content =
-      when (path.name.substringAfterLast('.', "").lowercase()) {
-        "zip" -> FileContent(crc = oneFileZipCrc(path))
-        "chd" -> FileContent(chdSha1 = chdSha1(path, size))
+      when (file.extension.lowercase()) {
+        "zip" -> FileContent(crc = oneFileZipCrc(file))
+        "chd" -> FileContent(chdSha1 = chdSha1(file, size))
         else -> {
           if ((quick || size > wholeFileLimit) && size !in sizes) return null
-          val (crc, sha1) = crcAndSha1(path)
+          val (crc, sha1) = crcAndSha1(file)
           FileContent(crc = crc, sha1 = sha1)
         }
       }
-    cache[path.toString()] = CachedContent(path.toString(), size, modified, content)
+    cache[file.path] = CachedContent(file.path, size, modified, content)
     dirty = true
     return content
   }
 
-  private suspend fun loadCache(): MutableMap<String, CachedContent> =
-    file.read().orEmpty().associateByTo(mutableMapOf()) { it.path }
+  private fun loadCache(): MutableMap<String, CachedContent> =
+    cacheStore.read().orEmpty().associateByTo(mutableMapOf()) { it.path }
 
   companion object {
     /**
@@ -291,10 +275,9 @@ internal fun chdHeaderSha1(header: ByteArray): String? {
   return header.copyOfRange(84, 104).toHexString().takeIf { it.any { c -> c != '0' } }
 }
 
-private fun chdSha1(path: Path, size: Long): String? {
+private fun chdSha1(file: File, size: Long): String? {
   if (size < CHD_HEADER_SIZE) return null
-  val header = SystemFileSystem.source(path).buffered().use { it.readByteArray(CHD_HEADER_SIZE) }
-  return chdHeaderSha1(header)
+  return chdHeaderSha1(file.inputStream().use { it.readNBytes(CHD_HEADER_SIZE) })
 }
 
 private const val CHD_HEADER_SIZE = 124
@@ -306,7 +289,7 @@ private fun ByteArray.readInt(offset: Int): Int =
  * The disc sets copied in loose among [files], the entries of platforms' folders, as
  * [DiscSets.sets] finds them.
  */
-private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
+private fun discSets(files: List<File>): Map<File, List<File>> = buildMap {
   for (folder in files.groupBy { it.parent }.values) {
     val byName = folder.associateBy { it.name }
     for ((head, members) in
@@ -320,15 +303,13 @@ private fun discSets(files: List<Path>): Map<Path, List<Path>> = buildMap {
  * The file that holds the header of the game an emulator opens at [path], as [DiscSets.headerFile]
  * finds it.
  */
-fun headerFile(path: String): String? = DiscSets.headerFile(path) { sheetText(Path(it)) }
+fun headerFile(path: String): String? = DiscSets.headerFile(path) { sheetText(File(it)) }
 
-/** The text of the sheet at [path], as [DiscSets.sheetText] reads it, or null when it can't. */
-private fun sheetText(path: Path): String? {
-  val metadata = SystemFileSystem.metadataOrNull(path)?.takeIf { it.isRegularFile } ?: return null
+/** The text of [sheet], as [DiscSets.sheetText] reads it, or null when it can't. */
+private fun sheetText(sheet: File): String? {
+  if (!sheet.isFile) return null
   return try {
-    DiscSets.sheetText(metadata.size) {
-      SystemFileSystem.source(path).buffered().use { it.readByteArray() }
-    }
+    DiscSets.sheetText(sheet.length()) { sheet.readBytes() }
   } catch (e: IOException) {
     null
   }
@@ -356,13 +337,7 @@ private val NotGames =
 private val StateExtension = Regex("""state\d*|st\d+|auto""")
 
 /** The entries of [folder] in name order, or none when it isn't a folder that can be read. */
-internal fun entriesOf(folder: Path): List<Path> =
-  try {
-    if (SystemFileSystem.metadataOrNull(folder)?.isDirectory == true) {
-      SystemFileSystem.list(folder).sortedBy { it.name }
-    } else emptyList()
-  } catch (e: IOException) {
-    emptyList()
-  }
+internal fun entriesOf(folder: File): List<File> =
+  folder.listFiles()?.sortedBy { it.name }.orEmpty()
 
 private val log = Logger.withTag("LocalContent")

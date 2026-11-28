@@ -11,23 +11,28 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
+import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn.Attempt
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.widgets.TextEntry
 
-internal fun LazyListScope.retroAchievements(state: AppState) {
+internal fun LazyListScope.retroAchievements(
+  state: AppState,
+  signedIn: RetroAchievementsAccount?,
+  attempt: Attempt?,
+) {
   val account = state.retroAchievements ?: return
   val view = state.settingsView
   val settings = state.settings.achievements
   sectionHeading("RetroAchievements")
-  val username = account.username
-  if (username != null) {
+  if (signedIn != null) {
     item(key = "account") {
       SettingRow(
         view,
         "settings:ra:account",
         "Account",
-        username,
+        signedIn.username,
         "The RetroAchievements user this device signed in as",
       )
     }
@@ -39,8 +44,9 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
         if (settings.hardcore) "On" else "Off",
         "In hardcore, games with achievements can't load states or fast forward",
         onConfirm = {
-          state.settings =
-            state.settings.copy(achievements = settings.copy(hardcore = !settings.hardcore))
+          state.updateSettings {
+            it.copy(achievements = it.achievements.copy(hardcore = !it.achievements.hardcore))
+          }
         },
       )
     }
@@ -51,7 +57,7 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
         "Sign out",
         null,
         "Signs this device out of RetroAchievements",
-        onConfirm = account::signOut,
+        onConfirm = account.signIn::signOut,
       )
     }
     return
@@ -100,11 +106,11 @@ internal fun LazyListScope.retroAchievements(state: AppState) {
       "Sign in",
       null,
       "Earns achievements in games that play in Built-in",
-      enabled = !account.busy,
+      enabled = attempt != Attempt.Running,
       onConfirm = account::submit,
     )
   }
-  val status = if (account.busy) "Signing in" else account.error
+  val status = account.status(attempt)
   if (status != null) {
     item(key = "status") {
       Text(

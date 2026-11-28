@@ -2,34 +2,29 @@ package dev.sargunv.handheld.data.cores
 
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.JsonFile
-import dev.sargunv.handheld.data.LenientJson
-import dev.sargunv.handheld.data.httpClient
+import dev.sargunv.handheld.data.decode
+import dev.sargunv.handheld.data.writeTo
 import dev.sargunv.handheld.domain.emulator.CoreSource
 import dev.sargunv.handheld.domain.emulator.LibretroCore
-import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.head
 import io.ktor.client.request.header
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentLength
 import io.ktor.http.isSuccess
-import io.ktor.utils.io.readRemaining
-import kotlin.random.Random
+import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.IOException
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
@@ -59,31 +54,21 @@ class CoreDownloadException(message: String, cause: Throwable? = null) : IOExcep
  * core only once the download is complete and unzipped, so a failed install or update leaves the
  * previous core in place.
  */
-class InstalledCores(
-  dir: Path,
-  val abi: String,
-  private val engine: HttpClientEngine = OkHttp.create(),
-) : AutoCloseable {
-  private val abiDir = Path(dir, abi)
+class InstalledCores(dir: File, val abi: String, private val http: HttpClient) {
+  private val abiDir = File(dir, abi)
   private val records =
     JsonFile(
-      Path(abiDir, "installed.json"),
+      File(abiDir, "installed.json"),
       MapSerializer(String.serializer(), InstalledCore.serializer()),
     )
   private val mutex = Mutex()
 
-  private val http = httpClient(engine)
-
-  override fun close() {
-    http.close()
-    engine.close()
-  }
-
   /** The file [core] is installed at, which exists only while it's installed. */
-  fun fileOf(core: LibretroCore): Path = Path(abiDir, "${core.library}.so")
+  fun fileOf(core: LibretroCore) = File(abiDir, "${core.library}.so")
 
   /** The installed cores, by library name. */
-  suspend fun all(): Map<String, InstalledCore> = records.read().orEmpty()
+  suspend fun all(): Map<String, InstalledCore> =
+    withContext(Dispatchers.IO) { records.read().orEmpty() }
 
   /** The installed build of [core], or null when it isn't installed. */
   suspend fun get(core: LibretroCore): InstalledCore? = all()[core.library]
@@ -99,11 +84,10 @@ class InstalledCores(
     onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit = { _, _ -> },
   ): InstalledCore =
     withContext(Dispatchers.IO) {
-      SystemFileSystem.createDirectories(abiDir)
+      abiDir.mkdirs()
       val build = latestBuild(core)
-      val stem = Path(abiDir, ".${core.library}-${Random.nextLong().toULong()}")
-      val zip = Path("$stem.zip")
-      val library = Path("$stem.so")
+      val zip = File.createTempFile(".${core.library}-", ".zip", abiDir)
+      val library = File.createTempFile(".${core.library}-", ".so", abiDir)
       try {
         val headers = download(build.url, zip, onProgress)
         extractLibrary(zip, library)
@@ -115,13 +99,13 @@ class InstalledCores(
             lastModified = headers[HttpHeaders.LastModified],
           )
         mutex.withLock {
-          SystemFileSystem.atomicMove(library, fileOf(core))
-          records.update { it.orEmpty() + (core.library to installed) }
+          Files.move(library.toPath(), fileOf(core).toPath(), ATOMIC_MOVE)
+          records.write(records.read().orEmpty() + (core.library to installed))
         }
         installed
       } finally {
-        SystemFileSystem.delete(zip, mustExist = false)
-        SystemFileSystem.delete(library, mustExist = false)
+        zip.delete()
+        library.delete()
       }
     }
 
@@ -159,7 +143,7 @@ class InstalledCores(
   suspend fun ensure(
     core: LibretroCore,
     onProgress: (bytesDownloaded: Long, totalBytes: Long?) -> Unit = { _, _ -> },
-  ): Path {
+  ): File {
     if (get(core) == null) {
       install(core, onProgress)
     } else {
@@ -194,32 +178,21 @@ class InstalledCores(
   private suspend fun latestRelease(source: CoreSource.GitHubRelease): GitHubReleaseJson {
     val url = "$GITHUB_API/repos/${source.repository}/releases/latest"
     val response = http.get(url) { header(HttpHeaders.Accept, "application/vnd.github+json") }
-    val text = response.bodyAsText()
     if (!response.status.isSuccess()) throw serverError(url, response.status)
-    return LenientJson.decodeFromString(GitHubReleaseJson.serializer(), text)
+    return response.decode { CoreDownloadException("Unreadable release", it) }
   }
 
   /** Downloads [url] into [target], and returns the response's headers once it's all written. */
   private suspend fun download(
     url: String,
-    target: Path,
+    target: File,
     onProgress: (Long, Long?) -> Unit,
   ): Headers =
     http.prepareGet(url).execute { response ->
       if (!response.status.isSuccess()) throw serverError(url, response.status)
       val total = response.contentLength()
-      val channel = response.bodyAsChannel()
-      var downloaded = 0L
-      onProgress(downloaded, total)
-      SystemFileSystem.sink(target).buffered().use { sink ->
-        while (!channel.isClosedForRead) {
-          val count = channel.readRemaining(CHUNK_SIZE).transferTo(sink)
-          if (count > 0) {
-            downloaded += count
-            onProgress(downloaded, total)
-          }
-        }
-      }
+      onProgress(0, total)
+      val downloaded = response.bodyAsChannel().writeTo(target) { onProgress(it, total) }
       if (total != null && downloaded != total) {
         log.w { "$url: cut short at $downloaded of $total bytes" }
         throw CoreDownloadException("Core download cut short")
@@ -245,6 +218,5 @@ class InstalledCores(
 
     const val BUILDBOT = "https://buildbot.libretro.com/nightly/android/latest"
     const val GITHUB_API = "https://api.github.com"
-    const val CHUNK_SIZE = 64L * 1024
   }
 }

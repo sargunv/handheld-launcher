@@ -149,7 +149,7 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       val current = launch.choiceAt(scope)
       val default = context.chain(launch).steps.firstOrNull { it.isDefault }?.choice?.withoutCore()
       fun choose(choice: LaunchChoice?) {
-        state.settings = state.settings.copy(launch = launch.withChoice(scope, choice))
+        state.updateSettings { it.copy(launch = it.launch.withChoice(scope, choice)) }
         state.navigator.back()
       }
       Row(

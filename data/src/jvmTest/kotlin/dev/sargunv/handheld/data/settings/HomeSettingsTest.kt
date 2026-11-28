@@ -1,8 +1,8 @@
-package dev.sargunv.handheld.ui.home
+package dev.sargunv.handheld.data.settings
 
-import dev.sargunv.handheld.ui.home.HomeShelf.Collections
-import dev.sargunv.handheld.ui.home.HomeShelf.RecentlyAdded
-import dev.sargunv.handheld.ui.home.HomeShelf.RecentlyPlayed
+import dev.sargunv.handheld.data.settings.HomeShelf.Collections
+import dev.sargunv.handheld.data.settings.HomeShelf.RecentlyAdded
+import dev.sargunv.handheld.data.settings.HomeShelf.RecentlyPlayed
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

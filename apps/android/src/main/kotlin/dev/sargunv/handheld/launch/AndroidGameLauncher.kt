@@ -88,14 +88,11 @@ internal class AndroidGameLauncher(
   override val playing: StateFlow<GameKey?>
     get() = plays.playing
 
-  override val unfinished: StateFlow<Set<GameKey>>
-    get() = plays.unfinished
-
   override suspend fun keptSaves(game: LibraryGame): List<KeptSave> {
     // Save sync keeps copies only of the saves it syncs, in the signed-in account's history.
     val history = romm.account?.saveHistory ?: return emptyList()
     if (game !is Rom) return emptyList()
-    return withContext(Dispatchers.IO) { keptSaves(File(history.toString()), game.id) }
+    return withContext(Dispatchers.IO) { keptSaves(history, game.id) }
   }
 
   override suspend fun play(

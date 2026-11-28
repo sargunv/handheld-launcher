@@ -11,6 +11,8 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import dev.sargunv.handheld.data.settings.ConfirmButton
+import dev.sargunv.handheld.data.settings.InputSettings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
 import dev.sargunv.handheld.ui.focus.FocusRoot

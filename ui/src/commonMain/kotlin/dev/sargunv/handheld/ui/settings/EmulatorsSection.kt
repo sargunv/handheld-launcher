@@ -40,7 +40,7 @@ internal fun LazyListScope.emulators(
         if (on) "On" else "Off",
         "Offers to close a running emulator before a game starts",
       ) {
-        if (on) state.settings = state.settings.copy(closeEmulators = false)
+        if (on) state.updateSettings { it.copy(closeEmulators = false) }
         else open(SettingsDialog.CloseEmulators)
       }
     }

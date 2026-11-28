@@ -5,35 +5,37 @@ import android.os.Build
 import dev.sargunv.handheld.data.cores.InstalledCores
 import dev.sargunv.handheld.data.saves.SaveCopy
 import dev.sargunv.handheld.data.saves.builtInGameSave
-import dev.sargunv.handheld.data.settings.SettingsFile
+import dev.sargunv.handheld.data.settings.SettingsStore
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.achievements.retroAchievementsConsole
 import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.saves.BuiltInSaves
-import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.saves.SaveConflict
+import io.ktor.client.HttpClient
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
 
 /**
  * Plays games in the built-in session. The platform's core comes from [InstalledCores], downloaded
  * the first time and updated when a newer build is out, and the game runs in [SessionActivity],
  * with its saves in a folder of its own in [saves]. The game's save memory syncs with RomM through
  * [playSaves] before the game starts, and through its [Plays.Play] after it ends, filed under the
- * core; its save states stay on this device. [settingsFile] holds the controls and the hardcore
- * setting the game starts with.
+ * core; its save states stay on this device. [settings] holds the controls and the hardcore setting
+ * the game starts with.
  */
 internal class BuiltInPlayer(
   private val activity: Activity,
   private val playSaves: PlaySaves,
   private val saves: BuiltInSaves,
-  private val settingsFile: SettingsFile<Settings>,
+  private val settings: SettingsStore,
+  http: HttpClient,
 ) {
-  private val coresDir = Path(activity.filesDir.path, "cores")
+  // The app's native libraries are built for the device's first ABI.
+  private val cores =
+    InstalledCores(File(activity.filesDir, "cores"), Build.SUPPORTED_ABIS.first(), http)
 
   /**
    * Plays [request]'s game in [core] as [play], and returns once the player is back from the game,
@@ -51,12 +53,9 @@ internal class BuiltInPlayer(
   ): List<String> {
     val coreFile =
       try {
-        // The app's native libraries are built for the device's first ABI.
-        InstalledCores(coresDir, Build.SUPPORTED_ABIS.first()).use { cores ->
-          cores.ensure(core) { downloaded, total ->
-            val percent = total?.takeIf { it > 0 }?.let { " ${downloaded * 100 / it}%" } ?: ""
-            onProgress("Downloading core$percent")
-          }
+        cores.ensure(core) { downloaded, total ->
+          val percent = total?.takeIf { it > 0 }?.let { " ${downloaded * 100 / it}%" } ?: ""
+          onProgress("Downloading core$percent")
         }
       } catch (e: IOException) {
         note(labelled("Core download failed", e.message))
@@ -65,12 +64,9 @@ internal class BuiltInPlayer(
     val folder = saves.folderOf(request.game)
     val saveRam = saves.saveRamOf(folder, request.romPath)
     val rom = request.game as? GameKey.Romm
-    val settings =
-      withContext(Dispatchers.IO) {
-        // Made before the sync, which pulls a save only into a folder that exists.
-        File(folder).mkdirs()
-        settingsFile.read()
-      }
+    // Made before the sync, which pulls a save only into a folder that exists.
+    withContext(Dispatchers.IO) { File(folder).mkdirs() }
+    val current = settings.settings.value
     val game = rom?.let { builtInGameSave(it.romId, core.library, File(saveRam)) }
     if (game != null) {
       if (!playSaves.beforeLaunch(request.title, game, chooseSave, note, emulator = null))
@@ -83,11 +79,11 @@ internal class BuiltInPlayer(
         saveDir = folder,
         saveRam = saveRam,
         states = saves.statesOf(folder, request.romPath),
-        input = settings.input,
+        input = current.input,
         stackedScreensOptions = core.stackedScreensOptions,
         lowerScreenWidthShare = core.lowerScreenWidthShare,
         achievementsConsole = retroAchievementsConsole(request.platform),
-        hardcore = settings.achievements.hardcore,
+        hardcore = current.achievements.hardcore,
       )
     return play.builtIn(game) {
       activity.startActivity(SessionActivity.intent(activity, launch))

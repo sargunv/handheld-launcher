@@ -10,7 +10,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.saves.KeptSave
@@ -89,8 +89,7 @@ class GameTest {
     gameFile.writeText("game")
     launchApp(
       server,
-      credentials =
-        InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player", "thor")),
+      credentials = Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player", "thor")),
       storage = listOf(StorageTarget(storage.path, "Test storage")),
       launcher = launcher,
       apps = apps,

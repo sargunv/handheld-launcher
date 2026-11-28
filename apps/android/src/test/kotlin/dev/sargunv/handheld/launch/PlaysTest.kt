@@ -19,6 +19,7 @@ class PlaysTest {
         PlaySaves(MutableStateFlow(null)),
         closeEmulator = { true },
         launcherInFront = MutableStateFlow(true),
+        unfinished = MutableStateFlow(emptySet()),
         keepAlive = {},
       )
     val first = GameKey.Romm(1)

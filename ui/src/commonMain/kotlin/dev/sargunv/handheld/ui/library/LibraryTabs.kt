@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.FocusLazyVerticalGrid
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -47,6 +48,7 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.LocalInputSettings
 import dev.sargunv.handheld.ui.input.PadButton
+import dev.sargunv.handheld.ui.input.actionFor
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.places.AppState

@@ -12,6 +12,10 @@ import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.storage.GameLayout
+import java.io.File
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.minutes
@@ -20,9 +24,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.IO
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,11 +44,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.IOException
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.writeString
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
@@ -57,8 +56,7 @@ data class Download(
   val platformFolder: String,
   /** The size of the game on the server. */
   val sizeBytes: Long,
-  val state: DownloadState = DownloadState.Queued,
-  /** Why the download failed, when it did. */
+  /** Why the download failed, once it has. A failed download waits in the queue for a retry. */
   val error: String? = null,
   /** The root of the storage the game goes to, picked when the download first starts. */
   val storageRoot: String? = null,
@@ -69,35 +67,27 @@ data class Download(
   /** The address of the server the game is from, as signed in to when it was queued. */
   val server: String,
 ) {
-  /** Whether the download is waiting or running, rather than failed. */
-  val isActive: Boolean
-    get() = state != DownloadState.Failed
+  val failed: Boolean
+    get() = error != null
 
-  /** How far the download has got, by its entry in [progress], or not at all yet. */
-  fun progressIn(progress: Map<Long, DownloadProgress>): DownloadProgress =
-    progress[romId] ?: DownloadProgress(0, sizeBytes)
+  /** Where the download stands, with [active] the running one. */
+  fun status(active: ActiveDownload?): RomStatus =
+    when {
+      error != null -> RomStatus.Failed(error)
+      active?.romId == romId -> active.progress
+      else -> RomStatus.Queued
+    }
 }
 
-enum class DownloadState {
-  Queued,
-  Downloading,
-  Failed,
-}
-
-/** How far a running download has got. */
-data class DownloadProgress(
-  val bytesDownloaded: Long,
-  /** The size of the files being downloaded. */
-  val totalBytes: Long,
+/**
+ * The download that's running: the ROM [romId]'s, as far as [progress] has got. Once it's
+ * [installing], its game is moving into place, and a cancel no longer stops it.
+ */
+data class ActiveDownload(
+  val romId: Long,
+  val progress: RomStatus.Downloading,
+  val installing: Boolean = false,
 )
-
-private fun Download.status(progress: Map<Long, DownloadProgress>): RomStatus =
-  when (state) {
-    DownloadState.Queued -> RomStatus.Queued
-    DownloadState.Downloading ->
-      progressIn(progress).let { RomStatus.Downloading(it.bytesDownloaded, it.totalBytes) }
-    DownloadState.Failed -> RomStatus.Failed(error)
-  }
 
 /** Whether a ROM is on the device, or how far it's got. */
 sealed interface RomStatus {
@@ -107,8 +97,8 @@ sealed interface RomStatus {
 
   data class Downloading(val bytesDownloaded: Long, val totalBytes: Long) : RomStatus
 
-  /** The download failed, and waits in the queue for a retry. */
-  data class Failed(val error: String?) : RomStatus
+  /** The download failed, for [error] when it's known, and waits in the queue for a retry. */
+  data class Failed(val error: String) : RomStatus
 
   /** The ROM is at [path]: its file, or the folder that holds its files. */
   data class OnDevice(val path: String) : RomStatus
@@ -138,7 +128,7 @@ sealed interface RomStatus {
  *   false, such as before the user grants access, rather than failing.
  */
 class DownloadManager(
-  queueFile: Path,
+  queueFile: File,
   private val library: LibraryCache,
   private val games: DeviceGames,
   private val romm: StateFlow<RommState>,
@@ -148,34 +138,22 @@ class DownloadManager(
   private val storageSettings: () -> StorageSettings,
 ) {
   private val file = JsonFile(queueFile, ListSerializer(Download.serializer()))
+
+  /** Held while the queue changes, and while the running download decides to install. */
   private val mutex = Mutex()
 
   /** Held by each command for the queue while it runs, so they run in the order they're given. */
   private val commands = Mutex()
-  private val entries =
-    MutableStateFlow(
-      // A download that was running when the app stopped starts again from where it got.
-      file.readBlocking().orEmpty().map {
-        if (it.state == DownloadState.Downloading) it.copy(state = DownloadState.Queued) else it
-      },
-    )
-  private var running: Running? = null
 
-  /**
-   * The running download's job. Once its game begins to move into place, it's [moving], and a
-   * cancel no longer stops it.
-   */
-  private class Running(val romId: Long, val job: Job) {
-    var moving = false
-  }
+  private val entries = MutableStateFlow(file.read().orEmpty())
 
   /** The queue, in the order it downloads. */
   val queue: StateFlow<List<Download>> = entries.asStateFlow()
 
-  private val progressing = MutableStateFlow<Map<Long, DownloadProgress>>(emptyMap())
+  private val running = MutableStateFlow<ActiveDownload?>(null)
 
-  /** How far the running download has got, by ROM id. */
-  val progress: StateFlow<Map<Long, DownloadProgress>> = progressing.asStateFlow()
+  /** The download that's running, if any: the one record of it. */
+  val active: StateFlow<ActiveDownload?> = running.asStateFlow()
 
   private val accounts = romm.map { it as? RommAccount }
 
@@ -186,7 +164,7 @@ class DownloadManager(
    * The next game of [list] queued from [server], the one signed in to, or null when there's none.
    */
   private fun nextFor(list: List<Download>, server: String): Download? = list.firstOrNull {
-    it.state == DownloadState.Queued && it.server == server
+    !it.failed && it.server == server
   }
 
   init {
@@ -201,15 +179,24 @@ class DownloadManager(
             }
             .filterNotNull()
             .first()
-        // Pick under the lock, so a game canceled meanwhile isn't started.
-        val job =
+        // Picked under the lock, so a drop meanwhile sees it running and waits for it to stop.
+        val download =
           mutex.withLock {
-            nextFor(entries.value, account.credentials.baseUrl)?.let { download ->
-              scope.launch { run(download, account) }.also { running = Running(download.romId, it) }
+            nextFor(entries.value, account.credentials.baseUrl)?.also {
+              running.value = ActiveDownload(it.romId, RomStatus.Downloading(0, it.sizeBytes))
             }
           } ?: continue
-        job.join()
-        mutex.withLock { running = null }
+        coroutineScope {
+          val job = launch { run(download, account) }
+          // A download that leaves the queue stops, unless it's installing.
+          launch {
+            entries.first { list -> list.none { it.romId == download.romId } }
+            job.cancel()
+          }
+          job.join()
+          coroutineContext.cancelChildren()
+        }
+        running.value = null
       }
     }
     scope.launch {
@@ -292,13 +279,7 @@ class DownloadManager(
 
   /** Queues a failed download again, where it was in the queue. */
   fun retry(romId: Long) = command {
-    edit { list ->
-      list.map {
-        if (it.romId == romId && it.state == DownloadState.Failed) {
-          it.copy(state = DownloadState.Queued, error = null)
-        } else it
-      }
-    }
+    edit { list -> list.map { if (it.romId == romId) it.copy(error = null) else it } }
   }
 
   /**
@@ -335,14 +316,14 @@ class DownloadManager(
    */
   private suspend fun drop(which: (Download) -> Boolean): List<Download> {
     // They leave the queue before the running one stops, so the queue starts none of them.
-    val (dropped, stopping) =
-      mutex.withLock {
-        val moving = running?.takeIf { it.moving }?.romId
-        val (dropped, kept) = entries.value.partition { which(it) && it.romId != moving }
-        store(kept)
-        dropped to running?.takeIf { r -> dropped.any { it.romId == r.romId } }?.job
-      }
-    stopping?.cancelAndJoin()
+    val dropped = mutex.withLock {
+      val installing = running.value?.takeIf { it.installing }?.romId
+      val (dropped, kept) = entries.value.partition { which(it) && it.romId != installing }
+      store(kept)
+      dropped
+    }
+    val ids = dropped.mapTo(mutableSetOf()) { it.romId }
+    running.first { it == null || it.romId !in ids }
     withContext(Dispatchers.IO) {
       val roots = storage().map { it.root }
       for (download in dropped) {
@@ -364,7 +345,7 @@ class DownloadManager(
       .map { list -> list.find { it.romId == rom.id } }
       .distinctUntilChanged()
       .flatMapLatest { download ->
-        if (download != null) progress.map(download::status)
+        if (download != null) running.map(download::status)
         else games.onDevice.map { it[rom.id]?.let(RomStatus::OnDevice) ?: RomStatus.NotOnDevice }
       }
       .distinctUntilChanged()
@@ -373,13 +354,11 @@ class DownloadManager(
    * The library's games that are on the device or in the queue, by ROM id. A game missing here is
    * only on the server.
    */
-  @OptIn(ExperimentalCoroutinesApi::class)
-  fun statuses(): Flow<Map<Long, RomStatus>> = entries.flatMapLatest { queue ->
-    combine(games.onDevice, progress) { onDevice, progress ->
+  fun statuses(): Flow<Map<Long, RomStatus>> =
+    combine(entries, running, games.onDevice) { queue, active, onDevice ->
       onDevice.mapValues { RomStatus.OnDevice(it.value) } +
-        queue.associate { it.romId to it.status(progress) }
+        queue.associate { it.romId to it.status(active) }
     }
-  }
 
   /** The room each storage target has left. */
   suspend fun storageSpace(): List<StorageSpace> =
@@ -406,13 +385,8 @@ class DownloadManager(
           when {
             it.romId != request.romId -> it
             // Sent again after it failed: this request takes it over and tries again.
-            it.state == DownloadState.Failed ->
-              it.copy(
-                installRequestId = request.id,
-                fileIds = request.fileIds,
-                state = DownloadState.Queued,
-                error = null,
-              )
+            it.failed ->
+              it.copy(installRequestId = request.id, fileIds = request.fileIds, error = null)
             it.installRequestId == null -> it.copy(installRequestId = request.id)
             else -> it
           }
@@ -427,12 +401,6 @@ class DownloadManager(
   }
 
   private suspend fun run(download: Download, account: RommAccount) {
-    edit { list ->
-      list.map {
-        if (it.romId == download.romId) it.copy(state = DownloadState.Downloading, error = null)
-        else it
-      }
-    }
     val staged =
       try {
         withContext(Dispatchers.IO) { fetch(download, account) }
@@ -442,11 +410,15 @@ class DownloadManager(
         return fail(download, account, e)
       }
     // From the move into place on, a cancel doesn't stop the download. Once the move lands, the
-    // game is installed, and nothing fails it. A game dropped from the queue meanwhile stays put.
-    val moving = mutex.withLock {
-      entries.value.any { it.romId == download.romId }.also { if (it) running?.moving = true }
+    // game is installed, and nothing fails it.
+    val installing = mutex.withLock {
+      entries.value
+        .any { it.romId == download.romId }
+        .also { installing ->
+          if (installing) running.update { it?.copy(installing = true) }
+        }
     }
-    if (!moving) return
+    if (!installing) return
     withContext(NonCancellable) {
       val outcome =
         try {
@@ -477,14 +449,11 @@ class DownloadManager(
 
   /** Marks [download] failed for [e], and tells its server, if the server asked for the game. */
   private suspend fun fail(download: Download, account: RommAccount, e: Exception) {
-    val error = e.message
     edit { list ->
-      list.map {
-        if (it.romId == download.romId) it.copy(state = DownloadState.Failed, error = error) else it
-      }
+      list.map { if (it.romId == download.romId) it.copy(error = e.message.orEmpty()) else it }
     }
     val current = entries.value.find { it.romId == download.romId } ?: download
-    reportInstall(account, current, RommInstallStatus.Failed, error)
+    reportInstall(account, current, RommInstallStatus.Failed, e.message)
   }
 
   /**
@@ -511,12 +480,12 @@ class DownloadManager(
   }
 
   /** A game whose files have all arrived in [staging], to move to [target]. */
-  private class Staged(val staging: Path, val target: Path) {
+  private class Staged(val staging: File, val target: File) {
     /** Moves the game into place, unless a game is there already. Returns how the install ended. */
     fun moveIntoPlace(): RommInstallStatus {
-      if (SystemFileSystem.exists(target)) return RommInstallStatus.AlreadyInstalled
-      target.parent?.let { SystemFileSystem.createDirectories(it) }
-      SystemFileSystem.atomicMove(staging, target)
+      if (target.exists()) return RommInstallStatus.AlreadyInstalled
+      target.parentFile.mkdirs()
+      Files.move(staging.toPath(), target.toPath(), ATOMIC_MOVE)
       return RommInstallStatus.Done
     }
   }
@@ -545,31 +514,29 @@ class DownloadManager(
             list.map { if (it.romId == download.romId) it.copy(storageRoot = root) else it }
           }
         }
-    val target = Path(GameLayout.platformFolder(root, download.platformFolder), name)
-    val staging = Path(stagingFolder(root, download.romId), name)
+    val target = File(GameLayout.platformFolder(root, download.platformFolder), name)
+    val staging = File(stagingFolder(root, download.romId), name)
     val multiFile = rom.files.size > 1
     val targets = files.map {
-      if (multiFile) Path(staging, relativePath(rom.files, it)) else staging
+      if (multiFile) File(staging, relativePath(rom.files, it)) else staging
     }
-    val needed = totalBytes - targets.sumOf { SystemFileSystem.metadataOrNull(it)?.size ?: 0L }
+    val needed = totalBytes - targets.sumOf { it.length() }
     val storage = storage().find { it.root == root } ?: StorageTarget(root, root)
     val free = freeBytes(root)
     if (needed > free) throw notEnoughSpace(storage, needed, free)
 
     var done = 0L
     for ((file, path) in files.zip(targets)) {
-      path.parent?.let { SystemFileSystem.createDirectories(it) }
+      path.parentFile.mkdirs()
       downloadFile(client, file, path) { bytes ->
-        progressing.update { it + (download.romId to DownloadProgress(done + bytes, totalBytes)) }
+        running.update { it?.copy(progress = RomStatus.Downloading(done + bytes, totalBytes)) }
       }
       done += file.fileSizeBytes
     }
     if (multiFile) {
       val paths = files.map { relativePath(rom.files, it) }
       GameLayout.playlist(rom.platformSlug, paths)?.let {
-        SystemFileSystem.sink(Path(staging, playlistName(name))).buffered().use { sink ->
-          sink.writeString(it.joinToString("\n", postfix = "\n"))
-        }
+        File(staging, playlistName(name)).writeText(it.joinToString("\n", postfix = "\n"))
       }
     }
     return Staged(staging, target)
@@ -586,17 +553,19 @@ class DownloadManager(
   private suspend fun downloadFile(
     client: RommClient,
     file: RommRomFile,
-    path: Path,
+    target: File,
     onBytes: (Long) -> Unit,
   ) {
     val resumedFrom =
-      client.downloadRomFile(file.id, file.fileName, path) { onBytes(it.bytesDownloaded) }
+      client.downloadRomFile(file.id, file.fileName, target) { bytes, _ ->
+        onBytes(bytes)
+      }
     if (
       resumedFrom > 0 &&
-        matchesServerHashes(path, file.md5Hash, file.sha1Hash, file.crcHash) == false
+        matchesServerHashes(target, file.md5Hash, file.sha1Hash, file.crcHash) == false
     ) {
-      SystemFileSystem.delete(path)
-      client.downloadRomFile(file.id, file.fileName, path) { onBytes(it.bytesDownloaded) }
+      target.delete()
+      client.downloadRomFile(file.id, file.fileName, target) { bytes, _ -> onBytes(bytes) }
     }
   }
 
@@ -609,13 +578,8 @@ class DownloadManager(
   private suspend fun store(after: List<Download>): Boolean {
     if (after == entries.value) return false
     // Once stored, the change shows, even when the caller is cancelled meanwhile.
-    withContext(NonCancellable) {
-      file.write(after)
-      entries.value = after
-    }
-    // Only a running download has progress, and it goes once the queue shows the download's end.
-    val running = after.filter { it.state == DownloadState.Downloading }.map { it.romId }
-    progressing.update { it.filterKeys(running::contains) }
+    withContext(NonCancellable + Dispatchers.IO) { file.write(after) }
+    entries.value = after
     return true
   }
 }
@@ -623,28 +587,17 @@ class DownloadManager(
 private val log = Logger.withTag("DownloadManager")
 
 /** The folder on the storage target at [root] where downloads stay until they're whole. */
-private fun stagingRoot(root: String) = Path(GameLayout.platformFolder(root, ".handheld-staging"))
+private fun stagingRoot(root: String) = File(GameLayout.platformFolder(root, ".handheld-staging"))
 
 /** The folder the ROM [romId] downloads in on the storage target at [root], under its own name. */
-private fun stagingFolder(root: String, romId: Long) = Path(stagingRoot(root), romId.toString())
+private fun stagingFolder(root: String, romId: Long) = File(stagingRoot(root), romId.toString())
 
 /** The playlist a download writes in the folder of a ROM of several files, named [folder]. */
 internal fun playlistName(folder: String) = "${folder.removeSuffix(".m3u")}.m3u"
 
-internal fun deleteRecursively(path: Path) {
-  if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
-    SystemFileSystem.list(path).forEach(::deleteRecursively)
-  }
-  SystemFileSystem.delete(path, mustExist = false)
-}
-
-/** Deletes what's staged at [path], if it can. The queue's next start deletes what's left. */
-private fun deleteIfCan(path: Path) {
-  try {
-    deleteRecursively(path)
-  } catch (e: IOException) {
-    log.w(e) { "Deleting $path failed" }
-  }
+/** Deletes what's staged at [file], if it can. The queue's next start deletes what's left. */
+private fun deleteIfCan(file: File) {
+  if (!file.deleteRecursively()) log.w { "Deleting $file failed" }
 }
 
 /** A download that can't go on until something changes, such as freeing space. */

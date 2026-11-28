@@ -9,10 +9,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import coil3.compose.setSingletonImageLoaderFactory
 import dev.sargunv.handheld.data.HandheldData
@@ -35,13 +32,12 @@ import dev.sargunv.handheld.ui.places.open
 import dev.sargunv.handheld.ui.places.signedIn
 import dev.sargunv.handheld.ui.signin.SignInPrimary
 import dev.sargunv.handheld.ui.signin.SignInSecondary
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
-import kotlinx.io.files.Path
 
 /**
  * The app's root, shared by every platform. It opens on sign-in until [data]'s RomM session is
@@ -52,11 +48,10 @@ import kotlinx.io.files.Path
  *
  * @param layout how the two screens' content shares the hardware.
  * @param heldKeys the main window's held keys, which the platform keeps up to date.
- * @param data the games, the RomM sign-in and the download queue, which outlive the app's window.
+ * @param data the settings, the games, the RomM sign-in and the download queue, which outlive the
+ *   app's window.
  * @param platform what the platform gives the app besides its data.
  * @param coverCacheDir where covers are kept once fetched.
- * @param initialSettings the stored settings, which the app reads once, when it first composes.
- * @param saveSettings stores the settings each time they change, in the order they changed.
  * @param secondaryDisplay shows its content on the second display. Only called when [layout] is
  *   [DualScreenLayout.Separate].
  * @param openRequests the screens to show, for development tools, each once signed in. Before
@@ -71,23 +66,15 @@ fun App(
   heldKeys: HeldKeys,
   data: HandheldData,
   platform: AppPlatform,
-  coverCacheDir: Path,
+  coverCacheDir: File,
   modifier: Modifier = Modifier,
-  initialSettings: Settings = Settings(),
-  saveSettings: suspend (Settings) -> Unit = {},
   secondaryDisplay: @Composable (content: @Composable () -> Unit) -> Unit = {},
   openRequests: Flow<OpenTarget> = emptyFlow(),
   homePresses: Flow<Unit> = emptyFlow(),
 ) {
   setSingletonImageLoaderFactory { context -> coverImageLoader(context, coverCacheDir) }
-  val scope = rememberCoroutineScope()
-  val state = remember(data, platform) { AppState(initialSettings, data, platform, scope) }
-  LaunchedEffect(state) { state.retroAchievements?.load() }
-  LaunchedEffect(state) { state.adoptMatchedFiles() }
-  val currentSaveSettings by rememberUpdatedState(saveSettings)
-  LaunchedEffect(state) {
-    snapshotFlow { state.settings }.drop(1).collect { currentSaveSettings(it) }
-  }
+  val settings = data.settings.settings.collectAsState()
+  val state = remember(data, platform) { AppState(data, platform, settings) }
   val signedIn = data.romm.state.collectAsState().value.signedIn
   LaunchedEffect(openRequests, state) {
     openRequests.collectLatest { target ->

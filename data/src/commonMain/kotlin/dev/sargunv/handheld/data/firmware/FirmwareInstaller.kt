@@ -14,7 +14,6 @@ import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
 
 /** What [FirmwareInstaller.install] did. */
 sealed interface FirmwareInstall {
@@ -118,7 +117,7 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
       )
     val staged =
       File(staging, "${hexDigest("SHA-256", identity.joinToString("\n").encodeToByteArray())}.part")
-    client.downloadFirmware(file.id, file.fileName, Path(staged.path))
+    client.downloadFirmware(file.id, file.fileName, staged)
     try {
       mismatchedHash(staged, file)?.let { throw IOException("$it mismatch") }
       target.parentFile.mkdirs()

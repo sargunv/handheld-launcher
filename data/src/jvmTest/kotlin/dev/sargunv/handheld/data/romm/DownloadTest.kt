@@ -5,6 +5,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.utils.io.ByteReadChannel
+import java.io.File
 import kotlin.random.Random
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -13,24 +14,16 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.files.SystemTemporaryDirectory
-import kotlinx.io.readByteArray
-import kotlinx.io.write
 
 class DownloadTest {
   private val content = Random(42).nextBytes(200_000)
-  private val target =
-    Path(SystemTemporaryDirectory, "download-test-${Random.nextLong().toULong()}.bin")
+  private val target = File.createTempFile("download-test", ".bin").apply { delete() }
 
-  @AfterTest fun deleteTarget() = SystemFileSystem.delete(target, mustExist = false)
+  @AfterTest fun deleteTarget() = check(!target.exists() || target.delete())
 
-  private fun writeTarget(bytes: ByteArray) =
-    SystemFileSystem.sink(target).buffered().use { it.write(bytes) }
+  private fun writeTarget(bytes: ByteArray) = target.writeBytes(bytes)
 
-  private fun readTarget() = SystemFileSystem.source(target).buffered().use { it.readByteArray() }
+  private fun readTarget() = target.readBytes()
 
   /** A server that serves [content], honoring ranges unless [ignoreRanges]. */
   private fun fileServer(ignoreRanges: Boolean = false, truncateAt: Int? = null) =
@@ -69,9 +62,11 @@ class DownloadTest {
   @Test
   fun downloadsAWholeFile() = runTest {
     val server = fileServer()
-    val progress = mutableListOf<DownloadProgress>()
+    val progress = mutableListOf<Pair<Long, Long?>>()
     val resumedFrom =
-      server.client.downloadRomFile(70, "Disc Game #1.chd", target) { progress += it }
+      server.client.downloadRomFile(70, "Disc Game #1.chd", target) { bytes, total ->
+        progress += bytes to total
+      }
 
     assertEquals(0, resumedFrom)
     assertContentEquals(content, readTarget())
@@ -79,9 +74,9 @@ class DownloadTest {
     assertEquals("/api/roms/70/files/content/Disc%20Game%20%231.chd", request.url.encodedPath)
     assertEquals("identity", request.headers[HttpHeaders.AcceptEncoding])
     assertNull(request.headers[HttpHeaders.Range])
-    assertEquals(DownloadProgress(0, content.size.toLong()), progress.first())
-    assertEquals(DownloadProgress(content.size.toLong(), content.size.toLong()), progress.last())
-    assertEquals(progress.sortedBy { it.bytesDownloaded }, progress)
+    assertEquals(0L to content.size.toLong(), progress.first())
+    assertEquals(content.size.toLong() to content.size.toLong(), progress.last())
+    assertEquals(progress.sortedBy { it.first }, progress)
   }
 
   @Test

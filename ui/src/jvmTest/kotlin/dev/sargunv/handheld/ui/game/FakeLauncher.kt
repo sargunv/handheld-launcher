@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.update
 /**
  * Plays nothing, but records what it was asked, and says "Played". It asks [conflict] first when
  * given, and then about [stillRunning] when given. [canCloseEmulators] stands in for a device with
- * a root service. Its plays are in [playing] and [unfinished] while they last.
+ * a root service. Its plays are in [playing] and [plays] while they last.
  */
 internal class FakeLauncher(
   private val conflict: SaveConflict? = null,
@@ -39,8 +39,8 @@ internal class FakeLauncher(
   private val current = MutableStateFlow<GameKey?>(null)
   override val playing: StateFlow<GameKey?> = current.asStateFlow()
 
-  private val unfinishedGames = MutableStateFlow(emptySet<GameKey>())
-  override val unfinished: StateFlow<Set<GameKey>> = unfinishedGames.asStateFlow()
+  /** The games whose play isn't over, which the app's data follows once it's launched. */
+  var plays = MutableStateFlow(emptySet<GameKey>())
 
   private val afterGames = CoroutineScope(Dispatchers.Default)
 
@@ -65,7 +65,7 @@ internal class FakeLauncher(
     chooseSave: suspend (SaveConflict) -> SaveCopy?,
   ): List<String> {
     val key = game.key
-    unfinishedGames.update { it + key }
+    plays.update { it + key }
     current.value = key
     var afterGameStarted = false
     try {
@@ -79,13 +79,13 @@ internal class FakeLauncher(
             after.await()
             notes
           } finally {
-            unfinishedGames.update { it - key }
+            plays.update { it - key }
           }
         }
         .await()
     } finally {
       if (current.value == key) current.value = null
-      if (!afterGameStarted) unfinishedGames.update { it - key }
+      if (!afterGameStarted) plays.update { it - key }
     }
   }
 

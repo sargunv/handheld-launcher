@@ -17,13 +17,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.HandheldData
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.settings.LibrarySettings
+import dev.sargunv.handheld.data.settings.LibraryTab
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LocalGame
-import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestServer
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.awaitTag
@@ -32,8 +34,6 @@ import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.lastPlayed
 import dev.sargunv.handheld.ui.launchApp
-import dev.sargunv.handheld.ui.library.LibrarySettings
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.page
 import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.platform
@@ -50,7 +50,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.runBlocking
 
 /**
  * Local games: files in a platform's folder that match none of the server's games. The server has
@@ -61,8 +60,6 @@ import kotlinx.coroutines.runBlocking
 class LocalGameTest {
   private val storage = createTempDirectory("local-storage").toFile()
 
-  /** The settings the app saved, last last. */
-  private val saved = mutableListOf<Settings>()
   private val homebrew = File(storage, "ROMs/gb/Homebrew.gb")
   private val demo = File(storage, "ROMs/n64/Demo.z64")
   private val library = LibraryCache.open(path = null)
@@ -80,8 +77,7 @@ class LocalGameTest {
   @Volatile private var accountScopes: String? = null
 
   /** The device's sign-in: a pasted token by default, whose scopes RomM doesn't report. */
-  private val credentials =
-    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player"))
+  private val credentials = Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player"))
 
   /** The paths below `/api/` of the requests the server had about uploads and scans. */
   private val uploadRequests = Collections.synchronizedList(mutableListOf<String>())
@@ -151,7 +147,6 @@ class LocalGameTest {
       library = library,
       storage = listOf(StorageTarget(storage.path, "Test storage")),
       settings = settings,
-      saveSettings = { saved += it },
       launcher = launcher,
       open = open,
     )
@@ -319,9 +314,9 @@ class LocalGameTest {
     // Built-in is first.
     press(Key.ButtonA)
     awaitText("Homebrew (World)")
-    waitUntil(timeoutMillis = 5_000) { saved.isNotEmpty() }
-    val games = saved.last().launch.gameOverrides
-    assertEquals(setOf<GameKey>(GameKey.Romm(2)), games.keys)
+    val games = { data.settings.settings.value.launch.gameOverrides }
+    waitUntil(timeoutMillis = 5_000) { games().isNotEmpty() }
+    assertEquals(setOf<GameKey>(GameKey.Romm(2)), games().keys)
   }
 
   @Test
@@ -390,17 +385,15 @@ class LocalGameTest {
     assertEquals(listOf("roms/upload/start"), uploadRequests.toList())
     onNodeWithTag("primary").assertTextEquals("Play")
     onNodeWithTag("game:saves-local").assertExists()
-    assertTrue(runBlocking { credentials.load() } != null)
+    assertTrue(credentials.read() != null)
   }
 
   @Test
   fun aRefusalDespitePermissionToUploadIsTheAccounts() = runComposeUiTest {
     refuseUploads = true
-    runBlocking {
-      credentials.save(
-        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.write")),
-      )
-    }
+    credentials.write(
+      RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.write")),
+    )
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitTag("upload:confirm")
@@ -412,11 +405,9 @@ class LocalGameTest {
   @Test
   fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
     accountScopes = """["roms.read", "roms.write", "tasks.run"]"""
-    runBlocking {
-      credentials.save(
-        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
-      )
-    }
+    credentials.write(
+      RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+    )
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     // It asks before anything goes to the server.
@@ -430,7 +421,7 @@ class LocalGameTest {
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $TestServer")
     onNodeWithTag("allowUploads")
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
-    assertEquals(null, runBlocking { credentials.load() })
+    assertEquals(null, credentials.read())
     assertEquals(emptyList(), uploadRequests.toList())
     assertTrue(homebrew.exists())
   }
@@ -438,11 +429,9 @@ class LocalGameTest {
   @Test
   fun anAccountThatMayNotUploadIsToldSo() = runComposeUiTest {
     accountScopes = """["roms.read"]"""
-    runBlocking {
-      credentials.save(
-        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
-      )
-    }
+    credentials.write(
+      RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+    )
     openHomebrew()
     press(listOf(Key.ButtonX, Key.DirectionDown, Key.ButtonA))
     awaitText("Uploads not allowed for your RomM account")

@@ -20,16 +20,17 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.CredentialStore
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.data.settings.ConfirmButton
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
-import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestServer
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitTag
@@ -37,7 +38,6 @@ import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.InstalledApp
-import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.launchApp
 import dev.sargunv.handheld.ui.page
@@ -62,10 +62,13 @@ import kotlinx.coroutines.runBlocking
 
 @OptIn(ExperimentalTestApi::class)
 class SettingsTest {
-  private val credentials =
-    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player"))
+  private val credentials = Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player"))
   private val library = LibraryCache.open(path = null)
-  private val saved = mutableListOf<Settings>()
+  private lateinit var data: HandheldData
+
+  /** The settings as the app keeps them. */
+  private val saved: Settings
+    get() = data.settings.settings.value
 
   /** The signed-in account, as the server reports it. */
   @Volatile private var user = User
@@ -113,20 +116,21 @@ class SettingsTest {
   private fun ComposeUiTest.launch(
     open: OpenTarget? = null,
     refuses: Boolean = false,
-    store: CredentialStore = credentials,
+    store: Vault<RommCredentials> = credentials,
     apps: AppCatalog = AppCatalog.None,
     storage: List<StorageTarget> = emptyList(),
-  ): DownloadManager =
-    launchApp(
+  ): DownloadManager {
+    data =
+      launchApp(
         server(refuses),
         credentials = store,
         library = library,
         storage = storage,
-        saveSettings = { saved += it },
         apps = apps,
         open = open,
       )
-      .downloads
+    return data.downloads
+  }
 
   /** Waits for Open with's list to take the focus, which comes a frame after its text. */
   private fun ComposeUiTest.awaitFocusedApp() {
@@ -164,13 +168,13 @@ class SettingsTest {
     onNodeWithTag("signOut:cancel").assertIsFocused()
     press(Key.ButtonA)
     onNodeWithTag("settings:romm:signOut").assertIsFocused()
-    assertNotNull(runBlocking { credentials.load() })
+    assertNotNull(credentials.read())
 
     press(listOf(Key.ButtonA, Key.DirectionRight, Key.ButtonA))
     // The sign-in itself, not the request for Settings shown again over it.
     awaitFocused("address")
     onNodeWithTag("settings:Controls").assertDoesNotExist()
-    assertNull(runBlocking { credentials.load() })
+    assertNull(credentials.read())
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $TestServer")
   }
 
@@ -196,7 +200,7 @@ class SettingsTest {
   @Test
   fun signingOutDoesNotWaitForTheServer() = runComposeUiTest {
     sentGame = true
-    runBlocking { credentials.save(RommCredentials(TestServer, "rmm_token", 1, "player", "d1")) }
+    credentials.write(RommCredentials(TestServer, "rmm_token", 1, "player", "d1"))
     val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitText("player")
     waitUntil(timeoutMillis = 5_000) { downloads.queue.value.any { it.installRequestId != null } }
@@ -237,7 +241,7 @@ class SettingsTest {
     // The token is no good, so it signs in again without asking.
     press(Key.ButtonA)
     awaitTag("address")
-    assertNull(runBlocking { credentials.load() })
+    assertNull(credentials.read())
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $TestServer")
   }
 
@@ -253,18 +257,16 @@ class SettingsTest {
 
   @Test
   fun showsThatADeviceSignInMayUpload() = runComposeUiTest {
-    runBlocking {
-      credentials.save(
-        RommCredentials(
-          TestServer,
-          "rmm_token",
-          1,
-          "player",
-          "d1",
-          listOf("roms.read", "roms.write"),
-        ),
-      )
-    }
+    credentials.write(
+      RommCredentials(
+        TestServer,
+        "rmm_token",
+        1,
+        "player",
+        "d1",
+        listOf("roms.read", "roms.write"),
+      ),
+    )
     launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitText("Allowed")
     onNodeWithTag("settings:romm:uploads").assertTextEquals("Uploads", "Allowed")
@@ -275,11 +277,9 @@ class SettingsTest {
   fun aSignInWithoutUploadsOffersToSignInAgainWithThem() = runComposeUiTest {
     user =
       User.replace("\"role\": \"user\"", "\"role\": \"user\", \"oauth_scopes\": [\"roms.write\"]")
-    runBlocking {
-      credentials.save(
-        RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
-      )
-    }
+    credentials.write(
+      RommCredentials(TestServer, "rmm_token", 1, "player", "d1", listOf("roms.read")),
+    )
     val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
     awaitFocused("settings:RomM")
     awaitText("Not allowed by this sign-in")
@@ -294,11 +294,11 @@ class SettingsTest {
     awaitFocused("allowUploads:cancel")
     press(Key.ButtonA)
     awaitFocused("settings:romm:allowUploads")
-    assertNotNull(runBlocking { credentials.load() })
+    assertNotNull(credentials.read())
 
     press(listOf(Key.ButtonA, Key.DirectionRight, Key.ButtonA))
     awaitFocused("address")
-    assertNull(runBlocking { credentials.load() })
+    assertNull(credentials.read())
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $TestServer")
     onNodeWithTag("allowUploads")
       .assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, ToggleableState.On))
@@ -345,9 +345,9 @@ class SettingsTest {
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Notes")
     assertEquals(
       mapOf(GB to LaunchChoice.App("com.example.notes")),
-      saved.last().launch.platformDefaults,
+      saved.launch.platformDefaults,
     )
-    assertEquals(emptyMap(), saved.last().launch.gameOverrides)
+    assertEquals(emptyMap(), saved.launch.gameOverrides)
 
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
@@ -356,12 +356,12 @@ class SettingsTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Built-in · Gambatte")
-    assertEquals(emptyMap(), saved.last().launch.platformDefaults)
+    assertEquals(emptyMap(), saved.launch.platformDefaults)
   }
 
   @Test
   fun beforeSignInTheMainMenuOffersOnlySettings() = runComposeUiTest {
-    launch(store = InMemoryCredentialStore())
+    launch(store = Vault.InMemory<RommCredentials>())
     awaitTag("address")
     press(Key.ButtonStart)
     awaitTag("main:Settings")
@@ -397,23 +397,23 @@ class SettingsTest {
     // Confirm turns the device's own storage off, which leaves the card on.
     press(Key.ButtonA)
     onNodeWithTag("settings:storage:primary").assertTextContains("Off", substring = true)
-    assertEquals(StorageSettings(off = setOf("primary")), saved.last().storage)
+    assertEquals(StorageSettings(off = setOf("primary")), saved.storage)
 
     // The card is the last that's on, so it stays on and a note says why.
     press(Key.DirectionDown)
     awaitFocused("settings:storage:card")
-    val before = saved.size
+    val before = saved
     press(Key.ButtonA)
     awaitTag("settings:storage:refused")
     onNodeWithTag("settings:storage:card").assertTextContains("On", substring = true)
-    assertEquals(before, saved.size)
+    assertEquals(before, saved)
 
     // Its menu moves it above the device's own storage.
     press(Key.ButtonX)
     onNodeWithTag("menu:down").assertDoesNotExist()
     awaitFocused("menu:up")
     press(Key.ButtonA)
-    assertEquals(listOf("card", "primary"), saved.last().storage.order)
+    assertEquals(listOf("card", "primary"), saved.storage.order)
     awaitFocused("settings:storage:card")
     press(Key.DirectionDown)
     awaitFocused("settings:storage:primary")
@@ -446,7 +446,7 @@ class SettingsTest {
     awaitFocused("menu:toggle")
     onNodeWithTag("menu:up").assertDoesNotExist()
     onNodeWithTag("menu:down").assertDoesNotExist()
-    assertEquals(StorageSettings(), saved.lastOrNull()?.storage ?: StorageSettings())
+    assertEquals(StorageSettings(), saved.storage)
   }
 
   @Test
@@ -455,11 +455,11 @@ class SettingsTest {
     awaitFocused("settings:Controls")
     press(listOf(Key.DirectionRight, Key.ButtonA))
     onNodeWithTag("settings:confirm").assertTextEquals("Confirm button", "B")
-    assertEquals(ConfirmButton.B, saved.last().input.confirmButton)
+    assertEquals(ConfirmButton.B, saved.input.confirmButton)
     // Now B confirms, so it swaps them back.
     press(Key.ButtonB)
     onNodeWithTag("settings:confirm").assertTextEquals("Confirm button", "A")
-    assertEquals(ConfirmButton.A, saved.last().input.confirmButton)
+    assertEquals(ConfirmButton.A, saved.input.confirmButton)
   }
 
   private val tempDirs = mutableListOf<File>()

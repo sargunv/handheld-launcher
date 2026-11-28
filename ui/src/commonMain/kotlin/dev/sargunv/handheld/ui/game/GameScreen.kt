@@ -130,7 +130,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   }
   val gameBusy = state.launcher.playing.collectAsState().value != null
   // The game's own play stays under way until its save has synced.
-  val playing = gameBusy || screen.key in state.launcher.unfinished.collectAsState().value
+  val playing = gameBusy || screen.key in state.unfinished.collectAsState().value
   val latestUpload by state.uploads.upload.collectAsState()
   val uploading = latestUpload?.isRunning == true
   val upload = latestUpload?.takeIf { it.game.key == screen.key }

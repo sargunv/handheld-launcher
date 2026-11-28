@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import dev.sargunv.handheld.data.settings.InputSettings
 
 /**
  * Stands in for a window that keeps [heldKeys] up to date. Unlike a window, it only sees keys while

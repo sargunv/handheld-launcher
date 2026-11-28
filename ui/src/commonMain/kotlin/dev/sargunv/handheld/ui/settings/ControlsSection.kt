@@ -1,8 +1,8 @@
 package dev.sargunv.handheld.ui.settings
 
 import androidx.compose.foundation.lazy.LazyListScope
-import dev.sargunv.handheld.ui.input.AButtonPosition
-import dev.sargunv.handheld.ui.input.ConfirmButton
+import dev.sargunv.handheld.data.settings.AButtonPosition
+import dev.sargunv.handheld.data.settings.ConfirmButton
 import dev.sargunv.handheld.ui.input.PadButton
 import dev.sargunv.handheld.ui.input.label
 import dev.sargunv.handheld.ui.places.AppState
@@ -23,7 +23,7 @@ internal fun LazyListScope.controls(state: AppState) {
       confirm.label,
       "The other face button goes back",
       onConfirm = {
-        state.settings = state.settings.copy(input = input.copy(confirmButton = other))
+        state.updateSettings { it.copy(input = it.input.copy(confirmButton = other)) }
       },
     )
   }
@@ -41,7 +41,7 @@ internal fun LazyListScope.controls(state: AppState) {
       position,
       "Where the A button sits on this device",
       onConfirm = {
-        state.settings = state.settings.copy(input = input.copy(aButtonPosition = other))
+        state.updateSettings { it.copy(input = it.input.copy(aButtonPosition = other)) }
       },
     )
   }

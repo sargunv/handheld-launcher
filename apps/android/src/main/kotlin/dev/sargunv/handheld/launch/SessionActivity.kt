@@ -33,6 +33,7 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.answer
 import dev.sargunv.handheld.achievements.message
+import dev.sargunv.handheld.data.settings.InputSettings
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.rememberSecondaryDisplay
@@ -53,7 +54,6 @@ import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.play.QuickMenu
 import dev.sargunv.handheld.ui.play.QuickMenuState
 import dev.sargunv.handheld.ui.play.StateSlotsPanel
@@ -63,7 +63,6 @@ import dev.sargunv.handheld.ui.play.ToastState
 import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -141,13 +140,6 @@ class SessionActivity : ComponentActivity() {
    */
   private val menuKeys = mutableSetOf<Int>()
 
-  /** The client for the session's RetroAchievements requests, closed when lifecycleScope ends. */
-  private val achievementsClient by lazy {
-    handheldApp.retroAchievementsClient().also { client ->
-      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
-    }
-  }
-
   private val listener =
     object : SessionListener {
       override fun coreQuit() {
@@ -166,7 +158,9 @@ class SessionActivity : ComponentActivity() {
       }
 
       override fun achievementsRequest(request: AchievementsRequest, reply: AchievementsReply) {
-        lifecycleScope.launch(Dispatchers.IO) { achievementsClient.answer(request, reply) }
+        lifecycleScope.launch(Dispatchers.IO) {
+          handheldApp.retroAchievementsClient.answer(request, reply)
+        }
       }
     }
 

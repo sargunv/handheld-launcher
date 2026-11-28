@@ -77,11 +77,15 @@ internal fun LazyListScope.storage(
  * the last that's on.
  */
 internal fun AppState.toggleStorage(target: StorageTarget, mounted: List<StorageTarget>): Boolean {
-  val storage = settings.storage
-  val changed =
-    if (storage.isOn(target)) storage.turnOff(target, mounted) else storage.turnOn(target)
-  changed?.let { settings = settings.copy(storage = it) }
-  return changed != null
+  var changed = false
+  updateSettings { settings ->
+    val storage = settings.storage
+    val next =
+      if (storage.isOn(target)) storage.turnOff(target, mounted) else storage.turnOn(target)
+    changed = next != null
+    next?.let { settings.copy(storage = it) } ?: settings
+  }
+  return changed
 }
 
 /**

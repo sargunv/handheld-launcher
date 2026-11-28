@@ -30,8 +30,7 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.Download
 import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.downloads.DownloadProgress
-import dev.sargunv.handheld.data.downloads.DownloadState
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageSpace
 import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.ui.Placeholder
@@ -44,6 +43,7 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.labelled
+import dev.sargunv.handheld.ui.library.progress
 import dev.sargunv.handheld.ui.places.MenuButton
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
@@ -55,7 +55,7 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Unit) {
   val queue by downloads.queue.collectAsState()
-  val progress by downloads.progress.collectAsState()
+  val active by downloads.active.collectAsState()
   var focusedId by remember { mutableStateOf<Long?>(null) }
   var menuFor by remember { mutableStateOf<Long?>(null) }
   val focused = queue.find { it.romId == focusedId }
@@ -87,7 +87,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
             items(queue, key = { it.romId }) { download ->
               DownloadRow(
                 download,
-                download.progressIn(progress),
+                download.status(active),
                 Modifier.onFocusChanged { if (it.isFocused) focusedId = download.romId },
                 onOpen = { onOpen(download) },
               )
@@ -114,7 +114,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
             color = Placeholder.text,
             modifier = Modifier.semantics { heading() },
           )
-          if (menuDownload.state == DownloadState.Failed) {
+          if (menuDownload.failed) {
             MenuButton("menu:retry", "Retry") {
               downloads.retry(menuDownload.romId)
               close()
@@ -133,7 +133,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
 @Composable
 private fun DownloadRow(
   download: Download,
-  progress: DownloadProgress,
+  status: RomStatus,
   modifier: Modifier,
   onOpen: () -> Unit,
 ) {
@@ -147,25 +147,29 @@ private fun DownloadRow(
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
     Text(download.title, color = Placeholder.text)
-    Text(statusText(download, progress), color = Placeholder.mutedText, fontSize = 14.sp)
-    if (download.state == DownloadState.Downloading && progress.totalBytes > 0) {
+    Text(statusText(download, status), color = Placeholder.mutedText, fontSize = 14.sp)
+    val fraction = (status as? RomStatus.Downloading)?.progress
+    if (fraction != null) {
       Box(Modifier.fillMaxWidth().height(4.dp).background(Placeholder.dialog)) {
-        val fraction = (progress.bytesDownloaded.toFloat() / progress.totalBytes).coerceIn(0f, 1f)
-        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Placeholder.text))
+        Box(
+          Modifier.fillMaxHeight()
+            .fillMaxWidth(fraction.coerceIn(0f, 1f))
+            .background(Placeholder.text),
+        )
       }
     }
   }
 }
 
-private fun statusText(download: Download, progress: DownloadProgress): String =
-  when (download.state) {
-    DownloadState.Queued -> "Queued · ${formatSize(download.sizeBytes)}"
-    DownloadState.Downloading -> {
-      val (bytes, total) = progress
+private fun statusText(download: Download, status: RomStatus): String =
+  when (status) {
+    is RomStatus.Downloading -> {
+      val (bytes, total) = status
       val percent = if (total > 0) bytes * 100 / total else 0
       "${formatSize(bytes)} of ${formatSize(total)} · $percent%"
     }
-    DownloadState.Failed -> downloadFailedLabel(download.error)
+    is RomStatus.Failed -> downloadFailedLabel(status.error)
+    else -> "Queued · ${formatSize(download.sizeBytes)}"
   }
 
 internal fun downloadFailedLabel(error: String?): String = labelled("Download failed", error)

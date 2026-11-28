@@ -120,7 +120,7 @@ private fun LocalSecondary(state: AppState, game: LocalGame) {
 @Composable
 private fun RomSecondary(state: AppState, current: Rom) {
   // A play may sync the game's saves, so they load again as it starts and once it's over.
-  val playing = current.key in state.launcher.unfinished.collectAsState().value
+  val playing = current.key in state.unfinished.collectAsState().value
   val history by
     produceState<SaveHistoryState>(SaveHistoryState.Loading, current, playing) {
       val account = state.romm.account ?: return@produceState

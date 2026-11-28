@@ -1,14 +1,37 @@
 package dev.sargunv.handheld.data.auth
 
 import co.touchlab.kermit.Logger
+import dev.sargunv.handheld.data.SecretStore
 import dev.sargunv.handheld.data.romm.DefaultDeviceScopes
 import dev.sargunv.handheld.data.romm.DeviceAuthRequest
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.UploadScopes
-import io.ktor.client.engine.HttpClientEngine
+import io.ktor.client.HttpClient
+import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
+
+/** How this device signs in to a RomM server, and as whom. */
+@Serializable
+data class RommCredentials(
+  /** The server's address. */
+  val baseUrl: String,
+  /** The client API token. */
+  val token: String,
+  /** The id of the RomM user the token belongs to, which stays the same across renames. */
+  val userId: Long,
+  /** The user's name, as of the sign-in. */
+  val username: String,
+  /** The server's id for this device, when the token is bound to one. */
+  val deviceId: String? = null,
+  /** The scopes the token holds, when the server said. */
+  val scopes: List<String> = emptyList(),
+) {
+  override fun toString() =
+    "RommCredentials(baseUrl=$baseUrl, token=<redacted>, userId=$userId, username=$username, " +
+      "deviceId=$deviceId, scopes=$scopes)"
+}
 
 /** This device, as it introduces itself to a server it pairs with. */
 data class DeviceDescription(
@@ -36,15 +59,8 @@ enum class UploadAccess {
   Unknown,
 }
 
-/**
- * Signs this device in to a RomM server and keeps its credentials in [store].
- *
- * @param engine makes the HTTP engine for each request's client.
- */
-class RommSignIn(
-  private val store: CredentialStore,
-  private val engine: () -> HttpClientEngine,
-) {
+/** Signs this device in to a RomM server and keeps its credentials in [store]. */
+class RommSignIn(private val store: SecretStore<RommCredentials>, private val http: HttpClient) {
   /**
    * Signs in by pairing: the server issues a code, [onCode] shows it, and a user approves it on the
    * server's web page, signed in there however the server allows. This works on a server that only
@@ -62,33 +78,29 @@ class RommSignIn(
     onCode: suspend (DeviceCode) -> Unit,
   ): RommCredentials {
     val baseUrl = encryptedIfOffered(address)
-    val token =
-      RommClient(baseUrl, engine = engine()).use { client ->
-        val code =
-          client.startDeviceAuth(
-            DeviceAuthRequest(
-              clientDeviceIdentifier = device.identifier,
-              name = device.name,
-              client = CLIENT_NAME,
-              platform = device.platform,
-              clientVersion = device.appVersion,
-              requestedScopes =
-                if (allowUploads) DefaultDeviceScopes + UploadScopes else DefaultDeviceScopes,
-            ),
-          )
-        onCode(code)
-        client.awaitDeviceAuth(code)
-      }
-    val user =
-      RommClient(baseUrl, token.accessToken, engine()).use { client ->
-        // The server's web page offers to send games only to a device that says it takes them.
-        try {
-          client.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
-        } catch (e: RommException) {
-          log.w(e) { "Couldn't offer this device for games sent from the web page" }
-        }
-        client.me()
-      }
+    val pairing = RommClient(baseUrl, token = null, http)
+    val code =
+      pairing.startDeviceAuth(
+        DeviceAuthRequest(
+          clientDeviceIdentifier = device.identifier,
+          name = device.name,
+          client = CLIENT_NAME,
+          platform = device.platform,
+          clientVersion = device.appVersion,
+          requestedScopes =
+            if (allowUploads) DefaultDeviceScopes + UploadScopes else DefaultDeviceScopes,
+        ),
+      )
+    onCode(code)
+    val token = pairing.awaitDeviceAuth(code)
+    val client = RommClient(baseUrl, token.accessToken, http)
+    // The server's web page offers to send games only to a device that says it takes them.
+    try {
+      client.updateDeviceCapabilities(token.deviceId, mapOf("remote_install" to true))
+    } catch (e: RommException) {
+      log.w(e) { "Couldn't offer this device for games sent from the web page" }
+    }
+    val user = client.me()
     val credentials =
       RommCredentials(
         baseUrl = baseUrl,
@@ -111,7 +123,7 @@ class RommSignIn(
    */
   suspend fun withToken(address: String, token: String): RommCredentials {
     val baseUrl = encryptedIfOffered(address)
-    val user = RommClient(baseUrl, token.trim(), engine()).use { it.me() }
+    val user = RommClient(baseUrl, token.trim(), http).me()
     val credentials =
       RommCredentials(baseUrl, token.trim(), userId = user.id, username = user.username)
     store.save(credentials)
@@ -130,7 +142,7 @@ class RommSignIn(
     } catch (e: IllegalArgumentException) {
       throw RommException.Unreachable(e)
     }
-    return RommClient(address, engine = engine()).use { it.httpsAddress() } ?: address
+    return RommClient(address, token = null, http).httpsAddress() ?: address
   }
 
   private companion object {

@@ -1,5 +1,7 @@
 package dev.sargunv.handheld.data.cores
 
+import dev.sargunv.handheld.data.httpClient
+import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
@@ -26,7 +28,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 
 class InstalledCoresTest {
   private val dir = Files.createTempDirectory("installed-cores-test").toFile()
@@ -35,18 +36,20 @@ class InstalledCoresTest {
   private val azahar = LibretroCores.byLibrary("azahar_libretro")!!
   private val requests = mutableListOf<HttpRequestData>()
 
-  @AfterTest fun deleteDir() = dir.deleteRecursively().let {}
+  @AfterTest fun deleteDir() = check(dir.deleteRecursively())
 
   private fun cores(
     handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,
   ) =
     InstalledCores(
-      Path(dir.path),
+      dir,
       "arm64-v8a",
-      MockEngine { request ->
-        requests += request
-        handler(request)
-      },
+      httpClient(
+        MockEngine { request ->
+          requests += request
+          handler(request)
+        },
+      ),
     )
 
   private fun zipOf(name: String, content: ByteArray): ByteArray {
@@ -98,7 +101,7 @@ class InstalledCoresTest {
       ),
       installed,
     )
-    assertEquals(Path(installedFile("gambatte_libretro").path), cores.fileOf(gambatte))
+    assertEquals(installedFile("gambatte_libretro"), cores.fileOf(gambatte))
     assertContentEquals(build1, installedFile("gambatte_libretro").readBytes())
     // A new instance reads the record back.
     assertEquals(installed, cores { error("no requests") }.get(gambatte))
@@ -235,7 +238,7 @@ class InstalledCoresTest {
     val cores = cores { request ->
       when (request.url.host) {
         "api.github.com" ->
-          respond(
+          json(
             """
             {"tag_name": "$tag", "name": "Azahar $tag", "assets": [
               {"name": "azahar-libretro-ios-arm64-$tag.zip",
@@ -244,7 +247,6 @@ class InstalledCoresTest {
                "browser_download_url": "https://github.com/dl/android-$tag.zip"}
             ]}
             """,
-            HttpStatusCode.OK,
           )
         else -> zip(zipOf("azahar_libretro.so", build1))
       }
@@ -269,7 +271,7 @@ class InstalledCoresTest {
   @Test
   fun failsWhenAReleaseHasNoBuildForTheAbi() = runTest {
     val cores = cores {
-      respond("""{"tag_name": "2127.0.1", "assets": []}""", HttpStatusCode.OK)
+      json("""{"tag_name": "2127.0.1", "assets": []}""")
     }
     assertFailsWith<CoreDownloadException> { cores.install(azahar) }
     assertNull(cores.get(azahar))

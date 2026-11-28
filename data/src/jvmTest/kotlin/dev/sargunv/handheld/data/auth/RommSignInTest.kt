@@ -1,6 +1,10 @@
 package dev.sargunv.handheld.data.auth
 
 import dev.sargunv.handheld.data.Fixtures
+import dev.sargunv.handheld.data.JsonFile
+import dev.sargunv.handheld.data.SecretStore
+import dev.sargunv.handheld.data.Vault
+import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.DefaultDeviceScopes
 import dev.sargunv.handheld.data.romm.DeviceCode
 import dev.sargunv.handheld.data.romm.RommException
@@ -18,7 +22,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLProtocol
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
-import kotlin.random.Random
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -26,50 +30,48 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.files.SystemTemporaryDirectory
-import kotlinx.io.writeString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class RommSignInTest {
-  private val store = InMemoryCredentialStore()
+  private val store = SecretStore(Vault.InMemory<RommCredentials>())
   private val requests = mutableListOf<HttpRequestData>()
   private var polls = 0
 
   private val signIn =
-    RommSignIn(store) {
-      MockEngine { request ->
-        requests += request
-        val path = request.url.encodedPath
-        val token = request.headers[HttpHeaders.Authorization]
-        when {
-          path == "/api/auth/device/init" ->
-            json(
-              """
+    RommSignIn(
+      store,
+      httpClient(
+        MockEngine { request ->
+          requests += request
+          val path = request.url.encodedPath
+          val token = request.headers[HttpHeaders.Authorization]
+          when {
+            path == "/api/auth/device/init" ->
+              json(
+                """
               {"device_code": "secret", "user_code": "ABCD2345", "verification_path": "/pair/device",
                "verification_path_complete": "/pair/device?user_code=ABCD2345",
                "expires_in": 600, "interval": 5}
               """,
-              HttpStatusCode.Created,
-            )
-          path == "/api/auth/device/token" && polls++ == 0 ->
-            json("""{"detail":"authorization_pending"}""", HttpStatusCode.BadRequest)
-          path == "/api/auth/device/token" ->
-            json("""{"access_token": "rmm_issued", "device_id": "d1", "scopes": ["roms.read"]}""")
-          path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
-          path == "/api/users/me" && token in setOf("Bearer rmm_good", "Bearer rmm_issued") ->
-            json(Fixtures.me)
-          path == "/api/users/me" ->
-            json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
-          else -> respondError(HttpStatusCode.NotFound)
-        }
-      }
-    }
+                HttpStatusCode.Created,
+              )
+            path == "/api/auth/device/token" && polls++ == 0 ->
+              json("""{"detail":"authorization_pending"}""", HttpStatusCode.BadRequest)
+            path == "/api/auth/device/token" ->
+              json("""{"access_token": "rmm_issued", "device_id": "d1", "scopes": ["roms.read"]}""")
+            path == "/api/devices/d1" && request.method == HttpMethod.Put -> json("{}")
+            path == "/api/users/me" && token in setOf("Bearer rmm_good", "Bearer rmm_issued") ->
+              json(Fixtures.me)
+            path == "/api/users/me" ->
+              json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
+            else -> respondError(HttpStatusCode.NotFound)
+          }
+        },
+      ),
+    )
 
   private val device = DeviceDescription("install-1", "Thor", "android", "0.1.0")
 
@@ -127,7 +129,7 @@ class RommSignInTest {
 
   @Test
   fun refusesAnAddressTheEngineCannotSendTo() = runTest {
-    val signIn = RommSignIn(store) { MockEngine { error("No request should go out") } }
+    val signIn = RommSignIn(store, httpClient(MockEngine { error("No request should go out") }))
     for (address in listOf("https://romm%20x.com", "https://romm..example.com")) {
       assertFailsWith<RommException.Unreachable> { signIn.withToken(address, "rmm_good") }
     }
@@ -135,46 +137,40 @@ class RommSignInTest {
 
   @Test
   fun keepsCredentialsInAFile() = runTest {
-    val dir = Path(SystemTemporaryDirectory, "credentials-test-${Random.nextLong().toULong()}")
-    val path = Path(dir, "credentials.json")
-    val fileStore = FileCredentialStore(path)
+    val dir = Files.createTempDirectory("credentials-test").toFile()
+    fun fileStore() =
+      SecretStore(JsonFile(dir.resolve("credentials.json"), RommCredentials.serializer()))
     try {
-      assertNull(fileStore.load())
       val credentials =
         RommCredentials(TEST_SERVER, "rmm_secret", 1, "player", "d1", listOf("roms.read"))
-      fileStore.save(credentials)
-      assertEquals(credentials, FileCredentialStore(path).load())
+      fileStore().save(credentials)
+      assertEquals(credentials, fileStore().load())
       assertFalse("rmm_secret" in credentials.toString())
 
-      fileStore.clear()
-      assertNull(fileStore.load())
-      assertTrue(SystemFileSystem.exists(dir))
-
-      // Credentials that don't decode, such as ones missing a field, read as signed out.
-      SystemFileSystem.sink(path).buffered().use {
-        it.writeString("""{"baseUrl":"$TEST_SERVER","token":"rmm_secret"}""")
-      }
-      assertNull(FileCredentialStore(path).load())
+      fileStore().clear()
+      assertNull(fileStore().load())
     } finally {
-      SystemFileSystem.delete(path, mustExist = false)
-      SystemFileSystem.delete(dir, mustExist = false)
+      check(dir.deleteRecursively())
     }
   }
 
   /** A server at [http] whose heartbeat answers [heartbeat], and that takes `rmm_good` anywhere. */
   private fun plainServer(heartbeat: (MockRequestHandleScope) -> HttpResponseData) =
-    RommSignIn(store) {
-      MockEngine { request ->
-        requests += request
-        when (request.url.encodedPath) {
-          "/romm/api/heartbeat" -> heartbeat(this)
-          "/romm/api/users/me" ->
-            if (request.headers[HttpHeaders.Authorization] == "Bearer rmm_good") json(Fixtures.me)
-            else json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
-          else -> respondError(HttpStatusCode.NotFound)
-        }
-      }
-    }
+    RommSignIn(
+      store,
+      httpClient(
+        MockEngine { request ->
+          requests += request
+          when (request.url.encodedPath) {
+            "/romm/api/heartbeat" -> heartbeat(this)
+            "/romm/api/users/me" ->
+              if (request.headers[HttpHeaders.Authorization] == "Bearer rmm_good") json(Fixtures.me)
+              else json("""{"detail":"Invalid token"}""", HttpStatusCode.Unauthorized)
+            else -> respondError(HttpStatusCode.NotFound)
+          }
+        },
+      ),
+    )
 
   @Test
   fun switchesToHttpsWhenThePlainAddressRedirectsThere() = runTest {

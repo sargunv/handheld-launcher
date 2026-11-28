@@ -1,5 +1,10 @@
 package dev.sargunv.handheld.data
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+
 /** Small synthetic RomM responses, shaped like RomM 5.4's, including fields this client ignores. */
 object Fixtures {
   fun platform(id: Long, slug: String, name: String, romCount: Int) =
@@ -121,3 +126,7 @@ object Fixtures {
     }
     """
 }
+
+/** Runs [block] with a timeout in real time, for work that runs on real threads. */
+suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
+  withContext(Dispatchers.Default.limitedParallelism(1)) { withTimeout(10_000, block) }

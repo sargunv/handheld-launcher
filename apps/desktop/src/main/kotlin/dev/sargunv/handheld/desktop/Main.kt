@@ -5,23 +5,21 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.JsonFile
 import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.FileCredentialStore
+import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.auth.installIdentifier
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.data.settings.SettingsFile
 import dev.sargunv.handheld.ui.App
 import dev.sargunv.handheld.ui.AppPlatform
-import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 
 /**
  * Runs the app in one window: the Thor's two screens in a frame, or with `HANDHELD_LAYOUT=folded`
@@ -33,24 +31,22 @@ fun main() {
   val dataDir = xdgDir("XDG_DATA_HOME", ".local/share")
   val configDir = xdgDir("XDG_CONFIG_HOME", ".config")
   val cacheDir = xdgDir("XDG_CACHE_HOME", ".cache")
-  SystemFileSystem.createDirectories(dataDir)
-  val settingsFile =
-    SettingsFile(Path(configDir, "settings.json"), Settings.serializer(), Settings())
+  dataDir.mkdirs()
   val data =
     HandheldData(
-      credentials = FileCredentialStore(Path(dataDir, "credentials.json")),
-      library = LibraryCache.open(Path(dataDir, "library.db").toString()),
+      credentials = JsonFile(File(dataDir, "credentials.json"), RommCredentials.serializer()),
+      library = LibraryCache.open(File(dataDir, "library.db").path),
       dataDir = dataDir,
       cacheDir = cacheDir,
-      storage = { listOf(StorageTarget(dataDir.toString(), "Data folder")) },
+      settingsFile = File(configDir, "settings.json"),
+      storage = { listOf(StorageTarget(dataDir.path, "Data folder")) },
       scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-      storageSettings = { settingsFile.read().storage },
     )
   // The build passes the version and puts the list of components in the resources.
   val version = System.getProperty("handheld.version") ?: "unknown"
   val os = System.getProperty("os.name")
   val device =
-    DeviceDescription(installIdentifier(Path(dataDir, "install-id")), os, os.lowercase(), version)
+    DeviceDescription(installIdentifier(File(dataDir, "install-id")), os, os.lowercase(), version)
   val appInfo =
     AppInfo(version) {
       ClassLoader.getSystemResourceAsStream("aboutlibraries.json")?.use {
@@ -59,7 +55,6 @@ fun main() {
     }
   val platform = AppPlatform(device, appInfo = appInfo)
   val heldKeys = HeldKeys()
-  val settings = settingsFile.read()
   application {
     Window(
       onCloseRequest = ::exitApplication,
@@ -80,17 +75,15 @@ fun main() {
         heldKeys = heldKeys,
         data = data,
         platform = platform,
-        coverCacheDir = Path(cacheDir, "covers"),
-        initialSettings = settings,
-        saveSettings = settingsFile::write,
+        coverCacheDir = File(cacheDir, "covers"),
       )
     }
   }
 }
 
 /** The app's folder in the XDG base directory [variable] names, or in [default] under home. */
-private fun xdgDir(variable: String, default: String): Path {
+private fun xdgDir(variable: String, default: String): File {
   val base =
     System.getenv(variable)?.ifEmpty { null } ?: "${System.getProperty("user.home")}/$default"
-  return Path(base, "handheld")
+  return File(base, "handheld")
 }

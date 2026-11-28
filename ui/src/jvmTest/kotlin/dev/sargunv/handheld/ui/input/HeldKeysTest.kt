@@ -18,6 +18,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyPress
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.dp
+import dev.sargunv.handheld.data.settings.InputSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

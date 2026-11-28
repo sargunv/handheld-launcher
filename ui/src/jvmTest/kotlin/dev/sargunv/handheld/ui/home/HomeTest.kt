@@ -25,7 +25,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.data.settings.HomeSettings
+import dev.sargunv.handheld.data.settings.HomeShelf
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitTag
@@ -88,20 +90,17 @@ class HomeTest {
     fail: Boolean = false,
     played: Boolean = true,
     settings: Settings = Settings(),
-    saveSettings: suspend (Settings) -> Unit = {},
     storage: List<StorageTarget> = emptyList(),
     launcher: GameLauncher = GameLauncher.Unsupported,
-  ) {
+  ) =
     launchApp(
       server(fail, played),
       storage = storage,
       settings = settings,
-      saveSettings = saveSettings,
       launcher = launcher,
       homePresses = homePresses.receiveAsFlow(),
       layout = DualScreenLayout.Separate,
     )
-  }
 
   private fun ComposeUiTest.pressHome() {
     homePresses.trySend(Unit)
@@ -412,14 +411,13 @@ class HomeTest {
 
   @Test
   fun theMenuHidesAShelfAndShowsItAgain() = runComposeUiTest {
-    val saved = mutableListOf<Settings>()
-    launch(saveSettings = { saved += it })
+    val settings = launch().settings.settings
     awaitTag("continue:2")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonX))
     assertFocused("menu:hide")
     press(Key.ButtonA)
     onNodeWithTag("shelf:Collections").assertDoesNotExist()
-    assertEquals(setOf(HomeShelf.Collections), saved.last().home.hidden)
+    assertEquals(setOf(HomeShelf.Collections), settings.value.home.hidden)
 
     // Focus went back to the game being played, whose menu shows the hidden shelves too.
     assertFocused("continue:2")
@@ -429,7 +427,7 @@ class HomeTest {
     assertFocused("menu:show:Collections")
     press(Key.ButtonA)
     awaitTag("shelf:Collections")
-    assertEquals(HomeSettings(), saved.last().home)
+    assertEquals(HomeSettings(), settings.value.home)
   }
 
   @Test
@@ -449,8 +447,7 @@ class HomeTest {
 
   @Test
   fun theMenuMovesAShelf() = runComposeUiTest {
-    val saved = mutableListOf<Settings>()
-    launch(saveSettings = { saved += it })
+    val settings = launch().settings.settings
     awaitTag("continue:2")
     press(listOf(Key.DirectionDown, Key.ButtonX))
     // Recently played is the first shelf, so it can only move down.
@@ -459,7 +456,7 @@ class HomeTest {
     press(listOf(Key.DirectionDown, Key.ButtonA))
     assertEquals(
       listOf(HomeShelf.Collections, HomeShelf.RecentlyPlayed, HomeShelf.RecentlyAdded),
-      saved.last().home.visible,
+      settings.value.home.visible,
     )
     // Focus stays on the shelf, in its new place.
     assertFocused("RecentlyPlayed:1")

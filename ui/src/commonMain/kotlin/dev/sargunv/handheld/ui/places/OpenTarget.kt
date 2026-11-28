@@ -2,10 +2,10 @@ package dev.sargunv.handheld.ui.places
 
 import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.library.LibraryShelf
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.flow.first

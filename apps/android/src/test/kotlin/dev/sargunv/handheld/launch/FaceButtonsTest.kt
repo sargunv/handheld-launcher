@@ -1,9 +1,9 @@
 package dev.sargunv.handheld.launch
 
 import android.view.KeyEvent
+import dev.sargunv.handheld.data.settings.AButtonPosition
 import dev.sargunv.handheld.session.Button
 import dev.sargunv.handheld.session.GamepadInput
-import dev.sargunv.handheld.ui.input.AButtonPosition
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

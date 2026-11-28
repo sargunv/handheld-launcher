@@ -1,8 +1,8 @@
 package dev.sargunv.handheld.data.cache
 
+import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.RommClient
 import java.nio.file.Files
-import kotlin.io.path.deleteRecursively
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -22,13 +22,13 @@ class LiveLibrarySyncTest {
     val token = System.getenv("ROMM_TOKEN")
     assumeTrue("ROMM_URL and ROMM_TOKEN aren't set", !url.isNullOrBlank() && !token.isNullOrBlank())
 
-    val dir = Files.createTempDirectory("live-library-sync")
+    val dir = Files.createTempDirectory("live-library-sync").toFile()
     try {
-      LibraryCache.open(dir.resolve("library.db").toString()).use { cache ->
-        RommClient(url, token).use { client -> check(client, cache) }
+      LibraryCache.open(dir.resolve("library.db").path).use { cache ->
+        httpClient().use { check(RommClient(url, token, it), cache) }
       }
     } finally {
-      @OptIn(kotlin.io.path.ExperimentalPathApi::class) dir.deleteRecursively()
+      check(dir.deleteRecursively())
     }
   }
 

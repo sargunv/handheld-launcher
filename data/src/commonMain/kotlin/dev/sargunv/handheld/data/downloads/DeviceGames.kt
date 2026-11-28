@@ -7,6 +7,8 @@ import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.storage.GameLayout
+import java.io.File
+import java.io.IOException
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,9 +30,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.IOException
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
 
 /** What became of a local game's file, as of the latest scan of the platforms' folders. */
 sealed interface LocalGameState {
@@ -76,7 +75,7 @@ class DeviceGames(
   private val library: LibraryCache,
   private val storage: () -> List<StorageTarget>,
   private val scope: CoroutineScope,
-  contentCacheFile: Path,
+  contentCacheFile: File,
 ) {
   /**
    * A listing of the platforms' folders: where each of the library's games on the device is, by ROM
@@ -199,15 +198,11 @@ class DeviceGames(
             it.otherFiles.filter { part -> part.path !in shared } + LocalPart(it.path, it.sizeBytes)
           }
           .orEmpty()
-          .map { Path(it.path) to it.sizeBytes }
+          .map { File(it.path) to it.sizeBytes }
       val unchanged =
-        parts.isNotEmpty() &&
-          parts.all { (path, size) ->
-            val metadata = SystemFileSystem.metadataOrNull(path)
-            metadata?.isRegularFile == true && metadata.size == size
-          }
+        parts.isNotEmpty() && parts.all { (file, size) -> file.isFile && file.length() == size }
       if (!unchanged) return@removal Removal.NotOnDevice
-      for ((path, _) in parts) SystemFileSystem.delete(path)
+      for ((file, _) in parts) deleteOrThrow(file)
       Removal.Removed
     } catch (e: IOException) {
       Removal.Failed(e.message)
@@ -232,17 +227,17 @@ class DeviceGames(
             if (!scanner.stillMatches(it, rom)) return@removal Removal.NotOnDevice
           }
           ?: return@removal Removal.NotOnDevice
-      if (SystemFileSystem.metadataOrNull(path)?.isDirectory == true) {
+      if (path.isDirectory) {
         // A file is the game's while no more files have its name than the game has, so a stray
         // file that shares a name with one of the game's isn't taken for it.
         val expected =
           (rom.files.map { it.fileName } + playlistName(path.name)).groupingBy { it }.eachCount()
-        val found = filesIn(path).groupingBy { it.name }.eachCount()
+        val found = path.walk().filter { it.isFile }.groupingBy { it.name }.eachCount()
         val others = found.filter { (name, count) -> count > (expected[name] ?: 0) }.keys
         if (others.isNotEmpty()) return@removal Removal.HoldsOtherFiles(others.sorted())
-        deleteRecursively(path)
+        if (!path.deleteRecursively()) throw IOException("Couldn't delete all of $path")
       } else {
-        SystemFileSystem.delete(path)
+        deleteOrThrow(path)
       }
       Removal.Removed
     } catch (e: IOException) {
@@ -264,21 +259,19 @@ class DeviceGames(
    * Where [rom] is on the device: in its [platformFolder] on a storage target by its server name,
    * else in the file the latest scan matched by content.
    */
-  internal fun locate(rom: Rom, platformFolder: String): Path? =
+  internal fun locate(rom: Rom, platformFolder: String): File? =
     locateByName(rom, platformFolder) ?: matchedFile(rom.id)
 
-  private fun locateByName(rom: Rom, platformFolder: String): Path? {
+  private fun locateByName(rom: Rom, platformFolder: String): File? {
     val name = GameLayout.romName(rom) ?: return null
     return storage()
-      .map { Path(GameLayout.platformFolder(it.root, platformFolder), name) }
-      .firstOrNull { SystemFileSystem.exists(it) }
+      .map { File(GameLayout.platformFolder(it.root, platformFolder), name) }
+      .firstOrNull { it.exists() }
   }
 
   /** The file [scan] matched to the ROM [romId] by content, while it's still there. */
-  private fun matchedFile(romId: Long, scan: LocalScan? = listing.value?.scan): Path? =
-    scan?.matched?.get(romId)?.let(::Path)?.takeIf {
-      SystemFileSystem.metadataOrNull(it)?.isRegularFile == true
-    }
+  private fun matchedFile(romId: Long, scan: LocalScan? = listing.value?.scan): File? =
+    scan?.matched?.get(romId)?.let(::File)?.takeIf { it.isFile }
 
   /** Lists the platforms' folders and shows what they hold, with [scan] or else the latest one. */
   private suspend fun show(platforms: List<Platform>, roms: List<Rom>, scan: LocalScan? = null) =
@@ -301,7 +294,7 @@ class DeviceGames(
         val entries = folders[rom.platformId] ?: continue
         val name = GameLayout.romName(rom) ?: continue
         val path = entries[name] ?: matchedFile(rom.id, scan) ?: continue
-        put(rom.id, path.toString())
+        put(rom.id, path.path)
       }
     }
   }
@@ -311,17 +304,15 @@ class DeviceGames(
  * What [platformFolder] holds on the [targets], by name. Of two entries of one name, the earlier
  * target's.
  */
-private fun entriesIn(targets: List<StorageTarget>, platformFolder: String): Map<String, Path> =
+private fun entriesIn(targets: List<StorageTarget>, platformFolder: String): Map<String, File> =
   buildMap {
     for (target in targets) {
-      for (entry in entriesOf(Path(GameLayout.platformFolder(target.root, platformFolder)))) {
+      for (entry in entriesOf(File(GameLayout.platformFolder(target.root, platformFolder)))) {
         getOrPut(entry.name) { entry }
       }
     }
   }
 
-/** Every file in [folder] and its subfolders. */
-private fun filesIn(folder: Path): List<Path> =
-  SystemFileSystem.list(folder).flatMap {
-    if (SystemFileSystem.metadataOrNull(it)?.isDirectory == true) filesIn(it) else listOf(it)
-  }
+private fun deleteOrThrow(file: File) {
+  if (!file.delete()) throw IOException("Couldn't delete $file")
+}

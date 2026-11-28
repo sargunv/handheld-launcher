@@ -34,13 +34,13 @@ import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.places.OpenTarget
+import java.io.File
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.io.files.Path
 
 class MainActivity : ComponentActivity() {
   private val heldKeys = HeldKeys()
@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
 
   private val device by lazy {
     DeviceDescription(
-      identifier = installIdentifier(Path(filesDir.path, "install-id")),
+      identifier = installIdentifier(File(filesDir, "install-id")),
       name =
         if (Build.MODEL.startsWith(Build.MANUFACTURER)) Build.MODEL
         else "${Build.MANUFACTURER} ${Build.MODEL}",
@@ -86,7 +86,6 @@ class MainActivity : ComponentActivity() {
     if (savedInstanceState == null) openTarget(intent)?.let(openRequests::trySend)
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
     val app = handheldApp
-    val settings = app.settingsFile.read()
     keepDownloadsRunning()
     val launcher =
       AndroidGameLauncher(
@@ -98,7 +97,8 @@ class MainActivity : ComponentActivity() {
             this,
             app.playSaves,
             app.data.builtInSaveFolders.saves,
-            app.settingsFile,
+            app.data.settings,
+            app.data.http,
           ),
         emulators = app.emulators,
         plays = app.plays,
@@ -119,7 +119,6 @@ class MainActivity : ComponentActivity() {
         romHeaders = SessionRomHeaders,
         retroAchievements = app.retroAchievementsSignIn,
         appInfo = appInfo,
-        gameState = app.data.builtInSaveFolders,
       )
     val opens = openRequests.receiveAsFlow()
     val homes = homePresses.receiveAsFlow()
@@ -138,9 +137,7 @@ class MainActivity : ComponentActivity() {
         heldKeys = heldKeys,
         data = app.data,
         platform = platform,
-        coverCacheDir = Path(cacheDir.path, "covers"),
-        initialSettings = settings,
-        saveSettings = app.settingsFile::write,
+        coverCacheDir = File(cacheDir, "covers"),
         secondaryDisplay = { content ->
           if (usableDisplay != null && !companionShows) {
             SecondaryDisplayContent(
@@ -201,7 +198,7 @@ class MainActivity : ComponentActivity() {
     val data = handheldApp.data
     val hasWork =
       combine(data.downloads.queue, data.uploads.upload) { queue, upload ->
-        queue.any { it.isActive } || upload?.isRunning == true
+        queue.any { !it.failed } || upload?.isRunning == true
       }
     lifecycleScope.launch {
       combine(hasWork, handheldApp.allFilesAccess, ::Pair)

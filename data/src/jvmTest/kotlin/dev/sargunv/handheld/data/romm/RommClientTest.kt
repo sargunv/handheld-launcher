@@ -1,10 +1,10 @@
 package dev.sargunv.handheld.data.romm
 
 import dev.sargunv.handheld.data.Fixtures
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -13,7 +13,6 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.IOException
 
 class RommClientTest {
   @Test
@@ -118,7 +117,7 @@ class RommClientTest {
   fun mapsErrorStatuses() = runTest {
     suspend fun failureFor(status: HttpStatusCode, body: String) =
       assertFailsWith<RommException.Status> {
-        MockServer { respond(body, status) }.client.platforms()
+        MockServer { json(body, status) }.client.platforms()
       }
 
     val unauthorized = failureFor(HttpStatusCode.Unauthorized, """{"detail":"Invalid token"}""")

@@ -1,14 +1,17 @@
 package dev.sargunv.handheld.data.romm
 
 import dev.sargunv.handheld.data.Fixtures
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.SecretStore
+import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.auth.UploadAccess
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.httpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpStatusCode
+import java.io.File
 import java.util.Collections
 import kotlin.io.path.createTempDirectory
 import kotlin.test.AfterTest
@@ -26,13 +29,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 
 class RommSessionTest {
   private val dir = createTempDirectory("romm-session-test").toFile()
   private val library = LibraryCache.open(path = null)
   private val signedIn = RommCredentials(TEST_SERVER, "rmm_test", 1, "player")
-  private val store = InMemoryCredentialStore(signedIn)
+  private val store = SecretStore(Vault.InMemory(signedIn))
   private val requests = Collections.synchronizedList(mutableListOf<HttpRequestData>())
 
   /** Answers the library's sync, while it isn't [held]. */
@@ -53,35 +55,36 @@ class RommSessionTest {
   }
 
   /** A server with one game. Its first sync waits for [held] when there is one. */
-  private val server = {
-    MockEngine { request ->
-      requests += request
-      if (refuses) return@MockEngine respondError(HttpStatusCode.Unauthorized)
-      when (request.apiPath) {
-        "platforms" -> {
-          held?.let {
-            held = null
-            firstAsked.complete(Unit)
-            try {
-              it.await()
-            } finally {
-              if (!it.isCompleted) firstCanceled.complete(Unit)
+  private val server =
+    httpClient(
+      MockEngine { request ->
+        requests += request
+        if (refuses) return@MockEngine respondError(HttpStatusCode.Unauthorized)
+        when (request.apiPath) {
+          "platforms" -> {
+            held?.let {
+              held = null
+              firstAsked.complete(Unit)
+              try {
+                it.await()
+              } finally {
+                if (!it.isCompleted) firstCanceled.complete(Unit)
+              }
             }
+            json("[${Fixtures.platform(1, "one", "One", 1)}]")
           }
-          json("[${Fixtures.platform(1, "one", "One", 1)}]")
+          "roms" -> json(Fixtures.page(listOf(Fixtures.rom(1, platformId = 1)), 1, 200, 0))
+          "roms/identifiers" -> json("[1]")
+          "collections",
+          "collections/smart" -> json("[]")
+          "users/me" -> json(Fixtures.me.replace("""["me.read", "roms.read"]""", accountScopes))
+          else -> respondError(HttpStatusCode.NotFound)
         }
-        "roms" -> json(Fixtures.page(listOf(Fixtures.rom(1, platformId = 1)), 1, 200, 0))
-        "roms/identifiers" -> json("[1]")
-        "collections",
-        "collections/smart" -> json("[]")
-        "users/me" -> json(Fixtures.me.replace("""["me.read", "roms.read"]""", accountScopes))
-        else -> respondError(HttpStatusCode.NotFound)
-      }
-    }
-  }
+      },
+    )
 
   private fun session(scope: CoroutineScope) =
-    RommSession(store, library, Path(dir.path, "save-sync"), scope, server)
+    RommSession(store, library, File(dir, "save-sync"), scope, server)
 
   /** Every status [session]'s sync takes from now on, in order. */
   private fun TestScope.statuses(session: RommSession): StateFlow<List<SyncStatus>> {

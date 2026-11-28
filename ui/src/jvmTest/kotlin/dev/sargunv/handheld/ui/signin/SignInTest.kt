@@ -20,7 +20,8 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.Vault
+import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.ui.awaitTag
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -64,7 +65,7 @@ class SignInTest {
   private fun ComposeUiTest.launch() {
     launchApp(
       server,
-      credentials = InMemoryCredentialStore(),
+      credentials = Vault.InMemory<RommCredentials>(),
       homePresses = homePresses.receiveAsFlow(),
       layout = DualScreenLayout.Separate,
     )

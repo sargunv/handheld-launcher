@@ -1,8 +1,8 @@
 package dev.sargunv.handheld.ui.places
 
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
 import kotlin.test.Test
 import kotlin.test.assertEquals
