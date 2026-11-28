@@ -312,7 +312,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
 @Composable
 private fun GameFacts(state: AppState, game: LibraryGame) {
   val platforms by remember(state.library) { state.library.platforms() }.collectAsState(emptyList())
-  val platform = platforms.find { it.id == game.platformId }?.name ?: game.platformSlug
+  val platform = platforms.find { it.id == game.platformId }?.name ?: game.platformSlug.value
   val facts =
     when (game) {
       // An ISO instant starts with its year.

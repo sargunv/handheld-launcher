@@ -8,12 +8,12 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Platform
-import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.game.InstalledApp
 import dev.sargunv.handheld.ui.game.OpenWithScope
-import dev.sargunv.handheld.ui.game.platformOpensIn
+import dev.sargunv.handheld.ui.game.chainFor
+import dev.sargunv.handheld.ui.game.opensIn
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Screen
 
@@ -56,16 +56,17 @@ internal fun LazyListScope.emulators(
   if (platforms.isEmpty()) {
     item(key = "noPlatforms") { Text("No platforms", color = Placeholder.mutedText) }
   }
-  items(platforms, key = { it.slug }) { platform ->
-    val slug = PlatformSlug(platform.slug)
+  items(platforms, key = { it.slug.value }) { platform ->
+    val scope = OpenWithScope.Platform(platform.slug)
     SettingRow(
       view,
       "settings:emulators:${platform.slug}",
       platform.name,
-      platformOpensIn(slug, state.settings.launch, apps) ?: "No app installed",
+      opensIn(chainFor(scope, platform.slug, emptySet(), state.settings.launch, apps), apps)
+        ?: "No app installed",
       "The app its games open in, unless a game or a collection chooses another",
     ) {
-      state.navigator.push(Screen.OpenWith(OpenWithScope.Platform(slug), platform.name))
+      state.navigator.push(Screen.OpenWith(scope, platform.name))
     }
   }
 }

@@ -121,7 +121,7 @@ class LibrarySyncTest {
     assertEquals("true", romRequests().first().url.parameters["with_files"])
 
     val rom = cache.rom(1)!!
-    assertEquals("one", cache.platforms().first().first().slug)
+    assertEquals("one", cache.platforms().first().first().slug.value)
     assertEquals(
       "$TEST_SERVER/assets/romm/resources/roms/1/1/cover/small.png?ts=2025-01-01+00%3A00%3A00",
       rom.coverSmallUrl,

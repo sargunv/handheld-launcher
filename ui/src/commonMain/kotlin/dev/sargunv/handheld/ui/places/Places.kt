@@ -199,7 +199,7 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
         modifier = Modifier.semantics { heading() },
       )
       Text(
-        platforms.find { it.id == game.platformId }?.name ?: game.platformSlug,
+        platforms.find { it.id == game.platformId }?.name ?: game.platformSlug.value,
         color = Placeholder.mutedText,
       )
       when (game) {

@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.ui.places
 
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
 import kotlin.test.Test
@@ -21,7 +22,7 @@ class OpenTargetTest {
     assertEquals(OpenTarget.Library(null), OpenTarget.parse("library"))
     assertEquals(OpenTarget.Library(LibraryTab.OnDevice), OpenTarget.parse("library:tab:on-device"))
     assertEquals(OpenTarget.Library(LibraryTab.AllGames), OpenTarget.parse("library:tab:AllGames"))
-    assertEquals(OpenTarget.LibraryPlatform("gba"), OpenTarget.parse("library:gba"))
+    assertEquals(OpenTarget.LibraryPlatform(PlatformCatalog.GBA), OpenTarget.parse("library:gba"))
     assertEquals(
       OpenTarget.LibraryCollection(CollectionKind.Regular, 7),
       OpenTarget.parse("library:collection:7"),

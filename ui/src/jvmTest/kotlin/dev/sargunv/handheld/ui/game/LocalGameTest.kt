@@ -228,7 +228,7 @@ class LocalGameTest {
     openHomebrew(launcher)
     onNodeWithText("Game Boy · 8 bytes · Not on your server").assertExists()
     onNodeWithTag("game:saves-local").assert(hasText("Saves kept on this device"))
-    awaitText("Opens in Test Emulator")
+    awaitText("Opens in Built-in · Gambatte")
 
     press(Key.ButtonA)
     awaitText("Played")
@@ -303,7 +303,7 @@ class LocalGameTest {
   @Test
   fun aChoiceMadeAsTheFileBecomesAServerGameIsThatGames() = runComposeUiTest {
     val data = openHomebrew()
-    awaitText("Opens in Test Emulator")
+    awaitText("Opens in Built-in · Gambatte")
     press(Key.ButtonX)
     awaitTag("menu:open-with")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.ButtonA))
@@ -320,7 +320,7 @@ class LocalGameTest {
     press(Key.ButtonA)
     awaitText("Homebrew (World)")
     waitUntil(timeoutMillis = 5_000) { saved.isNotEmpty() }
-    val games = saved.last().launch.games
+    val games = saved.last().launch.gameOverrides
     assertEquals(setOf<GameKey>(GameKey.Romm(2)), games.keys)
   }
 

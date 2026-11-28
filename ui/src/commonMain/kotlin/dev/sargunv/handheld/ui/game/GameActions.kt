@@ -93,7 +93,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
             state.launcher.play(
               game,
               path,
-              state.settings.launch.toRules(),
+              state.settings.launch,
               collections,
               onProgress = { playProgress = it },
               closeEmulators = state.settings.closeEmulators,

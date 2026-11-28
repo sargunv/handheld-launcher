@@ -54,12 +54,6 @@ internal class FakeLauncher(
   var stillRunningChoice: StillRunningChoice? = null
   val closeEmulators = mutableListOf<Boolean>()
 
-  override suspend fun opensIn(
-    game: LibraryGame,
-    rules: LaunchRules,
-    collections: Set<CollectionId>,
-  ) = "Opens in Test Emulator"
-
   override suspend fun play(
     game: LibraryGame,
     path: String,

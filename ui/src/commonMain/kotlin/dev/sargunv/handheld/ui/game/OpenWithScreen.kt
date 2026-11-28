@@ -25,8 +25,9 @@ import com.composeunstyled.Text
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.domain.launch.RuleStatus
-import dev.sargunv.handheld.domain.launch.RuleStep
+import dev.sargunv.handheld.domain.launch.LaunchChoice
+import dev.sargunv.handheld.domain.launch.LaunchRules
+import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
@@ -50,8 +51,6 @@ private class OpenWithContext(
   val collections: List<Collection>,
   val apps: List<InstalledApp>,
 ) {
-  private val installed = apps.mapTo(mutableSetOf()) { it.packageName }
-
   val forGame: Boolean
     get() = scope is OpenWithScope.Game
 
@@ -64,14 +63,11 @@ private class OpenWithContext(
         is OpenWithScope.Collection -> "$platformName games in ${collections.first().name}"
       }
 
-  fun chain(launch: LaunchSettings): List<RuleStep> =
-    chainFor(scope, platform, collections, launch, installed)
+  fun chain(rules: LaunchRules): RuleChain =
+    chainFor(scope, platform, collections.mapTo(mutableSetOf()) { it.launchId }, rules, apps)
 
-  /** The app that wins under [launch], by name, or null when none can open the games. */
-  fun opensIn(launch: LaunchSettings): String? {
-    val winner = chain(launch).firstOrNull { it.status == RuleStatus.Wins } ?: return null
-    return winner.choice?.let { name(it.packageName, it.core) }
-  }
+  /** The app that wins under [rules], by name, or null when none can open the games. */
+  fun opensIn(rules: LaunchRules): String? = opensIn(chain(rules), apps)
 
   fun name(packageName: String, core: String?) = appName(packageName, core, apps, platform)
 }
@@ -86,8 +82,8 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
             val game = state.game(scope.game) ?: return@produceState
             OpenWithContext(
               scope,
-              PlatformSlug(game.platformSlug),
-              state.library.platform(game.platformId)?.name ?: game.platformSlug,
+              game.platformSlug,
+              state.library.platform(game.platformId)?.name ?: game.platformSlug.value,
               // A local game is in no collection.
               (game as? Rom)?.let { state.library.collectionsOf(it.id) }.orEmpty(),
               state.apps.apps(),
@@ -119,7 +115,7 @@ private fun rememberOpenWithContext(state: AppState, scope: OpenWithScope): Open
 }
 
 private suspend fun platformName(state: AppState, platform: PlatformSlug): String =
-  state.library.platforms().first().find { it.slug == platform.value }?.name ?: platform.value
+  state.library.platforms().first().find { it.slug == platform }?.name ?: platform.value
 
 /**
  * Picks the app games open in, for what the screen was opened from: one game from its menu, a
@@ -151,8 +147,8 @@ internal fun OpenWithScreen(state: AppState, screen: Screen.OpenWith) {
       Spacer(Modifier.weight(1f))
     } else {
       val current = launch.choiceAt(scope)
-      val default = context.chain(launch).firstOrNull { it.isDefault }?.choice?.packageName
-      fun choose(choice: SavedChoice?) {
+      val default = context.chain(launch).steps.firstOrNull { it.isDefault }?.choice?.packageName
+      fun choose(choice: LaunchChoice?) {
         state.settings = state.settings.copy(launch = launch.withChoice(scope, choice))
         state.navigator.back()
       }
@@ -247,7 +243,7 @@ private fun OptionRow(
 internal fun OpenWithSecondary(state: AppState, screen: Screen.OpenWith) {
   val context = rememberOpenWithContext(state, screen.scope) ?: return
   val launch = state.settings.launch
-  val steps = context.chain(launch)
+  val steps = context.chain(launch).steps
   Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
     val opensIn = context.opensIn(launch)
     val subject = if (context.forGame) "it" else context.subject

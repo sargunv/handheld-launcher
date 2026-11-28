@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
  */
 object SessionRomHeaders : RomHeaders {
   override suspend fun read(rom: Rom, path: String): List<RomHeaderField> {
-    val platform = PlatformSlug(rom.platformSlug).headerPlatform() ?: return emptyList()
+    val platform = rom.platformSlug.headerPlatform() ?: return emptyList()
     return withContext(Dispatchers.IO) {
       val file = launchFile(path)?.let(::headerFile) ?: return@withContext emptyList()
       romHeaderFields(platform, file).map { RomHeaderField(it.label, it.value) }
@@ -27,7 +27,7 @@ object SessionRomHeaders : RomHeaders {
 
 /** The header this platform's games carry, or null when the session reads none for it. */
 internal fun PlatformSlug.headerPlatform(): Platform? =
-  when (PlatformCatalog.emulatedAs(this)) {
+  when (emulatedAs) {
     PlatformCatalog.NES -> Platform.NES
     PlatformCatalog.SNES -> Platform.SNES
     PlatformCatalog.N64 -> Platform.N64

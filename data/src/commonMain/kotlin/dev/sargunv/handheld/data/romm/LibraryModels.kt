@@ -2,6 +2,7 @@
 
 package dev.sargunv.handheld.data.romm
 
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.time.Instant
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -11,7 +12,7 @@ import kotlinx.serialization.UseSerializers
 @Serializable
 internal data class RommPlatform(
   val id: Long,
-  val slug: String,
+  val slug: PlatformSlug,
   @SerialName("fs_slug") val fsSlug: String,
   /** The custom name when one is set, else the name. */
   @SerialName("display_name") val displayName: String,
@@ -31,7 +32,7 @@ internal data class RommPage<T>(
 internal data class RommRom(
   val id: Long,
   @SerialName("platform_id") val platformId: Long,
-  @SerialName("platform_slug") val platformSlug: String,
+  @SerialName("platform_slug") val platformSlug: PlatformSlug,
   @SerialName("platform_fs_slug") val platformFsSlug: String,
   /** The matched title, or null when no metadata source matched the ROM. */
   val name: String? = null,

@@ -27,6 +27,8 @@ import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.DownloadManager
 import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageTarget
+import dev.sargunv.handheld.domain.launch.LaunchChoice
+import dev.sargunv.handheld.domain.platform.PlatformCatalog.GB
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.TestServer
 import dev.sargunv.handheld.ui.awaitFocused
@@ -35,7 +37,6 @@ import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.fakeRomm
 import dev.sargunv.handheld.ui.game.AppCatalog
 import dev.sargunv.handheld.ui.game.InstalledApp
-import dev.sargunv.handheld.ui.game.SavedChoice
 import dev.sargunv.handheld.ui.input.ConfirmButton
 import dev.sargunv.handheld.ui.json
 import dev.sargunv.handheld.ui.launchApp
@@ -342,8 +343,11 @@ class SettingsTest {
 
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Notes")
-    assertEquals(mapOf("gb" to SavedChoice("com.example.notes")), saved.last().launch.platforms)
-    assertEquals(emptyMap(), saved.last().launch.games)
+    assertEquals(
+      mapOf(GB to LaunchChoice("com.example.notes")),
+      saved.last().launch.platformDefaults,
+    )
+    assertEquals(emptyMap(), saved.last().launch.gameOverrides)
 
     // Clearing the choice goes back to the default.
     press(Key.ButtonA)
@@ -352,7 +356,7 @@ class SettingsTest {
     press(listOf(Key.DirectionRight, Key.ButtonA))
     awaitFocused("settings:emulators:gb")
     onNodeWithTag("settings:emulators:gb").assertTextEquals("Game Boy", "Built-in · Gambatte")
-    assertEquals(emptyMap(), saved.last().launch.platforms)
+    assertEquals(emptyMap(), saved.last().launch.platformDefaults)
   }
 
   @Test

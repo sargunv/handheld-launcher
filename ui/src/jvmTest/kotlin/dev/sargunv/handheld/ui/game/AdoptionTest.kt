@@ -12,6 +12,8 @@ import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.PerGameState
+import dev.sargunv.handheld.domain.launch.LaunchChoice
+import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.ui.Settings
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.fakeRomm
@@ -49,7 +51,7 @@ class AdoptionTest {
   private val library = LibraryCache.open(path = null)
   private val local = GameKey.Local(homebrew.path)
   private val rom = GameKey.Romm(2)
-  private val choice = SavedChoice("com.example.emulator")
+  private val choice = LaunchChoice("com.example.emulator")
 
   @Volatile private var serverHasHomebrew = false
 
@@ -95,7 +97,7 @@ class AdoptionTest {
         server,
         library = library,
         storage = listOf(StorageTarget(storage.path, "Test storage")),
-        settings = Settings(launch = LaunchSettings(games = mapOf(local to choice))),
+        settings = Settings(launch = LaunchRules(gameOverrides = mapOf(local to choice))),
         saveSettings = { saved += it },
         launcher = launcher,
         gameState =
@@ -122,7 +124,9 @@ class AdoptionTest {
     serverGainsHomebrew()
     awaitText("Homebrew (World)")
     waitUntil(timeoutMillis = 5_000) { Adoption(local, rom) in adopted }
-    waitUntil(timeoutMillis = 5_000) { saved.lastOrNull()?.launch?.games == mapOf(rom to choice) }
+    waitUntil(timeoutMillis = 5_000) {
+      saved.lastOrNull()?.launch?.gameOverrides == mapOf(rom to choice)
+    }
   }
 
   @Test
@@ -135,12 +139,14 @@ class AdoptionTest {
     serverGainsHomebrew()
     waitForIdle()
     assertTrue(adopted.none { it.local == local }, "$adopted")
-    assertTrue(saved.none { rom in it.launch.games }, "$saved")
+    assertTrue(saved.none { rom in it.launch.gameOverrides }, "$saved")
 
     hold.complete(Unit)
     waitUntil(timeoutMillis = 5_000) { Adoption(local, rom) in adopted }
-    waitUntil(timeoutMillis = 5_000) { saved.lastOrNull()?.launch?.games == mapOf(rom to choice) }
-    assertEquals(choice, saved.last().launch.games[rom])
+    waitUntil(timeoutMillis = 5_000) {
+      saved.lastOrNull()?.launch?.gameOverrides == mapOf(rom to choice)
+    }
+    assertEquals(choice, saved.last().launch.gameOverrides[rom])
   }
 
   @Test

@@ -2,7 +2,6 @@
 
 package dev.sargunv.handheld.domain.emulator
 
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.ARCADE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.DREAMCAST
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.FDS
@@ -177,12 +176,10 @@ object LibretroCores {
   private val standaloneFirst = setOf(N3DS, GAMECUBE, WII, PSP)
 
   /** Whether an installed standalone emulator plays [platform] before its libretro core does. */
-  fun prefersStandalone(platform: PlatformSlug): Boolean =
-    PlatformCatalog.emulatedAs(platform) in standaloneFirst
+  fun prefersStandalone(platform: PlatformSlug): Boolean = platform.emulatedAs in standaloneFirst
 
   /** The core recommended for [platform], or null when there's none or the platform is unknown. */
-  fun recommendedFor(platform: PlatformSlug): LibretroCore? =
-    recommended[PlatformCatalog.emulatedAs(platform)]
+  fun recommendedFor(platform: PlatformSlug): LibretroCore? = recommended[platform.emulatedAs]
 
   /** Every core recommended for some platform. */
   val all: List<LibretroCore> = recommended.values.filterNotNull().distinct()

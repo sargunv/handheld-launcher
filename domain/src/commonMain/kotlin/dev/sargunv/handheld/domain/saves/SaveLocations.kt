@@ -3,7 +3,6 @@
 package dev.sargunv.handheld.domain.saves
 
 import dev.sargunv.handheld.domain.emulator.EmulatorId
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.DREAMCAST
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GAMECUBE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.N3DS
@@ -377,7 +376,7 @@ object SaveLocations {
    * for every platform; null when neither is known.
    */
   fun forEmulator(emulator: EmulatorId, platform: PlatformSlug): SaveLocation? {
-    val target = PlatformCatalog.emulatedAs(platform)
+    val target = platform.emulatedAs
     val own = all.filter { it.emulator == emulator }
     return own.firstOrNull { it.platforms?.contains(target) == true }
       ?: own.firstOrNull { it.platforms == null }

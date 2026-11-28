@@ -5,7 +5,6 @@ import dev.sargunv.handheld.data.hexDigests
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommFirmware
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.saves.BiosLocation
 import java.io.File
@@ -96,10 +95,10 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
 
   /** The firmware the server has for every platform it emulates as [platform]. */
   private suspend fun firmwareFor(platform: PlatformSlug): List<RommFirmware> {
-    val emulatedAs = PlatformCatalog.emulatedAs(platform)
+    val emulatedAs = platform.emulatedAs
     return client
       .platforms()
-      .filter { PlatformCatalog.emulatedAs(PlatformSlug(it.slug)) == emulatedAs }
+      .filter { it.slug.emulatedAs == emulatedAs }
       .flatMap { client.firmware(it.id) }
   }
 

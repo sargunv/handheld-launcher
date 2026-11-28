@@ -121,7 +121,7 @@ internal fun RommRom.toDomain(client: RommClient): Rom {
     coverSmallUrl = coverUrl(pathCoverSmall, client),
     coverLargeUrl = coverUrl(pathCoverLarge, client),
     files = files.map { it.toDomain() },
-    createdAt = createdAt,
+    addedAt = createdAt,
   )
 }
 

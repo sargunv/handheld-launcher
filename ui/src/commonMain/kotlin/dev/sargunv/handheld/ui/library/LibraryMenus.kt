@@ -12,12 +12,10 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.Placeholder
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
 import dev.sargunv.handheld.ui.game.OpenWithScope
-import dev.sargunv.handheld.ui.game.launchId
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
@@ -31,12 +29,12 @@ internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: (
   val choices: List<Pair<String, OpenWithScope>>? =
     when (shelf) {
       is LibraryShelf.OfPlatform ->
-        listOf("Open with" to OpenWithScope.Platform(PlatformSlug(shelf.platform.slug)))
+        listOf("Open with" to OpenWithScope.Platform(shelf.platform.slug))
       is LibraryShelf.OfCollection -> {
         val among = state.libraryView.platformsOf(shelf.collection)
         among?.map { platform ->
           val label = if (among.size == 1) "Open with" else "Open ${platform.name} games with"
-          label to OpenWithScope.Collection(shelf.collection.launchId, PlatformSlug(platform.slug))
+          label to OpenWithScope.Collection(shelf.collection.launchId, platform.slug)
         }
       }
     }

@@ -349,7 +349,7 @@ class GameTest {
     awaitText("Steam Deck")
     onNodeWithText("mgba · 1 day ago · 8 KB", substring = true).assertExists()
     onNodeWithText("This device's copy").assertExists()
-    onNodeWithText("Opens in Test Emulator").assertExists()
+    onNodeWithText("Opens in Built-in · Gambatte").assertExists()
     onNodeWithTag("game:header").assertDoesNotExist()
   }
 

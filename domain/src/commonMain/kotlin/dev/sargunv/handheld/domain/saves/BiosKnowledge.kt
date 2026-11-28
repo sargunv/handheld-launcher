@@ -3,7 +3,6 @@
 package dev.sargunv.handheld.domain.saves
 
 import dev.sargunv.handheld.domain.emulator.EmulatorId
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.ARCADE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.DREAMCAST
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.GBA
@@ -185,7 +184,7 @@ object BiosKnowledge {
    * the emulator's firmware folder for it isn't known.
    */
   fun locationFor(emulator: EmulatorId, platform: PlatformSlug): BiosLocation? {
-    val target = PlatformCatalog.emulatedAs(platform)
+    val target = platform.emulatedAs
     if (target !in needFirmware) return null
     val location = locationFor(emulator) ?: return null
     val platforms = location.platforms ?: return location

@@ -34,16 +34,6 @@ interface GameLauncher {
     get() = NothingUnfinished
 
   /**
-   * Where [game] opens by [rules], in words, such as "Opens in ARMSX2", or null when there's
-   * nothing to say. [collections] are the collections [game] is in.
-   */
-  suspend fun opensIn(
-    game: LibraryGame,
-    rules: LaunchRules,
-    collections: Set<CollectionId>,
-  ): String?
-
-  /**
    * Plays [game], whose file or folder is at [path], in the app [rules] pick for it, and returns
    * once the player is back from the game, with what they should know about how it went, in plain
    * words. [collections] are the collections [game] is in. A ROM's save syncs with RomM; a local
@@ -77,12 +67,6 @@ interface GameLauncher {
 
   /** A launcher for platforms that can't play games yet. */
   object Unsupported : GameLauncher {
-    override suspend fun opensIn(
-      game: LibraryGame,
-      rules: LaunchRules,
-      collections: Set<CollectionId>,
-    ): String? = null
-
     override suspend fun play(
       game: LibraryGame,
       path: String,

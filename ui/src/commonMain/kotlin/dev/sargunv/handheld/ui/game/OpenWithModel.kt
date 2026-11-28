@@ -9,6 +9,7 @@ import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
+import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.launch.RuleStatus
@@ -51,39 +52,32 @@ sealed interface OpenWithScope {
 internal fun chainFor(
   scope: OpenWithScope,
   platform: PlatformSlug,
-  collections: List<Collection>,
-  launch: LaunchSettings,
-  installed: Set<String>,
-): List<RuleStep> =
+  collections: Set<CollectionId>,
+  rules: LaunchRules,
+  apps: List<InstalledApp>,
+): RuleChain =
   RuleChain.explain(
-    LaunchSubject(
-      (scope as? OpenWithScope.Game)?.game,
-      platform,
-      collections.mapTo(mutableSetOf()) { it.launchId },
-    ),
-    launch.toRules(),
-    installed,
+    LaunchSubject((scope as? OpenWithScope.Game)?.game, platform, collections),
+    rules,
+    apps.mapTo(mutableSetOf()) { it.packageName },
   )
 
 /**
- * The app [platform]'s games open in when nothing more specific applies, such as "Built-in · mGBA"
- * or "PPSSPP", or null when no app on the device can open them.
+ * The app [chain]'s winner opens games in, by name, such as "Built-in · mGBA" or "PPSSPP", or null
+ * when no app on the device can open them.
  */
-internal fun platformOpensIn(
-  platform: PlatformSlug,
-  launch: LaunchSettings,
-  apps: List<InstalledApp>,
-): String? {
-  val installed = apps.mapTo(mutableSetOf()) { it.packageName }
-  val winner =
-    chainFor(OpenWithScope.Platform(platform), platform, emptyList(), launch, installed)
-      .firstOrNull { it.status == RuleStatus.Wins }
-  val choice = winner?.choice ?: return null
-  return appName(choice.packageName, choice.core, apps, platform)
+internal fun opensIn(chain: RuleChain, apps: List<InstalledApp>): String? =
+  chain.winner?.choice?.let { appName(it.packageName, it.core, apps, chain.platform) }
+
+/** What to say when no app on the device opens [platform]'s games: the emulators to install. */
+fun noEmulator(platform: PlatformSlug): String {
+  val suggestions = EmulatorRegistry.forPlatform(platform).take(2).map { it.displayName }
+  return if (suggestions.isEmpty()) "No emulator"
+  else "No emulator · Install ${suggestions.joinToString(" or ")}"
 }
 
 /** An app the Open with screen offers. [known] marks a known emulator for the game's platform. */
-internal data class AppOption(val choice: SavedChoice, val label: String, val known: Boolean) {
+internal data class AppOption(val choice: LaunchChoice, val label: String, val known: Boolean) {
   /** The option's key in the list, and its row's focus key. */
   val key: String
     get() = "app:${choice.packageName}:${choice.core}"
@@ -111,21 +105,21 @@ internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<
         val emulator = EmulatorRegistry.forPackage(app.packageName)
         if (emulator?.recipe?.loadsCore == true && core != null) {
           AppOption(
-            SavedChoice(app.packageName, core.library),
+            LaunchChoice(app.packageName, core.library),
             withCore(app.label, core),
             true,
           )
         } else {
-          AppOption(SavedChoice(app.packageName), app.label, true)
+          AppOption(LaunchChoice(app.packageName), app.label, true)
         }
       }
   val otherOptions =
     others.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label }).map {
-      AppOption(SavedChoice(it.packageName), it.label, false)
+      AppOption(LaunchChoice(it.packageName), it.label, false)
     }
   // The built-in session picks the platform's core when it plays, so the choice doesn't name one.
   val builtIn = core?.let {
-    AppOption(SavedChoice(LaunchChoice.BUILT_IN), withCore(BUILT_IN_NAME, it), true)
+    AppOption(LaunchChoice.BuiltIn, withCore(BUILT_IN_NAME, it), true)
   }
   return listOfNotNull(builtIn) + knownOptions + otherOptions
 }

@@ -3,8 +3,8 @@ package dev.sargunv.handheld.ui
 import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
+import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.ui.achievements.AchievementSettings
-import dev.sargunv.handheld.ui.game.LaunchSettings
 import dev.sargunv.handheld.ui.home.HomeSettings
 import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.library.LibrarySettings
@@ -23,8 +23,8 @@ data class Settings(
   val input: InputSettings = InputSettings(),
   val home: HomeSettings = HomeSettings(),
   val library: LibrarySettings = LibrarySettings(),
-  /** The apps the user picked to open games in. */
-  val launch: LaunchSettings = LaunchSettings(),
+  /** The apps the user picked to open games in, on the Open with screen. */
+  val launch: LaunchRules = LaunchRules(),
   /**
    * Whether the launcher checks if a standalone emulator is still running, and offers to close it,
    * on devices that let it.

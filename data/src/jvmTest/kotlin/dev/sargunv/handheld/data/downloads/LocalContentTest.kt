@@ -3,6 +3,7 @@ package dev.sargunv.handheld.data.downloads
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import java.io.File
 import java.security.MessageDigest
 import java.util.zip.CRC32
@@ -26,7 +27,7 @@ class LocalContentTest {
   private val gba = File(storage, "ROMs/gba").apply { mkdirs() }
   private val cacheFile = Path(File(dir, "local-content.json").path)
   private val targets = listOf(StorageTarget(storage.path, "Test storage"))
-  private val platforms = listOf(Platform(1, "gba", "gba", "Game Boy Advance", 2))
+  private val platforms = listOf(Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 2))
 
   @AfterTest
   fun cleanUp() {
@@ -62,7 +63,7 @@ class LocalContentTest {
     Rom(
       id = id,
       platformId = 1,
-      platformSlug = "gba",
+      platformSlug = PlatformSlug("gba"),
       title = "Game $id",
       sortKey = "game $id",
       fileName = fileName,
@@ -73,7 +74,7 @@ class LocalContentTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = listOf(RomFile(id * 10, fileName, sizeBytes, crc(content), null, sha1)),
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   @Test

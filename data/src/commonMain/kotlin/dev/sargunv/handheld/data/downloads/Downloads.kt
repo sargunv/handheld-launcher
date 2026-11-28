@@ -11,7 +11,6 @@ import dev.sargunv.handheld.data.romm.RommInstallStatus
 import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.storage.GameLayout
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToLong
@@ -567,7 +566,7 @@ class DownloadManager(
     }
     if (multiFile) {
       val paths = files.map { relativePath(rom.files, it) }
-      GameLayout.playlist(PlatformSlug(rom.platformSlug), paths)?.let {
+      GameLayout.playlist(rom.platformSlug, paths)?.let {
         SystemFileSystem.sink(Path(staging, playlistName(name))).buffered().use { sink ->
           sink.writeString(it.joinToString("\n", postfix = "\n"))
         }

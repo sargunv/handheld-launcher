@@ -3,6 +3,7 @@ package dev.sargunv.handheld.ui.places
 import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.library.LibraryShelf
 import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
@@ -32,7 +33,7 @@ sealed interface OpenTarget {
   data class Library(val tab: LibraryTab?) : OpenTarget
 
   /** Library: the games of the platform with [slug]. */
-  data class LibraryPlatform(val slug: String) : OpenTarget
+  data class LibraryPlatform(val slug: PlatformSlug) : OpenTarget
 
   /** Library: the games of the collection of [kind] with RomM id [id]. */
   data class LibraryCollection(val kind: CollectionKind, val id: Long) : OpenTarget
@@ -75,7 +76,7 @@ sealed interface OpenTarget {
           } else {
             rest.toLongOrNull()?.let { LibraryCollection(CollectionKind.Regular, it) }
           }
-        else -> LibraryPlatform(arg)
+        else -> LibraryPlatform(PlatformSlug(arg))
       }
     }
   }

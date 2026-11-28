@@ -67,13 +67,22 @@ internal fun GameSecondary(state: AppState, screen: Screen.Game) {
   }
 }
 
-/** Where [game] opens under the launch settings, in words. */
+/** Where [game] opens under the launch rules, in words. */
 @Composable
 private fun rememberOpensIn(state: AppState, game: LibraryGame): String? {
-  val launch = state.settings.launch
+  val rules = state.settings.launch
   val opensIn by
-    produceState<String?>(null, game, launch) {
-      value = state.launcher.opensIn(game, launch.toRules(), collectionsOf(state, game))
+    produceState<String?>(null, game, rules) {
+      val apps = state.apps.apps()
+      val chain =
+        chainFor(
+          OpenWithScope.Game(game.key),
+          game.platformSlug,
+          collectionsOf(state, game),
+          rules,
+          apps,
+        )
+      value = opensIn(chain, apps)?.let { "Opens in $it" } ?: noEmulator(game.platformSlug)
     }
   return opensIn
 }

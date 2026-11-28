@@ -5,6 +5,7 @@ import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -26,12 +27,12 @@ class LibraryCacheTest {
     title: String,
     platformId: Long = 1,
     files: List<RomFile> = listOf(RomFile(id * 10, "$title.bin", 100)),
-    createdAt: Instant = Instant.parse("2024-06-01T00:00:00Z"),
+    addedAt: Instant = Instant.parse("2024-06-01T00:00:00Z"),
   ) =
     Rom(
       id = id,
       platformId = platformId,
-      platformSlug = "p$platformId",
+      platformSlug = PlatformSlug("p$platformId"),
       title = title,
       sortKey = title.lowercase().removePrefix("the "),
       fileName = "$title (USA).bin",
@@ -42,7 +43,7 @@ class LibraryCacheTest {
       coverSmallUrl = "https://romm.test/small/$id.png",
       coverLargeUrl = null,
       files = files,
-      createdAt = createdAt,
+      addedAt = addedAt,
     )
 
   @Test
@@ -61,7 +62,10 @@ class LibraryCacheTest {
         rom(4, "Other", 2),
       )
     cache.replacePlatforms(
-      listOf(Platform(1, "p1", "p1", "Platform One", 3), Platform(2, "p2", "p2", "Another", 1)),
+      listOf(
+        Platform(1, PlatformSlug("p1"), "p1", "Platform One", 3),
+        Platform(2, PlatformSlug("p2"), "p2", "Another", 1),
+      ),
     )
     cache.upsertRoms(roms)
 
@@ -160,9 +164,9 @@ class LibraryCacheTest {
   fun listsTheRecentlyAddedNewestFirst() = runTest {
     cache.upsertRoms(
       listOf(
-        rom(1, "Old", createdAt = Instant.parse("2024-01-01T00:00:00Z")),
-        rom(2, "Newest", createdAt = Instant.parse("2024-03-01T00:00:00Z")),
-        rom(3, "Middle", createdAt = Instant.parse("2024-02-01T00:00:00Z")),
+        rom(1, "Old", addedAt = Instant.parse("2024-01-01T00:00:00Z")),
+        rom(2, "Newest", addedAt = Instant.parse("2024-03-01T00:00:00Z")),
+        rom(3, "Middle", addedAt = Instant.parse("2024-02-01T00:00:00Z")),
       ),
     )
 
@@ -203,7 +207,7 @@ class LibraryCacheTest {
 
   @Test
   fun clearsEverything() = runTest {
-    cache.replacePlatforms(listOf(Platform(1, "p1", "p1", "One", 1)))
+    cache.replacePlatforms(listOf(Platform(1, PlatformSlug("p1"), "p1", "One", 1)))
     cache.upsertRoms(listOf(rom(1, "Game")))
     cache.replaceRecentlyPlayed(mapOf(1L to Instant.parse("2025-01-01T00:00:00Z")))
     cache.setSyncValue("key", "value")

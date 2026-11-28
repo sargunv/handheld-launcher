@@ -7,6 +7,7 @@ import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitTag
 import dev.sargunv.handheld.ui.fakeRomm
@@ -51,7 +52,7 @@ class OpenRequestTest {
 
   @Test
   fun aPlatformOpensItsShelfOverThePlatforms() = runComposeUiTest {
-    launchApp(server, open = OpenTarget.LibraryPlatform("gb"))
+    launchApp(server, open = OpenTarget.LibraryPlatform(PlatformCatalog.GB))
     awaitTag("shelf:platform:1")
     onNodeWithTag("place:Library").assertExists()
     press(Key.ButtonB)

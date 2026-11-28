@@ -34,7 +34,7 @@ object GameLayout {
    * @param files the paths of the ROM's files within its folder, which the playlist lists.
    */
   fun playlist(platform: PlatformSlug, files: List<String>): List<String>? {
-    if (PlatformCatalog.emulatedAs(platform) !in PlaylistPlatforms) return null
+    if (platform.emulatedAs !in PlaylistPlatforms) return null
     if (files.any(DiscSets::isPlaylist)) return null
     val discs = DiscSets.discs(files)
     if (discs.size < 2) return null

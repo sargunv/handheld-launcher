@@ -1,4 +1,5 @@
 import dev.sargunv.handheld.domain.CollectionKind;
+import dev.sargunv.handheld.domain.platform.PlatformSlug;
 import kotlin.Boolean;
 import kotlin.String;
 import kotlin.collections.List;
@@ -6,7 +7,7 @@ import kotlin.time.Instant;
 
 CREATE TABLE platform (
   id INTEGER NOT NULL PRIMARY KEY,
-  slug TEXT NOT NULL,
+  slug TEXT AS PlatformSlug NOT NULL,
   fs_slug TEXT NOT NULL,
   name TEXT NOT NULL,
   rom_count INTEGER NOT NULL
@@ -15,7 +16,7 @@ CREATE TABLE platform (
 CREATE TABLE rom (
   id INTEGER NOT NULL PRIMARY KEY,
   platform_id INTEGER NOT NULL,
-  platform_slug TEXT NOT NULL,
+  platform_slug TEXT AS PlatformSlug NOT NULL,
   title TEXT NOT NULL,
   sort_key TEXT NOT NULL,
   file_name TEXT NOT NULL,

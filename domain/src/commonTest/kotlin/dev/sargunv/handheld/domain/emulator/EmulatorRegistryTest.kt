@@ -1,16 +1,12 @@
 package dev.sargunv.handheld.domain.emulator
 
 import dev.sargunv.handheld.domain.launch.ExtraValue
-import dev.sargunv.handheld.domain.launch.LaunchBuild
-import dev.sargunv.handheld.domain.launch.LaunchCommandBuilder
-import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
 import dev.sargunv.handheld.domain.launch.RomData
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -100,17 +96,16 @@ class EmulatorRegistryTest {
   fun everyRecipeBuildsForEveryPlatformItRuns() {
     for (platform in EmulatorRegistry.preference.keys) {
       for (emulator in EmulatorRegistry.forPlatform(platform)) {
-        val input = LaunchInput(romPath = "/storage/emulated/0/ROMs/game.bin", platform = platform)
         for (recipe in listOfNotNull(emulator.recipe, emulator.forkRecipe)) {
-          val build =
-            LaunchCommandBuilder.build(
-              recipe,
+          val command =
+            recipe.commandFor(
               emulator.packageName,
-              input,
+              "/storage/emulated/0/ROMs/game.bin",
+              platform,
               LibretroCores.recommendedFor(platform),
+              null,
             )
-          val command = assertIs<LaunchBuild.Ready>(build, "${emulator.id} on $platform").command
-          assertEquals(emulator.packageName, command.packageName)
+          assertEquals(emulator.packageName, command?.packageName, "${emulator.id} on $platform")
         }
       }
     }

@@ -8,7 +8,6 @@ import dev.sargunv.handheld.domain.launch.LaunchFlag
 import dev.sargunv.handheld.domain.launch.LaunchMethod
 import dev.sargunv.handheld.domain.launch.LaunchRecipe
 import dev.sargunv.handheld.domain.launch.RomData
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.ARCADE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.DREAMCAST
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.FDS
@@ -742,5 +741,5 @@ object EmulatorRegistry {
 
   /** The known emulators for [platform], best first. */
   fun forPlatform(platform: PlatformSlug): List<KnownEmulator> =
-    preference[PlatformCatalog.emulatedAs(platform)].orEmpty().map { byId.getValue(it) }
+    preference[platform.emulatedAs].orEmpty().map { byId.getValue(it) }
 }

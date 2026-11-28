@@ -2,6 +2,7 @@
 
 package dev.sargunv.handheld.domain.launch
 
+import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /**
@@ -26,6 +27,73 @@ data class LaunchRecipe(
   val loadsCore: Boolean
     get() = extras.values.any { it is ExtraValue.Text && "{core}" in it.template }
 
+  /**
+   * The command that launches the game at [romPath] on [platform] in [packageName] this way, or
+   * null when the recipe [loadsCore] and [core] is null. [installedVersionName] is the app's
+   * version name, for recipes that depend on its build.
+   */
+  fun commandFor(
+    packageName: String,
+    romPath: String,
+    platform: PlatformSlug,
+    core: LibretroCore?,
+    installedVersionName: String?,
+  ): LaunchCommand? {
+    val rom = LaunchUri.ProviderFile(romPath)
+    val coreLibrary = if (loadsCore) core?.androidLibrary ?: return null else null
+    val dataUri =
+      when (val romData = data) {
+        null -> null
+        RomData.ProviderUri -> rom
+        RomData.Path -> LaunchUri.Raw(romPath)
+        RomData.FileUri -> LaunchUri.Raw("file://${encodePath(romPath)}")
+        is RomData.Scheme ->
+          LaunchUri.Raw("${romData.scheme}://${romData.authority}${encodePath(romPath)}")
+      }
+    val byPath = romPath.endsWith(".m3u", ignoreCase = true)
+    val filled = extras.mapNotNull { (key, value) ->
+      when (value) {
+        ExtraValue.RomPath -> LaunchExtra.StringValue(key, romPath)
+        ExtraValue.RomUri -> LaunchExtra.UriValue(key, rom)
+        ExtraValue.RomUriString ->
+          if (byPath) LaunchExtra.StringValue(key, romPath) else LaunchExtra.UriString(key, rom)
+        is ExtraValue.RomPathSinceBuild -> {
+          val build = installedVersionName?.let(::buildNumberOf) ?: 0
+          if (build >= value.minBuild || byPath) LaunchExtra.StringValue(key, romPath)
+          else LaunchExtra.UriString(key, rom)
+        }
+        is ExtraValue.Text ->
+          LaunchExtra.StringValue(key, fill(value.template, packageName, coreLibrary))
+        is ExtraValue.Bool -> LaunchExtra.BooleanValue(key, value.value)
+        is ExtraValue.PlatformName ->
+          (value.names[platform] ?: value.names[platform.emulatedAs])?.let {
+            LaunchExtra.StringValue(key, it)
+          }
+        ExtraValue.VitaTitleArgs ->
+          vitaTitleId(romPath.substringAfterLast('/'))?.let {
+            LaunchExtra.StringArray(key, listOf("-r", it))
+          }
+      }
+    }
+    val handsOverUri =
+      grantRom ||
+        dataUri is LaunchUri.ProviderFile ||
+        filled.any { it is LaunchExtra.UriValue || it is LaunchExtra.UriString }
+    return LaunchCommand(
+      packageName = packageName,
+      activity = activity,
+      action = action,
+      categories = categories,
+      data = dataUri,
+      mimeType = mimeType.takeIf { dataUri != null },
+      extras = filled,
+      flags = flags,
+      clipData = rom.takeIf { handsOverUri },
+      // `am start` can't hand over content URIs.
+      method = if (handsOverUri) LaunchMethod.Intent else method,
+    )
+  }
+
   companion object {
     const val OCTET_STREAM = "application/octet-stream"
 
@@ -49,6 +117,56 @@ data class LaunchRecipe(
         flags = setOf(LaunchFlag.NewTask, LaunchFlag.ClearTask, LaunchFlag.NoHistory),
         method = method,
       )
+
+    // Android's regex engine, ICU, needs the closing brace escaped too.
+    private val placeholder = Regex("""\{(\w+)\}""")
+    private val buildNumber = Regex("""^\d+\.\d+-(\d+)""")
+    private val bracketedTitleId = Regex("""\[([A-Z]{4}\d{5})]""")
+    private val leadingTitleId = Regex("""^([A-Z]{4}\d{5})""")
+
+    /** The primary external storage root for Android's first user. */
+    private const val PRIMARY_STORAGE = "/storage/emulated/0"
+
+    private const val HEX = "0123456789ABCDEF"
+
+    /** The build number in a version name such as `0.1-10234`, or null when it has none. */
+    private fun buildNumberOf(versionName: String): Int? =
+      buildNumber.find(versionName)?.groupValues?.get(1)?.toIntOrNull()
+
+    /**
+     * A PlayStation Vita title id, such as `PCSE00082`, in brackets anywhere in [fileName], or at
+     * its start; null when it has none.
+     */
+    private fun vitaTitleId(fileName: String): String? =
+      (bracketedTitleId.find(fileName) ?: leadingTitleId.find(fileName))?.groupValues?.get(1)
+
+    /**
+     * [path] with every character but `/` and URI-unreserved ones percent-encoded as UTF-8, as
+     * Android's `Uri.Builder.path` writes it, so a `#`, `?` or `%` in a file name stays in the
+     * path.
+     */
+    private fun encodePath(path: String): String = buildString {
+      for (byte in path.encodeToByteArray()) {
+        val char = (byte.toInt() and 0xff).toChar()
+        if (char.isLetterOrDigit() && char.code < 0x80 || char in "/_-!.~'()*") {
+          append(char)
+        } else {
+          append('%')
+          append(HEX[byte.toInt() shr 4 and 0xf])
+          append(HEX[byte.toInt() and 0xf])
+        }
+      }
+    }
+
+    private fun fill(template: String, packageName: String, core: String?) =
+      placeholder.replace(template) { match ->
+        when (val name = match.groupValues[1]) {
+          "package" -> packageName
+          "storage" -> PRIMARY_STORAGE
+          "core" -> checkNotNull(core) { "core placeholder without a core" }
+          else -> error("unknown placeholder {$name}")
+        }
+      }
   }
 }
 

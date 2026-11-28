@@ -18,18 +18,17 @@ import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.launch.CollectionId
-import dev.sargunv.handheld.domain.launch.LaunchBuild
-import dev.sargunv.handheld.domain.launch.LaunchInput
 import dev.sargunv.handheld.domain.launch.LaunchResolution
-import dev.sargunv.handheld.domain.launch.LaunchResolver
 import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.LaunchTarget
+import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.saves.BiosKnowledge
 import dev.sargunv.handheld.domain.storage.GameLayout
 import dev.sargunv.handheld.session.romGameId
 import dev.sargunv.handheld.ui.game.GameLauncher
+import dev.sargunv.handheld.ui.game.noEmulator
 import dev.sargunv.handheld.ui.labelled
 import dev.sargunv.handheld.ui.saves.SaveConflict
 import dev.sargunv.handheld.ui.saves.StillRunning
@@ -92,20 +91,6 @@ internal class AndroidGameLauncher(
   override val unfinished: StateFlow<Set<GameKey>>
     get() = plays.unfinished
 
-  override suspend fun opensIn(
-    game: LibraryGame,
-    rules: LaunchRules,
-    collections: Set<CollectionId>,
-  ): String =
-    when (
-      val resolution =
-        resolve(LaunchSubject(game.key, PlatformSlug(game.platformSlug), collections), rules)
-    ) {
-      is LaunchResolution.Resolved -> "Opens in ${appName(resolution.target)}"
-      is LaunchResolution.BuiltIn -> "Opens in Built-in"
-      is LaunchResolution.NoEmulatorInstalled -> noEmulator(resolution)
-    }
-
   override suspend fun keptSaves(game: LibraryGame): List<KeptSave> {
     // Save sync keeps copies only of the saves it syncs, in the signed-in account's history.
     val history = romm.account?.saveHistory ?: return emptyList()
@@ -131,7 +116,7 @@ internal class AndroidGameLauncher(
       }
       val file =
         withContext(Dispatchers.IO) { launchFile(path) } ?: return@play listOf("Folder empty")
-      val request = PlayRequest(file, PlatformSlug(game.platformSlug), game.title, game.key)
+      val request = PlayRequest(file, game.platformSlug, game.title, game.key)
       // A set, since a sync that fails before and after the game says the same thing twice.
       val notes = linkedSetOf<String>()
       fun note(text: String) {
@@ -142,10 +127,10 @@ internal class AndroidGameLauncher(
       when (
         val resolution = resolve(LaunchSubject(request.game, request.platform, collections), rules)
       ) {
-        is LaunchResolution.NoEmulatorInstalled -> note(noEmulator(resolution))
+        null -> note(noEmulator(request.platform))
         is LaunchResolution.BuiltIn ->
           notes += builtIn.play(this, request, resolution.core, onProgress, chooseSave, ::note)
-        is LaunchResolution.Resolved ->
+        is LaunchResolution.Standalone ->
           notes +=
             playStandalone(
               this,
@@ -168,7 +153,7 @@ internal class AndroidGameLauncher(
   private suspend fun playStandalone(
     play: Plays.Play,
     request: PlayRequest,
-    resolution: LaunchResolution.Resolved,
+    resolution: LaunchResolution.Standalone,
     volumes: List<String>,
     closeEmulators: Boolean,
     askStillRunning: suspend (StillRunning) -> StillRunningChoice,
@@ -178,20 +163,12 @@ internal class AndroidGameLauncher(
     val target = resolution.target
     val packageName = target.packageName
     val name = appName(target)
-    val input =
-      LaunchInput(
-        request.romPath,
-        request.platform,
-        installedVersionName = dispatcher.versionName(packageName),
-      )
     val command =
-      when (val build = target.commandFor(input)) {
-        is LaunchBuild.MissingCore -> {
-          note("No core for this platform · $name")
-          return emptyList()
-        }
-        is LaunchBuild.Ready -> build.command
-      }
+      target.commandFor(request.romPath, request.platform, dispatcher.versionName(packageName))
+    if (command == null) {
+      note("No core for this platform · $name")
+      return emptyList()
+    }
     val save = lookUpSave(request, target, volumes, note)
     val probe = DeviceProbe(activity, useRoot = closeEmulators)
     if (save != null) {
@@ -253,7 +230,7 @@ internal class AndroidGameLauncher(
 
   private suspend fun resolve(subject: LaunchSubject, rules: LaunchRules) =
     withContext(Dispatchers.IO) {
-      LaunchResolver.resolve(subject, rules, dispatcher.installedPackages())
+      RuleChain.explain(subject, rules, dispatcher.installedPackages()).resolve()
     }
 
   private fun appName(target: LaunchTarget): String =
@@ -263,12 +240,6 @@ internal class AndroidGameLauncher(
           activity.packageManager.getApplicationLabel(info).toString()
         }
         .getOrDefault(target.packageName)
-
-  private fun noEmulator(resolution: LaunchResolution.NoEmulatorInstalled): String {
-    val suggestions = resolution.suggestions.take(2).map { it.displayName }
-    return if (suggestions.isEmpty()) "No emulator"
-    else "No emulator · Install ${suggestions.joinToString(" or ")}"
-  }
 
   /**
    * Puts the firmware [target]'s emulator needs for [platform] where it reads it on [storage], from

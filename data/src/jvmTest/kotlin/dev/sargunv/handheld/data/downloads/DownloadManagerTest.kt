@@ -11,6 +11,7 @@ import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -141,7 +142,7 @@ class DownloadManagerTest {
     Rom(
       id = id,
       platformId = platformId,
-      platformSlug = if (platformId == 1L) "gba" else "psx",
+      platformSlug = PlatformSlug(if (platformId == 1L) "gba" else "psx"),
       title = "Game $id",
       sortKey = "game $id",
       fileName = fileName,
@@ -152,7 +153,7 @@ class DownloadManagerTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = files.map { RomFile(it.id, it.name, it.size) },
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   private val gameRom = Rom(1, 1, single.name, listOf(single))
@@ -161,8 +162,8 @@ class DownloadManagerTest {
   private suspend fun fillLibrary() {
     library.replacePlatforms(
       listOf(
-        dev.sargunv.handheld.domain.Platform(1, "gba", "gba", "Game Boy Advance", 1),
-        dev.sargunv.handheld.domain.Platform(2, "psx", "psx", "PlayStation", 1),
+        dev.sargunv.handheld.domain.Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 1),
+        dev.sargunv.handheld.domain.Platform(2, PlatformSlug("psx"), "psx", "PlayStation", 1),
       ),
     )
     library.upsertRoms(listOf(gameRom, sagaRom))

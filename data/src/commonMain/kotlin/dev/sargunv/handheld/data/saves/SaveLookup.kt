@@ -46,7 +46,7 @@ fun gameSaveFor(
       storage = storage,
       anyStorage = volumes,
       packageName = target.packageName,
-      core = target.coreFor(platform),
+      core = target.core,
     )
   SaveFiles.candidates(location, romPath, roots)?.let { paths ->
     return SaveLookup.Found(GameSave(romId, emulator.id.value, FileUnit(paths.map(::File))))

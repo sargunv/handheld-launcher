@@ -23,6 +23,7 @@ import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
@@ -46,10 +47,12 @@ private constructor(
     LibraryDatabase(
       driver,
       collectionAdapter = CollectionRow.Adapter(kindAdapter = EnumColumnAdapter()),
+      platformAdapter = PlatformRow.Adapter(slugAdapter = PlatformSlugAdapter),
       collection_romAdapter =
         CollectionRomRow.Adapter(collection_kindAdapter = EnumColumnAdapter()),
       romAdapter =
         RomRow.Adapter(
+          platform_slugAdapter = PlatformSlugAdapter,
           genresAdapter = StringListAdapter,
           release_dateAdapter = InstantAdapter,
           created_atAdapter = InstantAdapter,
@@ -293,7 +296,7 @@ private fun RomRow.toDomain(files: List<RomFile>) =
     coverSmallUrl = cover_small_url,
     coverLargeUrl = cover_large_url,
     files = files,
-    createdAt = created_at,
+    addedAt = created_at,
   )
 
 private fun Rom.toRow() =
@@ -310,7 +313,7 @@ private fun Rom.toRow() =
     release_date = releaseDate,
     cover_small_url = coverSmallUrl,
     cover_large_url = coverLargeUrl,
-    created_at = createdAt,
+    created_at = addedAt,
   )
 
 /**
@@ -323,6 +326,12 @@ private object StringListAdapter : ColumnAdapter<List<String>, String> {
     if (databaseValue.isEmpty()) emptyList() else databaseValue.split(SEPARATOR)
 
   override fun encode(value: List<String>) = value.joinToString(SEPARATOR.toString())
+}
+
+private object PlatformSlugAdapter : ColumnAdapter<PlatformSlug, String> {
+  override fun decode(databaseValue: String) = PlatformSlug(databaseValue)
+
+  override fun encode(value: PlatformSlug) = value.value
 }
 
 /** Stores an instant as milliseconds since the epoch. */

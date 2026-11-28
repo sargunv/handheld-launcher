@@ -6,6 +6,7 @@ import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import java.io.File
 import java.security.MessageDigest
 import java.util.zip.CRC32
@@ -49,7 +50,7 @@ class DeviceGamesTest {
     Rom(
       id = id,
       platformId = platformId,
-      platformSlug = if (platformId == 1L) "gba" else "psx",
+      platformSlug = PlatformSlug(if (platformId == 1L) "gba" else "psx"),
       title = "Game $id",
       sortKey = "game $id",
       fileName = fileName,
@@ -60,7 +61,7 @@ class DeviceGamesTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = files,
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   private val single = RomFile(11, "Game (USA).gba", game.size.toLong())
@@ -79,8 +80,8 @@ class DeviceGamesTest {
   private suspend fun fillLibrary() {
     library.replacePlatforms(
       listOf(
-        Platform(1, "gba", "gba", "Game Boy Advance", 1),
-        Platform(2, "psx", "psx", "PlayStation", 1),
+        Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 1),
+        Platform(2, PlatformSlug("psx"), "psx", "PlayStation", 1),
       ),
     )
   }
@@ -184,7 +185,7 @@ class DeviceGamesTest {
     val local = waitFor { games.localGames().first { it.isNotEmpty() } }.single()
     assertEquals(homebrew.path, local.path)
     assertEquals("Homebrew (PD)", local.title)
-    assertEquals("gba", local.platformSlug)
+    assertEquals("gba", local.platformSlug.value)
     assertEquals(1L, local.platformId)
     assertEquals(disc1.size.toLong(), local.sizeBytes)
     assertEquals(

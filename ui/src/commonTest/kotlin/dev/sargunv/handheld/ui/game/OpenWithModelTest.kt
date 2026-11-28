@@ -32,7 +32,7 @@ class OpenWithModelTest {
     platformName: String = "PS2",
   ) =
     chainLines(
-      RuleChain.explain(subject, rules, installed.mapTo(mutableSetOf()) { it.packageName }),
+      RuleChain.explain(subject, rules, installed.mapTo(mutableSetOf()) { it.packageName }).steps,
       listOf(jak),
       platformName,
     ) { packageName, core ->
@@ -48,8 +48,8 @@ class OpenWithModelTest {
     // The built-in session runs the Game Boy Advance, and so does RetroArch, with its known core.
     assertEquals(
       listOf(
-        AppOption(SavedChoice(LaunchChoice.BUILT_IN), "Built-in · mGBA", known = true),
-        AppOption(SavedChoice("com.retroarch", "mgba_libretro"), "RetroArch · mGBA", known = true),
+        AppOption(LaunchChoice.BuiltIn, "Built-in · mGBA", known = true),
+        AppOption(LaunchChoice("com.retroarch", "mgba_libretro"), "RetroArch · mGBA", known = true),
       ),
       appOptions(GBA, apps).take(2),
     )
@@ -60,7 +60,7 @@ class OpenWithModelTest {
     val rules =
       LaunchRules(
         collectionRules =
-          listOf(CollectionRule(jak.launchId, LaunchChoice("dev.sargunv.pocketgoal"), PS2)),
+          listOf(CollectionRule(jak.launchId, PS2, LaunchChoice("dev.sargunv.pocketgoal"))),
       )
     assertEquals(
       listOf(

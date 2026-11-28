@@ -87,7 +87,7 @@ object SaveFolders {
    */
   fun idKind(location: SaveLocation, platform: PlatformSlug): GameIdKind? {
     if (location.requiresRoot || !location.syncable) return null
-    val target = PlatformCatalog.emulatedAs(platform)
+    val target = platform.emulatedAs
     return when (location.layout) {
       SaveLayout.SerialPrefixedFolders -> GameIdKind.Psp.takeIf { target == PlatformCatalog.PSP }
       is SaveLayout.Ps2MemoryCards -> GameIdKind.Ps2.takeIf { target == PlatformCatalog.PS2 }
