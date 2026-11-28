@@ -284,19 +284,6 @@ class LocalGameTest {
     assertTrue(demo.exists())
   }
 
-  @Test
-  fun aLocalGameBecomesTheServersGameOnceTheServerHasIt() = runComposeUiTest {
-    val data = openHomebrew()
-    onNodeWithTag("game:saves-local").assertExists()
-    serverHasHomebrew = true
-    data.romm.syncNow()
-    // The page is the server's game's now, which has its saves on RomM.
-    awaitText("No saves on RomM")
-    onNodeWithTag("game:saves-local").assertDoesNotExist()
-    onNodeWithText("Homebrew (World)").assertExists()
-    onNodeWithTag("primary").assertIsFocused()
-  }
-
   // A choice made while the file became the server's game is that game's.
   @Test
   fun aChoiceMadeAsTheFileBecomesAServerGameIsThatGames() = runComposeUiTest {

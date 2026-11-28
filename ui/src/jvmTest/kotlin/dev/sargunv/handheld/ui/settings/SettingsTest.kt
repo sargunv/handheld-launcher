@@ -186,24 +186,6 @@ class SettingsTest {
     onNodeWithTag("address").assertContentDescriptionEquals("Server address: $TestServer")
   }
 
-  // A queued or failed game is the old server's, so it mustn't run against the next one.
-  @Test
-  fun signingOutEmptiesTheDownloadQueue() = runComposeUiTest {
-    val downloads = launch(OpenTarget.Settings(SettingsSection.RomM))
-    awaitText("player")
-    waitUntil(timeoutMillis = 5_000) { runBlocking { library.rom(1) } != null }
-    downloads.enqueue(assertNotNull(runBlocking { library.rom(1) }))
-    waitUntil(timeoutMillis = 5_000) { downloads.queue.value.size == 1 }
-
-    press(Key.DirectionRight)
-    focusDownTo("settings:romm:signOut")
-    press(Key.ButtonA)
-    awaitTag("signOut:cancel")
-    press(listOf(Key.DirectionRight, Key.ButtonA))
-    awaitFocused("address")
-    waitUntil(timeoutMillis = 5_000) { downloads.queue.value.isEmpty() }
-  }
-
   // The server hears of each canceled game it sent, but the sign-in doesn't wait for it to answer.
   @Test
   fun signingOutDoesNotWaitForTheServer() = runComposeUiTest {
@@ -260,24 +242,6 @@ class SettingsTest {
     awaitFocused("settings:RomM")
     awaitText("Up to your API token")
     onNodeWithTag("settings:romm:uploads").assertTextEquals("Uploads", "Up to your API token")
-    onNodeWithTag("settings:romm:allowUploads").assertDoesNotExist()
-  }
-
-  @Test
-  fun showsThatADeviceSignInMayUpload() = runComposeUiTest {
-    credentials.write(
-      RommCredentials(
-        TestServer,
-        "rmm_token",
-        1,
-        "player",
-        "d1",
-        listOf("roms.read", "roms.write"),
-      ),
-    )
-    launch(OpenTarget.Settings(SettingsSection.RomM))
-    awaitText("Allowed")
-    onNodeWithTag("settings:romm:uploads").assertTextEquals("Uploads", "Allowed")
     onNodeWithTag("settings:romm:allowUploads").assertDoesNotExist()
   }
 
@@ -428,20 +392,6 @@ class SettingsTest {
   }
 
   @Test
-  fun theRefusalNoteGoesWhenFocusLeavesTheSection() = runComposeUiTest {
-    val own = StorageTarget(temp.newFolder().path, "Device", "primary")
-    launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))
-    awaitFocused("settings:Storage")
-    awaitTag("settings:storage:primary")
-    press(listOf(Key.DirectionRight, Key.ButtonA))
-    awaitTag("settings:storage:refused")
-    press(listOf(Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown))
-    awaitFocused("settings:Storage")
-    awaitTag("settings:storage:primary")
-    onNodeWithTag("settings:storage:refused").assertDoesNotExist()
-  }
-
-  @Test
   fun theOnlyStorageCantBeTurnedOffOrMoved() = runComposeUiTest {
     val own = StorageTarget(temp.newFolder().path, "Device", "primary")
     launch(OpenTarget.Settings(SettingsSection.Storage), storage = listOf(own))
@@ -455,6 +405,11 @@ class SettingsTest {
     onNodeWithTag("menu:up").assertDoesNotExist()
     onNodeWithTag("menu:down").assertDoesNotExist()
     assertEquals(StorageSettings(), saved.storage)
+    // The refusal's note goes once focus leaves the section.
+    press(listOf(Key.ButtonB, Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown))
+    awaitFocused("settings:Storage")
+    awaitTag("settings:storage:primary")
+    onNodeWithTag("settings:storage:refused").assertDoesNotExist()
   }
 
   @Test

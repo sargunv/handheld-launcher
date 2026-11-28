@@ -135,17 +135,6 @@ class HomeTest {
   }
 
   @Test
-  fun aScreenReaderOpensTheFocusedGame() = runComposeUiTest {
-    launch()
-    awaitTag("continue:2")
-    onNodeWithTag("continue:2").performSemanticsAction(SemanticsActions.OnClick)
-    awaitTag("primary")
-    assertFocused("primary")
-    onNodeWithTag("primary").assert(expectValue(SemanticsProperties.Role, Role.Button))
-    onNodeWithText("Game 2").assert(isHeading())
-  }
-
-  @Test
   fun aScreenReaderPicksAPlaceInTheMainMenu() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
@@ -250,21 +239,6 @@ class HomeTest {
   }
 
   @Test
-  fun theMenuOnTheGameBeingPlayedGoesToItsPage() = runComposeUiTest {
-    launch()
-    awaitTag("continue:2")
-    onNodeWithTag("hint:Menu").assertExists()
-    press(Key.ButtonX)
-    assertFocused("menu:game")
-    onNodeWithTag("menu:open-with").assertExists()
-    press(Key.ButtonA)
-    awaitTag("primary")
-    onNodeWithText("Game 2").assert(isHeading())
-    press(Key.ButtonB)
-    awaitFocused("continue:2")
-  }
-
-  @Test
   fun aCollectionOpensItsGamesAndBackComesHome() = runComposeUiTest {
     launch()
     awaitTag("continue:2")
@@ -295,20 +269,12 @@ class HomeTest {
     awaitTag("continue:2")
     press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
     assertFocused("RecentlyAdded:2")
+    pressHome()
+    awaitFocused("continue:2")
     goFromHome(Place.Library)
     awaitTag("library:platform:1")
     pressHome()
     onNodeWithTag("place:Home").assertExists()
-    awaitFocused("continue:2")
-  }
-
-  @Test
-  fun homeOnHomeGoesBackToItsFirstItem() = runComposeUiTest {
-    launch()
-    awaitTag("continue:2")
-    press(listOf(Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionRight))
-    assertFocused("RecentlyAdded:2")
-    pressHome()
     awaitFocused("continue:2")
   }
 

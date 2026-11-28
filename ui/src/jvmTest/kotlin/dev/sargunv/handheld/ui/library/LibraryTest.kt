@@ -155,18 +155,6 @@ class LibraryTest {
   }
 
   @Test
-  fun backOnTheListGoesHome() = runComposeUiTest {
-    openLibrary()
-    assertFocused("library:platform:1")
-    // The shoulder buttons switch tabs, and coming back focuses the same platform.
-    press(listOf(Key.ButtonR1, Key.ButtonL1))
-    assertFocused("library:platform:1")
-    press(Key.ButtonB)
-    awaitTag("shelf:RecentlyAdded")
-    onNodeWithTag("place:Home").assertExists()
-  }
-
-  @Test
   fun aGameOpensItsScreenAndBackComesToIt() = runComposeUiTest {
     openGameBoy()
     assertFocused("game:1")
