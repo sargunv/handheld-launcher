@@ -85,20 +85,12 @@ class QuickMenuTest {
   }
 
   @Test
-  fun opensOnResume() = runComposeUiTest {
+  fun opensOnResumeAndBackResumesToo() = runComposeUiTest {
     val session = FakeSession()
     showMenu(session)
     onNodeWithTag("quick:resume").assertIsFocused()
-    press(listOf(Key.ButtonA))
-    assertEquals(listOf("resume"), session.calls)
-  }
-
-  @Test
-  fun backResumes() = runComposeUiTest {
-    val session = FakeSession()
-    showMenu(session)
-    press(listOf(Key.ButtonB))
-    assertEquals(listOf("resume"), session.calls)
+    press(listOf(Key.ButtonA, Key.ButtonB))
+    assertEquals(listOf("resume", "resume"), session.calls)
   }
 
   @Test

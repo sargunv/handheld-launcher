@@ -3,14 +3,17 @@ package dev.sargunv.handheld.data.downloads
 import dev.sargunv.handheld.data.Fixtures
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.httpClient
 import dev.sargunv.handheld.data.romm.RommAccount
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommState
 import dev.sargunv.handheld.data.romm.TEST_SERVER
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
+import dev.sargunv.handheld.data.waitFor
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -58,14 +61,11 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.io.files.Path
 
 class DownloadManagerTest {
   private val dir = createTempDirectory("downloads-test").toFile()
   private val storage = File(dir, "storage").apply { mkdirs() }
-  private val queueFile = Path(File(dir, "downloads.json").path)
+  private val queueFile = File(dir, "downloads.json")
   private val library = LibraryCache.open(path = null)
   private val requests = Collections.synchronizedList(mutableListOf<HttpRequestData>())
 
@@ -141,7 +141,7 @@ class DownloadManagerTest {
     Rom(
       id = id,
       platformId = platformId,
-      platformSlug = if (platformId == 1L) "gba" else "psx",
+      platformSlug = PlatformSlug(if (platformId == 1L) "gba" else "psx"),
       title = "Game $id",
       sortKey = "game $id",
       fileName = fileName,
@@ -152,7 +152,7 @@ class DownloadManagerTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = files.map { RomFile(it.id, it.name, it.size) },
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   private val gameRom = Rom(1, 1, single.name, listOf(single))
@@ -161,8 +161,8 @@ class DownloadManagerTest {
   private suspend fun fillLibrary() {
     library.replacePlatforms(
       listOf(
-        dev.sargunv.handheld.domain.Platform(1, "gba", "gba", "Game Boy Advance", 1),
-        dev.sargunv.handheld.domain.Platform(2, "psx", "psx", "PlayStation", 1),
+        dev.sargunv.handheld.domain.Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 1),
+        dev.sargunv.handheld.domain.Platform(2, PlatformSlug("psx"), "psx", "PlayStation", 1),
       ),
     )
     library.upsertRoms(listOf(gameRom, sagaRom))
@@ -239,7 +239,7 @@ class DownloadManagerTest {
     DownloadManager(
       queueFile = queueFile,
       library = library,
-      games = DeviceGames(library, { targets }, scope, Path(File(dir, "local-content.json").path)),
+      games = DeviceGames(library, { targets }, scope, File(dir, "local-content.json")),
       romm = romm,
       storage = { targets },
       scope = scope,
@@ -256,8 +256,8 @@ class DownloadManagerTest {
   ) =
     RommAccount(
       RommCredentials(server, token, 1, "player", deviceId),
-      RommClient(server, token, engine()),
-      Path(dir.path, "save-sync"),
+      RommClient(server, token, httpClient(engine())),
+      File(dir, "save-sync"),
     )
 
   /**
@@ -284,10 +284,6 @@ class DownloadManagerTest {
 
   /** The folder the ROM [romId] downloads in until it's whole. */
   private fun staged(romId: Long) = file("ROMs/.handheld-staging/$romId")
-
-  /** Runs [block] with a timeout in real time, since the downloads run on real threads. */
-  private suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
-    withContext(Dispatchers.Default.limitedParallelism(1)) { withTimeout(10_000, block) }
 
   /**
    * Every status [rom] takes in [downloads] from now on, in order. The collector runs unconfined,
@@ -360,9 +356,7 @@ class DownloadManagerTest {
       )
     val downloads = manager(scope, stalling)
     downloads.enqueue(gameRom)
-    waitFor {
-      downloads.progress.first { it[1L]?.bytesDownloaded == sent.size.toLong() }
-    }
+    waitFor { downloads.active.first { it?.progress?.bytesDownloaded == sent.size.toLong() } }
     scope.coroutineContext[kotlinx.coroutines.Job]!!.cancelAndJoin()
   }
 
@@ -633,7 +627,7 @@ class DownloadManagerTest {
 
     downloads.enqueue(gameRom)
     val failed = waitFor {
-      downloads.queue.first { it.firstOrNull()?.state == DownloadState.Failed }.single()
+      downloads.queue.first { it.firstOrNull()?.failed == true }.single()
     }
 
     assertTrue(failed.error.orEmpty().startsWith("Not enough space on Test storage"), failed.error)
@@ -647,7 +641,7 @@ class DownloadManagerTest {
     fillLibrary()
     // The PlayStation game is on the device already.
     File(storage, "ROMs/psx/Saga (USA)").mkdirs()
-    val updates = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    val updates = MutableStateFlow(emptyList<Pair<String, String>>())
     fun request(id: String, romId: Long, status: String) =
       """{"id": "$id", "user_id": 1, "device_id": "dev-1", "rom_id": $romId, "file_ids": [],
         "status": "$status", "reason": null, "created_at": "2025-01-01T00:00:00Z",
@@ -662,7 +656,7 @@ class DownloadManagerTest {
             json("[${request("req-1", 1, "taken")}, ${request("req-2", 2, "taken")}]")
           path.startsWith("devices/dev-1/installs/") && request.method == HttpMethod.Put -> {
             val id = path.substringAfterLast('/')
-            updates += id to (request.body as TextContent).text
+            updates.update { it + (id to (request.body as TextContent).text) }
             json(request(id, if (id == "req-1") 1 else 2, "done"))
           }
           else -> null
@@ -672,12 +666,12 @@ class DownloadManagerTest {
     manager(realTime(), engine, deviceId = "dev-1")
 
     // The download reports to the server once it's out of the queue.
-    waitFor { while (updates.size < 2) delay(10) }
+    waitFor { updates.first { it.size >= 2 } }
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
     assertEquals(
       setOf("req-2" to """{"status":"already_installed"}""", "req-1" to """{"status":"done"}"""),
-      updates.toSet(),
+      updates.value.toSet(),
     )
     assertEquals(1, requests.count { it.apiPath.endsWith("claim") })
   }
@@ -710,7 +704,7 @@ class DownloadManagerTest {
         },
       )
     val downloads = manager(realTime(), engine, deviceId = "dev-1")
-    waitFor { downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L } }
+    waitFor { downloads.active.first { it?.progress?.bytesDownloaded == 65_536L } }
 
     downloads.cancel(1)
 
@@ -722,7 +716,7 @@ class DownloadManagerTest {
   @Test
   fun aGameSentAgainAfterItFailedDownloadsAgain() = runTest {
     fillLibrary()
-    val updates = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
+    val updates = MutableStateFlow(emptyList<Pair<String, String>>())
     var sent = "req-1"
     var fits = false
     fun request(id: String) =
@@ -736,7 +730,7 @@ class DownloadManagerTest {
           path == "devices/dev-1/installs" -> json("[${request(sent)}]")
           path.startsWith("devices/dev-1/installs/") && request.method == HttpMethod.Put -> {
             val id = path.substringAfterLast('/')
-            updates += id to (request.body as TextContent).text
+            updates.update { it + (id to (request.body as TextContent).text) }
             json(request(id))
           }
           else -> null
@@ -745,16 +739,19 @@ class DownloadManagerTest {
     val engine = server(sizeOverride = { if (fits) null else 1L shl 60 }, installs = installs)
     val romm = MutableStateFlow<RommState>(account(engine, deviceId = "dev-1"))
     val downloads = manager(realTime(), engine, romm = romm)
-    waitFor { downloads.queue.first { it.firstOrNull()?.state == DownloadState.Failed } }
+    waitFor { downloads.queue.first { it.firstOrNull()?.failed == true } }
 
     // Sent again from the web page once there's room, and taken at the next sign-in.
     sent = "req-2"
     fits = true
     romm.value = account(engine, deviceId = "dev-1")
-    waitFor { while (updates.none { it.first == "req-2" }) delay(10) }
+    waitFor { updates.first { list -> list.any { it.first == "req-2" } } }
 
     assertContentEquals(game, file("ROMs/gba/Game (USA).gba").readBytes())
-    assertEquals(listOf("req-2" to """{"status":"done"}"""), updates.filter { it.first == "req-2" })
+    assertEquals(
+      listOf("req-2" to """{"status":"done"}"""),
+      updates.value.filter { it.first == "req-2" },
+    )
   }
 
   @Test
@@ -843,9 +840,7 @@ class DownloadManagerTest {
       )
     val downloads = manager(backgroundScope, stalling)
     downloads.enqueue(gameRom)
-    waitFor {
-      downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L }
-    }
+    waitFor { downloads.active.first { it?.progress?.bytesDownloaded == 65_536L } }
 
     downloads.cancel(1)
 
@@ -873,7 +868,7 @@ class DownloadManagerTest {
     downloads.enqueue(gameRom)
     downloads.enqueue(sagaRom)
     downloads.awaitQueue(1, 2)
-    waitFor { downloads.progress.first { it[1L]?.bytesDownloaded == 65_536L } }
+    waitFor { downloads.active.first { it?.progress?.bytesDownloaded == 65_536L } }
 
     downloads.dropQueue(account)
 

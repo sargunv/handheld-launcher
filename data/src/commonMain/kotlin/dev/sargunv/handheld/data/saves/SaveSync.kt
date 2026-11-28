@@ -15,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
 import kotlinx.serialization.Serializable
 
 /** The slot the launcher's saves pair on between devices. Argosy's default saves use it too. */
@@ -335,7 +334,7 @@ class SaveSync(
     staging.mkdirs()
     val staged = Files.createTempFile(staging.toPath(), "${save.id}-", ".part").toFile()
     try {
-      client.downloadSave(save.id, Path(staged.path))
+      client.downloadSave(save.id, staged)
       val bytes = staged.readBytes()
       val expected = save.contentHash
       if (
@@ -413,7 +412,7 @@ class SaveSync(
   }
 
   private fun recordFile(game: GameSave) =
-    JsonFile(Path(records.path, "${game.key}.json"), SyncRecord.serializer())
+    JsonFile(File(records, "${game.key}.json"), SyncRecord.serializer())
 }
 
 /**

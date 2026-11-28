@@ -13,7 +13,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
-use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -28,9 +27,7 @@ use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::raw_window_handle::{
-    HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-};
+use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::{Window, WindowId};
 
 #[derive(Parser)]
@@ -390,18 +387,7 @@ fn native_window(window: &Window) -> Result<NativeWindow, String> {
     let display = window.display_handle().map_err(|e| e.to_string())?.as_raw();
     let handle = window.window_handle().map_err(|e| e.to_string())?.as_raw();
     // SAFETY: the window and its display outlive the session.
-    unsafe {
-        match (display, handle) {
-            (RawDisplayHandle::Wayland(d), RawWindowHandle::Wayland(w)) => {
-                Ok(NativeWindow::wayland(d.display, w.surface))
-            }
-            (RawDisplayHandle::Xlib(d), RawWindowHandle::Xlib(w)) => {
-                let display: NonNull<std::ffi::c_void> = d.display.ok_or("no Xlib display")?;
-                Ok(NativeWindow::xlib(display, w.window))
-            }
-            _ => Err("the session can't present to this kind of window; try --present cpu".into()),
-        }
-    }
+    Ok(unsafe { NativeWindow::new(display, handle) })
 }
 
 fn error_chain(e: &dyn std::error::Error) -> String {

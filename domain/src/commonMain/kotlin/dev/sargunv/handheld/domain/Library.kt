@@ -1,13 +1,14 @@
 package dev.sargunv.handheld.domain
 
+import dev.sargunv.handheld.domain.launch.CollectionId
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.time.Instant
 
 /** A platform on the RomM server, such as a console. Its shelf holds its ROMs. */
 data class Platform(
   /** RomM's id for the platform. */
   val id: Long,
-  /** RomM's canonical slug, such as `ps2`, which launch rules key on. */
-  val slug: String,
+  val slug: PlatformSlug,
   /** The name of the platform's folder in the server's library. */
   val fsSlug: String,
   /** The name to show, which honors a custom name set on the server. */
@@ -16,29 +17,13 @@ data class Platform(
 )
 
 /**
- * What names a game across the app, such as in launch rules and on the Game screen: a ROM on the
- * server by its RomM id, or a local game by its file's path.
- */
-sealed interface GameKey {
-  data class Romm(val romId: Long) : GameKey
-
-  /**
-   * A [LocalGame], by its file's path. It names the file, not its content, so a choice made for it
-   * stays with the file while it keeps its name and place. Once the file is a ROM's, what's kept
-   * for it goes to the ROM ([PerGameState]).
-   */
-  data class Local(val path: String) : GameKey
-}
-
-/**
  * A game the library lists: a [Rom] on the server, or a [LocalGame], a file on the device that
  * matches none of the server's games.
  */
 sealed interface LibraryGame {
   val key: GameKey
   val platformId: Long
-  /** The platform's RomM slug, which launch rules key on. */
-  val platformSlug: String
+  val platformSlug: PlatformSlug
   val title: String
   /** What the library sorts the game by. */
   val sortKey: String
@@ -61,7 +46,7 @@ data class LocalGame(
   val path: String,
   /** The platform whose folder holds the file. */
   override val platformId: Long,
-  override val platformSlug: String,
+  override val platformSlug: PlatformSlug,
   /** The size of its file, or of all the files of a disc set. */
   override val sizeBytes: Long,
   /** When the file last changed. */
@@ -88,10 +73,10 @@ data class Rom(
   /** RomM's id for the ROM. */
   val id: Long,
   override val platformId: Long,
-  override val platformSlug: String,
+  override val platformSlug: PlatformSlug,
   /** The matched title, or the file name without tags when the server matched nothing. */
   override val title: String,
-  /** What the library sorts the ROM by: RomM's natural-sort key for the title. */
+  /** RomM's natural-sort key for the title. */
   override val sortKey: String,
   /** The name of the ROM's file or folder on the server. */
   val fileName: String,
@@ -105,13 +90,10 @@ data class Rom(
   val coverLargeUrl: String?,
   val files: List<RomFile>,
   /** When the ROM was added to the server. */
-  val createdAt: Instant,
+  override val addedAt: Instant,
 ) : LibraryGame {
   override val key: GameKey
     get() = GameKey.Romm(id)
-
-  override val addedAt: Instant
-    get() = createdAt
 }
 
 /** One file of a [Rom]. */
@@ -139,9 +121,13 @@ data class Collection(
   val name: String,
   val description: String,
   val romCount: Int,
-  /** Whether this is the user's favorites collection. */
+  /** Whether this is the user's favorites collection, which lists first. */
   val isFavorite: Boolean,
-)
+) {
+  /** The collection as launch rules name it. */
+  val launchId: CollectionId
+    get() = CollectionId("${kind.name.lowercase()}:$id")
+}
 
 enum class CollectionKind {
   /** A collection whose ROMs the user picked. */

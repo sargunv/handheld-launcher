@@ -20,7 +20,8 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
+import dev.sargunv.handheld.data.Vault
+import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.ui.awaitTag
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
@@ -32,6 +33,7 @@ import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import java.util.Collections
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,9 +41,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.receiveAsFlow
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class SignInTest {
+  private val temp = TemporaryFolder().apply { create() }
+
+  @AfterTest fun cleanUp() = temp.delete()
+
   /** The bodies of the requests to start a device sign-in. */
   private val pairings = Collections.synchronizedList(mutableListOf<String>())
 
@@ -63,8 +70,9 @@ class SignInTest {
   /** Shows the app signed out. */
   private fun ComposeUiTest.launch() {
     launchApp(
+      temp,
       server,
-      credentials = InMemoryCredentialStore(),
+      credentials = Vault.InMemory<RommCredentials>(),
       homePresses = homePresses.receiveAsFlow(),
       layout = DualScreenLayout.Separate,
     )

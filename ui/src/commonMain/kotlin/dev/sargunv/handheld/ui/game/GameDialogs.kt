@@ -13,10 +13,11 @@ import dev.sargunv.handheld.data.downloads.formatSize
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.ConfirmDialog
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.MenuButton
+import dev.sargunv.handheld.ui.places.NOT_ON_SERVER
 
 /**
  * The Game screen's menu, with what [game]'s [status] allows. Uploads run one at a time, so it
@@ -35,7 +36,7 @@ internal fun GameMenu(
 ) {
   Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(game.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(game.title, color = Palette.text, modifier = Modifier.semantics { heading() })
       // Download and Retry are the primary action, so the menu doesn't repeat them.
       when (status) {
         RomStatus.Queued,
@@ -69,7 +70,7 @@ internal fun RemoveDialog(game: LibraryGame, onDismissRequest: () -> Unit, onRem
     fact =
       when (game) {
         is Rom -> "Saves stay here and on RomM"
-        is LocalGame -> "Not on your server · Can't download it again"
+        is LocalGame -> "$NOT_ON_SERVER · Can't download it again"
       },
   )
 }

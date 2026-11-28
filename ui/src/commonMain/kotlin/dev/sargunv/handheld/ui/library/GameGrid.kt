@@ -41,7 +41,7 @@ import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.focus.FocusLazyVerticalGrid
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -60,6 +60,7 @@ import dev.sargunv.handheld.ui.places.Screen
 import dev.sargunv.handheld.ui.places.describes
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
+import dev.sargunv.handheld.ui.places.where
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 
@@ -74,7 +75,7 @@ internal fun ShelfGames(
   gridStates: SaveableStateHolder,
 ) {
   val view = state.libraryView
-  val tab = state.libraryTab
+  val tab = state.libraryView.tab
   val shelves = view.shelves(tab).orEmpty()
   val shelf = source.shelf
   val shelfKey = shelf.key
@@ -167,7 +168,7 @@ internal fun GameGridPane(
               if (message != null) {
                 Text(
                   message,
-                  color = Placeholder.mutedText,
+                  color = Palette.mutedText,
                   modifier = Modifier.align(Alignment.Center),
                 )
               }
@@ -206,13 +207,13 @@ private fun ShelfHeader(shelves: List<LibraryShelf>, shelf: LibraryShelf, grid: 
     shelves.getOrNull(at - 1)?.let { previous ->
       Text(
         "${buttonLabel(Action.PreviousShelf)} ${previous.title}",
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
         fontSize = 14.sp,
       )
     }
     Text(
       shelf.title,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.testTag("shelf:${shelf.key}").semantics { heading() },
@@ -220,7 +221,7 @@ private fun ShelfHeader(shelves: List<LibraryShelf>, shelf: LibraryShelf, grid: 
     shelves.getOrNull(at + 1)?.let { next ->
       Text(
         "${next.title} ${buttonLabel(Action.NextShelf)}",
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
         fontSize = 14.sp,
       )
     }
@@ -228,7 +229,7 @@ private fun ShelfHeader(shelves: List<LibraryShelf>, shelf: LibraryShelf, grid: 
     if (grid != null) {
       Text(
         "${gameCount(grid.games.size)}, ${onDeviceCount(grid.onDevice)}",
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
       )
     }
   }
@@ -267,22 +268,12 @@ private fun GameGrid(state: AppState, games: GridGames) {
             .focusItem(
               gameTag(game),
               onConfirm = { state.navigator.push(Screen.Game(game.key, game.title)) },
-              stateDescription = statusText(status),
+              stateDescription = status.where,
             ),
       )
     }
   }
 }
-
-/** What a screen reader says for a game's [status]. */
-private fun statusText(status: RomStatus) =
-  when (status) {
-    is RomStatus.OnDevice -> "On this device"
-    RomStatus.Queued,
-    is RomStatus.Downloading -> "Downloading"
-    is RomStatus.Failed,
-    RomStatus.NotOnDevice -> "Not on this device"
-  }
 
 /**
  * A game's cover, marked when the game is on the device or on its way. A local game has no cover,
@@ -298,7 +289,7 @@ private fun LibraryCover(game: LibraryGame, status: RomStatus, modifier: Modifie
           null,
           game.title,
           Modifier.fillMaxSize(),
-          description = "${game.title}, $NOT_ON_SERVER",
+          description = "${game.title}, ${NOT_ON_SERVER.lowercase()}",
         )
     }
     when (status) {
@@ -307,7 +298,7 @@ private fun LibraryCover(game: LibraryGame, status: RomStatus, modifier: Modifie
           Modifier.align(Alignment.TopEnd)
             .padding(8.dp)
             .size(12.dp)
-            .background(Placeholder.text, CircleShape)
+            .background(Palette.text, CircleShape)
             .testTag(
               when (game) {
                 is Rom -> "onDevice:${game.id}"
@@ -327,7 +318,7 @@ private fun LibraryCover(game: LibraryGame, status: RomStatus, modifier: Modifie
           Box(
             Modifier.fillMaxHeight()
               .fillMaxWidth(progress ?: 1f)
-              .background(if (progress == null) Placeholder.mutedText else Placeholder.text),
+              .background(if (progress == null) Palette.mutedText else Palette.text),
           )
         }
       }

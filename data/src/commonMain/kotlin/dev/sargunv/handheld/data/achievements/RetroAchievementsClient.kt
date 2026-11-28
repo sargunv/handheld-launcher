@@ -1,22 +1,19 @@
 package dev.sargunv.handheld.data.achievements
 
 import co.touchlab.kermit.Logger
-import dev.sargunv.handheld.data.LenientJson
-import dev.sargunv.handheld.data.httpClient
-import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.okhttp.OkHttp
+import dev.sargunv.handheld.data.decode
+import io.ktor.client.HttpClient
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsBytes
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.content.ByteArrayContent
 import io.ktor.http.parameters
-import kotlinx.io.IOException
+import java.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -26,19 +23,8 @@ import kotlinx.serialization.Serializable
  *
  * RetroAchievements asks every client to name itself in the User-Agent, so [userAgent] goes with
  * each request: `HandheldLauncher/<version> rcheevos/<version>`, the way RetroArch names itself.
- * The client closes [engine] when it's closed.
  */
-class RetroAchievementsClient(
-  private val userAgent: String,
-  private val engine: HttpClientEngine = OkHttp.create(),
-) : AutoCloseable {
-  private val http = httpClient(engine, socketTimeoutMillis = 30_000)
-
-  override fun close() {
-    http.close()
-    engine.close()
-  }
-
+class RetroAchievementsClient(private val userAgent: String, private val http: HttpClient) {
   /**
    * Signs in with [username] and [password], and returns the account with the token that stands in
    * for the password from then on. The password goes only to RetroAchievements, and isn't kept.
@@ -46,33 +32,26 @@ class RetroAchievementsClient(
    * @throws RetroAchievementsException when the server can't be reached or turns the sign-in down.
    */
   suspend fun signIn(username: String, password: String): RetroAchievementsAccount {
-    val text = network {
-      http
-        .post(ENDPOINT) {
-          header(HttpHeaders.UserAgent, userAgent)
-          setBody(
-            FormDataContent(
-              parameters {
-                append("r", "login2")
-                append("u", username)
-                append("p", password)
-              },
-            ),
-          )
-        }
-        .bodyAsText()
-    }
-    val response =
-      try {
-        LenientJson.decodeFromString(LoginResponse.serializer(), text)
-      } catch (e: IllegalArgumentException) {
-        throw RetroAchievementsException("Unreadable response", e)
+    val response = network {
+      http.post(ENDPOINT) {
+        header(HttpHeaders.UserAgent, userAgent)
+        setBody(
+          FormDataContent(
+            parameters {
+              append("r", "login2")
+              append("u", username)
+              append("p", password)
+            },
+          ),
+        )
       }
-    val user = response.user
-    val token = response.token
-    if (!response.success || user == null || token == null) {
-      throw RetroAchievementsException(response.error)
     }
+    val login =
+      response.decode<LoginResponse> { RetroAchievementsException("Unreadable response", it) }
+    val user = login.user
+    val token = login.token
+    if (!login.success || user == null || token == null)
+      throw RetroAchievementsException(login.error)
     return RetroAchievementsAccount(username = user, token = token)
   }
 

@@ -19,8 +19,8 @@ import coil3.PlatformContext
 import coil3.compose.AsyncImage
 import coil3.disk.DiskCache
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
-import kotlinx.io.files.Path
+import dev.sargunv.handheld.ui.Palette
+import java.io.File
 import okio.Path.Companion.toPath
 
 /**
@@ -39,14 +39,14 @@ internal fun Cover(
 ) {
   var loaded by remember(url) { mutableStateOf(false) }
   Box(
-    modifier.background(Placeholder.tile).clearAndSetSemantics {
+    modifier.background(Palette.tile).clearAndSetSemantics {
       description?.let { contentDescription = it }
     },
   ) {
     if (!loaded) {
       Text(
         title,
-        color = Placeholder.text,
+        color = Palette.text,
         modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
       )
     }
@@ -67,10 +67,10 @@ internal fun Cover(
  * and after a restart. The server's covers need no sign-in, so requests carry no token, which also
  * keeps it from reaching the metadata sources' image hosts.
  */
-fun coverImageLoader(context: PlatformContext, cacheDir: Path): ImageLoader =
+fun coverImageLoader(context: PlatformContext, cacheDir: File): ImageLoader =
   ImageLoader.Builder(context)
     .diskCache {
-      DiskCache.Builder().directory(cacheDir.toString().toPath()).maxSizeBytes(CACHE_SIZE).build()
+      DiskCache.Builder().directory(cacheDir.path.toPath()).maxSizeBytes(CACHE_SIZE).build()
     }
     .build()
 

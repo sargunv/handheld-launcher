@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import com.mikepenz.aboutlibraries.entity.Library
 import com.mikepenz.aboutlibraries.entity.License
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
 import dev.sargunv.handheld.ui.focus.focusItem
@@ -54,11 +54,11 @@ private fun rememberLibraries(info: AppInfo): List<Library>? {
  */
 @Composable
 internal fun AboutScreen(state: AppState, onLicence: (Library) -> Unit) {
-  val libraries = rememberLibraries(state.appInfo)
+  val libraries = rememberLibraries(state.platform.appInfo)
   Column(Modifier.fillMaxSize()) {
     Text(
       "About",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 28.sp,
       modifier =
         Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 16.dp).semantics {
@@ -75,28 +75,28 @@ internal fun AboutScreen(state: AppState, onLicence: (Library) -> Unit) {
       ) {
         Text(
           AppName,
-          color = Placeholder.text,
+          color = Palette.text,
           fontSize = 24.sp,
           modifier = Modifier.semantics { heading() },
         )
-        Text("Version ${state.appInfo.version}", color = Placeholder.mutedText)
-        Text("Licence · GPL-3.0-or-later", color = Placeholder.mutedText)
-        Text("No warranty", color = Placeholder.mutedText)
+        Text("Version ${state.platform.appInfo.version}", color = Palette.mutedText)
+        Text("Licence · GPL-3.0-or-later", color = Palette.mutedText)
+        Text("No warranty", color = Palette.mutedText)
         Text(
           "Source · $SourceUrl",
-          color = Placeholder.text,
+          color = Palette.text,
           modifier = Modifier.testTag("about:source"),
         )
       }
       Column(Modifier.weight(3f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
           "Third-party components",
-          color = Placeholder.mutedText,
+          color = Palette.mutedText,
           modifier = Modifier.padding(top = 8.dp).semantics { heading() },
         )
         when {
           libraries == null -> Unit
-          libraries.isEmpty() -> Text("No components listed", color = Placeholder.mutedText)
+          libraries.isEmpty() -> Text("No components listed", color = Palette.mutedText)
           else ->
             FocusLazyColumn(
               Modifier.weight(1f),
@@ -125,11 +125,11 @@ private fun ComponentRow(library: Library, modifier: Modifier, onConfirm: () -> 
     modifier
       .fillMaxWidth()
       .focusItem("component:${library.uniqueId}", onConfirm = onConfirm)
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 20.dp, vertical = 10.dp),
   ) {
-    Text(library.name, color = Placeholder.text)
-    Text(library.summary, color = Placeholder.mutedText, fontSize = 14.sp)
+    Text(library.name, color = Palette.text)
+    Text(library.summary, color = Palette.mutedText, fontSize = 14.sp)
   }
 }
 
@@ -152,7 +152,7 @@ private val License.id: String
  */
 @Composable
 internal fun LicenceScreen(state: AppState, componentId: String, name: String) {
-  val library = rememberLibraries(state.appInfo)?.find { it.uniqueId == componentId }
+  val library = rememberLibraries(state.platform.appInfo)?.find { it.uniqueId == componentId }
   val list = rememberLazyListState()
   val scope = rememberCoroutineScope()
   val step = with(LocalDensity.current) { 120.dp.toPx() }
@@ -175,7 +175,7 @@ internal fun LicenceScreen(state: AppState, componentId: String, name: String) {
     Column(Modifier.fillMaxSize()) {
       Text(
         name,
-        color = Placeholder.text,
+        color = Palette.text,
         fontSize = 28.sp,
         modifier =
           Modifier.padding(start = 48.dp, end = 48.dp, top = 32.dp, bottom = 16.dp).semantics {
@@ -192,7 +192,7 @@ internal fun LicenceScreen(state: AppState, componentId: String, name: String) {
           item(key = "licence:$index") {
             Text(
               licence.name,
-              color = Placeholder.text,
+              color = Palette.text,
               fontSize = 20.sp,
               fontWeight = FontWeight.SemiBold,
               modifier =
@@ -205,7 +205,7 @@ internal fun LicenceScreen(state: AppState, componentId: String, name: String) {
           items(licence.licenseContent.orEmpty().trim().split(ParagraphBreak)) { paragraph ->
             Text(
               paragraph,
-              color = Placeholder.text,
+              color = Palette.text,
               fontSize = 16.sp,
               modifier = Modifier.widthIn(max = 1200.dp),
             )
@@ -232,7 +232,7 @@ private val ParagraphBreak = Regex("""\n\s*\n""")
  */
 @Composable
 internal fun AboutSecondary(state: AppState, licenceOf: String? = null) {
-  val libraries = rememberLibraries(state.appInfo)
+  val libraries = rememberLibraries(state.platform.appInfo)
   val library =
     when (licenceOf) {
       null -> (state.focused as? Focused.OnComponent)?.library
@@ -241,19 +241,19 @@ internal fun AboutSecondary(state: AppState, licenceOf: String? = null) {
   Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
     Text(
       library.name,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       modifier = Modifier.semantics { heading() },
     )
     library.artifactVersion
       ?.ifBlank { null }
       ?.let {
-        Text("Version $it", color = Placeholder.mutedText)
+        Text("Version $it", color = Palette.mutedText)
       }
-    library.description?.ifBlank { null }?.let { Text(it, color = Placeholder.mutedText) }
+    library.description?.ifBlank { null }?.let { Text(it, color = Palette.mutedText) }
     for (licence in library.licenses) {
-      Text(licence.name, color = Placeholder.text, modifier = Modifier.testTag("about:licence"))
+      Text(licence.name, color = Palette.text, modifier = Modifier.testTag("about:licence"))
     }
-    library.website?.ifBlank { null }?.let { Text(it, color = Placeholder.mutedText) }
+    library.website?.ifBlank { null }?.let { Text(it, color = Palette.mutedText) }
   }
 }

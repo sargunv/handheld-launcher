@@ -14,7 +14,6 @@ import java.io.File
 import java.io.IOException
 import java.util.zip.ZipInputStream
 import kotlin.time.Instant
-import kotlinx.io.files.Path
 
 /**
  * A PS2 game's saves on an emulator's shared memory cards: the save folders whose name carries
@@ -249,7 +248,7 @@ internal data class Ps2CardUnit(
     }
     return {
       checkUnchanged(card)
-      writeAtomically(Path(card.file.path), image)
+      writeAtomically(card.file, image)
       if (!card.file.readBytes().contentEquals(image)) {
         throw IOException("Write check failed on ${card.file.name}")
       }

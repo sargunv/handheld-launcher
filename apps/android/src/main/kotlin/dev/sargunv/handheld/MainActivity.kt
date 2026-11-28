@@ -14,7 +14,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
@@ -22,25 +21,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.withStarted
-import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.installIdentifier
-import dev.sargunv.handheld.launch.AndroidGameLauncher
-import dev.sargunv.handheld.launch.BuiltInPlayer
-import dev.sargunv.handheld.launch.PlayCompanion
-import dev.sargunv.handheld.launch.SessionRomHeaders
 import dev.sargunv.handheld.ui.App
-import dev.sargunv.handheld.ui.AppPlatform
-import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.input.HeldKeys
 import dev.sargunv.handheld.ui.places.OpenTarget
+import java.io.File
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
-import kotlinx.io.files.Path
 
 class MainActivity : ComponentActivity() {
   private val heldKeys = HeldKeys()
@@ -55,17 +46,6 @@ class MainActivity : ComponentActivity() {
 
   /** The presses of HOME while the launcher was in front. */
   private val homePresses = Channel<Unit>(Channel.CONFLATED)
-
-  private val device by lazy {
-    DeviceDescription(
-      identifier = installIdentifier(Path(filesDir.path, "install-id")),
-      name =
-        if (Build.MODEL.startsWith(Build.MANUFACTURER)) Build.MODEL
-        else "${Build.MANUFACTURER} ${Build.MODEL}",
-      platform = "android",
-      appVersion = handheldApp.versionName,
-    )
-  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -85,71 +65,27 @@ class MainActivity : ComponentActivity() {
     // A recreated activity has already shown the screen its intent asked for.
     if (savedInstanceState == null) openTarget(intent)?.let(openRequests::trySend)
     getSystemService(InputManager::class.java).registerInputDeviceListener(gamepadMotion, null)
+    BackgroundWorkService.follow(this)
+    askForWorkPermissions()
     val app = handheldApp
-    val settings = app.settingsFile.read()
-    keepDownloadsRunning()
-    val launcher =
-      AndroidGameLauncher(
-        activity = this,
-        romm = app.data.romm,
-        saves = app.playSaves,
-        builtIn =
-          BuiltInPlayer(
-            this,
-            app.playSaves,
-            app.data.builtInSaveFolders.saves,
-            app.settingsFile,
-          ),
-        emulators = app.emulators,
-        plays = app.plays,
-        allFilesAccess = app.allFilesAccess,
-        openAllFilesAccess = { app.openAllFilesAccessSettings(this) },
-        storageVolumes = { app.storageTargets().map { it.root } },
-      )
-    // About reads the list of components that the build puts in the app's resources.
-    val appInfo =
-      AppInfo(app.versionName) {
-        resources.openRawResource(R.raw.aboutlibraries).use { it.readBytes().decodeToString() }
-      }
-    val platform =
-      AppPlatform(
-        device = device,
-        launcher = launcher,
-        apps = InstalledApps(this),
-        romHeaders = SessionRomHeaders,
-        retroAchievements = app.retroAchievementsSignIn,
-        appInfo = appInfo,
-        gameState = app.data.builtInSaveFolders,
-      )
+    val platform = app.platform(this)
     val opens = openRequests.receiveAsFlow()
     val homes = homePresses.receiveAsFlow()
     setContent {
-      val display = rememberSecondaryDisplay()
+      val secondary = rememberSecondaryDisplay()
       // The presentation draws over the play companion's activity on the same display.
-      val companionShows = PlayCompanion.session.collectAsState().value != null
-      var failedDisplayId by remember { mutableStateOf<Int?>(null) }
-      val usableDisplay = display?.takeIf { it.displayId != failedDisplayId }
-      val layout =
-        forcedLayout
-          ?: if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
+      val companionShows = app.plays.companion.collectAsState().value != null
       App(
         modifier = Modifier.exposeTestTags(),
-        layout = layout,
+        layout =
+          forcedLayout
+            ?: if (secondary.display != null) DualScreenLayout.Separate
+            else DualScreenLayout.Folded,
         heldKeys = heldKeys,
         data = app.data,
         platform = platform,
-        coverCacheDir = Path(cacheDir.path, "covers"),
-        initialSettings = settings,
-        saveSettings = app.settingsFile::write,
-        secondaryDisplay = { content ->
-          if (usableDisplay != null && !companionShows) {
-            SecondaryDisplayContent(
-              display = usableDisplay,
-              onFailed = { failedDisplayId = usableDisplay.displayId },
-              content = content,
-            )
-          }
-        },
+        coverCacheDir = File(cacheDir, "covers"),
+        secondaryDisplay = { content -> if (!companionShows) secondary.Show(content) },
         openRequests = opens,
         homePresses = homes,
       )
@@ -164,7 +100,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onResume() {
     super.onResume()
-    handheldApp.setLauncherResumed(true)
+    handheldApp.launcherInFront.value = true
     // The user may be back from granting all-files access, which queued downloads wait for.
     handheldApp.refreshAllFilesAccess()
     // Games may have been copied onto the device, or deleted, while the app was away.
@@ -172,7 +108,7 @@ class MainActivity : ComponentActivity() {
   }
 
   override fun onPause() {
-    handheldApp.setLauncherResumed(false)
+    handheldApp.launcherInFront.value = false
     super.onPause()
   }
 
@@ -192,24 +128,23 @@ class MainActivity : ComponentActivity() {
   }
 
   /**
-   * Starts [BackgroundWorkService] when the queue gets something to download or an upload starts,
-   * so they go on in the background. It waits for the activity to show, since an app in the
-   * background can't start one. While there's work, it asks once for all-files access, which
-   * writing games needs, and once that's granted, to show the progress in a notification.
+   * Asks, once the queue gets something to download or an upload starts, for all-files access,
+   * which writing games to shared storage needs, and once that's granted, to show the progress in a
+   * notification. It waits for the activity to show.
    */
-  private fun keepDownloadsRunning() {
+  private fun askForWorkPermissions() {
     val data = handheldApp.data
-    val hasWork =
-      combine(data.downloads.queue, data.uploads.upload) { queue, upload ->
-        queue.any { it.isActive } || upload?.isRunning == true
-      }
     lifecycleScope.launch {
-      combine(hasWork, handheldApp.allFilesAccess, ::Pair)
+      combine(data.downloads.queue, data.uploads.upload, handheldApp.allFilesAccess) {
+          queue,
+          upload,
+          allFilesAccess ->
+          (queue.any { !it.failed } || upload?.isRunning == true) to allFilesAccess
+        }
         .distinctUntilChanged()
-        .filter { it.first }
+        .filter { (hasWork) -> hasWork }
         .collect { (_, allFilesAccess) ->
           lifecycle.withStarted {
-            // Games go to shared storage, where the app writes only with all-files access.
             if (!allFilesAccess) {
               handheldApp.openAllFilesAccessSettings(this@MainActivity)
             } else if (
@@ -219,7 +154,6 @@ class MainActivity : ComponentActivity() {
             ) {
               requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
             }
-            BackgroundWorkService.start(this@MainActivity)
           }
         }
     }

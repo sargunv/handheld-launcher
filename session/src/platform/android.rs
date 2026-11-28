@@ -5,6 +5,9 @@ use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
 use ndk::native_window::NativeWindow as AndroidWindow;
+use raw_window_handle::{
+    AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 
 use crate::{NativeWindow, Region, SessionError, VideoOutput};
 
@@ -55,7 +58,12 @@ impl PlatformWindow {
     pub(crate) fn native(&self) -> NativeWindow {
         // SAFETY: the reference keeps the window alive while `self` lives,
         // and the session detaches it before dropping `self`.
-        unsafe { NativeWindow::android(self.0.ptr().cast()) }
+        unsafe {
+            NativeWindow::new(
+                RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(self.0.ptr().cast())),
+            )
+        }
     }
 }
 

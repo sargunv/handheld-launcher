@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import kotlin.math.roundToInt
 
 /** How the two screens' content shares the hardware. */
@@ -149,5 +149,5 @@ private val ScreenColor = Color.Black
 /** The second screen with nothing of the app on it, in its usual background. */
 @Composable
 fun EmptySecondaryScreen(modifier: Modifier = Modifier) {
-  Box(modifier.fillMaxSize().background(Placeholder.secondaryBackground))
+  Box(modifier.fillMaxSize().background(Palette.secondaryBackground))
 }

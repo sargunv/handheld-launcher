@@ -41,7 +41,7 @@ import dev.sargunv.handheld.data.romm.SyncStatus
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.about.AboutScreen
 import dev.sargunv.handheld.ui.about.AboutSecondary
 import dev.sargunv.handheld.ui.about.LicenceScreen
@@ -90,8 +90,7 @@ fun MainPrimary(state: AppState) {
     }
   }
   LaunchedEffect(state) { state.followAdoptions() }
-  NavigationHost(state.navigator, Modifier.fillMaxSize().background(Placeholder.background)) {
-    screen ->
+  NavigationHost(state.navigator, Modifier.fillMaxSize().background(Palette.background)) { screen ->
     when (screen) {
       Screen.Places -> NavEntry(screen) { PlacesScreen(state, places, homeKey(homeStart)) }
       is Screen.Game -> NavEntry(screen) { GameScreen(state, screen) }
@@ -110,7 +109,7 @@ fun MainPrimary(state: AppState) {
 @Composable
 fun MainSecondary(state: AppState) {
   Column(
-    Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(24.dp),
+    Modifier.fillMaxSize().background(Palette.secondaryBackground).padding(24.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
   ) {
     when (val screen = state.navigator.current) {
@@ -121,7 +120,7 @@ fun MainSecondary(state: AppState) {
       Screen.Places -> {
         val focused = state.focused
         when {
-          state.place == Place.Downloads -> StorageSummary(state.downloads)
+          state.place == Place.Downloads -> StorageSummary(state.data.downloads)
           state.place == Place.Library -> LibrarySecondary(state)
           state.place == Place.Settings -> SettingsSecondary(state)
           focused is Focused.OnGame -> GameDescription(state, focused.game)
@@ -141,13 +140,15 @@ fun MainSecondary(state: AppState) {
  */
 private suspend fun AppState.followAdoptions() {
   val backStack = snapshotFlow { navigator.backStack.toList() }
-  combine(handedOver, backStack) { handedOver, screens ->
+  combine(data.adopter.handedOver, backStack) { handedOver, screens ->
       val roms = handedOver.associate { it.local to it.rom }
       for (screen in screens) {
         val replacement =
           when (screen) {
             is Screen.Game ->
-              roms[screen.key]?.let { library.rom(it.romId) }?.let { Screen.Game(it.id, it.title) }
+              roms[screen.key]
+                ?.let { data.library.rom(it.romId) }
+                ?.let { Screen.Game(it.id, it.title) }
             is Screen.OpenWith ->
               (screen.scope as? OpenWithScope.Game)
                 ?.let { roms[it.game] }
@@ -168,22 +169,22 @@ private suspend fun AppState.followAdoptions() {
 internal fun ShelfDescription(title: String, games: Int, onDevice: Int?, about: String?) {
   Text(
     title,
-    color = Placeholder.text,
+    color = Palette.text,
     fontSize = 24.sp,
     modifier = Modifier.semantics { heading() },
   )
-  Text(gameCount(games), color = Placeholder.mutedText)
-  if (onDevice != null) Text(onDeviceCount(onDevice), color = Placeholder.mutedText)
-  if (!about.isNullOrBlank()) Text(about, color = Placeholder.mutedText)
+  Text(gameCount(games), color = Palette.mutedText)
+  if (onDevice != null) Text(onDeviceCount(onDevice), color = Palette.mutedText)
+  if (!about.isNullOrBlank()) Text(about, color = Palette.mutedText)
 }
 
 /** The lower screen's description of a game. */
 @Composable
 internal fun GameDescription(state: AppState, game: LibraryGame) {
-  val library = state.library
+  val library = state.data.library
   val platforms by remember(library) { library.platforms() }.collectAsState(emptyList())
   val statuses by
-    remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
+    remember(state.data.downloads) { state.data.downloads.statuses() }.collectAsState(emptyMap())
   Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
     Cover(
       (game as? Rom)?.let { it.coverLargeUrl ?: it.coverSmallUrl },
@@ -194,38 +195,22 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
       Text(
         game.title,
-        color = Placeholder.text,
+        color = Palette.text,
         fontSize = 24.sp,
         modifier = Modifier.semantics { heading() },
       )
       Text(
-        platforms.find { it.id == game.platformId }?.name ?: game.platformSlug,
-        color = Placeholder.mutedText,
+        platforms.find { it.id == game.platformId }?.name ?: game.platformSlug.value,
+        color = Palette.mutedText,
       )
-      when (game) {
-        is Rom -> {
-          val onDevice =
-            when (statusOf(game, statuses)) {
-              is RomStatus.OnDevice -> "On this device"
-              RomStatus.Queued,
-              is RomStatus.Downloading -> "Downloading"
-              is RomStatus.Failed,
-              RomStatus.NotOnDevice -> "Not on this device"
-            }
-          Text(onDevice, color = Placeholder.mutedText)
-        }
-        is LocalGame -> {
-          Text("On this device", color = Placeholder.mutedText)
-          Text(
-            NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
-            color = Placeholder.mutedText,
-            modifier = Modifier.testTag("game:not-on-server"),
-          )
-          Text(
-            "${game.fileName} · ${formatSize(game.sizeBytes)}",
-            color = Placeholder.mutedText,
-          )
-        }
+      Text(statusOf(game, statuses).where, color = Palette.mutedText)
+      if (game is LocalGame) {
+        Text(
+          NOT_ON_SERVER,
+          color = Palette.mutedText,
+          modifier = Modifier.testTag("game:not-on-server"),
+        )
+        Text("${game.fileName} · ${formatSize(game.sizeBytes)}", color = Palette.mutedText)
       }
     }
   }
@@ -234,27 +219,31 @@ internal fun GameDescription(state: AppState, game: LibraryGame) {
 private fun homeKey(start: Int) = "${Place.Home.name}:$start"
 
 /** What a local game is marked with, wherever it shows. */
-internal const val NOT_ON_SERVER = "not on your server"
+internal const val NOT_ON_SERVER = "Not on your server"
 
 internal fun gameCount(count: Int) = if (count == 1) "1 game" else "$count games"
 
 internal fun onDeviceCount(count: Int) = "$count on this device"
+
+/** Whether a game with this status is on the device, in words. */
+internal val RomStatus.where: String
+  get() =
+    when (this) {
+      is RomStatus.OnDevice -> "On this device"
+      RomStatus.Queued,
+      is RomStatus.Downloading -> "Downloading"
+      is RomStatus.Failed,
+      RomStatus.NotOnDevice -> "Not on this device"
+    }
 
 /**
  * What accessibility services say for a game's cover: its title, and whether it's on the device,
  * which the cover doesn't show.
  */
 internal fun coverDescription(rom: Rom, status: RomStatus): String {
-  val where =
-    when (status) {
-      is RomStatus.OnDevice -> "on this device"
-      RomStatus.Queued -> "downloading"
-      is RomStatus.Downloading ->
-        status.progress?.let { "downloading ${(it * 100).toInt()}%" } ?: "downloading"
-      is RomStatus.Failed,
-      RomStatus.NotOnDevice -> "not on this device"
-    }
-  return "${rom.title}, $where"
+  val percent =
+    (status as? RomStatus.Downloading)?.progress?.let { " ${(it * 100).toInt()}%" }.orEmpty()
+  return "${rom.title}, ${status.where.lowercase()}$percent"
 }
 
 /**
@@ -269,14 +258,14 @@ private fun PlacesScreen(state: AppState, places: SaveableStateHolder, homeKey: 
     enabled = state.place != Place.Home,
   ) {
     Column(Modifier.fillMaxSize()) {
-      PlaceHeader(state.place, state.romm.sync.collectAsState().value)
+      PlaceHeader(state.place, state.data.romm.sync.collectAsState().value)
       Box(Modifier.fillMaxWidth().weight(1f)) {
         places.SaveableStateProvider(if (state.place == Place.Home) homeKey else state.place.name) {
           when (state.place) {
             Place.Home -> HomePlace(state)
             Place.Library -> LibraryPlace(state)
             Place.Downloads ->
-              DownloadsPlace(state.downloads) {
+              DownloadsPlace(state.data.downloads) {
                 state.navigator.push(Screen.Game(it.romId, it.title))
               }
             Place.Settings -> SettingsPage(state) { state.navigator.push(Screen.About) }
@@ -296,7 +285,7 @@ internal fun PlaceHeader(place: Place, sync: SyncStatus? = null) {
   ) {
     Text(
       place.title,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 22.sp,
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.testTag("place:${place.name}").semantics { heading() },
@@ -305,7 +294,7 @@ internal fun PlaceHeader(place: Place, sync: SyncStatus? = null) {
     if (sync != null && sync != SyncStatus.NotStarted && sync != SyncStatus.Synced) {
       Text(
         sync.label,
-        color = Placeholder.mutedText,
+        color = Palette.mutedText,
         fontSize = 14.sp,
         modifier = Modifier.testTag("sync:status").semantics { liveRegion = LiveRegionMode.Polite },
       )
@@ -329,9 +318,9 @@ internal fun MenuButton(
   Box(
     Modifier.then(if (enabled) Modifier else Modifier.semantics { disabled() })
       .focusItem(key, onConfirm = onConfirm.takeIf { enabled }, role = Role.Button)
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(horizontal = 24.dp, vertical = 12.dp),
   ) {
-    Text(label, color = Placeholder.text)
+    Text(label, color = Palette.text)
   }
 }

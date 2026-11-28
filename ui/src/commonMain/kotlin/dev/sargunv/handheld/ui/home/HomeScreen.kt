@@ -29,9 +29,12 @@ import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.SyncStatus
+import dev.sargunv.handheld.data.settings.HomeSettings
+import dev.sargunv.handheld.data.settings.HomeShelf
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
@@ -43,7 +46,6 @@ import dev.sargunv.handheld.ui.input.Action
 import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.library.collectionShelfKey
 import dev.sargunv.handheld.ui.library.statusOf
@@ -68,20 +70,20 @@ private const val SHELF_SIZE = 20
  */
 @Composable
 internal fun HomePlace(state: AppState) {
-  val library = state.library
-  val sync by state.romm.sync.collectAsState()
+  val library = state.data.library
+  val sync by state.data.romm.sync.collectAsState()
   // The first is the game being played, and the rest make the shelf of recent games.
   val played by remember(library) { library.recentlyPlayed(SHELF_SIZE) }.collectAsState(null)
   val added by remember(library) { library.recentlyAdded(SHELF_SIZE) }.collectAsState(null)
   val collections by remember(library) { library.collections() }.collectAsState(null)
   val statuses by
-    remember(state.downloads) { state.downloads.statuses() }.collectAsState(emptyMap())
+    remember(state.data.downloads) { state.data.downloads.statuses() }.collectAsState(emptyMap())
   var menuOpen by remember { mutableStateOf(false) }
   var gameMenuOpen by remember { mutableStateOf(false) }
   // The shelf with focus, or null while the game being played has it.
   var focusedShelf by rememberSaveable { mutableStateOf<HomeShelf?>(null) }
 
-  val settings = state.settings.home
+  val settings = state.data.settings.settings.collectAsState().value.home
   val playedNow = played.orEmpty()
   val addedNow = added.orEmpty()
   val collectionsNow = collections.orEmpty()
@@ -145,7 +147,7 @@ internal fun HomePlace(state: AppState) {
           if (message != null) {
             Text(
               message,
-              color = Placeholder.mutedText,
+              color = Palette.mutedText,
               modifier = Modifier.align(Alignment.Center),
             )
           } else {
@@ -215,7 +217,9 @@ internal fun HomePlace(state: AppState) {
           state = state,
           rom = continueRom,
           settings = settings,
-          onShowShelf = { state.settings = state.settings.copy(home = settings.show(it)) },
+          onShowShelf = { shelf ->
+            state.data.settings.update { it.copy(home = it.home.show(shelf)) }
+          },
           onDismissRequest = { gameMenuOpen = false },
         )
       }
@@ -224,7 +228,7 @@ internal fun HomePlace(state: AppState) {
           settings = settings,
           shelf = menuShelf,
           shown = shown,
-          onChange = { state.settings = state.settings.copy(home = it) },
+          onChange = { home -> state.data.settings.update { it.copy(home = home) } },
           onDismissRequest = { menuOpen = false },
         )
       }
@@ -241,7 +245,7 @@ private fun ShelfColumn(
   Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Text(
       title,
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier = Modifier.padding(start = 48.dp).semantics { heading() },
     )
     content()
@@ -329,14 +333,14 @@ private fun CollectionShelf(
               description = "${collection.name}, ${gameCount(collection.romCount)}",
             )
             .size(200.dp, 100.dp)
-            .background(Placeholder.tile)
+            .background(Palette.tile)
             .padding(12.dp),
           verticalArrangement = Arrangement.Bottom,
         ) {
           // The tile's description says all of this once.
           Column(Modifier.clearAndSetSemantics {}) {
-            Text(collection.name, color = Placeholder.text)
-            Text(gameCount(collection.romCount), color = Placeholder.mutedText)
+            Text(collection.name, color = Palette.text)
+            Text(gameCount(collection.romCount), color = Palette.mutedText)
           }
         }
       }
@@ -358,7 +362,7 @@ private fun GameMenu(
 ) {
   Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(rom.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(rom.title, color = Palette.text, modifier = Modifier.semantics { heading() })
       MenuButton("menu:game", "Go to game page") {
         onDismissRequest()
         state.navigator.push(Screen.Game(rom.id, rom.title))
@@ -395,7 +399,7 @@ private fun ShelfMenu(
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
       Text(
         shelf?.title ?: "Home",
-        color = Placeholder.text,
+        color = Palette.text,
         modifier = Modifier.semantics { heading() },
       )
       if (shelf != null) {

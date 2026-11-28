@@ -20,7 +20,7 @@ class LowerScreenView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     set(value) {
       if (field === value) return
       field?.let { old ->
-        if (attached) old.detachLowerWindow()
+        if (attached) old.detachWindow(Screen.LOWER)
         old.releaseTouch()
       }
       attached = false
@@ -59,7 +59,7 @@ class LowerScreenView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     // A finger held as the surface goes sends no release.
     session?.releaseTouch()
     // The session must let go of the surface before this returns.
-    if (attached) session?.detachLowerWindow()
+    if (attached) session?.detachWindow(Screen.LOWER)
     attached = false
   }
 
@@ -72,7 +72,7 @@ class LowerScreenView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     val window = NativeWindows.handle(holder.surface) ?: return
     val frame = holder.surfaceFrame
     try {
-      session.attachLowerWindow(window, frame.width().toUInt(), frame.height().toUInt())
+      session.attachWindow(Screen.LOWER, window, frame.width().toUInt(), frame.height().toUInt())
       attached = true
     } catch (e: SessionException) {
       log.e(e) { "Can't present the session's lower screen" }

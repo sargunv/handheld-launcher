@@ -38,7 +38,7 @@ pub use crate::gl::{GlError, NativeWindow};
 pub use crate::handle::{AchievementsReply, GameSession, SessionListener, SessionOptions};
 pub use crate::input::{Button, InputState, MAX_PORTS, Port, Stick, Trigger};
 pub use crate::pacing::timer_next_frame;
-pub use crate::rom_header::{HeaderField, rom_game_id, rom_header_fields};
+pub use crate::rom_header::{HeaderField, HeaderKey, HeaderValue, rom_game_id, rom_header_fields};
 pub use crate::session::{AvInfo, Session, SessionConfig, SessionError, SystemInfo, VideoOutput};
 pub use crate::video::{CapturedFrame, Frame, Region, Screen, VideoSink};
 pub use crate::vulkan::VulkanError;

@@ -30,11 +30,10 @@ import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
 import dev.sargunv.handheld.data.downloads.Download
 import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.downloads.DownloadProgress
-import dev.sargunv.handheld.data.downloads.DownloadState
+import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.StorageSpace
 import dev.sargunv.handheld.data.downloads.formatSize
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyColumn
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -44,6 +43,7 @@ import dev.sargunv.handheld.ui.input.Hint
 import dev.sargunv.handheld.ui.input.HintBar
 import dev.sargunv.handheld.ui.input.onAction
 import dev.sargunv.handheld.ui.labelled
+import dev.sargunv.handheld.ui.library.progress
 import dev.sargunv.handheld.ui.places.MenuButton
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
@@ -55,7 +55,7 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Unit) {
   val queue by downloads.queue.collectAsState()
-  val progress by downloads.progress.collectAsState()
+  val active by downloads.active.collectAsState()
   var focusedId by remember { mutableStateOf<Long?>(null) }
   var menuFor by remember { mutableStateOf<Long?>(null) }
   val focused = queue.find { it.romId == focusedId }
@@ -75,7 +75,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
         if (queue.isEmpty()) {
           Text(
             "Queue empty",
-            color = Placeholder.mutedText,
+            color = Palette.mutedText,
             modifier = Modifier.align(Alignment.Center),
           )
         } else {
@@ -87,7 +87,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
             items(queue, key = { it.romId }) { download ->
               DownloadRow(
                 download,
-                download.progressIn(progress),
+                download.status(active),
                 Modifier.onFocusChanged { if (it.isFocused) focusedId = download.romId },
                 onOpen = { onOpen(download) },
               )
@@ -111,10 +111,10 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
           Text(
             menuDownload.title,
-            color = Placeholder.text,
+            color = Palette.text,
             modifier = Modifier.semantics { heading() },
           )
-          if (menuDownload.state == DownloadState.Failed) {
+          if (menuDownload.failed) {
             MenuButton("menu:retry", "Retry") {
               downloads.retry(menuDownload.romId)
               close()
@@ -133,7 +133,7 @@ internal fun DownloadsPlace(downloads: DownloadManager, onOpen: (Download) -> Un
 @Composable
 private fun DownloadRow(
   download: Download,
-  progress: DownloadProgress,
+  status: RomStatus,
   modifier: Modifier,
   onOpen: () -> Unit,
 ) {
@@ -142,30 +142,32 @@ private fun DownloadRow(
     modifier
       .focusItem(key, onConfirm = onOpen)
       .fillMaxWidth()
-      .background(Placeholder.tile)
+      .background(Palette.tile)
       .padding(16.dp),
     verticalArrangement = Arrangement.spacedBy(8.dp),
   ) {
-    Text(download.title, color = Placeholder.text)
-    Text(statusText(download, progress), color = Placeholder.mutedText, fontSize = 14.sp)
-    if (download.state == DownloadState.Downloading && progress.totalBytes > 0) {
-      Box(Modifier.fillMaxWidth().height(4.dp).background(Placeholder.dialog)) {
-        val fraction = (progress.bytesDownloaded.toFloat() / progress.totalBytes).coerceIn(0f, 1f)
-        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Placeholder.text))
+    Text(download.title, color = Palette.text)
+    Text(statusText(download, status), color = Palette.mutedText, fontSize = 14.sp)
+    val fraction = (status as? RomStatus.Downloading)?.progress
+    if (fraction != null) {
+      Box(Modifier.fillMaxWidth().height(4.dp).background(Palette.dialog)) {
+        Box(
+          Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(Palette.text),
+        )
       }
     }
   }
 }
 
-private fun statusText(download: Download, progress: DownloadProgress): String =
-  when (download.state) {
-    DownloadState.Queued -> "Queued · ${formatSize(download.sizeBytes)}"
-    DownloadState.Downloading -> {
-      val (bytes, total) = progress
+private fun statusText(download: Download, status: RomStatus): String =
+  when (status) {
+    is RomStatus.Downloading -> {
+      val (bytes, total) = status
       val percent = if (total > 0) bytes * 100 / total else 0
       "${formatSize(bytes)} of ${formatSize(total)} · $percent%"
     }
-    DownloadState.Failed -> downloadFailedLabel(download.error)
+    is RomStatus.Failed -> downloadFailedLabel(status.error)
+    else -> "Queued · ${formatSize(download.sizeBytes)}"
   }
 
 internal fun downloadFailedLabel(error: String?): String = labelled("Download failed", error)
@@ -193,7 +195,7 @@ internal fun StorageSummary(downloads: DownloadManager) {
   Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
     Text(
       "Storage",
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -202,10 +204,10 @@ internal fun StorageSummary(downloads: DownloadManager) {
         Modifier.semantics(mergeDescendants = true) {},
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        Text(space.target.label, color = Placeholder.text)
+        Text(space.target.label, color = Palette.text)
         Text(
           "${formatSize(space.freeBytes)} free · ${space.target.root}",
-          color = Placeholder.mutedText,
+          color = Palette.mutedText,
         )
       }
     }

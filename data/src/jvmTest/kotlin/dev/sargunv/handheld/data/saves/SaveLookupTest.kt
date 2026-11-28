@@ -25,7 +25,7 @@ class SaveLookupTest {
     gameId: (file: String, keys: String?) -> String? = { _, _ -> null },
   ): SaveLookup {
     val known = checkNotNull(EmulatorRegistry[EmulatorId(emulator)])
-    val target = LaunchTarget(known.packageName, known.recipe, known)
+    val target = LaunchTarget(known.packageName, known.recipe, known, core = null)
     return gameSaveFor(target, platform, 7, romPath, listOf(storage.path), gameId)
   }
 

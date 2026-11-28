@@ -5,21 +5,22 @@ import dev.sargunv.handheld.domain.Collection
 import dev.sargunv.handheld.domain.CollectionKind
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.time.Instant
 
 class LibraryModelTest {
-  private val gb = Platform(1, "gb", "gb", "Game Boy", 3)
-  private val nes = Platform(2, "nes", "nes", "NES", 2)
-  private val empty = Platform(3, "n64", "n64", "Nintendo 64", 0)
+  private val gb = Platform(1, PlatformSlug("gb"), "gb", "Game Boy", 3)
+  private val nes = Platform(2, PlatformSlug("nes"), "nes", "NES", 2)
+  private val empty = Platform(3, PlatformSlug("n64"), "n64", "Nintendo 64", 0)
 
   private fun rom(id: Long, sortKey: String, addedDay: Int = 1) =
     Rom(
       id = id,
       platformId = 1,
-      platformSlug = "gb",
+      platformSlug = PlatformSlug("gb"),
       title = sortKey,
       sortKey = sortKey,
       fileName = "$sortKey.gb",
@@ -30,7 +31,7 @@ class LibraryModelTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = emptyList(),
-      createdAt = Instant.parse("2025-01-${addedDay.toString().padStart(2, '0')}T00:00:00Z"),
+      addedAt = Instant.parse("2025-01-${addedDay.toString().padStart(2, '0')}T00:00:00Z"),
     )
 
   private val couch = Collection(CollectionKind.Regular, 1, "Couch", "", 3, isFavorite = false)

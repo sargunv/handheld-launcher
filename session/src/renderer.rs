@@ -2,8 +2,7 @@
 //! cores that render with Vulkan.
 
 use crate::ffi;
-use crate::gl::{self, Framebuffer, GlApi, GlContext, Target, WindowRef};
-use crate::host::hw_api;
+use crate::gl::{self, Framebuffer, GlApi, GlContext, SizedWindow, Target};
 use crate::session::{AvInfo, SessionError};
 use crate::video::{self, Frame, Region, Screen};
 use crate::vulkan::{Negotiation, VulkanContext};
@@ -60,14 +59,14 @@ impl Renderer {
         hw: Option<&ffi::retro_hw_render_callback>,
         negotiation: Option<&Negotiation>,
         av: AvInfo,
-        target: Target<'_>,
+        target: Target,
     ) -> Result<Option<Self>, SessionError> {
         if hw.is_some_and(|cb| cb.context_type == ffi::RETRO_HW_CONTEXT_VULKAN) {
             return Ok(Some(Self::Vulkan(VulkanContext::new(negotiation, target)?)));
         }
         let context = match (hw, target) {
             (Some(cb), target) => {
-                let api = hw_api(cb).expect("accepted in SET_HW_RENDER");
+                let api = GlApi::requested(cb).expect("accepted in SET_HW_RENDER");
                 GlContext::new(api, target, cb.debug_context)?
             }
             (None, target @ Target::Window(_)) => {
@@ -90,25 +89,16 @@ impl Renderer {
         Ok(Some(Self::Gl(Gpu::new(context, fb, bottom_left_origin))))
     }
 
-    /// Replaces the window the renderer presents to, or detaches it with
-    /// `None`. On an error, it has no window.
-    pub(crate) fn set_window(&mut self, window: Option<WindowRef<'_>>) -> Result<(), SessionError> {
-        match self {
-            Self::Gl(gpu) => gpu.context.set_window(window)?,
-            Self::Vulkan(vulkan) => vulkan.set_window(window)?,
-        }
-        Ok(())
-    }
-
-    /// Replaces the lower window, or detaches it with `None`. On an error, the
-    /// renderer has no lower window.
-    pub(crate) fn set_lower_window(
+    /// Replaces `screen`'s window, or detaches it with `None`. On an error,
+    /// the screen has no window.
+    pub(crate) fn set_window(
         &mut self,
-        window: Option<WindowRef<'_>>,
+        screen: Screen,
+        window: Option<SizedWindow>,
     ) -> Result<(), SessionError> {
         match self {
-            Self::Gl(gpu) => gpu.context.set_lower_window(window)?,
-            Self::Vulkan(vulkan) => vulkan.set_lower_window(window)?,
+            Self::Gl(gpu) => gpu.context.set_window(screen, window)?,
+            Self::Vulkan(vulkan) => vulkan.set_window(screen, window)?,
         }
         Ok(())
     }

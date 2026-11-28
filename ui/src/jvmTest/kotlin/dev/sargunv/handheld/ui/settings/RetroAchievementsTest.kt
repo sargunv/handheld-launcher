@@ -11,13 +11,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runComposeUiTest
-import dev.sargunv.handheld.data.achievements.InMemoryRetroAchievementsStore
+import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.SecretStore
+import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.achievements.RetroAchievementsAccount
 import dev.sargunv.handheld.data.achievements.RetroAchievementsClient
 import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
-import dev.sargunv.handheld.data.achievements.RetroAchievementsStore
-import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.achievements.AchievementSettings
+import dev.sargunv.handheld.data.httpClient
+import dev.sargunv.handheld.data.settings.AchievementSettings
 import dev.sargunv.handheld.ui.awaitFocused
 import dev.sargunv.handheld.ui.awaitText
 import dev.sargunv.handheld.ui.launchApp
@@ -25,18 +26,35 @@ import dev.sargunv.handheld.ui.places.OpenTarget
 import dev.sargunv.handheld.ui.press
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import java.io.IOException
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.runBlocking
-import kotlinx.io.IOException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class RetroAchievementsTest {
-  private val store = InMemoryRetroAchievementsStore()
-  private val saved = mutableListOf<Settings>()
+  private val temp = TemporaryFolder().apply { create() }
+
+  private val vault = Vault.InMemory<RetroAchievementsAccount>()
+
+  /** The app's scope, which the RetroAchievements sign-in runs in. */
+  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+  @AfterTest
+  fun cleanUp() {
+    scope.cancel()
+    temp.delete()
+  }
 
   /**
    * Opens the RetroAchievements section, whose server [accepts] the password or refuses it once
@@ -45,31 +63,36 @@ class RetroAchievementsTest {
   private fun ComposeUiTest.launch(
     accepts: Boolean,
     answer: CompletableDeferred<Unit> = CompletableDeferred(Unit),
-    accounts: RetroAchievementsStore = store,
-  ) {
-    launchApp(
-      saveSettings = { saved += it },
-      retroAchievements =
-        RetroAchievementsSignIn(accounts) {
-          RetroAchievementsClient(
-            "HandheldLauncher/test rcheevos/12.5",
-            MockEngine {
-              answer.await()
-              if (accepts) {
-                respond("""{"Success":true,"User":"Player","Token":"ra_token"}""")
-              } else {
-                respond(
-                  """{"Success":false,"Status":401,"Code":"invalid_credentials",
-                  "Error":"Invalid user/password combination. Please try again."}""",
-                  HttpStatusCode.Unauthorized,
-                )
-              }
-            },
-          )
-        },
-      open = OpenTarget.Settings(SettingsSection.RetroAchievements),
-    )
+    accounts: Vault<RetroAchievementsAccount> = vault,
+  ): HandheldData {
+    val client =
+      RetroAchievementsClient(
+        "HandheldLauncher/test rcheevos/12.5",
+        httpClient(
+          MockEngine {
+            answer.await()
+            val json = headersOf(HttpHeaders.ContentType, "application/json")
+            if (accepts) {
+              respond("""{"Success":true,"User":"Player","Token":"ra_token"}""", headers = json)
+            } else {
+              respond(
+                """{"Success":false,"Status":401,"Code":"invalid_credentials",
+                "Error":"Invalid user/password combination. Please try again."}""",
+                HttpStatusCode.Unauthorized,
+                json,
+              )
+            }
+          },
+        ),
+      )
+    val data =
+      launchApp(
+        temp,
+        retroAchievements = RetroAchievementsSignIn(SecretStore(accounts), client, scope),
+        open = OpenTarget.Settings(SettingsSection.RetroAchievements),
+      )
     awaitFocused("settings:RetroAchievements")
+    return data
   }
 
   /** Types into the username and password fields, then presses Sign in. */
@@ -88,21 +111,21 @@ class RetroAchievementsTest {
 
   @Test
   fun signsInAndKeepsOnlyTheToken() = runComposeUiTest {
-    launch(accepts = true)
+    val data = launch(accepts = true)
     signIn("player", "hunter2")
     awaitFocused("settings:ra:account")
     onNodeWithTag("settings:ra:account").assertTextEquals("Account", "Player")
-    assertEquals(RetroAchievementsAccount("Player", "ra_token"), runBlocking { store.load() })
+    assertEquals(RetroAchievementsAccount("Player", "ra_token"), vault.read())
 
     onNodeWithTag("settings:ra:hardcore").assertTextEquals("Hardcore", "Off")
     onNodeWithTag("settings:ra:hardcore").performSemanticsAction(SemanticsActions.OnClick)
     onNodeWithTag("settings:ra:hardcore").assertTextEquals("Hardcore", "On")
     waitForIdle()
-    assertEquals(AchievementSettings(hardcore = true), saved.last().achievements)
+    assertEquals(AchievementSettings(hardcore = true), data.settings.settings.value.achievements)
 
     onNodeWithTag("settings:ra:signOut").performSemanticsAction(SemanticsActions.OnClick)
     awaitFocused("settings:ra:username")
-    assertNull(runBlocking { store.load() })
+    assertNull(vault.read())
     // The password isn't kept, even in its field.
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")
   }
@@ -117,7 +140,7 @@ class RetroAchievementsTest {
     awaitFocused("settings:RomM")
     held.complete(Unit)
     waitUntil(timeoutMillis = 5_000) {
-      runBlocking { store.load() } == RetroAchievementsAccount("Player", "ra_token")
+      vault.read() == RetroAchievementsAccount("Player", "ra_token")
     }
   }
 
@@ -128,7 +151,7 @@ class RetroAchievementsTest {
     awaitText("Invalid user/password combination.")
     onNodeWithTag("settings:ra:status")
       .assertTextEquals("Sign-in failed · Invalid user/password combination. Please try again.")
-    assertNull(runBlocking { store.load() })
+    assertNull(vault.read())
     onNodeWithTag("settings:ra:password").assertContentDescriptionEquals("Password: empty")
   }
 
@@ -137,8 +160,8 @@ class RetroAchievementsTest {
     launch(
       accepts = true,
       accounts =
-        object : RetroAchievementsStore by store {
-          override suspend fun save(account: RetroAchievementsAccount) {
+        object : Vault<RetroAchievementsAccount> by vault {
+          override fun write(value: RetroAchievementsAccount) {
             throw IOException("Keystore unavailable")
           }
         },

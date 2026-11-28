@@ -16,17 +16,17 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performKeyInput
 import dev.sargunv.handheld.data.HandheldData
+import dev.sargunv.handheld.data.Vault
 import dev.sargunv.handheld.data.achievements.RetroAchievementsSignIn
-import dev.sargunv.handheld.data.auth.CredentialStore
 import dev.sargunv.handheld.data.auth.DeviceDescription
-import dev.sargunv.handheld.data.auth.InMemoryCredentialStore
 import dev.sargunv.handheld.data.auth.RommCredentials
 import dev.sargunv.handheld.data.cache.LibraryCache
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.domain.PerGameState
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.game.AppCatalog
+import dev.sargunv.handheld.ui.game.FakeLauncher
 import dev.sargunv.handheld.ui.game.GameLauncher
 import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.input.HeldKeys
@@ -35,36 +35,35 @@ import dev.sargunv.handheld.ui.places.OpenTarget
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
-import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.io.files.Path
+import org.junit.rules.TemporaryFolder
 
 /** The server the tests sign in to. */
 internal const val TestServer = "https://romm.test"
 
 /**
- * Shows the app, signed in to [TestServer] unless [credentials] says otherwise, with covers and the
- * download queue in new, empty directories. It shows [open] once signed in, and takes each of
- * [homePresses] as a press of HOME.
+ * Shows the app, signed in to [TestServer] unless [credentials] says otherwise, with [settings],
+ * and with its data and covers in new folders of [temp]. It shows [open] once signed in, and takes
+ * each of [homePresses] as a press of HOME.
  *
- * @return the app's data, whose RomM client talks to [server].
+ * @return the app's data, whose RomM client talks to [server], and whose settings change as the app
+ *   changes them.
  */
 internal fun ComposeUiTest.launchApp(
+  temp: TemporaryFolder,
   server: () -> HttpClientEngine = fakeRomm { _, _ -> respondError(HttpStatusCode.NotFound) },
-  credentials: CredentialStore =
-    InMemoryCredentialStore(RommCredentials(TestServer, "rmm_token", 1, "player")),
+  credentials: Vault<RommCredentials> =
+    Vault.InMemory(RommCredentials(TestServer, "rmm_token", 1, "player")),
   library: LibraryCache = LibraryCache.open(path = null),
   storage: List<StorageTarget> = emptyList(),
   settings: Settings = Settings(),
-  saveSettings: suspend (Settings) -> Unit = {},
   launcher: GameLauncher = GameLauncher.Unsupported,
   apps: AppCatalog = AppCatalog.None,
   romHeaders: RomHeaders = RomHeaders.None,
   appInfo: AppInfo = AppInfo.Unknown,
   retroAchievements: RetroAchievementsSignIn? = null,
-  gameState: PerGameState = PerGameState.None,
   open: OpenTarget? = null,
   homePresses: Flow<Unit> = emptyFlow(),
   layout: DualScreenLayout = DualScreenLayout.Frame,
@@ -74,16 +73,21 @@ internal fun ComposeUiTest.launchApp(
     val heldKeys = remember { HeldKeys() }
     val scope = rememberCoroutineScope()
     data = remember {
-      val dataDir = Path(createTempDirectory("handheld-data").toString())
+      val dataDir = temp.newFolder()
       HandheldData(
-        credentials = credentials,
-        library = library,
-        dataDir = dataDir,
-        cacheDir = dataDir,
-        storage = { storage },
-        scope = scope,
-        engine = server,
-      )
+          credentials = credentials,
+          library = library,
+          dataDir = dataDir,
+          cacheDir = dataDir,
+          settingsFile = dataDir.resolve("settings.json"),
+          storage = { storage },
+          scope = scope,
+          engine = server(),
+        )
+        .also {
+          it.settings.update { settings }
+          (launcher as? FakeLauncher)?.plays = it.adopter.unfinished
+        }
     }
     App(
       layout,
@@ -97,13 +101,10 @@ internal fun ComposeUiTest.launchApp(
           romHeaders,
           retroAchievements,
           appInfo,
-          gameState,
         )
       },
-      remember { Path(createTempDirectory("handheld-covers").toString()) },
+      remember { temp.newFolder() },
       Modifier.trackHeldKeys(heldKeys),
-      initialSettings = settings,
-      saveSettings = saveSettings,
       openRequests = remember { if (open != null) flowOf(open) else emptyFlow() },
       homePresses = homePresses,
     )

@@ -188,12 +188,7 @@ impl Host {
         }
         if data.is_null() {
             // The core repeats its last frame.
-            if self.last_frame_hw {
-                let (w, h) = self.frame_size;
-                self.show_hw_frame(w, h);
-            } else {
-                self.show_sw_frame();
-            }
+            self.show_last_frame();
             return;
         }
         self.last_frame_hw = false;
@@ -225,9 +220,12 @@ impl Host {
 
     /// Presents the last frame again, as when a window is attached.
     pub(crate) fn redraw(&mut self) {
-        if !matches!(self.output, Output::Window { .. }) {
-            return;
+        if matches!(self.output, Output::Window { .. }) {
+            self.show_last_frame();
         }
+    }
+
+    fn show_last_frame(&mut self) {
         if self.last_frame_hw {
             let (w, h) = self.frame_size;
             self.show_hw_frame(w, h);
@@ -596,14 +594,14 @@ impl Host {
                 return false;
             }
         } else {
-            if hw_api(cb).is_none() {
+            if GlApi::requested(cb).is_none() {
                 log::warn!(
                     "core asked for unsupported hardware context {}",
                     cb.context_type
                 );
                 return false;
             }
-            if let Err(e) = gl::egl::instance() {
+            if let Err(e) = gl::egl() {
                 log::warn!("core asked for hardware rendering, but {e}");
                 self.hw_refused = Some(GlError::Unavailable(e).into());
                 return false;
@@ -622,24 +620,6 @@ impl Host {
         );
         self.hw_render = Some(*cb);
         true
-    }
-}
-
-/// The GL API a hardware render request asks for, if the session serves it.
-pub(crate) fn hw_api(cb: &ffi::retro_hw_render_callback) -> Option<GlApi> {
-    match cb.context_type {
-        ffi::RETRO_HW_CONTEXT_OPENGL => Some(GlApi::Gl { core: None }),
-        // Core profiles start at 3.2.
-        ffi::RETRO_HW_CONTEXT_OPENGL_CORE => Some(GlApi::Gl {
-            core: Some((cb.version_major, cb.version_minor).max((3, 2))),
-        }),
-        ffi::RETRO_HW_CONTEXT_OPENGLES2 => Some(GlApi::Gles { major: 2, minor: 0 }),
-        ffi::RETRO_HW_CONTEXT_OPENGLES3 => Some(GlApi::Gles { major: 3, minor: 0 }),
-        ffi::RETRO_HW_CONTEXT_OPENGLES_VERSION => Some(GlApi::Gles {
-            major: cb.version_major,
-            minor: cb.version_minor,
-        }),
-        _ => None,
     }
 }
 
@@ -730,7 +710,7 @@ unsafe extern "C" fn get_proc_address(sym: *const c_char) -> ffi::retro_proc_add
     if sym.is_null() {
         return None;
     }
-    let egl = gl::egl::instance().ok()?;
+    let egl = gl::egl().ok()?;
     // SAFETY: the core passes a C string.
     let name = unsafe { CStr::from_ptr(sym) }.to_str().ok()?;
     let f = egl.get_proc_address(name)?;

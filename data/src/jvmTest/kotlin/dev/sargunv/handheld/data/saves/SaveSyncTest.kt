@@ -39,7 +39,7 @@ class SaveSyncTest {
   private val saveFile = File(saves, "Pokemon Black.sav")
   private val game = GameSave(7, "melonds", FileUnit(listOf(saveFile)))
 
-  @AfterTest fun deleteRoot() = check(root.deleteRecursively())
+  @AfterTest fun cleanUp() = check(root.deleteRecursively())
 
   private var now = Instant.parse("2025-03-01T00:00:00Z")
   private val clock =
@@ -427,8 +427,8 @@ class SaveSyncTest {
     assertEquals(SaveSyncResult.NoSave, sync(server).sync(game))
   }
 
-  // The built-in session's save memory, as BuiltInPlayer syncs it: one file in the game's folder,
-  // beside the session's save states and the backups it keeps.
+  // The built-in session's save memory, as the Android launcher syncs it: one file in the game's
+  // folder, beside the session's save states and the backups it keeps.
 
   private val gameFolder = File(root, "files/saves/7")
   private val saveRam = File(gameFolder, "Pokemon Gaia.srm")
@@ -466,7 +466,7 @@ class SaveSyncTest {
       Instant.parse("2025-01-01T00:00:00Z"),
       emulator = "builtin-mgba_libretro",
     )
-    // BuiltInPlayer makes the game's folder before it syncs.
+    // The Android launcher makes the game's folder before it syncs.
     gameFolder.mkdirs()
     val sync = sync(server)
 

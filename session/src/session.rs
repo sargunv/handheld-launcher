@@ -19,7 +19,7 @@ use crate::content;
 use crate::core::{Core, CoreLoadError};
 use crate::cstr::{path_cstring, string};
 use crate::ffi;
-use crate::gl::{GlError, NativeWindow, Target, WindowRef};
+use crate::gl::{GlError, SizedWindow, Target};
 use crate::host::{self, Host, Output};
 use crate::input::{InputState, MAX_PORTS};
 use crate::options::Options;
@@ -36,13 +36,13 @@ pub enum VideoOutput {
     /// The session presents every frame to a window itself, through an EGL
     /// context it owns, or a Vulkan device for cores that render with Vulkan,
     /// which presents only to Android windows. [`Session::set_window`]
-    /// replaces the window or detaches it, keeping the context.
+    /// replaces a window or detaches it, keeping the context.
     Window {
-        /// The window to start with, and its size in pixels. A session that
-        /// starts without one uses the platform's default EGL display, so
+        /// The main window to start with, and its size in pixels. A session
+        /// that starts without one uses the platform's default EGL display, so
         /// only windows on that display can be attached later, which on
         /// Android is every window.
-        window: Option<(NativeWindow, u32, u32)>,
+        window: Option<SizedWindow>,
         /// What a lower window shows of each frame.
         lower: Region,
     },
@@ -293,10 +293,7 @@ impl Session {
         log::info!("core AV info: {:?}", host.av_info);
         host.reset_audio();
 
-        session.set_up_video(match &window {
-            None => Target::Headless,
-            Some(window) => Target::Window(window_ref(window)),
-        })?;
+        session.set_up_video(window.map_or(Target::Headless, Target::Window))?;
         // A RetroPad on every port, or on every port the core has, as it
         // may not expect calls for ports past its last.
         let ports = session.host().controller_ports.unwrap_or(MAX_PORTS);
@@ -389,7 +386,7 @@ impl Session {
 
     /// Creates the renderer for frames drawn to `target`, and lets a
     /// hardware-rendered core set up its state.
-    fn set_up_video(&mut self, target: Target<'_>) -> Result<(), SessionError> {
+    fn set_up_video(&mut self, target: Target) -> Result<(), SessionError> {
         let host = self.host_mut();
         let hw = host.hw_render;
         host.renderer =
@@ -518,46 +515,27 @@ impl Session {
         }
     }
 
-    /// Replaces the window the session presents to, or detaches it with
-    /// `None`, keeping the GL context and everything in it. The new window
-    /// shows the last frame at once. On an error, the session has no window.
+    /// Replaces `screen`'s window, or detaches it with `None`, keeping the GL
+    /// context and everything in it. While a lower window is attached, the
+    /// main window shows the top half of each frame and the lower window its
+    /// bottom half, as a two-screen system's core draws its screens stacked.
+    /// The new window shows the last frame at once. On an error, the screen
+    /// has no window.
     ///
     /// When this returns, the session no longer uses the old window.
     ///
     /// # Safety
     ///
     /// The window outlives its attachment: until the session drops or this
-    /// is called again.
+    /// is called again for the screen.
     pub unsafe fn set_window(
         &mut self,
-        window: Option<(NativeWindow, u32, u32)>,
+        screen: Screen,
+        window: Option<SizedWindow>,
     ) -> Result<(), SessionError> {
         let host = self.host_mut();
         let renderer = host.window_renderer().ok_or(SessionError::NoWindowOutput)?;
-        renderer.set_window(window_ref(&window))?;
-        host.redraw();
-        Ok(())
-    }
-
-    /// Replaces the lower window, or detaches it with `None`. While a lower
-    /// window is attached, the main window shows the top half of each frame
-    /// and the lower window its bottom half, as a two-screen system's core
-    /// draws its screens stacked. The new window shows the last frame at once.
-    /// On an error, the session has no lower window.
-    ///
-    /// When this returns, the session no longer uses the old lower window.
-    ///
-    /// # Safety
-    ///
-    /// The window outlives its attachment: until the session drops or this
-    /// is called again.
-    pub unsafe fn set_lower_window(
-        &mut self,
-        window: Option<(NativeWindow, u32, u32)>,
-    ) -> Result<(), SessionError> {
-        let host = self.host_mut();
-        let renderer = host.window_renderer().ok_or(SessionError::NoWindowOutput)?;
-        renderer.set_lower_window(window_ref(&window))?;
+        renderer.set_window(screen, window)?;
         host.redraw();
         Ok(())
     }
@@ -680,10 +658,4 @@ impl Drop for Session {
         // reach it.
         drop(unsafe { Box::from_raw(self.host.as_ptr()) });
     }
-}
-
-fn window_ref(window: &Option<(NativeWindow, u32, u32)>) -> Option<WindowRef<'_>> {
-    window
-        .as_ref()
-        .map(|(w, width, height)| (w, *width, *height))
 }

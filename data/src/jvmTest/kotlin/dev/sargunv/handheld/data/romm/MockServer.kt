@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.romm
 
+import dev.sargunv.handheld.data.httpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -23,10 +24,12 @@ class MockServer(
     RommClient(
       baseUrl,
       token,
-      MockEngine { request ->
-        requests += request
-        handler(request)
-      },
+      httpClient(
+        MockEngine { request ->
+          requests += request
+          handler(request)
+        },
+      ),
     )
 }
 

@@ -10,23 +10,6 @@ import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.ui.places.gameCount
 import dev.sargunv.handheld.ui.places.onDeviceCount
-import kotlinx.serialization.Serializable
-
-/** Library's tabs, in the order L and R step through them. */
-@Serializable
-enum class LibraryTab(val title: String) {
-  OnDevice("On device"),
-  Platforms("Platforms"),
-  Collections("Collections"),
-  AllGames("All games"),
-}
-
-/** Library's settings. */
-@Serializable
-data class LibrarySettings(
-  /** The tab Library shows when it opens: the one it was last left on. */
-  val tab: LibraryTab = LibraryTab.Platforms,
-)
 
 /**
  * [game]'s status, by [statuses] for a ROM. A local game is only on the device, so it's always

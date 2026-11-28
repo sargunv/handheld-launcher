@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.downloads.LocalGameState
 import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.downloads.UploadPhase
@@ -35,7 +36,7 @@ import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.LibraryGame
 import dev.sargunv.handheld.domain.LocalGame
 import dev.sargunv.handheld.domain.Rom
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.cover.Cover
 import dev.sargunv.handheld.ui.downloads.downloadFailedLabel
 import dev.sargunv.handheld.ui.focus.FocusScope
@@ -72,9 +73,9 @@ private fun rememberShownGame(state: AppState, key: GameKey): ShownGame {
   val shown by
     produceState<ShownGame>(ShownGame.Loading, key) {
       when (key) {
-        is GameKey.Romm -> state.library.rom(key.romId)?.let { value = ShownGame.Found(it) }
+        is GameKey.Romm -> state.data.library.rom(key.romId)?.let { value = ShownGame.Found(it) }
         is GameKey.Local ->
-          state.games.localGame(key.path).collect {
+          state.data.games.localGame(key.path).collect {
             when (it) {
               is LocalGameState.Local -> value = ShownGame.Found(it.game)
               LocalGameState.Gone -> value = ShownGame.Gone
@@ -105,7 +106,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   val status by
     remember(current) {
         when (current) {
-          is Rom -> state.downloads.status(current)
+          is Rom -> state.data.downloads.status(current)
           is LocalGame -> flowOf(RomStatus.OnDevice(current.path))
           null -> flowOf(null)
         }
@@ -128,10 +129,10 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
   LaunchedEffect(shown, actions.removedLocalGame) {
     if (shown == ShownGame.Gone && actions.removedLocalGame) state.navigator.back()
   }
-  val gameBusy = state.launcher.playing.collectAsState().value != null
+  val gameBusy = state.platform.launcher.playing.collectAsState().value != null
   // The game's own play stays under way until its save has synced.
-  val playing = gameBusy || screen.key in state.launcher.unfinished.collectAsState().value
-  val latestUpload by state.uploads.upload.collectAsState()
+  val playing = gameBusy || screen.key in state.data.adopter.unfinished.collectAsState().value
+  val latestUpload by state.data.uploads.upload.collectAsState()
   val uploading = latestUpload?.isRunning == true
   val upload = latestUpload?.takeIf { it.game.key == screen.key }
   val primary =
@@ -182,7 +183,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
           Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(
               screen.title,
-              color = Placeholder.text,
+              color = Palette.text,
               fontSize = 28.sp,
               modifier = Modifier.semantics { heading() },
             )
@@ -190,17 +191,18 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             if (shown == ShownGame.Gone) {
               Text(
                 "File no longer on this device",
-                color = Placeholder.mutedText,
+                color = Palette.mutedText,
                 modifier = Modifier.testTag("note"),
               )
             }
             if (current != null && primary != null) {
               MenuButton("primary", primary.label, enabled = primary.isAction) {
                 when (primary) {
-                  is PrimaryAction.Download -> if (current is Rom) state.downloads.enqueue(current)
-                  PrimaryAction.Retry -> if (current is Rom) state.downloads.retry(current.id)
+                  is PrimaryAction.Download ->
+                    if (current is Rom) state.data.downloads.enqueue(current)
+                  PrimaryAction.Retry -> if (current is Rom) state.data.downloads.retry(current.id)
                   is PrimaryAction.Play -> actions.play(current, primary.path)
-                  is PrimaryAction.StopUpload -> state.uploads.stop()
+                  is PrimaryAction.StopUpload -> state.data.uploads.stop()
                   is PrimaryAction.Waiting -> Unit
                 }
               }
@@ -212,7 +214,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               val announce = status is RomStatus.Failed || index >= lines.size
               Text(
                 line,
-                color = Placeholder.mutedText,
+                color = Palette.mutedText,
                 modifier =
                   Modifier.testTag("note").semantics {
                     if (announce) liveRegion = LiveRegionMode.Polite
@@ -222,7 +224,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
             (current as? Rom)?.summary?.let {
               Text(
                 it,
-                color = Placeholder.mutedText,
+                color = Palette.mutedText,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
               )
@@ -249,7 +251,7 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
               onDismissRequest = close,
               onCancelDownload = {
                 close()
-                if (current is Rom) state.downloads.cancel(current.id)
+                if (current is Rom) state.data.downloads.cancel(current.id)
               },
               onRemove = { actions.dialog = GameDialog.Remove },
               onUpload = {
@@ -311,8 +313,9 @@ internal fun GameScreen(state: AppState, screen: Screen.Game) {
  */
 @Composable
 private fun GameFacts(state: AppState, game: LibraryGame) {
-  val platforms by remember(state.library) { state.library.platforms() }.collectAsState(emptyList())
-  val platform = platforms.find { it.id == game.platformId }?.name ?: game.platformSlug
+  val platforms by
+    remember(state.data.library) { state.data.library.platforms() }.collectAsState(emptyList())
+  val platform = platforms.find { it.id == game.platformId }?.name ?: game.platformSlug.value
   val facts =
     when (game) {
       // An ISO instant starts with its year.
@@ -321,16 +324,16 @@ private fun GameFacts(state: AppState, game: LibraryGame) {
         listOf(
           platform,
           formatSize(game.sizeBytes),
-          NOT_ON_SERVER.replaceFirstChar { it.uppercase() },
+          NOT_ON_SERVER,
         )
     }
-  Text(facts.joinToString(" · "), color = Placeholder.mutedText)
+  Text(facts.joinToString(" · "), color = Palette.mutedText)
 }
 
 /** The collections [game] is in, as launch rules name them. A local game is in none. */
-internal suspend fun collectionsOf(state: AppState, game: LibraryGame) =
+internal suspend fun collectionsOf(data: HandheldData, game: LibraryGame) =
   when (game) {
-    is Rom -> state.library.collectionsOf(game.id).mapTo(mutableSetOf()) { it.launchId }
+    is Rom -> data.library.collectionsOf(game.id).mapTo(mutableSetOf()) { it.launchId }
     is LocalGame -> emptySet()
   }
 

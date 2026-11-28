@@ -5,7 +5,6 @@ import dev.sargunv.handheld.data.hexDigests
 import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommFirmware
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.domain.saves.BiosLocation
 import java.io.File
@@ -15,7 +14,6 @@ import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
 
 /** What [FirmwareInstaller.install] did. */
 sealed interface FirmwareInstall {
@@ -96,10 +94,10 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
 
   /** The firmware the server has for every platform it emulates as [platform]. */
   private suspend fun firmwareFor(platform: PlatformSlug): List<RommFirmware> {
-    val emulatedAs = PlatformCatalog.emulatedAs(platform)
+    val emulatedAs = platform.emulatedAs
     return client
       .platforms()
-      .filter { PlatformCatalog.emulatedAs(PlatformSlug(it.slug)) == emulatedAs }
+      .filter { it.slug.emulatedAs == emulatedAs }
       .flatMap { client.firmware(it.id) }
   }
 
@@ -119,7 +117,7 @@ class FirmwareInstaller(private val client: RommClient, private val staging: Fil
       )
     val staged =
       File(staging, "${hexDigest("SHA-256", identity.joinToString("\n").encodeToByteArray())}.part")
-    client.downloadFirmware(file.id, file.fileName, Path(staged.path))
+    client.downloadFirmware(file.id, file.fileName, staged)
     try {
       mismatchedHash(staged, file)?.let { throw IOException("$it mismatch") }
       target.parentFile.mkdirs()

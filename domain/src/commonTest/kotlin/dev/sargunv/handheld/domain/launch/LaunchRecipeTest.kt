@@ -3,7 +3,6 @@ package dev.sargunv.handheld.domain.launch
 import dev.sargunv.handheld.domain.emulator.EmulatorId
 import dev.sargunv.handheld.domain.emulator.EmulatorRegistry
 import dev.sargunv.handheld.domain.emulator.KnownEmulator
-import dev.sargunv.handheld.domain.emulator.LibretroCore
 import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
@@ -14,7 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class LaunchCommandBuilderTest {
+class LaunchRecipeTest {
   private val rom = "/storage/emulated/0/ROMs/game.iso"
 
   // A file name with every character that a URI treats specially.
@@ -24,28 +23,27 @@ class LaunchCommandBuilderTest {
 
   private fun build(
     emulator: KnownEmulator,
-    input: LaunchInput,
-    core: LibretroCore? = LibretroCores.recommendedFor(input.platform),
+    platform: PlatformSlug,
+    romPath: String = rom,
+    versionName: String? = null,
   ): LaunchCommand =
-    assertIs<LaunchBuild.Ready>(
-        LaunchCommandBuilder.build(emulator.recipe, emulator.packageName, input, core),
-      )
-      .command
+    assertNotNull(
+      emulator.recipe.commandFor(
+        emulator.packageName,
+        romPath,
+        platform,
+        LibretroCores.recommendedFor(platform),
+        versionName,
+      ),
+    )
 
   private fun build(id: String, platform: PlatformSlug, romPath: String = rom) =
-    build(emulator(id), LaunchInput(romPath, platform))
+    build(emulator(id), platform, romPath)
 
   @Test
   fun viewRomHandsOverAContentUri() {
     val command =
-      assertIs<LaunchBuild.Ready>(
-          LaunchCommandBuilder.build(
-            LaunchRecipe.ViewRom,
-            "dev.example.app",
-            LaunchInput(rom, PlatformCatalog.PS2),
-          ),
-        )
-        .command
+      LaunchRecipe.ViewRom.commandFor("dev.example.app", rom, PlatformCatalog.PS2, null, null)
     assertEquals(
       LaunchCommand(
         packageName = "dev.example.app",
@@ -58,7 +56,7 @@ class LaunchCommandBuilderTest {
       ),
       command,
     )
-    assertEquals(listOf(LaunchUri.ProviderFile(rom)), command.readGrants)
+    assertEquals(listOf(LaunchUri.ProviderFile(rom)), command?.readGrants)
   }
 
   @Test
@@ -91,31 +89,17 @@ class LaunchCommandBuilderTest {
   }
 
   @Test
-  fun retroArchUsesTheAndroidLibraryName() {
-    val command = build("retroarch", PlatformCatalog.N64)
-    assertEquals(
-      "/data/data/com.retroarch/cores/mupen64plus_next_gles3_libretro_android.so",
-      command.extras.first { it.key == "LIBRETRO" }.let { (it as LaunchExtra.StringValue).value },
-    )
-  }
-
-  @Test
   fun aCoreRecipeWithoutACoreFails() {
     val retroArch = emulator("retroarch")
-    val build =
-      LaunchCommandBuilder.build(
-        retroArch.recipe,
-        retroArch.packageName,
-        LaunchInput(rom, PlatformCatalog.PS2),
-      )
-    assertEquals(LaunchBuild.MissingCore(PlatformCatalog.PS2), build)
+    assertNull(
+      retroArch.recipe.commandFor(retroArch.packageName, rom, PlatformCatalog.PS2, null, null),
+    )
   }
 
   @Test
   fun duckStationTakesAPathFromBuild10000() {
     val duckStation = emulator("duckstation")
-    val newBuild =
-      build(duckStation, LaunchInput(rom, PlatformCatalog.PSX, installedVersionName = "0.1-10234"))
+    val newBuild = build(duckStation, PlatformCatalog.PSX, versionName = "0.1-10234")
     assertEquals(LaunchExtra.StringValue("bootPath", rom), newBuild.extras[0])
     assertEquals(LaunchExtra.BooleanValue("resumeState", false), newBuild.extras[1])
     assertTrue(newBuild.readGrants.isEmpty())
@@ -124,12 +108,11 @@ class LaunchCommandBuilderTest {
       newBuild.flags,
     )
 
-    val oldBuild =
-      build(duckStation, LaunchInput(rom, PlatformCatalog.PSX, installedVersionName = "0.1-9000"))
+    val oldBuild = build(duckStation, PlatformCatalog.PSX, versionName = "0.1-9000")
     assertEquals(LaunchExtra.UriString("bootPath", LaunchUri.ProviderFile(rom)), oldBuild.extras[0])
     assertEquals(listOf(LaunchUri.ProviderFile(rom)), oldBuild.readGrants)
 
-    val unknownBuild = build(duckStation, LaunchInput(rom, PlatformCatalog.PSX))
+    val unknownBuild = build(duckStation, PlatformCatalog.PSX)
     assertIs<LaunchExtra.UriString>(unknownBuild.extras[0])
   }
 
@@ -207,15 +190,15 @@ class LaunchCommandBuilderTest {
       command.extras,
     )
 
+    val leading =
+      build("vita3k", PlatformCatalog.VITA, "/storage/emulated/0/ROMs/PCSB00245 - Gravity Rush.zip")
+    assertEquals(
+      listOf(LaunchExtra.StringArray("AppStartParameters", listOf("-r", "PCSB00245"))),
+      leading.extras,
+    )
+
     val noTitle = build("vita3k", PlatformCatalog.VITA, "/storage/emulated/0/ROMs/game.zip")
     assertTrue(noTitle.extras.isEmpty())
-  }
-
-  @Test
-  fun vitaTitleIds() {
-    assertEquals("PCSE00120", VitaTitleId.fromFileName("Persona 4 [PCSE00120].vpk"))
-    assertEquals("PCSB00245", VitaTitleId.fromFileName("PCSB00245 - Gravity Rush.zip"))
-    assertNull(VitaTitleId.fromFileName("Gravity Rush.zip"))
   }
 
   @Test

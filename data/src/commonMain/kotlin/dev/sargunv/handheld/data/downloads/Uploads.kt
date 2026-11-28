@@ -6,6 +6,8 @@ import dev.sargunv.handheld.data.romm.RommClient
 import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.domain.LocalGame
+import java.io.File
+import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -24,11 +26,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.io.IOException
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.readByteArray
 
 /** An upload of [game] to RomM at its [phase], begun when the sign-in could do as [access] says. */
 data class Upload(val game: LocalGame, val access: UploadAccess, val phase: UploadPhase) {
@@ -143,7 +140,7 @@ enum class UploadResult : UploadOutcome {
  *
  * @throws RommException when the server refuses the upload, such as when the account may not upload
  *   games or the platform's folder already holds a file of that name, or can't be reached.
- * @throws kotlinx.io.IOException when the file can't be read.
+ * @throws IOException when the file can't be read.
  */
 suspend fun uploadLocalGame(
   client: RommClient,
@@ -155,8 +152,8 @@ suspend fun uploadLocalGame(
   onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
 ): UploadResult =
   withContext(Dispatchers.IO) {
-    val path = Path(game.path)
-    val total = SystemFileSystem.metadataOrNull(path)?.size ?: game.sizeBytes
+    val file = File(game.path)
+    val total = if (file.isFile) file.length() else game.sizeBytes
     val chunks = ((total + chunkSize - 1) / chunkSize).toInt()
     // The server sizes every chunk but the last alike, as it splits the total among them.
     val chunkLength = if (chunks == 0) 0L else (total + chunks - 1) / chunks
@@ -167,10 +164,12 @@ suspend fun uploadLocalGame(
       }
     try {
       ensureActive()
-      SystemFileSystem.source(path).buffered().use { source ->
+      file.inputStream().buffered().use { input ->
         var sent = 0L
         for (index in 0 until chunks) {
-          val bytes = source.readByteArray(minOf(chunkLength, total - sent).toInt())
+          val length = minOf(chunkLength, total - sent).toInt()
+          val bytes = input.readNBytes(length)
+          if (bytes.size < length) throw IOException("${file.name} cut short")
           client.uploadChunk(uploadId, index, bytes)
           sent += bytes.size
           onProgress(sent, total)

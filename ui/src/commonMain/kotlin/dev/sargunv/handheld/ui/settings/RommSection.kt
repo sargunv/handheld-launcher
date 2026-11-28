@@ -96,7 +96,7 @@ internal fun LazyListScope.romm(
       null,
       "Syncs the library now",
       enabled = !syncing,
-      onConfirm = state.romm::syncNow,
+      onConfirm = state.data.romm::syncNow,
     )
   }
   item(key = "signOut") {

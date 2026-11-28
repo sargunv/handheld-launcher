@@ -32,7 +32,7 @@ class GameLayoutTest {
     Rom(
       id = 1,
       platformId = 1,
-      platformSlug = "psx",
+      platformSlug = PlatformSlug("psx"),
       title = fileName,
       sortKey = fileName,
       fileName = fileName,
@@ -43,7 +43,7 @@ class GameLayoutTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = files.mapIndexed { i, name -> RomFile(i.toLong(), name, 0) },
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   @Test

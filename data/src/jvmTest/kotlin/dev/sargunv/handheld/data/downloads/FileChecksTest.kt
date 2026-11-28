@@ -9,15 +9,11 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlinx.io.files.Path
 
 class FileChecksTest {
   private val dir = createTempDirectory("file-checks-test").toFile()
 
-  @AfterTest
-  fun cleanUp() {
-    dir.deleteRecursively()
-  }
+  @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 
   private fun md5(vararg parts: ByteArray) =
     MessageDigest.getInstance("MD5")
@@ -38,7 +34,7 @@ class FileChecksTest {
   }
 
   private fun check(file: File, md5: String?, crc: String? = null) =
-    matchesServerHashes(Path(file.path), md5, null, crc)
+    matchesServerHashes(file, md5, null, crc)
 
   @Test
   fun checksAFileByItsBytes() {

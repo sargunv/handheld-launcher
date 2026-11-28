@@ -1,84 +1,60 @@
 //! The OpenGL and OpenGL ES side of a session: an EGL context the session
-//! owns, either headless or on a window, the framebuffer hardware-rendered
+//! owns, either headless or on windows, the framebuffer hardware-rendered
 //! cores draw into, and presenting or reading back frames.
+//!
+//! EGL, and libwayland-egl for Wayland windows, load at run time, so the
+//! library has no link-time dependency on a GL stack.
 
-pub(crate) mod egl;
-
-use std::ffi::{c_ulong, c_void};
+use std::ffi::c_void;
 use std::ptr::{self, NonNull};
+use std::sync::OnceLock;
 
 use glow::HasContext;
+use khronos_egl as egl;
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+use wayland_sys::egl::{WaylandEgl, wayland_egl_option, wl_egl_window};
 
-use egl::{Egl, WaylandEgl};
-
+use crate::ffi;
 use crate::video::{Region, Screen};
 
-/// A native window the session presents frames to.
-#[derive(Clone, Copy, Debug)]
-pub struct NativeWindow {
-    kind: WindowKind,
+/// EGL 1.4, which is as far as some Linux GPU drivers go.
+pub(crate) type Egl = egl::DynamicInstance<egl::EGL1_4>;
+
+/// The process's EGL, loaded on first use.
+pub(crate) fn egl() -> Result<&'static Egl, String> {
+    static EGL: OnceLock<Result<Egl, String>> = OnceLock::new();
+    EGL.get_or_init(|| {
+        // SAFETY: the system EGL library is sound to load.
+        unsafe { Egl::load_required() }.map_err(|e| format!("can't load libEGL: {e}"))
+    })
+    .as_ref()
+    .map_err(Clone::clone)
 }
 
+fn wayland_egl() -> Result<&'static WaylandEgl, GlError> {
+    wayland_egl_option().ok_or_else(|| GlError::Unavailable("can't load libwayland-egl".into()))
+}
+
+/// A native window the session presents frames to: a Wayland surface, an
+/// Xlib window, or an Android `ANativeWindow`.
 #[derive(Clone, Copy, Debug)]
-enum WindowKind {
-    Wayland {
-        display: NonNull<c_void>,
-        surface: NonNull<c_void>,
-    },
-    Xlib {
-        display: NonNull<c_void>,
-        window: c_ulong,
-    },
-    #[cfg(target_os = "android")]
-    Android { window: NonNull<c_void> },
+pub struct NativeWindow {
+    display: RawDisplayHandle,
+    pub(crate) window: RawWindowHandle,
 }
 
 impl NativeWindow {
-    /// A Wayland surface.
-    ///
     /// # Safety
     ///
-    /// `display` is a `wl_display` and `surface` a `wl_surface` on it, and
-    /// both outlive the session.
-    pub unsafe fn wayland(display: NonNull<c_void>, surface: NonNull<c_void>) -> Self {
-        Self {
-            kind: WindowKind::Wayland { display, surface },
-        }
-    }
-
-    /// An X11 window, through Xlib.
-    ///
-    /// # Safety
-    ///
-    /// `display` is an Xlib `Display` and `window` a window on it, and both
-    /// outlive the session.
-    pub unsafe fn xlib(display: NonNull<c_void>, window: c_ulong) -> Self {
-        Self {
-            kind: WindowKind::Xlib { display, window },
-        }
-    }
-
-    /// An Android `ANativeWindow`, such as a `Surface`'s.
-    ///
-    /// # Safety
-    ///
-    /// `window` is an `ANativeWindow` that outlives the session.
-    #[cfg(target_os = "android")]
-    pub unsafe fn android(window: NonNull<c_void>) -> Self {
-        Self {
-            kind: WindowKind::Android { window },
-        }
-    }
-
-    /// The `ANativeWindow`, if this is one.
-    #[cfg(target_os = "android")]
-    pub(crate) fn android_window(&self) -> Option<NonNull<c_void>> {
-        match self.kind {
-            WindowKind::Android { window } => Some(window),
-            _ => None,
-        }
+    /// `window` is a window on `display`, and both outlive their attachment
+    /// to the session.
+    pub unsafe fn new(display: RawDisplayHandle, window: RawWindowHandle) -> Self {
+        Self { display, window }
     }
 }
+
+/// A window and its size in pixels.
+pub(crate) type SizedWindow = (NativeWindow, u32, u32);
 
 /// Why the session couldn't set up or use OpenGL.
 #[derive(Debug, thiserror::Error)]
@@ -101,23 +77,40 @@ pub(crate) enum GlApi {
     Gles { major: u32, minor: u32 },
 }
 
+impl GlApi {
+    /// The API a hardware render request asks for, if the session serves it.
+    pub(crate) fn requested(cb: &ffi::retro_hw_render_callback) -> Option<Self> {
+        match cb.context_type {
+            ffi::RETRO_HW_CONTEXT_OPENGL => Some(Self::Gl { core: None }),
+            // Core profiles start at 3.2.
+            ffi::RETRO_HW_CONTEXT_OPENGL_CORE => Some(Self::Gl {
+                core: Some((cb.version_major, cb.version_minor).max((3, 2))),
+            }),
+            ffi::RETRO_HW_CONTEXT_OPENGLES2 => Some(Self::Gles { major: 2, minor: 0 }),
+            ffi::RETRO_HW_CONTEXT_OPENGLES3 => Some(Self::Gles { major: 3, minor: 0 }),
+            ffi::RETRO_HW_CONTEXT_OPENGLES_VERSION => Some(Self::Gles {
+                major: cb.version_major,
+                minor: cb.version_minor,
+            }),
+            _ => None,
+        }
+    }
+}
+
 /// What a [`GlContext`] or [`crate::vulkan::VulkanContext`] draws to.
 #[derive(Clone, Copy)]
-pub(crate) enum Target<'a> {
+pub(crate) enum Target {
     /// No window: frames stay in framebuffers the session reads back.
     Headless,
-    /// A window, attached now or later with [`GlContext::set_window`]. A
+    /// Windows, the first now or later with [`GlContext::set_window`]. A
     /// context that starts without one uses the platform's default display,
     /// so only windows on that display can be attached later, which on
     /// Android is every window.
-    Window(Option<WindowRef<'a>>),
+    Window(Option<SizedWindow>),
 }
 
-/// A window and its size in pixels.
-pub(crate) type WindowRef<'a> = (&'a NativeWindow, u32, u32);
-
-/// An EGL context, current on the thread that created it, with a window or
-/// headless surface.
+/// An EGL context, current on the thread that created it, with window or
+/// headless surfaces.
 pub(crate) struct GlContext {
     pub(crate) gl: glow::Context,
     handles: Handles,
@@ -129,34 +122,38 @@ struct Handles {
     display: egl::Display,
     config: egl::Config,
     context: egl::Context,
-    /// The attached window's surface.
-    window_surface: Option<egl::Surface>,
-    /// The lower window's surface: a second screen that shows the bottom
-    /// half of a two-screen system's frame.
-    lower_surface: Option<egl::Surface>,
-    /// The surface the context is current on without a window: a small
+    /// Each [`Screen`]'s window surface.
+    windows: [Option<WindowSurface>; 2],
+    /// The surface the context is current on without a main window: a small
     /// pbuffer, or `None` where EGL allows surfaceless contexts.
     idle_surface: Option<egl::Surface>,
-    wayland_window: Option<NonNull<c_void>>,
+}
+
+/// A window's EGL surface, and on Wayland the `wl_egl_window` it draws
+/// through.
+#[derive(Clone, Copy)]
+struct WindowSurface {
+    surface: egl::Surface,
+    wayland: Option<NonNull<wl_egl_window>>,
 }
 
 impl GlContext {
     /// Creates a context for `api` and makes it current. The session needs
     /// GL 3.0 or GL ES 3.0, for framebuffer blits.
-    pub(crate) fn new(api: GlApi, target: Target<'_>, debug: bool) -> Result<Self, GlError> {
-        let egl = egl::instance().map_err(GlError::Unavailable)?;
-        let display = match &target {
+    pub(crate) fn new(api: GlApi, target: Target, debug: bool) -> Result<Self, GlError> {
+        let egl = egl().map_err(GlError::Unavailable)?;
+        let display = match target {
             Target::Headless => headless_display(egl),
-            Target::Window(Some((window, ..))) => window_display(egl, window),
+            Target::Window(Some((window, ..))) => window_display(egl, window.display),
             Target::Window(None) => default_display(egl),
         }
         .ok_or_else(|| GlError::Unavailable("no EGL display".into()))?;
         let (major, minor) = egl
             .initialize(display)
             .map_err(|e| GlError::Unavailable(format!("can't initialize the EGL display: {e}")))?;
-        log::debug!("EGL {major}.{minor}: {}", query(egl, display, egl::VERSION));
+        log::debug!("EGL {major}.{minor}");
 
-        let surfaceless = egl::has_extension(egl, Some(display), "EGL_KHR_surfaceless_context");
+        let surfaceless = has_extension(egl, Some(display), "EGL_KHR_surfaceless_context");
         let (bind, renderable) = match api {
             GlApi::Gl { .. } => (egl::OPENGL_API, egl::OPENGL_BIT),
             GlApi::Gles { .. } => (egl::OPENGL_ES_API, egl::OPENGL_ES3_BIT),
@@ -209,10 +206,8 @@ impl GlContext {
             display,
             config,
             context,
-            window_surface: None,
-            lower_surface: None,
+            windows: [None; 2],
             idle_surface: None,
-            wayland_window: None,
         };
         if !surfaceless {
             let attribs = [egl::WIDTH, 16, egl::HEIGHT, 16, egl::NONE];
@@ -221,13 +216,10 @@ impl GlContext {
                 .map_err(|e| GlError::Egl(format!("can't create a pbuffer: {e}")))?;
             handles.idle_surface = Some(surface);
         }
-        if let Target::Window(Some((window, width, height))) = target {
-            handles.window_surface = Some(handles.create_window_surface(window, width, height)?);
+        if let Target::Window(Some(window)) = target {
+            handles.attach(Screen::Main, window)?;
         }
         handles.make_current()?;
-        if handles.window_surface.is_some() {
-            handles.swap_without_waiting();
-        }
         // SAFETY: the context is current, and EGL resolves its functions.
         let gl = unsafe { glow::Context::from_loader_function(|name| proc_address(egl, name)) };
         let this = Self { gl, handles };
@@ -257,85 +249,37 @@ impl GlContext {
         self.handles.make_current()
     }
 
-    /// Replaces the window the context draws to, or detaches it with `None`.
-    /// The context, and every GL object in it, stays. On an error, the
-    /// context has no window.
+    /// Replaces `screen`'s window, or detaches it with `None`. The context,
+    /// and every GL object in it, stays. On an error, the screen has no
+    /// window.
     ///
     /// The old window's surface is gone when this returns, so a platform that
     /// requires it, as Android does before a `Surface` is destroyed, can let
     /// the window go.
-    pub(crate) fn set_window(&mut self, window: Option<WindowRef<'_>>) -> Result<(), GlError> {
-        let h = &mut self.handles;
-        h.destroy_window_surface();
-        h.make_current()?;
-        if let Some((window, width, height)) = window {
-            h.window_surface = Some(h.create_window_surface(window, width, height)?);
-            if let Err(e) = h.make_current() {
-                h.destroy_window_surface();
-                h.make_current()?;
-                return Err(e);
-            }
-            h.swap_without_waiting();
-        }
-        Ok(())
-    }
-
-    /// Replaces the lower window, which shows the bottom half of each frame
-    /// while the main window shows the top half, or detaches it with `None`.
-    /// On an error, the context has no lower window. As with
-    /// [`GlContext::set_window`], the old window's surface is gone when this
-    /// returns.
-    pub(crate) fn set_lower_window(
+    pub(crate) fn set_window(
         &mut self,
-        window: Option<WindowRef<'_>>,
+        screen: Screen,
+        window: Option<SizedWindow>,
     ) -> Result<(), GlError> {
         let h = &mut self.handles;
-        h.destroy_lower_surface();
-        let Some((window, width, height)) = window else {
-            return h.make_current();
-        };
-        if matches!(window.kind, WindowKind::Wayland { .. }) {
-            // A second wl_egl_window would need tracking of its own.
-            return Err(GlError::Egl(
-                "a lower window can't be a Wayland surface".into(),
-            ));
-        }
-        let surface = match h.create_window_surface(window, width, height) {
-            Ok(surface) => surface,
-            Err(e) => {
-                h.make_current()?;
-                return Err(e);
-            }
-        };
-        h.lower_surface = Some(surface);
-        let result = h
-            .make_current_on(Some(surface))
-            .map(|()| h.swap_without_waiting());
-        if let Err(e) = result {
-            h.destroy_lower_surface();
-            h.make_current()?;
-            return Err(e);
-        }
-        h.make_current()
+        h.destroy_window(screen);
+        let attached = window.map_or(Ok(()), |window| h.attach(screen, window));
+        h.make_current()?;
+        attached
     }
 
     /// Tells the surface the new size of `screen`'s window. Only a Wayland
-    /// window, which only the main screen can be, needs it; other platforms
-    /// track the size themselves.
+    /// window needs it; other platforms track the size themselves.
     pub(crate) fn resize(&self, screen: Screen, width: u32, height: u32) {
-        if screen == Screen::Main
-            && let (Some(window), Ok(wl)) = (self.handles.wayland_window, WaylandEgl::get())
+        if let Some(WindowSurface {
+            wayland: Some(window),
+            ..
+        }) = self.handles.windows[screen as usize]
+            && let Ok(wl) = wayland_egl()
         {
+            let (width, height) = (width.max(1) as i32, height.max(1) as i32);
             // SAFETY: `window` is the live wl_egl_window this context made.
-            unsafe {
-                (wl.resize)(
-                    window.as_ptr(),
-                    width.max(1) as i32,
-                    height.max(1) as i32,
-                    0,
-                    0,
-                )
-            };
+            unsafe { (wl.wl_egl_window_resize)(window.as_ptr(), width, height, 0, 0) };
         }
     }
 }
@@ -355,38 +299,52 @@ impl Handles {
         (query(egl::WIDTH), query(egl::HEIGHT))
     }
 
-    fn create_window_surface(
+    /// Creates `screen`'s window surface, and stops swaps on it from waiting
+    /// for the display's refresh: the session paces frames itself. It leaves
+    /// the context current on the new surface.
+    fn attach(
         &mut self,
-        window: &NativeWindow,
-        width: u32,
-        height: u32,
-    ) -> Result<egl::Surface, GlError> {
-        let native = match window.kind {
-            WindowKind::Wayland { surface, .. } => {
-                let wl = WaylandEgl::get().map_err(GlError::Unavailable)?;
-                // SAFETY: the caller of `NativeWindow::wayland` vouched for
-                // the surface.
-                let native = unsafe {
-                    (wl.create)(surface.as_ptr(), width.max(1) as i32, height.max(1) as i32)
-                };
+        screen: Screen,
+        (window, width, height): SizedWindow,
+    ) -> Result<(), GlError> {
+        let (width, height) = (width.max(1) as i32, height.max(1) as i32);
+        let (native, wayland) = match window.window {
+            RawWindowHandle::Wayland(w) => {
+                let wl = wayland_egl()?;
+                // SAFETY: the caller of `NativeWindow::new` vouched for the
+                // surface.
+                let native =
+                    unsafe { (wl.wl_egl_window_create)(w.surface.as_ptr().cast(), width, height) };
                 let native = NonNull::new(native)
                     .ok_or_else(|| GlError::Egl("can't wrap the Wayland surface".into()))?;
-                self.wayland_window = Some(native);
-                native.as_ptr()
+                (native.as_ptr().cast(), Some(native))
             }
-            WindowKind::Xlib { window, .. } => window as *mut c_void,
-            #[cfg(target_os = "android")]
-            WindowKind::Android { window } => window.as_ptr(),
+            RawWindowHandle::Xlib(w) => (w.window as *mut c_void, None),
+            RawWindowHandle::AndroidNdk(w) => (w.a_native_window.as_ptr(), None),
+            other => return Err(GlError::Egl(format!("can't present to a {other:?}"))),
         };
         // SAFETY: a valid config and a native window of the display's platform.
         let surface = unsafe {
             self.egl
                 .create_window_surface(self.display, self.config, native, None)
         };
-        surface.map_err(|e| {
-            self.destroy_wayland_window();
-            GlError::Egl(format!("can't create a window surface: {e}"))
-        })
+        let window = match surface {
+            Ok(surface) => WindowSurface { surface, wayland },
+            Err(e) => {
+                destroy_wayland_window(wayland);
+                return Err(GlError::Egl(format!("can't create a window surface: {e}")));
+            }
+        };
+        self.windows[screen as usize] = Some(window);
+        let current = self.make_current_on(Some(window.surface));
+        if let Err(e) = current {
+            self.destroy_window(screen);
+            return Err(e);
+        }
+        if let Err(e) = self.egl.swap_interval(self.display, 0) {
+            log::warn!("can't set the swap interval: {e}");
+        }
+        Ok(())
     }
 
     /// Makes the context current on no surface, as EGL needs before it
@@ -403,45 +361,21 @@ impl Handles {
         }
     }
 
-    /// Destroys the window surface, leaving the context current on no
+    /// Destroys `screen`'s window surface, leaving the context current on no
     /// surface until the caller makes it current again.
-    fn destroy_window_surface(&mut self) {
-        if let Some(surface) = self.window_surface.take() {
+    fn destroy_window(&mut self, screen: Screen) {
+        if let Some(window) = self.windows[screen as usize].take() {
             self.release_current();
-            self.destroy_surface(surface);
-            self.destroy_wayland_window();
+            self.destroy_surface(window.surface);
+            destroy_wayland_window(window.wayland);
         }
     }
 
-    /// Destroys the lower window's surface, leaving the context current on
-    /// no surface if it was there.
-    fn destroy_lower_surface(&mut self) {
-        if let Some(surface) = self.lower_surface.take() {
-            self.release_current();
-            self.destroy_surface(surface);
-        }
-    }
-
-    fn destroy_wayland_window(&mut self) {
-        if let (Some(window), Ok(wl)) = (self.wayland_window.take(), WaylandEgl::get()) {
-            // SAFETY: the window came from wl_egl_window_create, and no EGL
-            // surface uses it anymore.
-            unsafe { (wl.destroy)(window.as_ptr()) };
-        }
-    }
-
-    /// Stops swaps on the surface the context is current on from waiting for
-    /// the display's refresh: the session paces frames itself.
-    fn swap_without_waiting(&self) {
-        if let Err(e) = self.egl.swap_interval(self.display, 0) {
-            log::warn!("can't set the swap interval: {e}");
-        }
-    }
-
-    /// Makes the context current on this thread, on the window surface if
-    /// there is one.
+    /// Makes the context current on this thread, on the main window if there
+    /// is one.
     fn make_current(&self) -> Result<(), GlError> {
-        self.make_current_on(self.window_surface.or(self.idle_surface))
+        let main = self.windows[Screen::Main as usize].map(|w| w.surface);
+        self.make_current_on(main.or(self.idle_surface))
     }
 
     fn make_current_on(&self, surface: Option<egl::Surface>) -> Result<(), GlError> {
@@ -453,8 +387,8 @@ impl Handles {
 
 impl Drop for Handles {
     fn drop(&mut self) {
-        self.destroy_lower_surface();
-        self.destroy_window_surface();
+        self.destroy_window(Screen::Lower);
+        self.destroy_window(Screen::Main);
         self.release_current();
         if let Some(surface) = self.idle_surface {
             self.destroy_surface(surface);
@@ -463,6 +397,28 @@ impl Drop for Handles {
             log::warn!("can't destroy the context: {e}");
         }
     }
+}
+
+fn destroy_wayland_window(window: Option<NonNull<wl_egl_window>>) {
+    if let (Some(window), Ok(wl)) = (window, wayland_egl()) {
+        // SAFETY: the window came from wl_egl_window_create, and no EGL
+        // surface uses it anymore.
+        unsafe { (wl.wl_egl_window_destroy)(window.as_ptr()) };
+    }
+}
+
+/// Whether `display`'s extension string, or the client extensions for no
+/// display, lists `name`.
+fn has_extension(egl: &Egl, display: Option<egl::Display>, name: &str) -> bool {
+    // A display that predates client extensions has no client extension
+    // string.
+    egl.query_string(display, egl::EXTENSIONS)
+        .is_ok_and(|extensions| {
+            extensions
+                .to_bytes()
+                .split(u8::is_ascii_whitespace)
+                .any(|e| e == name.as_bytes())
+        })
 }
 
 /// The config with 8-bit red, green and blue that best matches, preferring
@@ -501,38 +457,51 @@ fn choose_config(
         .copied())
 }
 
-fn query(egl: &Egl, display: egl::Display, name: egl::Int) -> String {
-    egl.query_string(Some(display), name)
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
 /// Resolves a GL or EGL function by name.
 pub(crate) fn proc_address(egl: &Egl, name: &str) -> *const c_void {
     egl.get_proc_address(name)
         .map_or(ptr::null(), |f| f as *const c_void)
 }
 
+const PLATFORM_X11_KHR: egl::Enum = 0x31D5;
+const PLATFORM_WAYLAND_KHR: egl::Enum = 0x31D8;
+const PLATFORM_SURFACELESS_MESA: egl::Enum = 0x31DD;
+
+/// The display for `platform` and its `native` display: through EGL 1.5's
+/// platform displays, or before 1.5, through `eglGetDisplay`, which guesses
+/// the platform.
+fn platform_display(egl: &Egl, platform: egl::Enum, native: *mut c_void) -> Option<egl::Display> {
+    // SAFETY: the caller passes a native display for the platform.
+    unsafe {
+        match egl.upcast::<egl::EGL1_5>() {
+            Some(egl) => egl
+                .get_platform_display(platform, native, &[egl::ATTRIB_NONE])
+                .ok(),
+            None => egl.get_display(native),
+        }
+    }
+}
+
 fn headless_display(egl: &Egl) -> Option<egl::Display> {
-    if egl::has_extension(egl, None, "EGL_MESA_platform_surfaceless")
-        && let Some(display) =
-            egl::platform_display(egl, egl::PLATFORM_SURFACELESS_MESA, ptr::null_mut())
+    if has_extension(egl, None, "EGL_MESA_platform_surfaceless")
+        && let Some(display) = platform_display(egl, PLATFORM_SURFACELESS_MESA, ptr::null_mut())
     {
         return Some(display);
     }
     default_display(egl)
 }
 
-fn window_display(egl: &Egl, window: &NativeWindow) -> Option<egl::Display> {
-    match window.kind {
-        WindowKind::Wayland { display, .. } => {
-            egl::platform_display(egl, egl::PLATFORM_WAYLAND_KHR, display.as_ptr())
+fn window_display(egl: &Egl, display: RawDisplayHandle) -> Option<egl::Display> {
+    match display {
+        RawDisplayHandle::Wayland(d) => {
+            platform_display(egl, PLATFORM_WAYLAND_KHR, d.display.as_ptr())
         }
-        WindowKind::Xlib { display, .. } => {
-            egl::platform_display(egl, egl::PLATFORM_X11_KHR, display.as_ptr())
-        }
-        #[cfg(target_os = "android")]
-        WindowKind::Android { .. } => default_display(egl),
+        RawDisplayHandle::Xlib(d) => platform_display(
+            egl,
+            PLATFORM_X11_KHR,
+            d.display.map_or(ptr::null_mut(), NonNull::as_ptr),
+        ),
+        _ => default_display(egl),
     }
 }
 
@@ -773,19 +742,23 @@ pub(crate) fn present(
         );
         h.swap(surface);
     };
-    if let Some(lower_surface) = h.lower_surface {
-        if h.make_current_on(Some(lower_surface)).is_ok() {
-            draw(lower, lower_surface);
+    let [main, lower_window] = h.windows.map(|w| w.map(|w| w.surface));
+    if let Some(surface) = lower_window {
+        if h.make_current_on(Some(surface)).is_ok() {
+            draw(lower, surface);
         }
         if let Err(e) = h.make_current() {
             log::warn!("can't go back to the main window: {e}");
             return;
         }
-        if let Some(surface) = h.window_surface {
-            draw(Region::Top, surface);
-        }
-    } else if let Some(surface) = h.window_surface {
-        draw(Region::Whole, surface);
+    }
+    let region = if lower_window.is_some() {
+        Region::Top
+    } else {
+        Region::Whole
+    };
+    if let Some(surface) = main {
+        draw(region, surface);
     }
     drain_errors(&context.gl, "presenting");
 }

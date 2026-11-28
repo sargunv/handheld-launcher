@@ -1129,6 +1129,7 @@ dependencies = [
  "ndk",
  "ndk-sys",
  "png",
+ "raw-window-handle",
  "rom-headers",
  "rtrb",
  "rubato",
@@ -1137,6 +1138,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "uniffi",
+ "wayland-sys",
  "winit",
  "zip",
 ]
@@ -2140,6 +2142,7 @@ version = "0.1.0"
 dependencies = [
  "aes",
  "chd",
+ "crc",
  "encoding_rs",
  "miniz_oxide 0.8.9",
  "ruzstd",

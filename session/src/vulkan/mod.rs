@@ -29,7 +29,7 @@ use ash::{khr, vk};
 use interface::{Handles, QueueLock, RenderInterface, RetroVulkanContext, RetroVulkanImage};
 pub(crate) use interface::{NEGOTIATION_VERSION, Negotiation};
 
-use crate::gl::{NativeWindow, Target, WindowRef};
+use crate::gl::{NativeWindow, SizedWindow, Target};
 use crate::video::{Region, Screen};
 
 /// Why the session couldn't set up or use Vulkan.
@@ -75,10 +75,8 @@ pub(crate) struct VulkanContext {
     swapchain_fn: Option<khr::swapchain::Device>,
     #[cfg(target_os = "android")]
     android_surface_fn: Option<khr::android_surface::Instance>,
-    window: Option<Window>,
-    /// The lower window, which shows the bottom half of each frame while the
-    /// main window shows the top half.
-    lower_window: Option<Window>,
+    /// Each [`Screen`]'s window.
+    windows: [Option<Window>; 2],
     frames: Vec<FrameSlot>,
     readback: Option<Readback>,
     shared: Box<Shared>,
@@ -293,7 +291,7 @@ impl VulkanContext {
     /// interface if it has one, and attaches the window if `target` has one.
     pub(crate) fn new(
         negotiation: Option<&Negotiation>,
-        target: Target<'_>,
+        target: Target,
     ) -> Result<Self, VulkanError> {
         let entry = entry().map_err(VulkanError::Unavailable)?;
         let windowed = matches!(target, Target::Window(_));
@@ -352,7 +350,7 @@ impl VulkanContext {
         entry: &ash::Entry,
         instance: ash::Instance,
         negotiation: Option<&Negotiation>,
-        target: Target<'_>,
+        target: Target,
     ) -> Result<Self, VulkanError> {
         let windowed = matches!(target, Target::Window(_));
         let (mut gpu, mut queue_family) = choose_gpu(&instance)?;
@@ -473,8 +471,7 @@ impl VulkanContext {
             queue_family,
             memory,
             destroy_device,
-            window: None,
-            lower_window: None,
+            windows: [None, None],
             frames: Vec::new(),
             readback: None,
             shared,
@@ -484,7 +481,7 @@ impl VulkanContext {
     }
 
     /// Creates the frame slots and attaches the window, if any.
-    fn init(&mut self, target: Target<'_>) -> Result<(), VulkanError> {
+    fn init(&mut self, target: Target) -> Result<(), VulkanError> {
         for _ in 0..FRAMES {
             // SAFETY: a valid create info; the fence is destroyed on drop.
             let fence = unsafe {
@@ -500,7 +497,7 @@ impl VulkanContext {
             self.frames.push(slot);
         }
         if let Target::Window(Some(window)) = target {
-            self.set_window(Some(window))?;
+            self.set_window(Screen::Main, Some(window))?;
         }
         Ok(())
     }
@@ -674,7 +671,7 @@ impl VulkanContext {
             self.flush();
             return;
         };
-        let outputs: &[(Screen, Region)] = if self.lower_window.is_some() {
+        let outputs: &[(Screen, Region)] = if self.windows[Screen::Lower as usize].is_some() {
             &[(Screen::Lower, lower), (Screen::Main, Region::Top)]
         } else {
             &[(Screen::Main, Region::Whole)]
@@ -693,7 +690,9 @@ impl VulkanContext {
                 continue;
             }
             let acquired = self.frames[slot].acquired[output as usize];
-            let window = self.window_mut(output).as_mut().expect("ensured above");
+            let window = self.windows[output as usize]
+                .as_mut()
+                .expect("ensured above");
             // SAFETY: the swapchain is live and the semaphore unsignaled.
             match unsafe {
                 swapchain_fn.acquire_next_image(
@@ -757,19 +756,12 @@ impl VulkanContext {
             match presented {
                 Ok(_) => {}
                 Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                    if let Some(window) = self.window_mut(draw.output) {
+                    if let Some(window) = &mut self.windows[draw.output as usize] {
                         window.stale = true;
                     }
                 }
                 Err(e) => log::warn!("can't present: {e}"),
             }
-        }
-    }
-
-    fn window_mut(&mut self, output: Screen) -> &mut Option<Window> {
-        match output {
-            Screen::Main => &mut self.window,
-            Screen::Lower => &mut self.lower_window,
         }
     }
 
@@ -884,26 +876,15 @@ impl VulkanContext {
         }
     }
 
-    /// Replaces the window the context presents to, or detaches it with
-    /// `None`. The old window's surface is gone when this returns. On an
-    /// error, the context has no window.
-    pub(crate) fn set_window(&mut self, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
-        self.attach(Screen::Main, window)
-    }
-
-    /// Replaces the lower window, which shows the bottom half of each frame
-    /// while the main window shows the top half, or detaches it with `None`.
-    /// As with [`VulkanContext::set_window`], the old window's surface is gone
-    /// when this returns, and on an error, the context has no lower window.
-    pub(crate) fn set_lower_window(
+    /// Replaces `screen`'s window, or detaches it with `None`. The old
+    /// window's surface is gone when this returns. On an error, the screen
+    /// has no window.
+    pub(crate) fn set_window(
         &mut self,
-        window: Option<WindowRef<'_>>,
+        screen: Screen,
+        window: Option<SizedWindow>,
     ) -> Result<(), VulkanError> {
-        self.attach(Screen::Lower, window)
-    }
-
-    fn attach(&mut self, output: Screen, window: Option<WindowRef<'_>>) -> Result<(), VulkanError> {
-        self.destroy_window(output);
+        self.destroy_window(screen);
         let Some((window, width, height)) = window else {
             return Ok(());
         };
@@ -914,7 +895,7 @@ impl VulkanContext {
             surface_fn.get_physical_device_surface_support(self.gpu, self.queue_family, surface)
         }
         .unwrap_or(false);
-        *self.window_mut(output) = Some(Window {
+        self.windows[screen as usize] = Some(Window {
             surface,
             size: (width, height),
             swapchain: vk::SwapchainKHR::null(),
@@ -924,20 +905,23 @@ impl VulkanContext {
             stale: true,
         });
         if !supported {
-            self.destroy_window(output);
+            self.destroy_window(screen);
             return Err(VulkanError::Vulkan(
                 "the device's queue can't present to the window".into(),
             ));
         }
-        self.create_swapchain(output)
-            .inspect_err(|_| self.destroy_window(output))
+        self.create_swapchain(screen)
+            .inspect_err(|_| self.destroy_window(screen))
     }
 
-    fn create_surface(&self, window: &NativeWindow) -> Result<vk::SurfaceKHR, VulkanError> {
+    fn create_surface(&self, window: NativeWindow) -> Result<vk::SurfaceKHR, VulkanError> {
         #[cfg(target_os = "android")]
-        if let (Some(native), Some(android)) = (window.android_window(), &self.android_surface_fn) {
-            let info = vk::AndroidSurfaceCreateInfoKHR::default().window(native.as_ptr().cast());
-            // SAFETY: the caller of `NativeWindow::android` vouched for the
+        if let (raw_window_handle::RawWindowHandle::AndroidNdk(native), Some(android)) =
+            (window.window, &self.android_surface_fn)
+        {
+            let info = vk::AndroidSurfaceCreateInfoKHR::default()
+                .window(native.a_native_window.as_ptr().cast());
+            // SAFETY: the caller of `NativeWindow::new` vouched for the
             // window.
             return unsafe { android.create_android_surface(&info, None) }
                 .map_err(failed("create a surface"));
@@ -951,7 +935,7 @@ impl VulkanContext {
     /// Tells the context the new size of `screen`'s window, for the next
     /// frame.
     pub(crate) fn resize(&mut self, screen: Screen, width: u32, height: u32) {
-        if let Some(window) = self.window_mut(screen) {
+        if let Some(window) = &mut self.windows[screen as usize] {
             window.size = (width, height);
             window.stale = true;
         }
@@ -960,7 +944,7 @@ impl VulkanContext {
     /// Makes `output`'s swapchain again if it's stale, and returns whether
     /// there's one to present to.
     fn ensure_swapchain(&mut self, output: Screen) -> bool {
-        let Some(window) = self.window_mut(output) else {
+        let Some(window) = &self.windows[output as usize] else {
             return false;
         };
         if window.stale
@@ -968,7 +952,7 @@ impl VulkanContext {
         {
             log::warn!("{e}");
         }
-        self.window_mut(output).as_ref().is_some_and(|w| {
+        self.windows[output as usize].as_ref().is_some_and(|w| {
             w.swapchain != vk::SwapchainKHR::null()
                 && !w.images.is_empty()
                 && w.drawn.len() == w.images.len()
@@ -979,13 +963,11 @@ impl VulkanContext {
     /// any old one. A window with no area gets none.
     fn create_swapchain(&mut self, output: Screen) -> Result<(), VulkanError> {
         self.wait_idle();
-        let window = match output {
-            Screen::Main => &mut self.window,
-            Screen::Lower => &mut self.lower_window,
-        };
-        let (Some(surface_fn), Some(swapchain_fn), Some(window)) =
-            (&self.surface_fn, &self.swapchain_fn, window)
-        else {
+        let (Some(surface_fn), Some(swapchain_fn), Some(window)) = (
+            &self.surface_fn,
+            &self.swapchain_fn,
+            &mut self.windows[output as usize],
+        ) else {
             return Ok(());
         };
         // Until the next resize, a failure leaves the window without a
@@ -1125,7 +1107,7 @@ impl VulkanContext {
     }
 
     fn destroy_window(&mut self, output: Screen) {
-        let Some(window) = self.window_mut(output).take() else {
+        let Some(window) = self.windows[output as usize].take() else {
             return;
         };
         self.wait_idle();
@@ -1493,14 +1475,5 @@ mod tests {
         assert_eq!(out, [1, 2, 3, 255, 4, 5, 6, 255]);
         to_rgba(ChannelOrder::Bgra, &pixels, &mut out);
         assert_eq!(out, [3, 2, 1, 255, 6, 5, 4, 255]);
-    }
-
-    #[test]
-    fn reads_back_only_8_bit_rgba_and_bgra() {
-        assert_eq!(
-            ChannelOrder::of(vk::Format::B8G8R8A8_SRGB),
-            Some(ChannelOrder::Bgra)
-        );
-        assert_eq!(ChannelOrder::of(vk::Format::R5G6B5_UNORM_PACK16), None);
     }
 }

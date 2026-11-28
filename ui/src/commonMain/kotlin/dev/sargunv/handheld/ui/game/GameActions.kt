@@ -59,7 +59,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   var dialog: GameDialog? by mutableStateOf(null)
 
   private val playing: Boolean
-    get() = state.launcher.playing.value != null
+    get() = state.platform.launcher.playing.value != null
 
   /** What the launch is doing before the game starts, such as getting its core. */
   var playProgress: String? by mutableStateOf(null)
@@ -87,16 +87,17 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     notes = emptyList()
     scope.launch {
       try {
-        val collections = collectionsOf(state, game)
+        val collections = collectionsOf(state.data, game)
         notes =
-          state.play(game.key) {
-            state.launcher.play(
+          state.data.adopter.play(game.key) {
+            val settings = state.data.settings.settings.value
+            state.platform.launcher.play(
               game,
               path,
-              state.settings.launch.toRules(),
+              settings.launch,
               collections,
               onProgress = { playProgress = it },
-              closeEmulators = state.settings.closeEmulators,
+              closeEmulators = settings.closeEmulators,
               askStillRunning = { prompt -> ask(prompt) { stillRunning = it } },
             ) { conflict ->
               ask(conflict) { saveConflict = it }
@@ -134,8 +135,8 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     scope.launch {
       val removal =
         when (game) {
-          is Rom -> state.games.remove(game)
-          is LocalGame -> state.games.remove(game)
+          is Rom -> state.data.games.remove(game)
+          is LocalGame -> state.data.games.remove(game)
         }
       notes =
         when (removal) {
@@ -156,7 +157,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
       val access =
         try {
-          state.romm.uploadAccess.filterNotNull().first()
+          state.data.romm.uploadAccess.filterNotNull().first()
         } finally {
           checkingUploads = false
         }
@@ -174,7 +175,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
   /** Uploads [game], with [access] saying what the sign-in may do. */
   fun upload(game: LocalGame, access: UploadAccess) {
     notes = emptyList()
-    state.uploads.start(game, access)
+    state.data.uploads.start(game, access)
   }
 
   /**
@@ -183,7 +184,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
    * to sign in again. It runs until cancelled.
    */
   suspend fun showUploads(key: GameKey) {
-    state.uploads.upload.filterNotNull().collect { upload ->
+    state.data.uploads.upload.filterNotNull().collect { upload ->
       val ended = upload.phase as? UploadPhase.Ended
       if (upload.game.key != key || ended == null) return@collect
       val outcome = ended.outcome
@@ -195,7 +196,7 @@ internal class GameActions(private val state: AppState, private val scope: Corou
       ) {
         dialog = GameDialog.AllowUploads(UPLOAD_FORBIDDEN)
       }
-      state.uploads.seen(upload)
+      state.data.uploads.seen(upload)
     }
   }
 }

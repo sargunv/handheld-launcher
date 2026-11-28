@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.hardware.display.DisplayManager
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.KeyEvent as ComposeKeyEvent
@@ -30,9 +28,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import co.touchlab.kermit.Logger
-import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.answer
 import dev.sargunv.handheld.achievements.message
+import dev.sargunv.handheld.data.settings.AButtonPosition
+import dev.sargunv.handheld.data.settings.InputSettings
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.handheldApp
 import dev.sargunv.handheld.rememberSecondaryDisplay
@@ -53,7 +52,6 @@ import dev.sargunv.handheld.ui.dualscreen.DualScreenLayout
 import dev.sargunv.handheld.ui.focus.FocusRoot
 import dev.sargunv.handheld.ui.input.ActionInputRoot
 import dev.sargunv.handheld.ui.input.HeldKeys
-import dev.sargunv.handheld.ui.input.InputSettings
 import dev.sargunv.handheld.ui.play.QuickMenu
 import dev.sargunv.handheld.ui.play.QuickMenuState
 import dev.sargunv.handheld.ui.play.StateSlotsPanel
@@ -63,7 +61,6 @@ import dev.sargunv.handheld.ui.play.ToastState
 import dev.sargunv.handheld.ui.play.unlockedToast
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -141,13 +138,6 @@ class SessionActivity : ComponentActivity() {
    */
   private val menuKeys = mutableSetOf<Int>()
 
-  /** The client for the session's RetroAchievements requests, closed when lifecycleScope ends. */
-  private val achievementsClient by lazy {
-    handheldApp.retroAchievementsClient().also { client ->
-      lifecycleScope.coroutineContext.job.invokeOnCompletion { client.close() }
-    }
-  }
-
   private val listener =
     object : SessionListener {
       override fun coreQuit() {
@@ -166,7 +156,9 @@ class SessionActivity : ComponentActivity() {
       }
 
       override fun achievementsRequest(request: AchievementsRequest, reply: AchievementsReply) {
-        lifecycleScope.launch(Dispatchers.IO) { achievementsClient.answer(request, reply) }
+        lifecycleScope.launch(Dispatchers.IO) {
+          handheldApp.retroAchievementsClient.answer(request, reply)
+        }
       }
     }
 
@@ -179,11 +171,9 @@ class SessionActivity : ComponentActivity() {
       hide(WindowInsetsCompat.Type.systemBars())
       systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
-    twoScreens =
-      launch.stackedScreensOptions.isNotEmpty() &&
-        getSystemService(DisplayManager::class.java).secondaryDisplay() != null
+    twoScreens = launch.stackedScreensOptions.isNotEmpty() && secondaryDisplay() != null
     view = GameSessionView(this)
-    view.faceKeyCodes = launch.input.aButtonPosition.faceKeyCodes()
+    view.aIsEast = launch.input.aButtonPosition == AButtonPosition.East
     // The menu draws over the game's surface, which shows through where it's clear.
     menu =
       ComposeView(this).apply {
@@ -215,15 +205,14 @@ class SessionActivity : ComponentActivity() {
    */
   @Composable
   private fun SessionContent() {
-    val display = rememberSecondaryDisplay()
-    var failedDisplayId by remember { mutableStateOf<Int?>(null) }
-    val usableDisplay = display?.takeIf { it.displayId != failedDisplayId }
-    val lowerScreen = twoScreens && usableDisplay != null && !lowerUnsupported
+    val secondary = rememberSecondaryDisplay()
+    val separate = secondary.display != null
+    val lowerScreen = twoScreens && separate && !lowerUnsupported
     val slots = @Composable { StateSlotsPanel(quickMenu) }
     // Toasts, such as unlocked achievements, show over the game while it runs.
     if (!menuOpen) ToastHost(toasts, Modifier.exposeTestTags())
     if (menuOpen) {
-      val layout = if (usableDisplay != null) DualScreenLayout.Separate else DualScreenLayout.Folded
+      val layout = if (separate) DualScreenLayout.Separate else DualScreenLayout.Folded
       ActionInputRoot(launch.input, heldKeys, Modifier.exposeTestTags()) {
         FocusRoot {
           Box(Modifier.fillMaxSize()) {
@@ -232,11 +221,8 @@ class SessionActivity : ComponentActivity() {
         }
       }
     }
-    if (usableDisplay != null && (menuOpen || lowerScreen)) {
-      SecondaryDisplayContent(
-        display = usableDisplay,
-        onFailed = { failedDisplayId = usableDisplay.displayId },
-      ) {
+    if (menuOpen || lowerScreen) {
+      secondary.Show {
         Box(Modifier.fillMaxSize()) {
           if (lowerScreen) LowerScreen()
           if (menuOpen) slots()

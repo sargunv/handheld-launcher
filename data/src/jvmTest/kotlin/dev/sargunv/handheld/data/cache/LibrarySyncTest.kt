@@ -3,7 +3,6 @@ package dev.sargunv.handheld.data.cache
 import dev.sargunv.handheld.data.Fixtures
 import dev.sargunv.handheld.data.romm.MockServer
 import dev.sargunv.handheld.data.romm.RommException
-import dev.sargunv.handheld.data.romm.RommJson
 import dev.sargunv.handheld.data.romm.RommRom
 import dev.sargunv.handheld.data.romm.RommRomFile
 import dev.sargunv.handheld.data.romm.TEST_SERVER
@@ -22,11 +21,12 @@ import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 
 class LibrarySyncTest {
   private val cache = LibraryCache.open(path = null, queryContext = EmptyCoroutineContext)
 
-  @AfterTest fun close() = cache.close()
+  @AfterTest fun cleanUp() = cache.close()
 
   /** A fake library: ROM ids to when they changed. */
   private class Library {
@@ -121,7 +121,7 @@ class LibrarySyncTest {
     assertEquals("true", romRequests().first().url.parameters["with_files"])
 
     val rom = cache.rom(1)!!
-    assertEquals("one", cache.platforms().first().first().slug)
+    assertEquals("one", cache.platforms().first().first().slug.value)
     assertEquals(
       "$TEST_SERVER/assets/romm/resources/roms/1/1/cover/small.png?ts=2025-01-01+00%3A00%3A00",
       rom.coverSmallUrl,
@@ -201,8 +201,11 @@ class LibrarySyncTest {
 
   @Test
   fun fallsBackToTheMetadataSourcesCover() {
-    fun rom(json: String) =
-      RommJson.decodeFromString(RommRom.serializer(), json).toDomain(server.client)
+    fun rom(json: String) = Json {
+      ignoreUnknownKeys = true
+    }
+      .decodeFromString(RommRom.serializer(), json)
+      .toDomain(server.client)
 
     val noCover = rom(Fixtures.rom(1, hasCover = false, urlCover = ""))
     assertNull(noCover.coverSmallUrl)

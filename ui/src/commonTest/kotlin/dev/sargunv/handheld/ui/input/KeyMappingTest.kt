@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.ui.input
 
 import androidx.compose.ui.input.key.Key
+import dev.sargunv.handheld.data.settings.ConfirmButton
+import dev.sargunv.handheld.data.settings.InputSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

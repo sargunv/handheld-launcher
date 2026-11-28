@@ -9,6 +9,7 @@ import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.launch.CollectionId
 import dev.sargunv.handheld.domain.launch.LaunchChoice
 import dev.sargunv.handheld.domain.launch.LaunchRule
+import dev.sargunv.handheld.domain.launch.LaunchRules
 import dev.sargunv.handheld.domain.launch.LaunchSubject
 import dev.sargunv.handheld.domain.launch.RuleChain
 import dev.sargunv.handheld.domain.launch.RuleStatus
@@ -51,42 +52,39 @@ sealed interface OpenWithScope {
 internal fun chainFor(
   scope: OpenWithScope,
   platform: PlatformSlug,
-  collections: List<Collection>,
-  launch: LaunchSettings,
-  installed: Set<String>,
-): List<RuleStep> =
+  collections: Set<CollectionId>,
+  rules: LaunchRules,
+  apps: List<InstalledApp>,
+): RuleChain =
   RuleChain.explain(
-    LaunchSubject(
-      (scope as? OpenWithScope.Game)?.game,
-      platform,
-      collections.mapTo(mutableSetOf()) { it.launchId },
-    ),
-    launch.toRules(),
-    installed,
+    LaunchSubject((scope as? OpenWithScope.Game)?.game, platform, collections),
+    rules,
+    apps.mapTo(mutableSetOf()) { it.packageName },
   )
 
 /**
- * The app [platform]'s games open in when nothing more specific applies, such as "Built-in · mGBA"
- * or "PPSSPP", or null when no app on the device can open them.
+ * The app [chain]'s winner opens games in, by name, such as "Built-in · mGBA" or "PPSSPP", or null
+ * when no app on the device can open them.
  */
-internal fun platformOpensIn(
-  platform: PlatformSlug,
-  launch: LaunchSettings,
-  apps: List<InstalledApp>,
-): String? {
-  val installed = apps.mapTo(mutableSetOf()) { it.packageName }
-  val winner =
-    chainFor(OpenWithScope.Platform(platform), platform, emptyList(), launch, installed)
-      .firstOrNull { it.status == RuleStatus.Wins }
-  val choice = winner?.choice ?: return null
-  return appName(choice.packageName, choice.core, apps, platform)
+internal fun opensIn(chain: RuleChain, apps: List<InstalledApp>): String? =
+  chain.winner?.choice?.let { appName(it, apps, chain.platform) }
+
+/** What to say when no app on the device opens [platform]'s games: the emulators to install. */
+fun noEmulator(platform: PlatformSlug): String {
+  val suggestions = EmulatorRegistry.forPlatform(platform).take(2).map { it.displayName }
+  return if (suggestions.isEmpty()) "No emulator"
+  else "No emulator · Install ${suggestions.joinToString(" or ")}"
 }
 
 /** An app the Open with screen offers. [known] marks a known emulator for the game's platform. */
-internal data class AppOption(val choice: SavedChoice, val label: String, val known: Boolean) {
+internal data class AppOption(val choice: LaunchChoice, val label: String, val known: Boolean) {
   /** The option's key in the list, and its row's focus key. */
   val key: String
-    get() = "app:${choice.packageName}:${choice.core}"
+    get() =
+      when (choice) {
+        is LaunchChoice.App -> "app:${choice.packageName}:${choice.core}"
+        is LaunchChoice.BuiltIn -> "app:builtin:${choice.core}"
+      }
 }
 
 /**
@@ -111,21 +109,21 @@ internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<
         val emulator = EmulatorRegistry.forPackage(app.packageName)
         if (emulator?.recipe?.loadsCore == true && core != null) {
           AppOption(
-            SavedChoice(app.packageName, core.library),
+            LaunchChoice.App(app.packageName, core.library),
             withCore(app.label, core),
             true,
           )
         } else {
-          AppOption(SavedChoice(app.packageName), app.label, true)
+          AppOption(LaunchChoice.App(app.packageName), app.label, true)
         }
       }
   val otherOptions =
     others.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.label }).map {
-      AppOption(SavedChoice(it.packageName), it.label, false)
+      AppOption(LaunchChoice.App(it.packageName), it.label, false)
     }
   // The built-in session picks the platform's core when it plays, so the choice doesn't name one.
   val builtIn = core?.let {
-    AppOption(SavedChoice(LaunchChoice.BUILT_IN), withCore(BUILT_IN_NAME, it), true)
+    AppOption(LaunchChoice.BuiltIn(), withCore(BUILT_IN_NAME, it), true)
   }
   return listOfNotNull(builtIn) + knownOptions + otherOptions
 }
@@ -134,26 +132,27 @@ internal fun appOptions(platform: PlatformSlug, apps: List<InstalledApp>): List<
 private const val BUILT_IN_NAME = "Built-in"
 
 /**
- * The name of [packageName]'s app, with [core] when it names one: its label when it's installed,
- * else the known emulator's name, else the package name. The built-in session, which runs a game on
- * [platform] in the platform's core unless [core] names one, is "Built-in" with its core.
+ * The name of [choice]'s app, with its core when it names one: its label when it's installed, else
+ * the known emulator's name, else the package name. The built-in session, which runs a game on
+ * [platform] in the platform's core unless the choice names one, is "Built-in" with its core.
  */
 internal fun appName(
-  packageName: String,
-  core: String?,
+  choice: LaunchChoice,
   apps: List<InstalledApp>,
   platform: PlatformSlug,
-): String {
-  if (packageName == LaunchChoice.BUILT_IN) {
-    return LibretroCores.resolve(core, platform)?.let { withCore(BUILT_IN_NAME, it) }
-      ?: BUILT_IN_NAME
+): String =
+  when (choice) {
+    is LaunchChoice.BuiltIn ->
+      LibretroCores.resolve(choice.core, platform)?.let { withCore(BUILT_IN_NAME, it) }
+        ?: BUILT_IN_NAME
+    is LaunchChoice.App -> {
+      val name =
+        apps.firstOrNull { it.packageName == choice.packageName }?.label
+          ?: EmulatorRegistry.forPackage(choice.packageName)?.displayName
+          ?: choice.packageName
+      choice.core?.let { LibretroCores.resolve(it, platform) }?.let { withCore(name, it) } ?: name
+    }
   }
-  val name =
-    apps.firstOrNull { it.packageName == packageName }?.label
-      ?: EmulatorRegistry.forPackage(packageName)?.displayName
-      ?: packageName
-  return core?.let { LibretroCores.resolve(it, platform) }?.let { withCore(name, it) } ?: name
-}
 
 private fun withCore(name: String, core: LibretroCore) = "$name · ${core.retroArchFolder}"
 
@@ -165,13 +164,13 @@ internal data class ChainLine(val text: String, val wins: Boolean = false)
  * of it.
  *
  * @param collections the collections the steps can name.
- * @param name names an app by package name and core.
+ * @param name names a choice's app.
  */
 internal fun chainLines(
   steps: List<RuleStep>,
   collections: List<Collection>,
   platformName: String,
-  name: (String, String?) -> String,
+  name: (LaunchChoice) -> String,
 ): List<ChainLine> = steps.map { step ->
   val level =
     when (val rule = step.rule) {
@@ -184,7 +183,7 @@ internal fun chainLines(
       LaunchRule.BuiltInDefault,
       LaunchRule.FirstInstalled -> "Platform $platformName"
     }
-  val app = step.choice?.let { name(it.packageName, it.core) } ?: "none"
+  val app = step.choice?.let(name) ?: "none"
   val default = if (step.isDefault) " (default)" else ""
   val note =
     when (step.status) {

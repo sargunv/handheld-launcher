@@ -1,9 +1,7 @@
 package dev.sargunv.handheld.data.romm
 
-import dev.sargunv.handheld.data.httpClient
-import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.compression.ContentEncoding
+import dev.sargunv.handheld.data.decode
+import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.MultiPartFormDataContent
@@ -12,7 +10,6 @@ import io.ktor.client.request.header
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentDisposition
 import io.ktor.http.ContentType
 import io.ktor.http.Headers
@@ -28,6 +25,8 @@ import io.ktor.http.encodedPath
 import io.ktor.http.isSuccess
 import io.ktor.http.parseQueryString
 import io.ktor.http.takeFrom
+import java.io.File
+import java.io.IOException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -36,25 +35,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
-import kotlinx.io.IOException
-import kotlinx.io.files.Path
-import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.serializer
 
 /**
- * A client for a RomM server's API.
+ * A client for a RomM server's API, on the app's one [HttpClient].
  *
- * Every call throws [RommException] when the request fails. The client closes [engine] when it's
- * closed.
+ * Every call throws [RommException] when the request fails.
  *
  * @param baseUrl the server's address, such as `https://romm.example.com`, which may include a path
  *   when the server is served under one.
@@ -62,26 +55,9 @@ import kotlinx.serialization.serializer
  *   sign-in work.
  */
 class RommClient
-internal constructor(
-  baseUrl: String,
-  private val token: String? = null,
-  private val engine: HttpClientEngine = OkHttp.create(),
-) : AutoCloseable {
+internal constructor(baseUrl: String, private val token: String?, private val http: HttpClient) {
   /** The server's address, without a trailing slash. */
   val baseUrl: Url = Url(baseUrl.trimEnd('/'))
-
-  private val http =
-    httpClient(engine) {
-      install(ContentEncoding) {
-        gzip()
-        deflate()
-      }
-    }
-
-  override fun close() {
-    http.close()
-    engine.close()
-  }
 
   /**
    * For a server at a plain `http://` address, its `https://` address when it redirects there, or
@@ -91,7 +67,8 @@ internal constructor(
   internal suspend fun httpsAddress(): String? {
     if (baseUrl.protocol != URLProtocol.HTTP) return null
     val response = network {
-      httpClient(engine) { followRedirects = false }
+      http
+        .config { followRedirects = false }
         .use { noRedirects ->
           noRedirects.request {
             method = HttpMethod.Get
@@ -238,22 +215,22 @@ internal constructor(
   internal suspend fun downloadRomFile(
     fileId: Long,
     fileName: String,
-    target: Path,
-    onProgress: (DownloadProgress) -> Unit = {},
+    target: File,
+    onProgress: (bytes: Long, total: Long?) -> Unit = { _, _ -> },
   ): Long =
     http.download(target, onProgress) {
       endpoint(HttpMethod.Get, listOf("roms", fileId.toString(), "files", "content", fileName))
     }
 
   /** Downloads a firmware file to [target], resuming from what [target] already holds. */
-  internal suspend fun downloadFirmware(firmwareId: Long, fileName: String, target: Path): Long =
-    http.download(target, onProgress = {}) {
+  internal suspend fun downloadFirmware(firmwareId: Long, fileName: String, target: File): Long =
+    http.download(target, onProgress = { _, _ -> }) {
       endpoint(HttpMethod.Get, listOf("firmware", firmwareId.toString(), "content", fileName))
     }
 
   /** Downloads a save's file to [target], which must be empty or missing. */
-  internal suspend fun downloadSave(saveId: Long, target: Path): Long =
-    http.download(target, onProgress = {}) {
+  internal suspend fun downloadSave(saveId: Long, target: File): Long =
+    http.download(target, onProgress = { _, _ -> }) {
       endpoint(HttpMethod.Get, listOf("saves", saveId.toString(), "content"))
     }
 
@@ -413,22 +390,20 @@ internal constructor(
   }
 
   private suspend fun pollDeviceAuth(deviceCode: String): DeviceAuthPoll {
-    val (response, text) =
+    val response =
       exchange(HttpMethod.Post, listOf("auth", "device", "token")) {
         jsonBody(DeviceAuthPollRequest(deviceCode))
       }
-    if (response.status.isSuccess()) {
-      return DeviceAuthPoll.Approved(decode(DeviceToken.serializer(), text))
-    }
+    if (response.status.isSuccess()) return DeviceAuthPoll.Approved(response.decoded())
     if (response.status.value == 400) {
-      when (detailOf(text)) {
+      when (detailOf(response)) {
         "authorization_pending" -> return DeviceAuthPoll.Pending
         "slow_down" -> return DeviceAuthPoll.SlowDown
         "access_denied" -> return DeviceAuthPoll.Denied
         "expired_token" -> return DeviceAuthPoll.Expired
       }
     }
-    throw errorFor(response, text)
+    throw errorFor(response)
   }
 
   /**
@@ -459,40 +434,39 @@ internal constructor(
     path: List<String>,
     noinline params: ParametersBuilder.() -> Unit = {},
     noinline configure: HttpRequestBuilder.() -> Unit = {},
-  ): T =
-    withContext(Dispatchers.Default) {
-      decode(serializer<T>(), request(method, path, params, configure))
-    }
+  ): T {
+    val response = request(method, path, params, configure)
+    return withContext(Dispatchers.Default) { response.decoded() }
+  }
 
-  /** Sends a request to the API's [path], and returns the response's body. */
+  /** Sends a request to the API's [path], and returns the response, unless it's an error. */
   private suspend fun request(
     method: HttpMethod,
     path: List<String>,
     params: ParametersBuilder.() -> Unit = {},
     configure: HttpRequestBuilder.() -> Unit = {},
-  ): String {
-    val (response, text) = exchange(method, path, params, configure)
-    if (!response.status.isSuccess()) throw errorFor(response, text)
-    return text
+  ): HttpResponse {
+    val response = exchange(method, path, params, configure)
+    if (!response.status.isSuccess()) throw errorFor(response)
+    return response
   }
 
-  /** Sends a request to the API's [path], and returns the response with its body, even an error. */
+  /** Sends a request to the API's [path], and returns the response, even an error. */
   private suspend fun exchange(
     method: HttpMethod,
     path: List<String>,
     params: ParametersBuilder.() -> Unit = {},
     configure: HttpRequestBuilder.() -> Unit = {},
-  ): Pair<HttpResponse, String> = network {
-    val response = http.request {
+  ): HttpResponse = network {
+    http.request {
       endpoint(method, path, params)
       configure()
     }
-    response to response.bodyAsText()
   }
 
-  private inline fun <reified T> HttpRequestBuilder.jsonBody(body: T) {
+  private fun HttpRequestBuilder.jsonBody(body: Any) {
     contentType(ContentType.Application.Json)
-    setBody(RommJson.encodeToString(body))
+    setBody(body)
   }
 
   private fun HttpRequestBuilder.endpoint(
@@ -508,13 +482,6 @@ internal constructor(
     }
     token?.let { bearerAuth(it) }
   }
-}
-
-/** The JSON format of RomM's API, which tolerates fields and values this client doesn't know. */
-internal val RommJson = Json {
-  ignoreUnknownKeys = true
-  explicitNulls = false
-  coerceInputValues = true
 }
 
 @Serializable
@@ -550,16 +517,13 @@ internal suspend fun <T> network(block: suspend () -> T): T =
     throw RommException.Unreachable(e)
   }
 
-internal fun <T> decode(serializer: KSerializer<T>, text: String): T =
-  try {
-    RommJson.decodeFromString(serializer, text)
-  } catch (e: IllegalArgumentException) {
-    throw RommException.InvalidResponse("Unreadable response", e)
-  }
+internal suspend inline fun <reified T> HttpResponse.decoded(): T = decode {
+  RommException.InvalidResponse("Unreadable response", it)
+}
 
-/** The exception for an error response with body [text]. */
-internal fun errorFor(response: HttpResponse, text: String): RommException {
-  val detail = detailOf(text)
+/** The exception for an error response. */
+internal suspend fun errorFor(response: HttpResponse): RommException {
+  val detail = detailOf(response)
   return when (val status = response.status.value) {
     401 -> RommException.Unauthorized(detail)
     403 -> RommException.Forbidden(detail)
@@ -570,15 +534,18 @@ internal fun errorFor(response: HttpResponse, text: String): RommException {
   }
 }
 
+@Serializable private class ErrorBody(val detail: JsonElement? = null)
+
 /** The `detail` of a FastAPI error body: a message, or a list of validation errors. */
-private fun detailOf(text: String): String? {
-  val detail =
-    try {
-      RommJson.parseToJsonElement(text).jsonObject["detail"]
-    } catch (e: IllegalArgumentException) {
-      null
-    }
-  return when (detail) {
+private suspend fun detailOf(response: HttpResponse): String? =
+  when (
+    val detail =
+      response
+        .decode<ErrorBody> {
+          return null
+        }
+        .detail
+  ) {
     is JsonPrimitive -> detail.contentOrNull
     is JsonArray ->
       detail
@@ -587,15 +554,14 @@ private fun detailOf(text: String): String? {
         .ifEmpty { null }
     else -> null
   }
-}
 
 /** The body of an upload's start: the file's name, which a header can't carry outside Latin-1. */
 @Serializable private data class UploadTarget(val filename: String)
 
 @Serializable private data class UploadStarted(@SerialName("upload_id") val uploadId: String)
 
-/** A quick scan of [platforms]. */
-@Serializable private data class ScanRequest(val platforms: List<Long>, val type: String = "quick")
+/** A scan of [platforms], quick by the server's default. */
+@Serializable private data class ScanRequest(val platforms: List<Long>)
 
 /** A task the server runs, such as a scan. */
 @Serializable

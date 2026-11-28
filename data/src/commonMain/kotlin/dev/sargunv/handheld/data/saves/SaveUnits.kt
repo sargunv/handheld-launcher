@@ -16,7 +16,6 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlin.time.Instant
-import kotlinx.io.files.Path
 
 /** A game's save as it is on the device: what syncs, and what it's checked by. */
 internal class LocalCopy(
@@ -71,7 +70,7 @@ internal data class FileUnit(val candidates: List<File>) : SaveUnit {
 
   override fun write(target: File, bytes: ByteArray, replaced: String?, keep: (LocalCopy) -> Unit) {
     if (target.isFile) copyOf(target).let { if (it.hash != replaced) keep(it) }
-    writeAtomically(Path(target.path), bytes)
+    writeAtomically(target, bytes)
   }
 
   private fun copyOf(file: File): LocalCopy {

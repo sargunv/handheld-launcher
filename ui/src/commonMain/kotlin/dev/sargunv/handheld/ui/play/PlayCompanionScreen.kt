@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.ui.play
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,22 +10,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
+import dev.sargunv.handheld.ui.focus.touchOnly
 import kotlinx.coroutines.flow.StateFlow
 
 /** The companion's Sync: not pressed yet, under way, or done with the line saying how it went. */
@@ -55,13 +50,13 @@ fun PlayCompanionScreen(
 ) {
   val state by sync.collectAsState()
   Column(
-    Modifier.fillMaxSize().background(Placeholder.secondaryBackground).padding(32.dp),
+    Modifier.fillMaxSize().background(Palette.secondaryBackground).padding(32.dp),
     verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
     Text(
       title,
-      color = Placeholder.text,
+      color = Palette.text,
       fontSize = 24.sp,
       modifier = Modifier.semantics { heading() },
     )
@@ -76,7 +71,7 @@ fun PlayCompanionScreen(
     }
     Text(
       (state as? CompanionSync.Done)?.message.orEmpty(),
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier = Modifier.testTag("message").semantics { liveRegion = LiveRegionMode.Polite },
     )
   }
@@ -85,20 +80,12 @@ fun PlayCompanionScreen(
 /** A button for touch only, which a screen reader can press too. It never takes focus. */
 @Composable
 private fun TouchButton(tag: String, label: String, onTap: () -> Unit) {
-  val currentOnTap by rememberUpdatedState(onTap)
   Box(
     Modifier.testTag(tag)
-      .semantics(mergeDescendants = true) {
-        role = Role.Button
-        onClick {
-          currentOnTap()
-          true
-        }
-      }
-      .pointerInput(Unit) { detectTapGestures { currentOnTap() } }
-      .background(Placeholder.tile)
+      .touchOnly(onTap = onTap)
+      .background(Palette.tile)
       .padding(horizontal = 32.dp, vertical = 20.dp),
   ) {
-    Text(label, color = Placeholder.text, fontSize = 20.sp)
+    Text(label, color = Palette.text, fontSize = 20.sp)
   }
 }

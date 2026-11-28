@@ -26,7 +26,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.focus.HelpHolder
 import dev.sargunv.handheld.ui.focus.focusItem
 import dev.sargunv.handheld.ui.focus.help
@@ -87,8 +87,8 @@ internal fun TextEntry(
           }
         },
       )
-      .background(Placeholder.tile)
-      .then(if (editing) Modifier.border(2.dp, Placeholder.text) else Modifier)
+      .background(Palette.tile)
+      .then(if (editing) Modifier.border(2.dp, Palette.text) else Modifier)
       .padding(horizontal = 16.dp, vertical = 12.dp),
   ) {
     if (editing) {
@@ -98,8 +98,8 @@ internal fun TextEntry(
           // Focus that moves on, such as with the D-pad, ends editing too.
           if (it.isFocused) hadFocus = true else if (hadFocus) editing = false
         }
-      val textStyle = TextStyle(color = Placeholder.text, fontSize = 20.sp)
-      val cursor = SolidColor(Placeholder.text)
+      val textStyle = TextStyle(color = Palette.text, fontSize = 20.sp)
+      val cursor = SolidColor(Palette.text)
       val submit = {
         stopEditing()
         onSubmit()
@@ -133,7 +133,7 @@ internal fun TextEntry(
           secure -> "•".repeat(minOf(text.length, 32))
           else -> text.toString()
         },
-        color = if (text.isEmpty()) Placeholder.mutedText else Placeholder.text,
+        color = if (text.isEmpty()) Palette.mutedText else Palette.text,
         fontSize = 20.sp,
         maxLines = 1,
       )

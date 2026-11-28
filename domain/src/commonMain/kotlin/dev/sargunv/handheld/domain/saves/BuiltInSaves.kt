@@ -29,7 +29,7 @@ class BuiltInSaves(root: String) {
 
   /**
    * The save-state files of the game whose saves are in [folder] and whose file is at [romPath],
-   * one for each of [STATE_SLOTS], in order. A state's picture goes beside it, at [thumbnailOf].
+   * one for each of its six slots, in order. A state's picture goes beside it, at [thumbnailOf].
    */
   fun statesOf(folder: String, romPath: String): List<String> = STATE_SLOTS.map {
     "${pathOf(folder, romPath)}.state$it"
@@ -43,8 +43,7 @@ class BuiltInSaves(root: String) {
   }
 
   companion object {
-    /** The numbers of the save-state slots each game has. */
-    val STATE_SLOTS: IntRange = 1..6
+    private val STATE_SLOTS = 1..6
 
     /** The picture of the game as the state at [statePath] was saved. */
     fun thumbnailOf(statePath: String): String = "$statePath.png"

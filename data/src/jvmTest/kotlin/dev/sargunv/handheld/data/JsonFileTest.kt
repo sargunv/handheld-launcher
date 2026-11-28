@@ -1,27 +1,22 @@
 package dev.sargunv.handheld.data
 
+import java.io.File
 import kotlin.io.path.createTempDirectory
-import kotlin.io.path.deleteRecursively
-import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 import kotlinx.serialization.builtins.serializer
 
 class JsonFileTest {
-  private val dir = createTempDirectory("json-file-test")
-  private val file = dir.resolve("value.json")
-  private val jsonFile = JsonFile(Path(file.toString()), Int.serializer())
+  private val dir = createTempDirectory("json-file-test").toFile()
+  private val file = File(dir, "value.json")
+  private val jsonFile = JsonFile(file, Int.serializer())
 
-  @AfterTest
-  @OptIn(kotlin.io.path.ExperimentalPathApi::class)
-  fun deleteDir() = dir.deleteRecursively()
+  @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 
   @Test
-  fun aFileThatDoesntDecodeReadsAsMissingUntilTheNextWrite() = runTest {
+  fun aFileThatDoesntDecodeReadsAsMissingUntilTheNextWrite() {
     file.writeText("""{"damaged":""")
     assertNull(jsonFile.read())
     jsonFile.write(1)
@@ -29,8 +24,8 @@ class JsonFileTest {
   }
 
   @Test
-  fun aFileThatCantBeOpenedReadsAsMissing() = runTest {
-    file.toFile().mkdirs()
+  fun aFileThatCantBeOpenedReadsAsMissing() {
+    file.mkdirs()
     assertNull(jsonFile.read())
   }
 }

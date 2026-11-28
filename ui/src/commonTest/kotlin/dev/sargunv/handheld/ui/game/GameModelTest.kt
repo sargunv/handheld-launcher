@@ -4,6 +4,7 @@ import dev.sargunv.handheld.data.downloads.RomStatus
 import dev.sargunv.handheld.data.romm.RommDeviceSync
 import dev.sargunv.handheld.data.romm.RommSave
 import dev.sargunv.handheld.domain.Rom
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -14,7 +15,7 @@ class GameModelTest {
     Rom(
       id = 1,
       platformId = 1,
-      platformSlug = "gba",
+      platformSlug = PlatformSlug("gba"),
       title = "Game",
       sortKey = "game",
       fileName = "Game.gba",
@@ -25,14 +26,14 @@ class GameModelTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = emptyList(),
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   @Test
   fun thePrimaryActionFollowsTheGamesState() {
     assertNull(primaryAction(rom, null, playing = false))
     assertEquals(
-      "Download (4.2 MB)",
+      "Download (4 MiB)",
       primaryAction(rom, RomStatus.NotOnDevice, playing = false)?.label,
     )
     assertEquals(

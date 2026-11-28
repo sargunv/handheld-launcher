@@ -2,9 +2,10 @@ package dev.sargunv.handheld.ui.places
 
 import androidx.compose.runtime.Immutable
 import dev.sargunv.handheld.data.downloads.LocalGameState
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.domain.CollectionKind
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import dev.sargunv.handheld.ui.library.LibraryShelf
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.settings.SettingsSection
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.flow.first
@@ -32,7 +33,7 @@ sealed interface OpenTarget {
   data class Library(val tab: LibraryTab?) : OpenTarget
 
   /** Library: the games of the platform with [slug]. */
-  data class LibraryPlatform(val slug: String) : OpenTarget
+  data class LibraryPlatform(val slug: PlatformSlug) : OpenTarget
 
   /** Library: the games of the collection of [kind] with RomM id [id]. */
   data class LibraryCollection(val kind: CollectionKind, val id: Long) : OpenTarget
@@ -75,7 +76,7 @@ sealed interface OpenTarget {
           } else {
             rest.toLongOrNull()?.let { LibraryCollection(CollectionKind.Regular, it) }
           }
-        else -> LibraryPlatform(arg)
+        else -> LibraryPlatform(PlatformSlug(arg))
       }
     }
   }
@@ -90,7 +91,7 @@ internal suspend fun AppState.open(target: OpenTarget) {
   when (target) {
     is OpenTarget.AtPlace -> showPlace(target.place)
     is OpenTarget.Game -> {
-      val rom = findOrAfterSync { library.rom(target.romId) }
+      val rom = findOrAfterSync { data.library.rom(target.romId) }
       if (rom != null) navigator.push(Screen.Game(rom.id, rom.title))
     }
     is OpenTarget.Local -> {
@@ -98,7 +99,7 @@ internal suspend fun AppState.open(target: OpenTarget) {
       // while for the scan that follows.
       val local = findOrAfterSync {
         withTimeoutOrNull(LOCAL_SCAN_WAIT) {
-          games.localGame(target.path).first {
+          data.games.localGame(target.path).first {
             it is LocalGameState.Local || it is LocalGameState.Matched
           }
         }
@@ -107,7 +108,7 @@ internal suspend fun AppState.open(target: OpenTarget) {
       when (local) {
         is LocalGameState.Local -> navigator.push(Screen.Game(local.game.key, local.game.title))
         is LocalGameState.Matched ->
-          library.rom(local.romId)?.let { navigator.push(Screen.Game(it.id, it.title)) }
+          data.library.rom(local.romId)?.let { navigator.push(Screen.Game(it.id, it.title)) }
         LocalGameState.Gone,
         null -> Unit
       }
@@ -115,13 +116,14 @@ internal suspend fun AppState.open(target: OpenTarget) {
     is OpenTarget.Library -> {
       showPlace(Place.Library)
       libraryView.close()
-      target.tab?.let { libraryTab = it }
+      target.tab?.let { libraryView.tab = it }
     }
     is OpenTarget.LibraryPlatform -> {
       showPlace(Place.Library)
       libraryView.close()
       val platform =
-        findOrAfterSync { library.platforms().first().find { it.slug == target.slug } } ?: return
+        findOrAfterSync { data.library.platforms().first().find { it.slug == target.slug } }
+          ?: return
       openShelf(LibraryTab.Platforms, LibraryShelf.OfPlatform(platform).key)
     }
     is OpenTarget.LibraryCollection -> {
@@ -129,7 +131,7 @@ internal suspend fun AppState.open(target: OpenTarget) {
       libraryView.close()
       val collection =
         findOrAfterSync {
-          library.collections().first().find { it.kind == target.kind && it.id == target.id }
+          data.library.collections().first().find { it.kind == target.kind && it.id == target.id }
         } ?: return
       openShelf(LibraryTab.Collections, LibraryShelf.OfCollection(collection).key)
     }
@@ -144,7 +146,7 @@ internal suspend fun AppState.open(target: OpenTarget) {
 private suspend fun <T : Any> AppState.findOrAfterSync(find: suspend () -> T?): T? =
   find()
     ?: run {
-      romm.sync.first { it.isDone }
+      data.romm.sync.first { it.isDone }
       find()
     }
 

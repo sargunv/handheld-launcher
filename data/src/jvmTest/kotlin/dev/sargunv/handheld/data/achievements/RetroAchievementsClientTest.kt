@@ -1,19 +1,20 @@
 package dev.sargunv.handheld.data.achievements
 
+import dev.sargunv.handheld.data.httpClient
+import dev.sargunv.handheld.data.romm.json
 import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respond
 import io.ktor.client.engine.mock.toByteArray
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.parseQueryString
+import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.IOException
 
 class RetroAchievementsClientTest {
   private val requests = mutableListOf<Pair<HttpRequestData, String>>()
@@ -21,10 +22,12 @@ class RetroAchievementsClientTest {
   private fun client(status: HttpStatusCode = HttpStatusCode.OK, body: String) =
     RetroAchievementsClient(
       RetroAchievementsClient.userAgent("1.2.3", "rcheevos/12.5"),
-      MockEngine { request ->
-        requests += request to request.body.toByteArray().decodeToString()
-        respond(body, status)
-      },
+      httpClient(
+        MockEngine { request ->
+          requests += request to request.body.toByteArray().decodeToString()
+          json(body, status)
+        },
+      ),
     )
 
   @Test
@@ -82,7 +85,7 @@ class RetroAchievementsClientTest {
     val client =
       RetroAchievementsClient(
         "HandheldLauncher/1 rcheevos/12.5",
-        MockEngine { throw IOException("offline") },
+        httpClient(MockEngine { throw IOException("offline") }),
       )
     assertNull(client.send("https://retroachievements.org/dorequest.php", "r=ping", null))
     assertFailsWith<RetroAchievementsException> { client.signIn("player", "password") }

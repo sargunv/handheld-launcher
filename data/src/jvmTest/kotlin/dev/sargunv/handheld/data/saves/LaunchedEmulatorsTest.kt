@@ -1,5 +1,6 @@
 package dev.sargunv.handheld.data.saves
 
+import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -8,13 +9,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 
 class LaunchedEmulatorsTest {
   private val root = Files.createTempDirectory("launched-emulators-test").toFile()
-  private val path = Path(root.path, "launched.json")
+  private val path = File(root, "launched.json")
 
-  @AfterTest fun deleteRoot() = check(root.deleteRecursively())
+  @AfterTest fun cleanUp() = check(root.deleteRecursively())
 
   private class FakeProbe : EmulatorProbe {
     var boot = Boot(count = 3, bootedAt = 1_000_000, sinceBoot = 60_000)

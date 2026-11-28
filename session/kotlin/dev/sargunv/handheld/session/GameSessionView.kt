@@ -29,7 +29,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       if (field === value) return
       field?.let { old ->
         control(old, resume = false)
-        if (attached) old.detachWindow()
+        if (attached) old.detachWindow(Screen.MAIN)
       }
       attached = false
       resumed = false
@@ -37,15 +37,15 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       field = value
       input?.close()
       input = value?.let {
-        GamepadInput(it, context.getSystemService(InputManager::class.java), faceKeyCodes)
+        GamepadInput(it, context.getSystemService(InputManager::class.java), aIsEast)
       }
       val holder = holder
       if (value != null && holder.surface?.isValid == true) attach(value, holder)
       update()
     }
 
-  /** Where the gamepad's face buttons sit, for the next [session] set. */
-  var faceKeyCodes: FaceKeyCodes = FaceKeyCodes.ANDROID_DEFAULT
+  /** Whether the gamepad's A button is on the east of its face buttons, for the next [session]. */
+  var aIsEast = false
 
   /** Whether the session should run while it's visible. */
   var running: Boolean = true
@@ -79,7 +79,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     // The session must let go of the surface before this returns.
     attached = false
     update()
-    session?.detachWindow()
+    session?.detachWindow(Screen.MAIN)
   }
 
   override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
@@ -114,7 +114,7 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
     val window = NativeWindows.handle(holder.surface) ?: return
     val frame = holder.surfaceFrame
     try {
-      session.attachWindow(window, frame.width().toUInt(), frame.height().toUInt())
+      session.attachWindow(Screen.MAIN, window, frame.width().toUInt(), frame.height().toUInt())
       attached = true
     } catch (e: SessionException) {
       log.e(e) { "Can't present the session to its surface" }

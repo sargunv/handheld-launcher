@@ -2,7 +2,6 @@
 
 package dev.sargunv.handheld.domain.emulator
 
-import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.ARCADE
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.DREAMCAST
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.FDS
@@ -19,21 +18,15 @@ import dev.sargunv.handheld.domain.platform.PlatformCatalog.N64DD
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.NDS
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.NES
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.POKEMON_MINI
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS2
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.PS3
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSP
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.PSX
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SATURN
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SEGA_32X
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SEGA_CD
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.SNES
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.SWITCH
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.TG16
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.TG_CD
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.VITA
 import dev.sargunv.handheld.domain.platform.PlatformCatalog.WII
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.WII_U
-import dev.sargunv.handheld.domain.platform.PlatformCatalog.XBOX
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 
 /**
@@ -131,10 +124,10 @@ object LibretroCores {
   private val fbNeo = LibretroCore("fbneo_libretro", retroArchFolder = "FinalBurn Neo")
 
   /**
-   * Every catalog platform that runs as itself, with its recommended core, or null where no
-   * libretro core runs it well and a standalone emulator is the way to play.
+   * Each catalog platform that runs as itself and that a libretro core runs well, with its
+   * recommended core. A standalone emulator is the way to play the others.
    */
-  val recommended: Map<PlatformSlug, LibretroCore?> =
+  private val recommended: Map<PlatformSlug, LibretroCore> =
     mapOf(
       NES to mesen,
       FDS to mesen,
@@ -149,13 +142,8 @@ object LibretroCores {
       N3DS to azahar,
       GAMECUBE to dolphin,
       WII to dolphin,
-      WII_U to null,
-      SWITCH to null,
       PSX to beetlePsxHw,
-      PS2 to null,
-      PS3 to null,
       PSP to ppsspp,
-      VITA to null,
       GENESIS to genesisPlusGx,
       MASTER_SYSTEM to genesisPlusGx,
       GAME_GEAR to genesisPlusGx,
@@ -166,7 +154,6 @@ object LibretroCores {
       TG16 to beetlePce,
       TG_CD to beetlePce,
       POKEMON_MINI to pokeMini,
-      XBOX to null,
       ARCADE to fbNeo,
     )
 
@@ -177,15 +164,13 @@ object LibretroCores {
   private val standaloneFirst = setOf(N3DS, GAMECUBE, WII, PSP)
 
   /** Whether an installed standalone emulator plays [platform] before its libretro core does. */
-  fun prefersStandalone(platform: PlatformSlug): Boolean =
-    PlatformCatalog.emulatedAs(platform) in standaloneFirst
+  fun prefersStandalone(platform: PlatformSlug): Boolean = platform.emulatedAs in standaloneFirst
 
   /** The core recommended for [platform], or null when there's none or the platform is unknown. */
-  fun recommendedFor(platform: PlatformSlug): LibretroCore? =
-    recommended[PlatformCatalog.emulatedAs(platform)]
+  fun recommendedFor(platform: PlatformSlug): LibretroCore? = recommended[platform.emulatedAs]
 
   /** Every core recommended for some platform. */
-  val all: List<LibretroCore> = recommended.values.filterNotNull().distinct()
+  val all: List<LibretroCore> = recommended.values.distinct()
 
   /** The known core whose library is [library], or null when there's none. */
   fun byLibrary(library: String): LibretroCore? = all.firstOrNull { it.library == library }

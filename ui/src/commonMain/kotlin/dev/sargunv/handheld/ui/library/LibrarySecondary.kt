@@ -1,7 +1,6 @@
 package dev.sargunv.handheld.ui.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,18 +11,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
+import dev.sargunv.handheld.ui.focus.touchOnly
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.Focused
 import dev.sargunv.handheld.ui.places.GameDescription
@@ -45,7 +40,7 @@ internal fun LibrarySecondary(state: AppState) {
 @Composable
 private fun ShelfListSecondary(state: AppState) {
   val view = state.libraryView
-  val summary = view.summaries(state.libraryTab).find { it.shelf == view.shelf }
+  val summary = view.summaries(state.libraryView.tab).find { it.shelf == view.shelf }
   Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
     if (summary != null) {
       val about = (summary.shelf as? LibraryShelf.OfCollection)?.collection?.description
@@ -97,21 +92,13 @@ private fun GamesSecondary(state: AppState, filters: Boolean) {
 /** A button on the lower screen, for touch only. */
 @Composable
 private fun TouchChip(tag: String, label: String, selected: Boolean, onTap: () -> Unit) {
-  val currentOnTap by rememberUpdatedState(onTap)
   Box(
     Modifier.testTag(tag)
-      .semantics(mergeDescendants = true) {
-        role = Role.Button
-        this.selected = selected
-        onClick {
-          currentOnTap()
-          true
-        }
-      }
-      .pointerInput(Unit) { detectTapGestures { currentOnTap() } }
-      .background(if (selected) Placeholder.text else Placeholder.tile)
+      .semantics { this.selected = selected }
+      .touchOnly(onTap = onTap)
+      .background(if (selected) Palette.text else Palette.tile)
       .padding(horizontal = 16.dp, vertical = 10.dp),
   ) {
-    Text(label, color = if (selected) Placeholder.background else Placeholder.text)
+    Text(label, color = if (selected) Palette.background else Palette.text)
   }
 }

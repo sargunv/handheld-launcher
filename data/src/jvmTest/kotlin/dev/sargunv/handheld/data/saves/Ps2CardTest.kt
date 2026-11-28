@@ -21,7 +21,7 @@ import kotlin.test.assertTrue
 class Ps2CardTest {
   private val root = Files.createTempDirectory("ps2-card-test").toFile()
 
-  @AfterTest fun deleteRoot() = check(root.deleteRecursively())
+  @AfterTest fun cleanUp() = check(root.deleteRecursively())
 
   /** An emulator's empty `memcards` folder. */
   private fun memcards(device: String) = File(root, "$device/memcards").apply { mkdirs() }

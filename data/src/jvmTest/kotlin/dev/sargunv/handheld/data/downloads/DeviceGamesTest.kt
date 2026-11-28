@@ -1,11 +1,13 @@
 package dev.sargunv.handheld.data.downloads
 
 import dev.sargunv.handheld.data.cache.LibraryCache
+import dev.sargunv.handheld.data.waitFor
 import dev.sargunv.handheld.domain.Adoption
 import dev.sargunv.handheld.domain.GameKey
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import java.io.File
 import java.security.MessageDigest
 import java.util.zip.CRC32
@@ -20,12 +22,8 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.io.files.Path
 
 class DeviceGamesTest {
   private val dir = createTempDirectory("device-games-test").toFile()
@@ -49,7 +47,7 @@ class DeviceGamesTest {
     Rom(
       id = id,
       platformId = platformId,
-      platformSlug = if (platformId == 1L) "gba" else "psx",
+      platformSlug = PlatformSlug(if (platformId == 1L) "gba" else "psx"),
       title = "Game $id",
       sortKey = "game $id",
       fileName = fileName,
@@ -60,7 +58,7 @@ class DeviceGamesTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = files,
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   private val single = RomFile(11, "Game (USA).gba", game.size.toLong())
@@ -79,8 +77,8 @@ class DeviceGamesTest {
   private suspend fun fillLibrary() {
     library.replacePlatforms(
       listOf(
-        Platform(1, "gba", "gba", "Game Boy Advance", 1),
-        Platform(2, "psx", "psx", "PlayStation", 1),
+        Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 1),
+        Platform(2, PlatformSlug("psx"), "psx", "PlayStation", 1),
       ),
     )
   }
@@ -90,14 +88,10 @@ class DeviceGamesTest {
       library = library,
       storage = { listOf(StorageTarget(storage.path, "Test storage")) },
       scope = scope,
-      contentCacheFile = Path(File(dir, "local-content.json").path),
+      contentCacheFile = File(dir, "local-content.json"),
     )
 
   private fun file(path: String) = File(storage, path)
-
-  /** Runs [block] with a timeout in real time, since the scans run on real threads. */
-  private suspend fun <T> waitFor(block: suspend CoroutineScope.() -> T): T =
-    withContext(Dispatchers.Default.limitedParallelism(1)) { withTimeout(10_000, block) }
 
   @Test
   fun findsAGameCopiedUnderAnotherName() = runTest {
@@ -184,7 +178,7 @@ class DeviceGamesTest {
     val local = waitFor { games.localGames().first { it.isNotEmpty() } }.single()
     assertEquals(homebrew.path, local.path)
     assertEquals("Homebrew (PD)", local.title)
-    assertEquals("gba", local.platformSlug)
+    assertEquals("gba", local.platformSlug.value)
     assertEquals(1L, local.platformId)
     assertEquals(disc1.size.toLong(), local.sizeBytes)
     assertEquals(

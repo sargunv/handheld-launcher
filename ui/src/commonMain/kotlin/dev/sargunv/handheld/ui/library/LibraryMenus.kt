@@ -12,12 +12,10 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.composeunstyled.Text
-import dev.sargunv.handheld.domain.platform.PlatformSlug
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.focus.FocusLazyRow
 import dev.sargunv.handheld.ui.game.OpenWithScope
-import dev.sargunv.handheld.ui.game.launchId
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
 import dev.sargunv.handheld.ui.places.Screen
@@ -31,12 +29,12 @@ internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: (
   val choices: List<Pair<String, OpenWithScope>>? =
     when (shelf) {
       is LibraryShelf.OfPlatform ->
-        listOf("Open with" to OpenWithScope.Platform(PlatformSlug(shelf.platform.slug)))
+        listOf("Open with" to OpenWithScope.Platform(shelf.platform.slug))
       is LibraryShelf.OfCollection -> {
         val among = state.libraryView.platformsOf(shelf.collection)
         among?.map { platform ->
           val label = if (among.size == 1) "Open with" else "Open ${platform.name} games with"
-          label to OpenWithScope.Collection(shelf.collection.launchId, PlatformSlug(platform.slug))
+          label to OpenWithScope.Collection(shelf.collection.launchId, platform.slug)
         }
       }
     }
@@ -46,9 +44,9 @@ internal fun ShelfMenu(state: AppState, shelf: LibraryShelf, onDismissRequest: (
       Modifier.verticalScroll(rememberScrollState()),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      Text(shelf.title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(shelf.title, color = Palette.text, modifier = Modifier.semantics { heading() })
       if (choices != null && choices.isEmpty()) {
-        Text("No games", color = Placeholder.mutedText)
+        Text("No games", color = Palette.mutedText)
       }
       for ((label, scope) in choices.orEmpty()) {
         val tag =
@@ -88,7 +86,7 @@ internal fun GamesMenu(
       Modifier.widthIn(max = 640.dp).verticalScroll(rememberScrollState()),
       verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-      Text(title, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(title, color = Palette.text, modifier = Modifier.semantics { heading() })
       for (sort in LibrarySort.entries.filter { it != view.sort }) {
         MenuButton("menu:sort:${sort.name}", "Sort by ${sort.title.lowercase()}") {
           choose { view.sort = sort }
@@ -106,7 +104,7 @@ internal fun GamesMenu(
         }
       }
       if (letters.isNotEmpty()) {
-        Text("Jump to", color = Placeholder.mutedText)
+        Text("Jump to", color = Palette.mutedText)
         // One row that scrolls with focus, so the whole alphabet fits on the screen.
         FocusLazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
           items(letters.toList()) { letter ->

@@ -1,6 +1,8 @@
 package dev.sargunv.handheld.ui.input
 
 import androidx.compose.ui.input.key.Key
+import dev.sargunv.handheld.data.settings.ConfirmButton
+import dev.sargunv.handheld.data.settings.InputSettings
 
 /**
  * The pad button [key] stands for, or null if it isn't one. A desktop gamepad source delivers the

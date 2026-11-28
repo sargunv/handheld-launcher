@@ -20,7 +20,6 @@ import java.nio.ByteBuffer
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.Path
 
 /**
  * The quick menu's hold on a game in the built-in session: its save states, one file per slot in
@@ -115,7 +114,7 @@ internal class SessionQuickMenu(
     } finally {
       bitmap.recycle()
     }
-    writeAtomically(Path(file.path), png.toByteArray())
+    writeAtomically(file, png.toByteArray())
   }
 
   private companion object {

@@ -7,15 +7,6 @@ use std::ffi::{CString, c_char};
 use crate::cstr::{opt_string, string};
 use crate::ffi;
 
-/// A setting as the core declares it.
-struct Declared {
-    key: String,
-    /// The values it accepts, in the core's order.
-    values: Vec<String>,
-    /// The value it takes unless the host picks another.
-    default: String,
-}
-
 /// The options a core declared, with their current values.
 #[derive(Debug, Default)]
 pub(crate) struct Options {
@@ -26,11 +17,14 @@ pub(crate) struct Options {
     updated: bool,
 }
 
+/// A setting the core declared.
 #[derive(Debug)]
 struct Entry {
     key: String,
+    /// The values it accepts, in the core's order.
     values: Vec<String>,
-    /// The current value, kept alive for the pointer the core receives.
+    /// The current value, which starts as the core's default, kept alive for
+    /// the pointer the core receives.
     current: CString,
 }
 
@@ -43,29 +37,21 @@ impl Options {
     }
 
     /// Replaces the declared options. A core declares all its options at once.
-    fn declare(&mut self, declared: Vec<Declared>) {
-        self.options = declared
-            .into_iter()
-            .filter_map(|option| {
-                let value = match self.overrides.get(&option.key) {
-                    Some(value) if option.values.contains(value) => value.clone(),
-                    Some(value) => {
-                        log::warn!(
-                            "core option {} has no value {value:?}; using {:?}",
-                            option.key,
-                            option.default
-                        );
-                        option.default
-                    }
-                    None => option.default,
-                };
-                Some(Entry {
-                    current: CString::new(value).ok()?,
-                    key: option.key,
-                    values: option.values,
-                })
-            })
-            .collect();
+    fn declare(&mut self, mut declared: Vec<Entry>) {
+        for option in &mut declared {
+            match self.overrides.get(&option.key) {
+                Some(value) if option.values.contains(value) => {
+                    option.current = CString::new(value.as_str()).expect("a declared value");
+                }
+                Some(value) => log::warn!(
+                    "core option {} has no value {value:?}; using {:?}",
+                    option.key,
+                    option.current
+                ),
+                None => {}
+            }
+        }
+        self.options = declared;
         self.updated = true;
         log::debug!(
             "core declared options: {:?}",
@@ -171,15 +157,15 @@ impl Options {
 
 /// Parses a v0 variable's `"Description; value1|value2"`, where the first
 /// value is the default.
-fn parse_v0(key: String, spec: &str) -> Option<Declared> {
+fn parse_v0(key: String, spec: &str) -> Option<Entry> {
     let Some((_, values)) = spec.split_once("; ") else {
         log::warn!("core variable {key} has a malformed value {spec:?}");
         return None;
     };
     let values: Vec<String> = values.split('|').map(str::to_owned).collect();
-    Some(Declared {
+    Some(Entry {
         key,
-        default: values.first()?.clone(),
+        current: CString::new(values.first()?.as_str()).ok()?,
         values,
     })
 }
@@ -195,7 +181,7 @@ unsafe fn option_from_parts(
     key: *const c_char,
     values: &[ffi::retro_core_option_value],
     default: *const c_char,
-) -> Option<Declared> {
+) -> Option<Entry> {
     // SAFETY: forwarded from the caller.
     unsafe {
         let key = string(key);
@@ -211,10 +197,10 @@ unsafe fn option_from_parts(
             log::warn!("core option {key} has no values");
             return None;
         };
-        Some(Declared {
+        Some(Entry {
             key,
             values,
-            default,
+            current: CString::new(default).ok()?,
         })
     }
 }

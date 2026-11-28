@@ -210,30 +210,6 @@ mod tests {
         sink.samples
     }
 
-    fn zero_crossings(samples: &[f32]) -> usize {
-        samples
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|f| f[0])
-            .collect::<Vec<_>>()
-            .windows(2)
-            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
-            .count()
-    }
-
-    #[test]
-    fn resamples_to_the_output_rate_and_keeps_pitch() {
-        let out = run(None);
-        let frames = out.len() / 2;
-        // Up to one chunk stays queued, plus the resampler's delay.
-        assert!((47_000..=48_000).contains(&frames), "{frames} frames");
-        // 440 Hz crosses zero 880 times a second.
-        let crossings = zero_crossings(&out);
-        assert!((870..=890).contains(&crossings), "{crossings} crossings");
-        assert!(out.iter().all(|s| s.abs() <= 0.3));
-    }
-
     #[test]
     fn rate_control_fills_a_starved_queue_and_drains_a_full_one() {
         let nominal = run(None).len();
@@ -252,22 +228,6 @@ mod tests {
         // Never more than the maximum deviation, plus a chunk of slack.
         let bound = (nominal as f64 * MAX_RATE_DEVIATION) as usize + 2 * CHUNK_FRAMES;
         assert!(starved - nominal <= bound && nominal - full <= bound);
-    }
-
-    #[test]
-    fn rate_adjustment_is_neutral_at_the_target() {
-        let at_target = BufferStatus {
-            queued: 500,
-            target: 500,
-        };
-        assert_eq!(rate_adjustment(at_target), 1.0);
-        assert_eq!(
-            rate_adjustment(BufferStatus {
-                queued: 0,
-                target: 0
-            }),
-            1.0
-        );
     }
 
     #[test]

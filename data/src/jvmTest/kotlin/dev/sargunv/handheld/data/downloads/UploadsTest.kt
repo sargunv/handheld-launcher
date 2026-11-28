@@ -5,6 +5,7 @@ import dev.sargunv.handheld.data.romm.RommException
 import dev.sargunv.handheld.data.romm.apiPath
 import dev.sargunv.handheld.data.romm.json
 import dev.sargunv.handheld.domain.LocalGame
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpMethod
@@ -34,7 +35,7 @@ class UploadsTest {
       writeBytes(content)
     }
   private val game =
-    LocalGame(file.path, 42, "gb", content.size.toLong(), Instant.fromEpochSeconds(0))
+    LocalGame(file.path, 42, PlatformSlug("gb"), content.size.toLong(), Instant.fromEpochSeconds(0))
 
   @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 

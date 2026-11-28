@@ -5,120 +5,42 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.sargunv.handheld.data.HandheldData
-import dev.sargunv.handheld.data.cache.LibraryCache
-import dev.sargunv.handheld.data.downloads.DeviceGames
-import dev.sargunv.handheld.data.downloads.DownloadManager
-import dev.sargunv.handheld.data.downloads.LocalGameState
-import dev.sargunv.handheld.data.downloads.UploadManager
 import dev.sargunv.handheld.data.romm.RommAccount
-import dev.sargunv.handheld.data.romm.RommSession
 import dev.sargunv.handheld.data.romm.RommState
-import dev.sargunv.handheld.domain.Adoption
-import dev.sargunv.handheld.domain.GameKey
-import dev.sargunv.handheld.domain.LibraryGame
-import dev.sargunv.handheld.domain.PerGameState
+import dev.sargunv.handheld.data.settings.LibraryTab
 import dev.sargunv.handheld.ui.AppPlatform
-import dev.sargunv.handheld.ui.Settings
-import dev.sargunv.handheld.ui.about.AppInfo
 import dev.sargunv.handheld.ui.achievements.RetroAchievementsState
-import dev.sargunv.handheld.ui.game.AppCatalog
-import dev.sargunv.handheld.ui.game.GameLauncher
-import dev.sargunv.handheld.ui.game.RomHeaders
 import dev.sargunv.handheld.ui.library.LibraryState
-import dev.sargunv.handheld.ui.library.LibraryTab
 import dev.sargunv.handheld.ui.library.OpenedFrom
 import dev.sargunv.handheld.ui.navigation.Navigator
 import dev.sargunv.handheld.ui.settings.SettingsView
 import dev.sargunv.handheld.ui.signin.SignInState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
-/** State the app's two screens share, over [data] and [platform]. */
+/** What the app's two screens show, over [data] and [platform]. */
 @Stable
-class AppState(
-  settings: Settings,
-  private val data: HandheldData,
-  platform: AppPlatform,
-  /** Runs the RetroAchievements sign-ins and sign-outs, so they finish when a screen goes away. */
-  scope: CoroutineScope,
-) {
-  /** The sign-in to the RomM server, its client and the library's sync. */
-  val romm: RommSession = data.romm
-  val library: LibraryCache = data.library
-  val downloads: DownloadManager = data.downloads
-  val uploads: UploadManager = data.uploads
-  val games: DeviceGames = data.games
-  val launcher: GameLauncher = platform.launcher
-  val apps: AppCatalog = platform.apps
-
-  /** The RetroAchievements account, on platforms whose games can earn achievements. */
+class AppState(val data: HandheldData, val platform: AppPlatform) {
+  /** The RetroAchievements sign-in's fields, on platforms whose games can earn achievements. */
   val retroAchievements: RetroAchievementsState? =
-    platform.retroAchievements?.let { RetroAchievementsState(it, scope) }
-
-  /** What About says about this build. */
-  val appInfo: AppInfo = platform.appInfo
-
-  /** Reads what a game's file says about itself. */
-  val romHeaders: RomHeaders = platform.romHeaders
-
-  var settings: Settings by mutableStateOf(settings)
-
-  /** Everything kept per game: the settings, and what the platform keeps. */
-  private val gameState: PerGameState =
-    PerGameState.of(
-      PerGameState {
-        this.settings = this.settings.adopted(it)
-        emptyList()
-      },
-      platform.gameState,
-    )
-
-  /** Held while adopting, so [play] waits for an adopt of its game that's under way. */
-  private val adoption = Mutex()
-
-  private val handover = MutableStateFlow(emptySet<Adoption>())
-
-  /** The adoptions still listed that the adopt step has handed over. */
-  val handedOver: StateFlow<Set<Adoption>> = handover.asStateFlow()
+    platform.retroAchievements?.let(::RetroAchievementsState)
 
   val navigator = Navigator<Screen>(Screen.Places)
   var place: Place by mutableStateOf(Place.Home)
   var focused: Focused? by mutableStateOf(null)
 
-  val libraryView = LibraryState(library, downloads.statuses(), games.localGames()) { libraryTab }
+  val libraryView = LibraryState(data)
   val settingsView = SettingsView()
 
-  private val device = platform.device
-
   /** The sign-in that shows while the device isn't signed in. */
-  var signIn: SignInState by mutableStateOf(SignInState(romm.signIn, device))
+  var signIn: SignInState by mutableStateOf(SignInState(data.romm.signIn, platform.device))
     private set
 
   private val homeStartRequests = Channel<Unit>(Channel.CONFLATED)
 
   /** The requests to start over on Home, which [MainPrimary] carries out. */
   internal val homeStarts: Flow<Unit> = homeStartRequests.receiveAsFlow()
-
-  /** The Library tab that shows, which stays between launches. */
-  var libraryTab: LibraryTab
-    get() = settings.library.tab
-    set(value) {
-      if (value != libraryTab)
-        settings = settings.copy(library = settings.library.copy(tab = value))
-    }
 
   /**
    * Shows [next]. Leaving the Library closes a shelf that Home opened, since Back on it goes Home.
@@ -135,7 +57,7 @@ class AppState(
    */
   fun openShelf(tab: LibraryTab, shelfKey: String, from: OpenedFrom = OpenedFrom.Tab) {
     showPlace(Place.Library)
-    libraryTab = tab
+    libraryView.tab = tab
     libraryView.open(tab, shelfKey, from)
   }
 
@@ -161,63 +83,11 @@ class AppState(
    * sign-in opens on Home. It asks for permission to upload games when [allowUploads].
    */
   fun signOut(allowUploads: Boolean = false, keepQueue: Boolean = false) {
-    val address = romm.account?.credentials?.baseUrl.orEmpty()
+    val address = data.romm.account?.credentials?.baseUrl.orEmpty()
     data.signOut(keepQueue)
-    signIn = SignInState(romm.signIn, device, address, allowUploads)
+    signIn = SignInState(data.romm.signIn, platform.device, address, allowUploads)
     navigator.backToStart()
     place = Place.Home
-  }
-
-  /**
-   * The game [key] names: a ROM from the library, or a local game once the scan of the platforms'
-   * folders has found it. Null when there's no such game, such as a file that's gone or now matches
-   * a ROM.
-   */
-  suspend fun game(key: GameKey): LibraryGame? =
-    when (key) {
-      is GameKey.Romm -> library.rom(key.romId)
-      is GameKey.Local ->
-        (games.localGame(key.path).first { it != null } as? LocalGameState.Local)?.game
-    }
-
-  /**
-   * Runs [launch], which calls [launcher]'s play of [game] before it first suspends, once any file
-   * the latest scan matched to [game] has handed it what was kept for the file. What's kept for
-   * [game] stays where it is until its play is over.
-   */
-  suspend fun play(game: GameKey, launch: suspend () -> List<String>): List<String> =
-    coroutineScope {
-      adoption
-        .withLock {
-          adopt(games.adoptions.first().filter { it.rom == game })
-          // The launch puts [game] in the launcher's unfinished plays before it first suspends, so
-          // before the next adopt.
-          async(start = CoroutineStart.UNDISPATCHED) { launch() }
-        }
-        .await()
-    }
-
-  /**
-   * The one adopt step: each file on the device that's a ROM's hands what's kept for it as a local
-   * game to the ROM. A game whose play isn't over waits until it is. It runs until cancelled.
-   */
-  suspend fun adoptMatchedFiles() {
-    combine(games.adoptions, launcher.unfinished) { adoptions, _ -> adoptions }
-      .collect { adoptions ->
-        adoption.withLock {
-          handover.update { it intersect adoptions.toSet() }
-          val unfinished = launcher.unfinished.value
-          adopt(adoptions.filterNot { it.local in unfinished || it.rom in unfinished })
-        }
-      }
-  }
-
-  /** Hands over what's kept for each of [pending] that isn't handed over yet, under [adoption]. */
-  private suspend fun adopt(pending: List<Adoption>) {
-    val new = pending - handover.value
-    if (new.isEmpty()) return
-    val unfinished = gameState.adopt(new)
-    handover.update { it + (new - unfinished.toSet()) }
   }
 }
 

@@ -12,13 +12,15 @@ import kotlin.test.assertTrue
 
 class SaveKnowledgeTest {
   private val placeholder = Regex("""\{\w+}""")
+  private val placeholders =
+    setOf(SavePaths.STORAGE, SavePaths.ANY_STORAGE, SavePaths.PACKAGE, SavePaths.CORE)
 
   private fun assertKnownPlaceholders(owner: String, paths: List<String>) {
     for (path in paths) {
       assertTrue(path.startsWith("/") || path.startsWith("{"), "$owner: $path isn't absolute")
       assertTrue(!path.endsWith("/"), "$owner: $path ends with a slash")
       for (match in placeholder.findAll(path)) {
-        assertTrue(match.value in SavePaths.all, "$owner: ${match.value} in $path")
+        assertTrue(match.value in placeholders, "$owner: ${match.value} in $path")
       }
     }
   }
@@ -87,8 +89,8 @@ class SaveKnowledgeTest {
   @Test
   fun biosRenames() {
     val hakuX = assertNotNull(BiosKnowledge.locationFor(EmulatorId("hakux")))
-    assertEquals("flash.bin", hakuX.targetName("complex_4627.BIN"))
-    assertEquals("other.bin", hakuX.targetName("other.bin"))
+    assertEquals("flash.bin", hakuX.targetName("complex_4627.BIN", null))
+    assertEquals("other.bin", hakuX.targetName("other.bin", null))
   }
 
   @Test

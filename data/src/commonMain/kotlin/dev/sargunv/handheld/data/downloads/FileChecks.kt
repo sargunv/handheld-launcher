@@ -7,16 +7,15 @@ import java.io.File
 import java.io.IOException
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
-import kotlinx.io.files.Path
 
 /**
- * Whether the file at [path] matches the hashes RomM lists for it, by the first of MD5, SHA-1 and
- * CRC-32 that RomM has. RomM hashes an archive's content rather than the archive itself, so a zip
- * also matches by its content. Null when it can't tell: RomM lists no hash, or the file is an
- * archive this check can't read.
+ * Whether [file] matches the hashes RomM lists for it, by the first of MD5, SHA-1 and CRC-32 that
+ * RomM has. RomM hashes an archive's content rather than the archive itself, so a zip also matches
+ * by its content. Null when it can't tell: RomM lists no hash, or the file is an archive this check
+ * can't read.
  */
 internal fun matchesServerHashes(
-  path: Path,
+  file: File,
   md5: String?,
   sha1: String?,
   crc: String?,
@@ -30,7 +29,6 @@ internal fun matchesServerHashes(
     }
   fun matches(hex: String) = hex.equals(expected, ignoreCase = true)
 
-  val file = File(path.toString())
   if (matches(hexDigests(file, listOf(algorithm)).single())) return true
   val zip =
     try {
@@ -65,16 +63,13 @@ internal fun matchesServerHashes(
 /** The bytes the app can write to the storage at [root]. */
 internal fun freeBytes(root: String): Long = File(root).usableSpace
 
-/** When the file at [path] last changed, in milliseconds since the epoch. */
-internal fun lastModified(path: Path): Long = File(path.toString()).lastModified()
-
 /**
- * The CRC-32 of the one file in the zip at [path], from its central directory, in lowercase hex.
- * Null when it isn't a zip this can read or holds other than one file.
+ * The CRC-32 of the one file in the zip [file], from its central directory, in lowercase hex. Null
+ * when it isn't a zip this can read or holds other than one file.
  */
-internal fun oneFileZipCrc(path: Path): String? =
+internal fun oneFileZipCrc(file: File): String? =
   try {
-    ZipFile(File(path.toString())).use { zip ->
+    ZipFile(file).use { zip ->
       zip
         .entries()
         .asSequence()
@@ -88,9 +83,9 @@ internal fun oneFileZipCrc(path: Path): String? =
     null
   }
 
-/** The CRC-32 and SHA-1 of the whole file at [path], in lowercase hex. */
-internal fun crcAndSha1(path: Path): Pair<String, String> {
-  val (crc, sha1) = hexDigests(File(path.toString()), listOf("CRC32", "SHA-1"))
+/** The CRC-32 and SHA-1 of the whole [file], in lowercase hex. */
+internal fun crcAndSha1(file: File): Pair<String, String> {
+  val (crc, sha1) = hexDigests(file, listOf("CRC32", "SHA-1"))
   return crc to sha1
 }
 

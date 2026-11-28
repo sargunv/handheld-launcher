@@ -17,7 +17,7 @@ import dev.sargunv.handheld.data.downloads.StorageSettings
 import dev.sargunv.handheld.data.downloads.StorageSpace
 import dev.sargunv.handheld.data.downloads.StorageTarget
 import dev.sargunv.handheld.data.downloads.formatSize
-import dev.sargunv.handheld.ui.Placeholder
+import dev.sargunv.handheld.ui.Palette
 import dev.sargunv.handheld.ui.dialog.Dialog
 import dev.sargunv.handheld.ui.places.AppState
 import dev.sargunv.handheld.ui.places.MenuButton
@@ -28,13 +28,13 @@ import dev.sargunv.handheld.ui.places.MenuButton
  */
 internal fun LazyListScope.storage(
   state: AppState,
+  settings: StorageSettings,
   spaces: List<StorageSpace>,
   refused: Boolean,
   onToggle: (StorageTarget) -> Unit,
   open: (SettingsDialog) -> Unit,
 ) {
   sectionHeading("Storage")
-  val settings = state.settings.storage
   val byId = spaces.associateBy { it.target.id }
   val view = state.settingsView
   items(settings.arrange(spaces.map { it.target }), key = { it.id }) { target ->
@@ -54,7 +54,7 @@ internal fun LazyListScope.storage(
     item(key = "refused") {
       Text(
         "Last storage stays on",
-        color = Placeholder.text,
+        color = Palette.text,
         modifier =
           Modifier.testTag("settings:storage:refused").semantics {
             liveRegion = LiveRegionMode.Polite
@@ -66,7 +66,7 @@ internal fun LazyListScope.storage(
     Text(
       "New games go to the first storage that's on and has room. Games on storage that's off " +
         "still play.",
-      color = Placeholder.mutedText,
+      color = Palette.mutedText,
       modifier = Modifier.testTag("settings:storage:note"),
     )
   }
@@ -77,11 +77,15 @@ internal fun LazyListScope.storage(
  * the last that's on.
  */
 internal fun AppState.toggleStorage(target: StorageTarget, mounted: List<StorageTarget>): Boolean {
-  val storage = settings.storage
-  val changed =
-    if (storage.isOn(target)) storage.turnOff(target, mounted) else storage.turnOn(target)
-  changed?.let { settings = settings.copy(storage = it) }
-  return changed != null
+  var changed = false
+  data.settings.update { settings ->
+    val storage = settings.storage
+    val next =
+      if (storage.isOn(target)) storage.turnOff(target, mounted) else storage.turnOn(target)
+    changed = next != null
+    next?.let { settings.copy(storage = it) } ?: settings
+  }
+  return changed
 }
 
 /**
@@ -100,7 +104,7 @@ internal fun StorageMenu(
   val shown = settings.arrange(mounted)
   Dialog(onDismissRequest) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-      Text(target.label, color = Placeholder.text, modifier = Modifier.semantics { heading() })
+      Text(target.label, color = Palette.text, modifier = Modifier.semantics { heading() })
       if (shown.firstOrNull()?.id != target.id) {
         MenuButton("menu:up", "Move up") {
           onMove(settings.moveUp(target, mounted))

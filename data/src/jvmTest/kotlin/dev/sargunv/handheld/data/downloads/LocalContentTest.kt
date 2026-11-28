@@ -3,6 +3,7 @@ package dev.sargunv.handheld.data.downloads
 import dev.sargunv.handheld.domain.Platform
 import dev.sargunv.handheld.domain.Rom
 import dev.sargunv.handheld.domain.RomFile
+import dev.sargunv.handheld.domain.platform.PlatformSlug
 import java.io.File
 import java.security.MessageDigest
 import java.util.zip.CRC32
@@ -18,20 +19,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.files.Path
 
 class LocalContentTest {
   private val dir = createTempDirectory("local-content-test").toFile()
   private val storage = File(dir, "storage")
   private val gba = File(storage, "ROMs/gba").apply { mkdirs() }
-  private val cacheFile = Path(File(dir, "local-content.json").path)
+  private val cacheFile = File(dir, "local-content.json")
   private val targets = listOf(StorageTarget(storage.path, "Test storage"))
-  private val platforms = listOf(Platform(1, "gba", "gba", "Game Boy Advance", 2))
+  private val platforms = listOf(Platform(1, PlatformSlug("gba"), "gba", "Game Boy Advance", 2))
 
-  @AfterTest
-  fun cleanUp() {
-    dir.deleteRecursively()
-  }
+  @AfterTest fun cleanUp() = check(dir.deleteRecursively())
 
   private val game = Random(1).nextBytes(50_000)
   private val other = Random(2).nextBytes(40_000)
@@ -62,7 +59,7 @@ class LocalContentTest {
     Rom(
       id = id,
       platformId = 1,
-      platformSlug = "gba",
+      platformSlug = PlatformSlug("gba"),
       title = "Game $id",
       sortKey = "game $id",
       fileName = fileName,
@@ -73,23 +70,23 @@ class LocalContentTest {
       coverSmallUrl = null,
       coverLargeUrl = null,
       files = listOf(RomFile(id * 10, fileName, sizeBytes, crc(content), null, sha1)),
-      createdAt = Instant.fromEpochSeconds(0),
+      addedAt = Instant.fromEpochSeconds(0),
     )
 
   @Test
   fun readsAZipsCrcFromItsDirectory() {
     val file = File(dir, "game.zip")
     zip(file, "Game.gba" to game)
-    assertEquals(crc(game), oneFileZipCrc(Path(file.path)))
+    assertEquals(crc(game), oneFileZipCrc(file))
     zip(file, "Game.gba" to game, "Other.gba" to other)
-    assertNull(oneFileZipCrc(Path(file.path)))
-    assertNull(oneFileZipCrc(Path(file.apply { writeBytes(game) }.path)))
+    assertNull(oneFileZipCrc(file))
+    assertNull(oneFileZipCrc(file.apply { writeBytes(game) }))
   }
 
   @Test
   fun hashesAWholeFile() {
     val file = File(dir, "game.gba").apply { writeBytes(game) }
-    assertEquals(crc(game) to sha1(game), crcAndSha1(Path(file.path)))
+    assertEquals(crc(game) to sha1(game), crcAndSha1(file))
   }
 
   @Test
@@ -220,6 +217,6 @@ class LocalContentTest {
     val modified = file.lastModified()
     file.writeBytes(other.copyOf(game.size))
     file.setLastModified(modified)
-    assertEquals(false, scanner.stillMatches(Path(file.path), rom))
+    assertEquals(false, scanner.stillMatches(file, rom))
   }
 }

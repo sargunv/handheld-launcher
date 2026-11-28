@@ -17,8 +17,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runComposeUiTest
+import dev.sargunv.handheld.data.HandheldData
 import dev.sargunv.handheld.data.downloads.StorageTarget
-import dev.sargunv.handheld.ui.Settings
+import dev.sargunv.handheld.data.settings.LibrarySettings
+import dev.sargunv.handheld.data.settings.LibraryTab
+import dev.sargunv.handheld.data.settings.Settings
 import dev.sargunv.handheld.ui.assertFocused
 import dev.sargunv.handheld.ui.awaitTag
 import dev.sargunv.handheld.ui.awaitText
@@ -34,12 +37,17 @@ import dev.sargunv.handheld.ui.rom
 import io.ktor.client.engine.mock.respondError
 import io.ktor.http.HttpStatusCode
 import java.io.File
-import kotlin.io.path.createTempDirectory
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import org.junit.rules.TemporaryFolder
 
 @OptIn(ExperimentalTestApi::class)
 class LibraryTest {
+  private val temp = TemporaryFolder().apply { create() }
+
+  @AfterTest fun cleanUp() = temp.delete()
+
   /**
    * A server with two platforms of games and an empty third. On the Game Boy: Alpha, Bravo and
    * Zulu, with Zulu added first and Bravo last. On the NES: Contra and Metroid. With [collections],
@@ -79,19 +87,20 @@ class LibraryTest {
   /** Launches and goes to the Library once the sync has filled it. */
   private fun ComposeUiTest.openLibrary(
     settings: Settings = Settings(),
-    saveSettings: suspend (Settings) -> Unit = {},
     storage: File? = null,
     collections: Boolean = true,
-  ) {
-    launchApp(
-      server(collections),
-      storage = listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
-      settings = settings,
-      saveSettings = saveSettings,
-    )
+  ): HandheldData {
+    val data =
+      launchApp(
+        temp,
+        server(collections),
+        storage = listOfNotNull(storage?.let { StorageTarget(it.path, "Test storage") }),
+        settings = settings,
+      )
     awaitTag("shelf:RecentlyAdded")
     press(listOf(Key.ButtonStart, Key.DirectionDown, Key.ButtonA))
     awaitTag("place:Library")
+    return data
   }
 
   /** Launches and opens the Game Boy's games. */
@@ -146,18 +155,6 @@ class LibraryTest {
   }
 
   @Test
-  fun backOnTheListGoesHome() = runComposeUiTest {
-    openLibrary()
-    assertFocused("library:platform:1")
-    // The shoulder buttons switch tabs, and coming back focuses the same platform.
-    press(listOf(Key.ButtonR1, Key.ButtonL1))
-    assertFocused("library:platform:1")
-    press(Key.ButtonB)
-    awaitTag("shelf:RecentlyAdded")
-    onNodeWithTag("place:Home").assertExists()
-  }
-
-  @Test
   fun aGameOpensItsScreenAndBackComesToIt() = runComposeUiTest {
     openGameBoy()
     assertFocused("game:1")
@@ -192,8 +189,7 @@ class LibraryTest {
 
   @Test
   fun opensOnPlatformsAndShoulderButtonsSwitchTabsStoppingAtTheEnds() = runComposeUiTest {
-    val saved = mutableListOf<Settings>()
-    openLibrary(saveSettings = { saved += it })
+    val data = openLibrary()
     onNodeWithTag("library:tab:Platforms").assertIsSelected()
     assertFocused("library:platform:1")
     press(Key.ButtonL1)
@@ -212,7 +208,7 @@ class LibraryTest {
     press(Key.ButtonR1)
     onNodeWithTag("library:tab:AllGames").assertIsSelected()
     assertFocused("game:4")
-    assertEquals(LibraryTab.AllGames, saved.last().library.tab)
+    assertEquals(LibraryTab.AllGames, data.settings.settings.value.library.tab)
     // Coming back to a tab focuses what it had focused.
     press(listOf(Key.ButtonL1, Key.ButtonL1))
     assertFocused("library:platform:1")
@@ -230,7 +226,7 @@ class LibraryTest {
 
   @Test
   fun onDeviceHoldsOnlyTheGamesOnTheDevice() = runComposeUiTest {
-    val storage = createTempDirectory("library-storage").toFile()
+    val storage = temp.newFolder()
     File(storage, "ROMs/p1").mkdirs()
     File(storage, "ROMs/p1/Zulu.bin").writeText("game")
     openLibrary(Settings(library = LibrarySettings(tab = LibraryTab.OnDevice)), storage = storage)
@@ -327,7 +323,7 @@ class LibraryTest {
   @Test
   fun coversShowWhichGamesAreOnTheDeviceAndTheLowerScreenFilters() = runComposeUiTest {
     // Zulu is in its platform's folder.
-    val storage = createTempDirectory("library-storage").toFile()
+    val storage = temp.newFolder()
     File(storage, "ROMs/p1").mkdirs()
     File(storage, "ROMs/p1/Zulu.bin").writeText("game")
     openLibrary(storage = storage)

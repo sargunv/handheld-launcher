@@ -1,89 +1,68 @@
 package dev.sargunv.handheld.data
 
 import co.touchlab.kermit.Logger
-import kotlin.random.Random
-import kotlin.random.nextULong
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.io.IOException
-import kotlinx.io.buffered
-import kotlinx.io.files.FileNotFoundException
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.readString
+import java.io.File
+import java.io.FileNotFoundException
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
-/** JSON that skips the fields it doesn't know. */
-internal val LenientJson = Json { ignoreUnknownKeys = true }
+/**
+ * The JSON of the app's own files. A field it doesn't know is skipped, and a value it doesn't know
+ * takes the field's default, so a file from another version still reads.
+ */
+internal val FileJson = Json {
+  ignoreUnknownKeys = true
+  coerceInputValues = true
+  encodeDefaults = true
+}
 
 /**
- * A value kept as JSON in the file at [path]. Writes go one at a time, and a read sees the whole of
- * one of them. A file that can't be read or decoded reads as no value, so the next write replaces
- * it.
+ * A value kept as JSON in [file]. A read sees the whole of one write. A file that can't be read or
+ * decoded reads as no value, so the next write replaces it. Its calls block, and callers that write
+ * from several coroutines take turns themselves.
  */
-internal class JsonFile<T : Any>(
-  private val path: Path,
-  private val serializer: KSerializer<T>,
-  private val json: Json = LenientJson,
-) {
-  private val mutex = Mutex()
-
+class JsonFile<T : Any>(private val file: File, private val serializer: KSerializer<T>) : Vault<T> {
   /** The stored value, or null when there's none. */
-  suspend fun read(): T? = withContext(Dispatchers.IO) { readBlocking() }
-
-  /** [read], on the caller's thread. */
-  fun readBlocking(): T? =
+  override fun read(): T? =
     try {
-      val text = SystemFileSystem.source(path).buffered().use { it.readString() }
-      json.decodeFromString(serializer, text)
+      FileJson.decodeFromString(serializer, file.readText())
     } catch (_: FileNotFoundException) {
       null
     } catch (e: IOException) {
       unreadable(e)
-    } catch (e: IllegalArgumentException) {
+    } catch (e: SerializationException) {
       unreadable(e)
     }
 
   private fun unreadable(e: Exception): T? {
-    log.w(e) { "Couldn't read $path" }
+    log.w(e) { "Couldn't read $file" }
     return null
   }
 
-  suspend fun write(value: T) = locked { store(value) }
+  override fun write(value: T) =
+    writeAtomically(file, FileJson.encodeToString(serializer, value).encodeToByteArray())
 
-  /**
-   * Replaces the stored value with what [change] makes of it, and returns the value it replaced.
-   */
-  suspend fun update(change: (T?) -> T): T? = locked {
-    readBlocking().also { store(change(it)) }
+  override fun delete() {
+    file.delete()
   }
-
-  suspend fun delete() = locked { SystemFileSystem.delete(path, mustExist = false) }
-
-  private fun store(value: T) =
-    writeAtomically(path, json.encodeToString(serializer, value).encodeToByteArray())
-
-  private suspend fun <R> locked(block: () -> R): R =
-    withContext(Dispatchers.IO) { mutex.withLock { block() } }
 }
 
 /**
- * Writes [bytes] to [path] by way of a hidden sibling moved over it, so nothing ever sees half a
+ * Writes [bytes] to [file] by way of a hidden sibling moved over it, so nothing ever sees half a
  * file.
  */
-fun writeAtomically(path: Path, bytes: ByteArray) {
-  val dir = path.parent ?: Path(".")
-  SystemFileSystem.createDirectories(dir)
-  val temp = Path(dir, ".${path.name}.${Random.nextULong()}.tmp")
+fun writeAtomically(file: File, bytes: ByteArray) {
+  val dir = file.absoluteFile.parentFile.apply { mkdirs() }
+  val temp = Files.createTempFile(dir.toPath(), ".${file.name}.", ".tmp")
   try {
-    SystemFileSystem.sink(temp).buffered().use { it.write(bytes) }
-    SystemFileSystem.atomicMove(temp, path)
+    Files.write(temp, bytes)
+    Files.move(temp, file.toPath(), ATOMIC_MOVE)
   } finally {
-    SystemFileSystem.delete(temp, mustExist = false)
+    Files.deleteIfExists(temp)
   }
 }
 

@@ -11,7 +11,7 @@ internal fun LazyListScope.about(state: AppState, onOpen: () -> Unit) {
       state.settingsView,
       "settings:about:open",
       "Version, licence and source",
-      state.appInfo.version,
+      state.platform.appInfo.version,
       SettingsSection.About.description,
       onConfirm = onOpen,
     )

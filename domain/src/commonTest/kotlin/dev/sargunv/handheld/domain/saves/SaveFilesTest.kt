@@ -1,6 +1,7 @@
 package dev.sargunv.handheld.domain.saves
 
 import dev.sargunv.handheld.domain.emulator.EmulatorId
+import dev.sargunv.handheld.domain.emulator.LibretroCores
 import dev.sargunv.handheld.domain.platform.PlatformCatalog
 import dev.sargunv.handheld.domain.platform.PlatformSlug
 import kotlin.test.Test
@@ -39,7 +40,11 @@ class SaveFilesTest {
         SaveFiles.candidates(
           retroArch,
           rom,
-          SaveRoots(storage, packageName = "com.retroarch", core = "snes9x_libretro"),
+          SaveRoots(
+            storage,
+            packageName = "com.retroarch",
+            core = LibretroCores.recommendedFor(PlatformCatalog.SNES),
+          ),
         ),
       )
     assertEquals("$storage/RetroArch/saves/Snes9x/Chrono Trigger.srm", withCore.first())
