@@ -37,15 +37,15 @@ class GameSessionView(context: Context) : SurfaceView(context), SurfaceHolder.Ca
       field = value
       input?.close()
       input = value?.let {
-        GamepadInput(it, context.getSystemService(InputManager::class.java), faceKeyCodes)
+        GamepadInput(it, context.getSystemService(InputManager::class.java), aIsEast)
       }
       val holder = holder
       if (value != null && holder.surface?.isValid == true) attach(value, holder)
       update()
     }
 
-  /** Where the gamepad's face buttons sit, for the next [session] set. */
-  var faceKeyCodes: FaceKeyCodes = FaceKeyCodes.ANDROID_DEFAULT
+  /** Whether the gamepad's A button is on the east of its face buttons, for the next [session]. */
+  var aIsEast = false
 
   /** Whether the session should run while it's visible. */
   var running: Boolean = true

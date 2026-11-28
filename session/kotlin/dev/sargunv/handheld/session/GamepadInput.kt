@@ -7,26 +7,9 @@ import android.view.MotionEvent
 import kotlin.math.roundToInt
 
 /**
- * The Android key code each face button position sends, which a handheld's own layout setting
- * decides. [ANDROID_DEFAULT] is Android's documented default, with `BUTTON_A` south, `BUTTON_B`
- * east, `BUTTON_X` west and `BUTTON_Y` north.
- */
-data class FaceKeyCodes(val south: Int, val east: Int, val west: Int, val north: Int) {
-  companion object {
-    val ANDROID_DEFAULT =
-      FaceKeyCodes(
-        south = KeyEvent.KEYCODE_BUTTON_A,
-        east = KeyEvent.KEYCODE_BUTTON_B,
-        west = KeyEvent.KEYCODE_BUTTON_X,
-        north = KeyEvent.KEYCODE_BUTTON_Y,
-      )
-  }
-}
-
-/**
  * Feeds Android key and motion events to a session's controller ports, mapped to the RetroPad by
- * position: the face button that [faceKeyCodes] puts south is the RetroPad's B, whatever its key
- * code.
+ * position: the south face button is the RetroPad's B, whatever its key code. `BUTTON_A` is south,
+ * as Android documents, unless [aIsEast].
  *
  * Each gamepad takes the lowest free port as it connects, so the gamepads connected when the input
  * starts take ports in the order they connected, and a handheld's own controls, the only gamepad at
@@ -36,7 +19,7 @@ data class FaceKeyCodes(val south: Int, val east: Int, val west: Int, val north:
 class GamepadInput(
   private val session: GameSession,
   private val inputManager: InputManager,
-  private val faceKeyCodes: FaceKeyCodes = FaceKeyCodes.ANDROID_DEFAULT,
+  private val aIsEast: Boolean,
 ) : AutoCloseable {
   /** The port of each gamepad, by device ID. */
   private val ports = HashMap<Int, UInt>()
@@ -83,7 +66,7 @@ class GamepadInput(
 
   /** Applies a key event, and returns whether it was a RetroPad button. */
   fun onKeyEvent(event: KeyEvent): Boolean {
-    val button = buttonFor(event.keyCode, faceKeyCodes) ?: return false
+    val button = buttonFor(event.keyCode) ?: return false
     val port = portFor(event.device) ?: return true
     when (event.action) {
       KeyEvent.ACTION_DOWN -> session.setButton(port, button, true)
@@ -169,34 +152,29 @@ class GamepadInput(
     return (value.coerceIn(0f, 1f) * Short.MAX_VALUE).roundToInt().toShort()
   }
 
-  companion object {
-    private fun InputDevice.isGamepad(): Boolean =
-      !isVirtual &&
-        (supportsSource(InputDevice.SOURCE_GAMEPAD) || supportsSource(InputDevice.SOURCE_JOYSTICK))
-
-    /**
-     * The RetroPad button an Android key code stands for, if any, with the face buttons where
-     * [faceKeyCodes] puts them.
-     */
-    fun buttonFor(keyCode: Int, faceKeyCodes: FaceKeyCodes): Button? =
-      when (keyCode) {
-        faceKeyCodes.south -> Button.B
-        faceKeyCodes.east -> Button.A
-        faceKeyCodes.west -> Button.Y
-        faceKeyCodes.north -> Button.X
-        KeyEvent.KEYCODE_BUTTON_L1 -> Button.L
-        KeyEvent.KEYCODE_BUTTON_R1 -> Button.R
-        KeyEvent.KEYCODE_BUTTON_L2 -> Button.L2
-        KeyEvent.KEYCODE_BUTTON_R2 -> Button.R2
-        KeyEvent.KEYCODE_BUTTON_THUMBL -> Button.L3
-        KeyEvent.KEYCODE_BUTTON_THUMBR -> Button.R3
-        KeyEvent.KEYCODE_BUTTON_START -> Button.START
-        KeyEvent.KEYCODE_BUTTON_SELECT -> Button.SELECT
-        KeyEvent.KEYCODE_DPAD_UP -> Button.UP
-        KeyEvent.KEYCODE_DPAD_DOWN -> Button.DOWN
-        KeyEvent.KEYCODE_DPAD_LEFT -> Button.LEFT
-        KeyEvent.KEYCODE_DPAD_RIGHT -> Button.RIGHT
-        else -> null
-      }
-  }
+  /** The RetroPad button an Android key code stands for, if any. */
+  private fun buttonFor(keyCode: Int): Button? =
+    when (keyCode) {
+      KeyEvent.KEYCODE_BUTTON_A -> if (aIsEast) Button.A else Button.B
+      KeyEvent.KEYCODE_BUTTON_B -> if (aIsEast) Button.B else Button.A
+      KeyEvent.KEYCODE_BUTTON_X -> if (aIsEast) Button.X else Button.Y
+      KeyEvent.KEYCODE_BUTTON_Y -> if (aIsEast) Button.Y else Button.X
+      KeyEvent.KEYCODE_BUTTON_L1 -> Button.L
+      KeyEvent.KEYCODE_BUTTON_R1 -> Button.R
+      KeyEvent.KEYCODE_BUTTON_L2 -> Button.L2
+      KeyEvent.KEYCODE_BUTTON_R2 -> Button.R2
+      KeyEvent.KEYCODE_BUTTON_THUMBL -> Button.L3
+      KeyEvent.KEYCODE_BUTTON_THUMBR -> Button.R3
+      KeyEvent.KEYCODE_BUTTON_START -> Button.START
+      KeyEvent.KEYCODE_BUTTON_SELECT -> Button.SELECT
+      KeyEvent.KEYCODE_DPAD_UP -> Button.UP
+      KeyEvent.KEYCODE_DPAD_DOWN -> Button.DOWN
+      KeyEvent.KEYCODE_DPAD_LEFT -> Button.LEFT
+      KeyEvent.KEYCODE_DPAD_RIGHT -> Button.RIGHT
+      else -> null
+    }
 }
+
+private fun InputDevice.isGamepad(): Boolean =
+  !isVirtual &&
+    (supportsSource(InputDevice.SOURCE_GAMEPAD) || supportsSource(InputDevice.SOURCE_JOYSTICK))

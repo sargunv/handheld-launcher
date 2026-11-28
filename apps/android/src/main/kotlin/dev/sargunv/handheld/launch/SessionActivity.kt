@@ -33,6 +33,7 @@ import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.SecondaryDisplayContent
 import dev.sargunv.handheld.achievements.answer
 import dev.sargunv.handheld.achievements.message
+import dev.sargunv.handheld.data.settings.AButtonPosition
 import dev.sargunv.handheld.data.settings.InputSettings
 import dev.sargunv.handheld.exposeTestTags
 import dev.sargunv.handheld.handheldApp
@@ -177,7 +178,7 @@ class SessionActivity : ComponentActivity() {
       launch.stackedScreensOptions.isNotEmpty() &&
         getSystemService(DisplayManager::class.java).secondaryDisplay() != null
     view = GameSessionView(this)
-    view.faceKeyCodes = launch.input.aButtonPosition.faceKeyCodes()
+    view.aIsEast = launch.input.aButtonPosition == AButtonPosition.East
     // The menu draws over the game's surface, which shows through where it's clear.
     menu =
       ComposeView(this).apply {
