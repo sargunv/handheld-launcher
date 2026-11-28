@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -27,50 +26,44 @@ sealed interface SessionEnd {
   data class Stopped(val saveError: String?) : SessionEnd
 }
 
+/** A play that isn't over: its launch or game, or once [gameOver], what follows the game. */
+data class PendingPlay(val game: GameKey, val title: String, val gameOver: Boolean = false)
+
 /**
  * Owns each play, from the start of its launch until its notes are in, and lets one launch or game
  * be under way at a time. The launch runs in its caller, so a caller that stops stops it. Once the
- * game starts, the game and the after-game half, which sends the save and gathers the notes, run in
- * [scope], so they finish when the launcher's screen or activity goes away. An after-game half may
+ * game starts, the game and what follows it, sending the save and gathering the notes, run in
+ * [scope], so they finish when the launcher's screen or activity goes away. What follows a game may
  * overlap the next play, of another game.
  *
  * @param closeEmulator closes the standalone emulator with the package name it's given, on the
  *   companion's Quit, and returns whether it's gone.
  * @param launcherInFront whether the launcher is what the first display shows.
- * @param unfinished the games whose play isn't over: its launch, game or after-game half is under
- *   way. This keeps it up to date.
- * @param keepAlive starts the service that keeps the process running while a play is pending.
+ * @param unfinished the games of [pending], which this keeps up to date.
  */
 internal class Plays(
   private val scope: CoroutineScope,
   private val saves: PlaySaves,
   private val closeEmulator: suspend (packageName: String) -> Boolean,
   private val launcherInFront: StateFlow<Boolean>,
-  val unfinished: MutableStateFlow<Set<GameKey>>,
-  private val keepAlive: () -> Unit,
+  private val unfinished: MutableStateFlow<Set<GameKey>>,
 ) {
   private val lock = Any()
 
-  /** Under [lock]: the play whose launch or game is under way, if any. */
-  private var current: Play? = null
+  private val plays = MutableStateFlow(emptyList<PendingPlay>())
 
-  /** Under [lock]: the plays in their after-game half, oldest first. */
-  private var afterGame = emptyList<Play>()
+  /** The plays that aren't over, oldest first. Only the last can be short of its game over. */
+  val pending: StateFlow<List<PendingPlay>> = plays.asStateFlow()
 
-  private val currentGame = MutableStateFlow<GameKey?>(null)
+  private val current = MutableStateFlow<GameKey?>(null)
 
   /** The game whose launch or game is under way, or null. */
-  val playing: StateFlow<GameKey?> = currentGame.asStateFlow()
+  val playing: StateFlow<GameKey?> = current.asStateFlow()
 
-  private val titles = MutableStateFlow(emptyList<String>())
+  private val companionSession = MutableStateFlow<PlaySession?>(null)
 
-  /** The titles of the plays that aren't over, oldest first. */
-  val pending: StateFlow<List<String>> = titles.asStateFlow()
-
-  private val sendCount = MutableStateFlow(0)
-
-  /** How many saves are on their way to RomM, after a game or from the companion's Sync. */
-  val sends: StateFlow<Int> = sendCount.asStateFlow()
+  /** The game playing in another app, for the companion on the second display, or null. */
+  val companion: StateFlow<PlaySession?> = companionSession.asStateFlow()
 
   private val session = AtomicReference<CompletableDeferred<SessionEnd>?>()
 
@@ -90,36 +83,32 @@ internal class Plays(
     title: String,
     launch: suspend Play.() -> List<String>,
   ): List<String> {
-    val play = Play(game, title)
     val holder =
       synchronized(lock) {
-        (current ?: afterGame.find { it.game == game }).also {
-          if (it == null) {
-            current = play
-            publish()
-          }
+        val list = plays.value
+        (list.find { !it.gameOver } ?: list.find { it.game == game }).also {
+          if (it == null) publish(list + PendingPlay(game, title))
         }
       }
     if (holder != null) return listOf("Already playing · ${holder.title}")
-    keepAlive()
+    val play = Play(game, title)
     try {
       return play.launch()
     } finally {
-      // Once the game has started, the play ends with its after-game half.
+      // Once the game has started, the play ends after what follows it.
       if (!play.started) play.end()
     }
   }
 
-  /** Shows what's under [lock] in the flows. */
-  private fun publish() {
-    val all = afterGame + listOfNotNull(current)
-    unfinished.value = all.mapTo(LinkedHashSet()) { it.game }
-    titles.value = all.map { it.title }
-    currentGame.value = current?.game
+  /** Under [lock]: makes [list] the pending plays. */
+  private fun publish(list: List<PendingPlay>) {
+    plays.value = list
+    unfinished.value = list.mapTo(LinkedHashSet()) { it.game }
+    current.value = list.lastOrNull()?.takeUnless { it.gameOver }?.game
   }
 
   /** The play of [game], named [title], which [play] runs. */
-  inner class Play internal constructor(internal val game: GameKey, internal val title: String) {
+  inner class Play internal constructor(private val game: GameKey, private val title: String) {
     internal var started = false
 
     /**
@@ -143,25 +132,25 @@ internal class Plays(
         }
         gameOver()
         // When a write failed, the file still holds the last whole save.
-        if (save != null) send { saves.afterPlay(save, note) }
+        if (save != null) saves.afterPlay(save, note)
       }
     }
 
     /**
-     * Plays the game in [packageName], named [appName], which [launch] starts after showing the
-     * companion it's given, and returns the notes once the launcher is back in front and [save],
-     * unless null, has synced. [canQuit] offers the companion's Quit.
+     * Plays the game in [packageName], named [appName], which [launch] starts, with [companion] set
+     * for it, and returns the notes once the launcher is back in front and [save], unless null, has
+     * synced. [canQuit] offers the companion's Quit.
      */
     suspend fun standalone(
       packageName: String,
       appName: String,
       save: GameSave?,
       canQuit: Boolean,
-      launch: suspend (PlaySession) -> Boolean,
+      launch: suspend () -> Boolean,
     ): List<String> {
       val syncState = MutableStateFlow<CompanionSync>(CompanionSync.Idle)
       val quit = AtomicBoolean(false)
-      val companion =
+      companionSession.value =
         PlaySession(
           title,
           syncState.asStateFlow(),
@@ -172,9 +161,9 @@ internal class Plays(
         start = {
           var started = false
           try {
-            started = launch(companion)
+            started = launch()
           } finally {
-            if (!started) PlayCompanion.close()
+            if (!started) companionSession.value = null
           }
           started
         },
@@ -182,22 +171,22 @@ internal class Plays(
         try {
           awaitReturn()
         } finally {
-          PlayCompanion.close()
+          companionSession.value = null
         }
         if (quit.get()) {
           // The emulator may still be writing its save as it goes to the background.
-          delay(QUIT_DELAY)
+          delay(1.seconds)
           if (!closeEmulator(packageName)) note("Close failed · $appName")
         }
         gameOver()
-        if (save != null) send { saves.afterPlay(save, note) }
+        if (save != null) saves.afterPlay(save, note)
       }
     }
 
     /**
      * Runs [start], and once it has started the game, runs [game] in [scope] and returns its notes.
-     * [game] calls [gameOver] once the game is over and only its after-game half is left. A caller
-     * that stops waiting leaves the notes in the log.
+     * [game] calls [gameOver] once only what follows the game is left. A caller that stops waiting
+     * leaves the notes in the log.
      */
     private suspend fun startGame(
       start: suspend () -> Boolean,
@@ -221,24 +210,13 @@ internal class Plays(
         .await()
     }
 
-    /** Lets the next play start, while this one's after-game half goes on. */
-    private fun gameOver() {
+    /** Lets the next play start, while what follows this one's game goes on. */
+    private fun gameOver() =
       synchronized(lock) {
-        if (current !== this) return
-        current = null
-        afterGame += this
-        publish()
+        publish(plays.value.map { if (it.game == game) it.copy(gameOver = true) else it })
       }
-    }
 
-    /** Ends this play. */
-    internal fun end() {
-      synchronized(lock) {
-        if (current === this) current = null
-        afterGame -= this
-        publish()
-      }
-    }
+    internal fun end() = synchronized(lock) { publish(plays.value.filterNot { it.game == game }) }
   }
 
   /** Sends [save] for the companion's Sync, unless a send from it is under way. */
@@ -248,18 +226,8 @@ internal class Plays(
     scope.launch {
       state.value =
         CompanionSync.Done(
-          if (save == null) "Save sync unsupported · $appName" else send { saves.push(save) },
+          if (save == null) "Save sync unsupported · $appName" else saves.push(save),
         )
-    }
-  }
-
-  /** Runs [block], counted in [sends]. SaveSync sends one save at a time, in the order asked. */
-  private suspend fun <T> send(block: suspend () -> T): T {
-    sendCount.update { it + 1 }
-    try {
-      return block()
-    } finally {
-      sendCount.update { it - 1 }
     }
   }
 
@@ -270,10 +238,6 @@ internal class Plays(
   private suspend fun awaitReturn() {
     withTimeoutOrNull(10.seconds) { launcherInFront.first { !it } }
     launcherInFront.first { it }
-  }
-
-  private companion object {
-    val QUIT_DELAY = 1.seconds
   }
 }
 

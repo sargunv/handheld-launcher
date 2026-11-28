@@ -13,14 +13,14 @@ import kotlinx.coroutines.test.runTest
 class PlaysTest {
   @Test
   fun aSecondLaunchWhileOneIsUnderWayDoesntStart() = runTest {
+    val unfinished = MutableStateFlow(emptySet<GameKey>())
     val plays =
       Plays(
         backgroundScope,
         PlaySaves(MutableStateFlow(null)),
         closeEmulator = { true },
         launcherInFront = MutableStateFlow(true),
-        unfinished = MutableStateFlow(emptySet()),
-        keepAlive = {},
+        unfinished = unfinished,
       )
     val first = GameKey.Romm(1)
     val gettingCore = CompletableDeferred<Unit>()
@@ -40,11 +40,11 @@ class PlaysTest {
     assertEquals(listOf("Already playing · First"), notes)
     assertFalse(started)
     assertEquals(first, plays.playing.value)
-    assertEquals(setOf(first), plays.unfinished.value)
+    assertEquals(setOf(first), unfinished.value)
 
     gettingCore.complete(Unit)
     firstPlay.join()
     assertEquals(null, plays.playing.value)
-    assertEquals(emptySet(), plays.unfinished.value)
+    assertEquals(emptySet(), unfinished.value)
   }
 }

@@ -9,7 +9,6 @@ import androidx.core.content.FileProvider
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.domain.launch.LaunchCommand
 import dev.sargunv.handheld.domain.launch.LaunchMethod
-import dev.sargunv.handheld.launcherApps
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -22,19 +21,9 @@ import kotlinx.coroutines.withContext
  * hands over no content URIs. Some devices, such as the Thor, don't let an app run `am start`, so a
  * command it refuses goes as an intent instead.
  */
-class LaunchDispatcher(private val context: Context) {
+internal class LaunchDispatcher(private val context: Context) {
   private fun uriFor(path: String): Uri =
     FileProvider.getUriForFile(context, "${context.packageName}.launch", File(path))
-
-  /** The installed apps a game can launch in: every app with a launcher icon. */
-  fun installedPackages(): Set<String> =
-    launcherApps(context).mapTo(mutableSetOf()) { it.packageName }
-
-  /** The version name of [packageName], for recipes that depend on the installed build. */
-  fun versionName(packageName: String): String? = runCatching {
-    context.packageManager.getPackageInfo(packageName, 0).versionName
-  }
-    .getOrNull()
 
   /** Whether [command] started; the log says why it didn't. */
   suspend fun launch(command: LaunchCommand): Boolean =

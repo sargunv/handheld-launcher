@@ -5,36 +5,40 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import co.touchlab.kermit.Logger
 import dev.sargunv.handheld.data.downloads.UploadPhase
 import dev.sargunv.handheld.data.downloads.formatSize
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 /**
- * Keeps the app running while games download, a game uploads or a play is pending, so they go on in
+ * Keeps the app running while games download, a game uploads or a play isn't over, so they go on in
  * the background, and shows their progress in a notification. It stops once none is under way.
  */
 class BackgroundWorkService : Service() {
-  private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-  private val downloads by lazy { handheldApp.data.downloads }
-  private val uploads by lazy { handheldApp.data.uploads }
-  private val plays by lazy { handheldApp.plays }
+  private val scope = MainScope()
 
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onCreate() {
     super.onCreate()
+    val app = handheldApp
     val manager = getSystemService(NotificationManager::class.java)
     manager.createNotificationChannel(
       NotificationChannel(CHANNEL, "Downloads and save sync", NotificationManager.IMPORTANCE_LOW),
@@ -43,27 +47,20 @@ class BackgroundWorkService : Service() {
     @OptIn(FlowPreview::class)
     scope.launch {
       // The system limits how often an app updates a notification.
-      merge(downloads.queue, downloads.active, uploads.upload, plays.pending, plays.sends)
-        .sample(1000)
-        .collect {
-          // Read now rather than from the sample, so work that started since keeps the service.
-          if (
-            downloads.queue.value.all { it.failed } &&
-              uploads.upload.value?.isRunning != true &&
-              plays.pending.value.isEmpty()
-          ) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-          } else {
-            manager.notify(NOTIFICATION, notification())
-          }
-        }
+      app.workChanges.sample(1.seconds).collect {
+        // Read now rather than from the sample, so work that started since keeps the service.
+        if (app.hasWork) manager.notify(NOTIFICATION, notification()) else stop()
+      }
     }
   }
 
   /** Called once a data sync service has run six hours in a day, on Android 15 and later. */
   override fun onTimeout(startId: Int, fgsType: Int) {
     log.w { "Out of foreground service time; stopping" }
+    stop()
+  }
+
+  private fun stop() {
     stopForeground(STOP_FOREGROUND_REMOVE)
     stopSelf()
   }
@@ -74,21 +71,17 @@ class BackgroundWorkService : Service() {
   }
 
   private fun notification(): Notification {
-    val queue = downloads.queue.value
-    val active = downloads.active.value
+    val app = handheldApp
+    val queue = app.data.downloads.queue.value
+    val active = app.data.downloads.active.value
     val current = queue.find { it.romId == active?.romId }
-    val upload = uploads.upload.value?.takeIf { it.isRunning }
-    val play = plays.pending.value.lastOrNull()
+    val upload = app.data.uploads.upload.value?.takeIf { it.isRunning }
+    val play = app.plays.pending.value.lastOrNull()
     val builder =
       Notification.Builder(this, CHANNEL)
         .setOngoing(true)
         .setContentIntent(
-          PendingIntent.getActivity(
-            this,
-            0,
-            launcherIntent(),
-            PendingIntent.FLAG_IMMUTABLE,
-          ),
+          PendingIntent.getActivity(this, 0, launcherIntent(), PendingIntent.FLAG_IMMUTABLE),
         )
     when {
       active != null && current != null -> {
@@ -116,8 +109,8 @@ class BackgroundWorkService : Service() {
       play != null ->
         builder
           .setSmallIcon(android.R.drawable.stat_notify_sync)
-          .setContentTitle(play)
-          .setContentText(if (plays.sends.value > 0) "Syncing save" else "Playing")
+          .setContentTitle(play.title)
+          .setContentText(if (play.gameOver) "Syncing save" else "Playing")
       else ->
         builder
           .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -130,11 +123,37 @@ class BackgroundWorkService : Service() {
     private const val CHANNEL = "background"
     private const val NOTIFICATION = 1
 
-    /** Starts the service, which stops itself once nothing is downloading, uploading or pending. */
-    fun start(context: Context) {
-      context.startForegroundService(Intent(context, BackgroundWorkService::class.java))
+    /**
+     * Starts the service whenever work starts while [activity] is started, since an app in the
+     * background can't start one. The service then stops itself once nothing is under way.
+     */
+    fun follow(activity: ComponentActivity) {
+      val app = activity.handheldApp
+      activity.lifecycleScope.launch {
+        activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+          app.workChanges
+            .map { app.hasWork }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect {
+              activity.startForegroundService(Intent(activity, BackgroundWorkService::class.java))
+            }
+        }
+      }
     }
   }
 }
+
+/** Whether games are downloading, a game uploading or a play isn't over. */
+private val HandheldApp.hasWork: Boolean
+  get() =
+    data.downloads.queue.value.any { !it.failed } ||
+      data.uploads.upload.value?.isRunning == true ||
+      plays.pending.value.isNotEmpty()
+
+/** Each change to the work, the running download's progress included. */
+private val HandheldApp.workChanges: Flow<Unit>
+  get() =
+    merge(data.downloads.queue, data.downloads.active, data.uploads.upload, plays.pending).map {}
 
 private val log = Logger.withTag("BackgroundWork")
