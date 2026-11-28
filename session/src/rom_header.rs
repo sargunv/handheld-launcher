@@ -37,11 +37,93 @@ pub enum Platform {
     Switch,
 }
 
-/// One of a header's fields, in words.
+/// One of a header's fields, as the header stores it, for the app to put in
+/// words.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct HeaderField {
-    pub label: String,
-    pub value: String,
+    pub key: HeaderKey,
+    pub value: HeaderValue,
+}
+
+/// Which field a [`HeaderField`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum HeaderKey {
+    Title,
+    GameCode,
+    GameId,
+    ProductCode,
+    ProductNumber,
+    Serial,
+    DiscId,
+    TitleId,
+    Executable,
+    Maker,
+    Manufacturer,
+    Licensee,
+    Copyright,
+    Region,
+    Regions,
+    Areas,
+    Version,
+    Released,
+    Disc,
+    /// An NES ROM's header format, iNES or NES 2.0.
+    HeaderFormat,
+    Mapper,
+    Submapper,
+    PrgRom,
+    ChrRom,
+    RomSize,
+    Timing,
+    Battery,
+    Map,
+    ByteOrder,
+    System,
+    Console,
+    Cartridge,
+    /// The image's container format.
+    Format,
+    Compressed,
+    New3dsOnly,
+    Uses32x,
+    HeaderChecksum,
+    Video,
+    Category,
+    SystemSoftware,
+}
+
+/// A header field's value.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum HeaderValue {
+    /// Text from the header, or the format's name for a code it stores.
+    Text {
+        text: String,
+    },
+    /// The format's names for several codes, such as the regions a disc plays
+    /// in.
+    Names {
+        names: Vec<String>,
+    },
+    Number {
+        number: u64,
+    },
+    Size {
+        bytes: u64,
+    },
+    /// Whether a flag is set, or whether a checksum matches.
+    Flag {
+        set: bool,
+    },
+    /// A number the format writes in hex, with `digits` digits.
+    Hex {
+        number: u64,
+        digits: u8,
+    },
+    Date {
+        year: u16,
+        month: u8,
+        day: u8,
+    },
 }
 
 /// The fields of the header of the game for `platform` at `path`: a ROM or
@@ -197,228 +279,247 @@ impl<R: Read + Seek> Seek for ZipEntry<R> {
     }
 }
 
-/// Builds a header's fields, leaving out the empty ones.
+fn text(value: impl ToString) -> HeaderValue {
+    HeaderValue::Text {
+        text: value.to_string(),
+    }
+}
+
+fn number(value: impl Into<u64>) -> HeaderValue {
+    HeaderValue::Number {
+        number: value.into(),
+    }
+}
+
+fn size(bytes: u64) -> HeaderValue {
+    HeaderValue::Size { bytes }
+}
+
+fn flag(set: bool) -> HeaderValue {
+    HeaderValue::Flag { set }
+}
+
+fn hex(number: impl Into<u64>, digits: u8) -> HeaderValue {
+    HeaderValue::Hex {
+        number: number.into(),
+        digits,
+    }
+}
+
+fn names<S: ToString>(names: impl IntoIterator<Item = S>) -> HeaderValue {
+    HeaderValue::Names {
+        names: names.into_iter().map(|n| n.to_string()).collect(),
+    }
+}
+
+/// A `YYYYMMDD` date, or the text as it is when it isn't one.
+fn date(d: &str) -> HeaderValue {
+    let part = |range: std::ops::Range<usize>| d.get(range)?.parse().ok();
+    match (d.len(), part(0..4), part(4..6), part(6..8)) {
+        (8, Some(year), Some(month), Some(day)) => HeaderValue::Date {
+            year,
+            month: month as u8,
+            day: day as u8,
+        },
+        _ => text(d),
+    }
+}
+
+/// A header's fields, leaving out the empty ones.
 #[derive(Default)]
 struct Fields(Vec<HeaderField>);
 
 impl Fields {
-    fn add(&mut self, label: &str, value: impl ToString) -> &mut Self {
-        let value = value.to_string();
-        let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !value.is_empty() {
-            self.0.push(HeaderField {
-                label: label.to_owned(),
-                value,
-            });
+    fn add(&mut self, key: HeaderKey, value: HeaderValue) -> &mut Self {
+        let value = match value {
+            HeaderValue::Text { text } => HeaderValue::Text {
+                text: text.split_whitespace().collect::<Vec<_>>().join(" "),
+            },
+            value => value,
+        };
+        let empty = match &value {
+            HeaderValue::Text { text } => text.is_empty(),
+            HeaderValue::Names { names } => names.is_empty(),
+            _ => false,
+        };
+        if !empty {
+            self.0.push(HeaderField { key, value });
         }
         self
     }
 
-    fn some(&mut self, label: &str, value: Option<impl ToString>) -> &mut Self {
+    fn some(&mut self, key: HeaderKey, value: Option<HeaderValue>) -> &mut Self {
         if let Some(value) = value {
-            self.add(label, value);
+            self.add(key, value);
         }
         self
     }
-}
 
-/// A size in bytes, in KiB or MiB.
-fn size(bytes: u64) -> String {
-    if bytes >= 1 << 20 && bytes.is_multiple_of(1 << 20) {
-        format!("{} MiB", bytes >> 20)
-    } else if bytes.is_multiple_of(1024) {
-        format!("{} KiB", bytes >> 10)
-    } else {
-        format!("{bytes} bytes")
+    /// Adds a flag only when it's set.
+    fn when(&mut self, key: HeaderKey, set: bool) -> &mut Self {
+        self.some(key, set.then(|| flag(true)))
     }
 }
 
-fn valid(ok: bool) -> &'static str {
-    if ok { "Valid" } else { "Doesn't match" }
-}
-
-/// A header's fields that say which copy of the game this is, in words.
+/// A header's fields that say which copy of the game this is.
 fn describe(header: &Header) -> Vec<HeaderField> {
+    use HeaderKey::*;
     let mut f = Fields::default();
     match header {
         Header::Nes(h) => {
-            f.add("Header", h.format)
-                .add(
-                    "Mapper",
-                    match h.submapper {
-                        Some(sub) if sub != 0 => format!("{}, submapper {sub}", h.mapper),
-                        _ => h.mapper.to_string(),
-                    },
-                )
-                .add("PRG ROM", size(h.prg_rom_size));
-            if h.chr_rom_size > 0 {
-                f.add("CHR ROM", size(h.chr_rom_size));
-            }
-            f.add("Timing", h.timing);
-            if h.battery {
-                f.add("Battery", "Yes");
-            }
+            f.add(HeaderFormat, text(h.format))
+                .add(Mapper, number(h.mapper))
+                .some(Submapper, h.submapper.filter(|&s| s != 0).map(number))
+                .add(PrgRom, size(h.prg_rom_size))
+                .some(ChrRom, (h.chr_rom_size > 0).then(|| size(h.chr_rom_size)))
+                .add(Timing, text(h.timing))
+                .when(Battery, h.battery);
         }
         Header::Snes(h) => {
-            f.add("Title", &h.title);
-            if let Some(ext) = &h.extended {
-                f.add("Game code", &ext.game_code);
-            }
-            f.add("Maker", h.maker_code())
-                .add("Region", h.destination)
-                .add("Version", h.version)
-                .add("Map", h.map_mode);
+            f.add(Title, text(&h.title))
+                .some(GameCode, h.extended.as_ref().map(|e| text(&e.game_code)))
+                .add(Maker, text(h.maker_code()))
+                .add(Region, text(h.destination))
+                .add(Version, number(h.version))
+                .add(Map, text(h.map_mode));
         }
         Header::N64(h) => {
-            f.add("Title", &h.title)
-                .add("Game code", &h.game_code)
-                .add("Region", h.destination)
-                .add("Version", h.version)
-                .add("Byte order", h.byte_order);
+            f.add(Title, text(&h.title))
+                .add(GameCode, text(&h.game_code))
+                .add(Region, text(h.destination))
+                .add(Version, number(h.version))
+                .add(ByteOrder, text(h.byte_order));
         }
         Header::GameBoy(h) => {
-            f.add("Title", &h.title)
-                .some("Manufacturer", h.manufacturer_code.as_ref())
-                .add("Licensee", &h.licensee)
-                .add("Region", h.destination)
-                .add("Version", h.version)
-                .add("System", h.cgb)
-                .add("Cartridge", h.cartridge_type)
-                .add("Header checksum", valid(h.header_checksum_valid));
+            f.add(Title, text(&h.title))
+                .some(Manufacturer, h.manufacturer_code.as_ref().map(text))
+                .add(Licensee, text(&h.licensee))
+                .add(Region, text(h.destination))
+                .add(Version, number(h.version))
+                .add(System, text(h.cgb))
+                .add(Cartridge, text(h.cartridge_type))
+                .add(HeaderChecksum, flag(h.header_checksum_valid));
         }
         Header::GameBoyAdvance(h) => {
-            f.add("Title", &h.title)
-                .add("Game code", &h.game_code)
-                .add("Maker", &h.maker_code)
-                .add("Region", h.destination)
-                .add("Version", h.version)
-                .add("Header checksum", valid(h.complement_check_valid));
+            f.add(Title, text(&h.title))
+                .add(GameCode, text(&h.game_code))
+                .add(Maker, text(&h.maker_code))
+                .add(Region, text(h.destination))
+                .add(Version, number(h.version))
+                .add(HeaderChecksum, flag(h.complement_check_valid));
         }
         Header::NintendoDs(h) => {
-            f.add("Title", &h.title)
-                .add("Game code", &h.game_code)
-                .add("Maker", &h.maker_code)
-                .add("Region", h.destination)
-                .add("Version", h.version)
-                .add("System", h.unit_code)
-                .add("Header checksum", valid(h.header_crc_valid));
+            f.add(Title, text(&h.title))
+                .add(GameCode, text(&h.game_code))
+                .add(Maker, text(&h.maker_code))
+                .add(Region, text(h.destination))
+                .add(Version, number(h.version))
+                .add(System, text(h.unit_code))
+                .add(HeaderChecksum, flag(h.header_crc_valid));
         }
         Header::Nintendo3ds(h) => {
-            f.add("Product code", &h.product_code)
-                .add("Title ID", format!("{:016X}", h.program_id))
-                .add("Maker", &h.maker_code)
-                .some("Region", h.region);
-            if h.new_3ds_only {
-                f.add("System", "New 3DS only");
-            }
-            let compressed = if h.compressed { ", compressed" } else { "" };
-            f.add("Format", format!("{}{compressed}", h.container));
+            f.add(ProductCode, text(&h.product_code))
+                .add(TitleId, hex(h.program_id, 16))
+                .add(Maker, text(&h.maker_code))
+                .some(Region, h.region.map(text))
+                .when(New3dsOnly, h.new_3ds_only)
+                .add(Format, text(h.container))
+                .when(Compressed, h.compressed);
         }
         Header::GameCube(h) => {
-            f.add("Title", &h.title)
-                .add("Game ID", &h.game_id)
-                .add("Region", h.region_code)
-                .add("Version", h.version)
-                .add("Disc", h.disc_number + 1)
-                .add("Console", h.console)
-                .add("Format", h.container);
+            f.add(Title, text(&h.title))
+                .add(GameId, text(&h.game_id))
+                .add(Region, text(h.region_code))
+                .add(Version, number(h.version))
+                .add(Disc, number(h.disc_number + 1))
+                .add(Console, text(h.console))
+                .add(Format, text(h.container));
         }
         Header::MasterSystem(h) => {
-            f.add("Product code", &h.product_code)
-                .add("Region", h.region)
-                .add("Version", h.version)
-                .some("ROM", h.rom_size.map(size));
+            f.add(ProductCode, text(&h.product_code))
+                .add(Region, text(h.region))
+                .add(Version, number(h.version))
+                .some(RomSize, h.rom_size.map(size));
         }
         Header::MegaDrive(c) => {
-            sega_header(&mut f, &c.header);
-            if c.is_32x {
-                f.add("System", "32X");
-            }
-            if c.format == rom_headers::mega_drive::Format::Smd {
-                f.add("Format", c.format);
-            }
+            sega_header(&mut f, &c.header).when(Uses32x, c.is_32x).some(
+                Format,
+                (c.format == rom_headers::mega_drive::Format::Smd).then(|| text(c.format)),
+            );
         }
         Header::MegaCd(d) => {
             sega_header(&mut f, &d.header);
         }
         Header::Saturn(h) => {
-            let areas = area_names(&h.areas, rom_headers::saturn::area_name);
-            f.add("Title", &h.title)
-                .add("Product number", &h.product_number)
-                .add("Version", &h.version)
-                .add("Released", date(&h.release_date))
-                .add("Areas", areas)
-                .add("Disc", &h.device_info);
+            f.add(Title, text(&h.title))
+                .add(ProductNumber, text(&h.product_number))
+                .add(Version, text(&h.version))
+                .add(Released, date(&h.release_date))
+                .add(Areas, area_names(&h.areas, rom_headers::saturn::area_name))
+                .add(Disc, text(&h.device_info));
         }
         Header::Dreamcast(h) => {
-            let areas = area_names(&h.areas, rom_headers::dreamcast::area_name);
-            f.add("Title", &h.title)
-                .add("Product number", &h.product_number)
-                .add("Version", &h.version)
-                .add("Released", date(&h.release_date))
-                .add("Areas", areas)
-                .add("Disc", &h.device_info);
+            f.add(Title, text(&h.title))
+                .add(ProductNumber, text(&h.product_number))
+                .add(Version, text(&h.version))
+                .add(Released, date(&h.release_date))
+                .add(
+                    Areas,
+                    area_names(&h.areas, rom_headers::dreamcast::area_name),
+                )
+                .add(Disc, text(&h.device_info));
         }
         Header::SystemCnf(cnf) => {
             match cnf.serial() {
-                Some(serial) => f.add("Serial", serial),
-                None => f.add("Executable", &cnf.executable),
+                Some(serial) => f.add(Serial, text(serial)),
+                None => f.add(Executable, text(&cnf.executable)),
             }
-            .some("Version", cnf.version.as_ref())
-            .some("Video", cnf.video_mode.as_ref());
+            .some(Version, cnf.version.as_ref().map(text))
+            .some(Video, cnf.video_mode.as_ref().map(text));
         }
         Header::ParamSfo(sfo) => {
-            f.some("Title", sfo.title())
-                .some("Disc ID", sfo.disc_id())
-                .some("Version", sfo.disc_version().or(sfo.app_version()))
-                .some("Category", sfo.category())
-                .some("System software", sfo.system_version());
+            f.some(Title, sfo.title().map(text))
+                .some(DiscId, sfo.disc_id().map(text))
+                .some(Version, sfo.disc_version().or(sfo.app_version()).map(text))
+                .some(Category, sfo.category().map(text))
+                .some(SystemSoftware, sfo.system_version().map(text));
         }
         Header::Xbox(c) => {
-            f.add("Title", &c.title)
-                .add("Title ID", format!("{:08X}", c.title_id))
-                .add("Product code", c.product_code())
-                .add("Regions", c.region_names().join(", "))
-                .add("Version", c.version)
-                .add("Disc", c.disc_number + 1);
+            f.add(Title, text(&c.title))
+                .add(TitleId, hex(c.title_id, 8))
+                .add(ProductCode, text(c.product_code()))
+                .add(Regions, names(c.region_names()))
+                .add(Version, number(c.version))
+                .add(Disc, number(c.disc_number + 1));
         }
         Header::Switch(h) => {
-            f.add("Title ID", format!("{:016X}", h.title_id));
+            f.add(TitleId, hex(h.title_id, 16));
         }
     }
     f.0
 }
 
 /// The fields Mega Drive cartridges and Mega CD discs share.
-fn sega_header(f: &mut Fields, h: &rom_headers::mega_drive::Header) {
+fn sega_header<'f>(f: &'f mut Fields, h: &rom_headers::mega_drive::Header) -> &'f mut Fields {
     let title = if h.overseas_title.is_empty() {
         &h.domestic_title
     } else {
         &h.overseas_title
     };
-    f.add("Title", title)
-        .add("Serial", &h.serial_number)
-        .add("Regions", h.regions)
-        .add("Copyright", &h.copyright);
+    f.add(HeaderKey::Title, text(title))
+        .add(HeaderKey::Serial, text(&h.serial_number))
+        .add(HeaderKey::Regions, names(h.regions.names()))
+        .add(HeaderKey::Copyright, text(&h.copyright))
 }
 
 /// The names of a disc's area symbols, or the symbols as they are when one
 /// has no name.
-fn area_names(areas: &str, name: fn(char) -> Option<&'static str>) -> String {
-    areas
-        .chars()
-        .map(|c| name(c).map_or_else(|| c.to_string(), str::to_owned))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// A `YYYYMMDD` date as `YYYY-MM-DD`, or as it is when it isn't one.
-fn date(d: &str) -> String {
-    if d.len() == 8 && d.bytes().all(|c| c.is_ascii_digit()) {
-        format!("{}-{}-{}", &d[..4], &d[4..6], &d[6..])
-    } else {
-        d.to_owned()
-    }
+fn area_names(areas: &str, name: fn(char) -> Option<&'static str>) -> HeaderValue {
+    names(
+        areas
+            .chars()
+            .map(|c| name(c).map_or_else(|| c.to_string(), str::to_owned)),
+    )
 }
 
 #[cfg(test)]
@@ -426,13 +527,6 @@ mod tests {
     use std::io::Write;
 
     use super::*;
-
-    fn fields(fields: &[HeaderField]) -> Vec<(&str, &str)> {
-        fields
-            .iter()
-            .map(|f| (f.label.as_str(), f.value.as_str()))
-            .collect()
-    }
 
     fn gba() -> Vec<u8> {
         let mut rom = vec![0u8; 0x200];
@@ -452,17 +546,18 @@ mod tests {
         let rom = dir.path().join("game.gba");
         std::fs::write(&rom, gba()).unwrap();
         let want = [
-            ("Title", "POKEMON EMER"),
-            ("Game code", "BPEE"),
-            ("Maker", "01"),
-            ("Region", "USA"),
-            ("Version", "0"),
-            ("Header checksum", "Valid"),
-        ];
+            (HeaderKey::Title, text("POKEMON EMER")),
+            (HeaderKey::GameCode, text("BPEE")),
+            (HeaderKey::Maker, text("01")),
+            (HeaderKey::Region, text("USA")),
+            (HeaderKey::Version, number(0u8)),
+            (HeaderKey::HeaderChecksum, flag(true)),
+        ]
+        .map(|(key, value)| HeaderField { key, value });
         let read = |path: &Path| {
             rom_header_fields(Platform::GameBoyAdvance, path.to_str().unwrap().to_owned())
         };
-        assert_eq!(fields(&read(&rom)), want);
+        assert_eq!(read(&rom), want);
 
         let zipped = dir.path().join("game.zip");
         let mut zip = zip::ZipWriter::new(File::create(&zipped).unwrap());
@@ -475,7 +570,7 @@ mod tests {
         zip.start_file("game.gba", options).unwrap();
         zip.write_all(&gba()).unwrap();
         zip.finish().unwrap();
-        assert_eq!(fields(&read(&zipped)), want);
+        assert_eq!(read(&zipped), want);
 
         assert!(read(&dir.path().join("missing.gba")).is_empty());
         assert!(
@@ -507,21 +602,5 @@ mod tests {
             Some("GZLE")
         );
         assert_eq!(id(Platform::GameBoyAdvance, "game.gba", &gba()), None);
-    }
-
-    #[test]
-    fn describes_a_playstation_2_disc() {
-        let cnf = rom_headers::playstation::parse(
-            b"BOOT2 = cdrom0:\\SCUS_971.24;1\r\nVER = 1.00\r\nVMODE = NTSC\r\n",
-        )
-        .unwrap();
-        assert_eq!(
-            fields(&describe(&Header::SystemCnf(cnf))),
-            [
-                ("Serial", "SCUS-97124"),
-                ("Version", "1.00"),
-                ("Video", "NTSC")
-            ]
-        );
     }
 }

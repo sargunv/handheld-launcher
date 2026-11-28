@@ -215,7 +215,7 @@ private fun ThisCopy(header: List<RomHeaderField>) {
       fontWeight = FontWeight.SemiBold,
       modifier = Modifier.semantics { heading() },
     )
-    Text(header.joinToString(" · ") { "${it.label} ${it.value}" }, color = Placeholder.mutedText)
+    Text(header.joinToString(" · ") { it.text() }, color = Placeholder.mutedText)
   }
 }
 

@@ -359,11 +359,14 @@ class GameTest {
     val read = mutableListOf<String>()
     val headers = RomHeaders { _, path ->
       read += path
-      listOf(RomHeaderField("Title", "TIC-TAC-TOE"), RomHeaderField("Region", "Japan"))
+      listOf(
+        RomHeaderField(RomHeaderField.Key.TITLE, RomHeaderField.Value.Text("TIC-TAC-TOE")),
+        RomHeaderField(RomHeaderField.Key.ROM_SIZE, RomHeaderField.Value.Size(32768)),
+      )
     }
     openGame(FakeLauncher(), romHeaders = headers)
     awaitText("This copy")
-    onNodeWithText("Title TIC-TAC-TOE · Region Japan").assertExists()
+    onNodeWithText("Title TIC-TAC-TOE · ROM 32 KiB").assertExists()
     assertEquals(listOf(gameFile.path), read.distinct())
   }
 

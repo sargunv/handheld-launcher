@@ -73,17 +73,23 @@ impl Regions {
     }
 }
 
-impl core::fmt::Display for Regions {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let names: Vec<&str> = [
+impl Regions {
+    /// The names of the regions the game plays in.
+    pub fn names(&self) -> Vec<&'static str> {
+        [
             (self.japan, "Japan"),
             (self.americas, "Americas"),
             (self.europe, "Europe"),
         ]
         .into_iter()
         .filter_map(|(on, name)| on.then_some(name))
-        .collect();
-        f.write_str(&names.join(", "))
+        .collect()
+    }
+}
+
+impl core::fmt::Display for Regions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.names().join(", "))
     }
 }
 
